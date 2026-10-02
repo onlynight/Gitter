@@ -258,6 +258,7 @@ public sealed partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 0, 14, 0),
+            Tag = "icon",
         };
         Grid.SetColumn(icon, 0);
         row.Children.Add(icon);
@@ -342,10 +343,27 @@ public sealed partial class MainWindow : Window
         button.Background = isSelected ? SelectedBrush : isActive ? HoverBrush : ClearBrush;
         button.Opacity = isSelected ? 1.0 : isActive ? 1.0 : 0.8;
 
-        // 折叠时隐藏标签文字
-        if (button.Content is Grid row && row.Children.Count >= 2 && row.Children[1] is TextBlock label)
+        // 折叠时：隐藏标签，图标居中；展开时：图标靠左 + 标签靠右
+        if (button.Content is Grid row && row.ColumnDefinitions.Count >= 2
+            && row.Children.Count >= 2
+            && row.Children[0] is FontIcon icon
+            && row.Children[1] is TextBlock label)
         {
-            label.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
+            if (_collapsed)
+            {
+                label.Visibility = Visibility.Collapsed;
+                // 折叠时让第一列自动宽度并居中，去掉右边距
+                row.ColumnDefinitions[0].Width = GridLength.Auto;
+                icon.HorizontalAlignment = HorizontalAlignment.Center;
+                icon.Margin = new Thickness(0);
+            }
+            else
+            {
+                label.Visibility = Visibility.Visible;
+                row.ColumnDefinitions[0].Width = new GridLength(22);
+                icon.HorizontalAlignment = HorizontalAlignment.Center;
+                icon.Margin = new Thickness(0, 0, 14, 0);
+            }
         }
     }
 }
