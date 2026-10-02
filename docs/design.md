@@ -1,8 +1,8 @@
 # Git UI 工具设计方案（WinUI 3 / .NET）
 
-> 状态：定稿 v1.0
+> 状态：定稿 v1.2（2026-10-02 增补 S0b/S0c/S0d 实施记录）
 > 日期：2026-10-02
-> S0 已实现（2026-10-02），验证详见 §11
+> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10
 
 ## 十一、S0 实施记录与踩坑总结
 
@@ -72,11 +72,85 @@ var btn = new Button { Padding = new Thickness(12), ... };
 
 - Git 仓库读取与 Log 视图（S1 + S4）
 - Diff 引擎与 DiffCanvas（S2 + S3）
+- Git Bash 面板收尾（S2b TerminalParser + S3b TerminalCanvas 渲染 + S0e 与工作区联动）；S0b/S0c/S0d 已完成，见 §11.10
 - Changes 三层列表与提交对话框（S5）
 - Branches 分支树与操作（S6）
 - 命令面板、快捷键、无障碍、多窗口（S7）
 - 高 DPI 最小尺寸限制（S4，需重新调研 WndProc 挂钩时机）
 - MSIX 打包（S7，v1 目标自包含 exe 单目录）
+
+---
+
+
+### 11.8 S0 交付补记
+
+- 交付：`GitUI.App` 空壳（Mica + 四页签 + 折叠 sidebar）+ `GitUI.Core/Settings` + 10 用例。
+- 验证：`dotnet build` 零警告；`dotnet test` 全绿；UI 冒烟 `verify.ps1` 通过。
+- 踩坑细节见上文 11.1–11.5。
+
+### 11.9 S1 实施记录（2026-10-02）
+
+- 交付：
+  - `GitUI.Core/Models`：`CommitNode` / `DiffHunk` / `DiffResult` / `TreeEntry` / `BranchRef` / `WorktreeFileStatus` / `StatusCategory` / `LogPage` / `LogFilter`（不可变）。
+  - `GitUI.Core/Services`：`IRepositoryService`（全方法收路径字符串、内部开合句柄）。
+  - `GitUI.Git`：`LibGit2RepositoryService` / `GitWorker`（BlockingCollection 单 worker，请求纯数据化） / `LineDiff`（S1 临时 LCS 行级 diff，S2 换 DiffPkg）/ `GitFixtureBuilder`（git CLI，隔离 HOME + 确定性时间戳）/ `RandomizedFixtureGenerator`（20 拓扑）。
+  - `tests/GitUI.Git.Tests`：113 用例（见下表）。
+- 验证：`scripts/verify-s1.ps1` 一键：构建零警告 → 全部测试绿 → 20 拓扑参数化 → 性能基准。
+- 测试矩阵：
+  | 类 | 用例 | 内容 |
+  |---|---|---|
+  | GitFixtureBuilderTests | 7 | builder 行为 |
+  | LogTests | 21 | 分页/过滤/父子/merge 识别/边界 |
+  | StatusTests | 12 | 三层分类（Changes/Staged/Unversioned） |
+  | BranchAndTreeTests | 12 | 分支 isHead / 树遍历 / diff 统计 |
+  | DiffHunkParsingTests | 8 | 纯增/纯删/中改/空输入 |
+  | WorkerConcurrencyTests | 8 | 100 并发无死锁 / 异常传播 / Dispose 拒收 / 超时 |
+  | TopologyParameterizedTests | 40 | 20 拓扑 × 2（log 回环 + status 干净） |
+  | PerformanceTests | 5 | 10 提交基线 + 10k 基准 |
+- 性能基准（本机实测，Debug 构建）：
+  - `GetLog`（10 提交）：首次 26ms / 稳态 **5ms**
+  - `GetLog(10k 提交, limit=50)`：首次 178ms / 稳态 **134ms**（阈值 500ms）
+  - `GetBranches(10k)`：**21ms**；`GetStatus(10k 干净)`：**33ms**
+  - fixture：`git fast-import` 单进程灌 10k 提交仅 ~450ms（对比逐条 CLI 需 ~25 分钟）
+- 关键实现决策：
+  1. **GetLog 两段式**：先轻量收集 `(CommitterDate, AuthorDate, Sha, Commit)` 元组（不物化 CommitNode），显式排序后只对 `Skip..Skip+Limit` 窗口做 ToCommitNode。TotalCount 由完整遍历免费得到。
+  2. **branch/tag 映射预计算**：每页一次构建 `SHA → 分支名/标签名` 字典。原实现每个提交全量扫 `repo.Branches`（O(提交数×分支数)），10k 仓库下单次 GetLog 超过 500ms；预计算后降到 ~160ms。
+  3. **StatusEntry.State 按位检查**：libgit2sharp 把 index 侧和 workdir 侧状态 OR 在同一字段（如 `ModifiedInIndex, ModifiedInWorkdir`），`is` 模式匹配会漏掉组合态；同一文件可同时产生 Staged + Changes 两条记录（IDEA 双层列表语义）。纯 untracked 只归 Unversioned，不重复进 Changes。
+  4. **IsHead 用 `repo.Head.FriendlyName` 判定**：tip SHA 相等会把"刚创建还没 checkout"的同 SHA 分支误标为 HEAD。
+- libgit2sharp 0.32.0 API 踩坑（与常见教程差异极大，全部实测确认）：
+  1. `Repository.Init(path, isBare)` 返回 `string`（git 目录路径），不是 `Repository`；需再 `new Repository(gitDir)`。
+  2. 无 `Repository.WorkingDirectory`，用 `repo.Info.WorkingDirectory`（带尾 `/`）；无 `repo.Status()`，用 `repo.RetrieveStatus(StatusOptions)`。
+  3. `new Signature(name, email)` 不存在 —— `Signature` 构造器强制 `DateTimeOffset`。不存在的成员会被解析成类型表达式，报错信息完全误导。
+  4. `RepositoryStatus` 迭代元素是 `StatusEntry`；`Tree` 无 `DirectoryEntry`，取子树用索引器 + `entry.Target as Tree` 逐级下降；`WalkTree` 拼路径要用 `entry.Name`（`entry.Path` 在子树里仍是裸名）。
+  5. `TreeEntry.Mode` 是 `LibGit2Sharp.Mode` 枚举（ExecutableFile=33261 等），Core 模型用十进制常量（C# 无八进制字面量）。
+  6. `FileStatus` 组合态必须按位 `&` 检查（见上 3）。
+- GitFixtureBuilder 要点：
+  1. `git init` 必须先于任何 `git config`（否则 "not in a git directory"）。
+  2. 提交信息含空格：逐参数引号转义后拼接（`Escape()`），`-m` 拆词 / `-F -` 依赖 stdin 都有坑。
+  3. 确定性时间戳用 `GIT_AUTHOR_DATE` / `GIT_COMMITTER_DATE` 环境变量（`-c author.date=x` 无效）。
+  4. 同秒提交排序不稳 → GetLog 显式 `OrderByDescending(CommitterDate).ThenBy(AuthorDate).ThenBy(Sha)`。
+  5. cherry-pick 测试要选"目标分支没有的提交"，避开 "already applied" / "now empty"。
+
+### 11.10 S0b/S0c/S0d 实施记录（2026-10-02）
+
+**交付**：
+
+- `GitUI.Core/Settings`：`AppSettings` 新增 6 个终端字段（`ConsolePaneCollapsed` / `ConsolePaneWidth` / `BashPath` / `TerminalFontFamily` / `TerminalFontSize` / `TerminalFollowRepo`），`Normalize` 补宽度 [360,960]、字号 [8,32] 的 NaN/Infinity 兜底与空串归 null。
+- `GitUI.App/MainWindow`：根 Grid 2 列改 3 列（Sidebar / Main / ConsolePane），`_titleBarStrip` ColumnSpan 2→3；ConsolePane 外壳（工具条 32px + stub 输出 + 输入行 + 状态条 20px）；自绘拖拽手柄（clamp [360,960]）；折叠三处联动（Border.Width / `_consoleColumn.Width` / `_splitter.Visibility`）；`Ctrl+J` 折叠面板、`Ctrl+Shift+J` 切换跟随仓库，均持久化；工具条 ⋯ 菜单（重开 shell / 打开 .bashrc / 跟随仓库开关 / 复制输出）。
+- `GitUI.Shell`（新项目，不引用 libgit2sharp，由 `DependencyCheckTests` 自动验证）：`ITerminalSession` / `BashLocator`（三级回退，PATH 扫描等价 `where bash.exe`，引号/空格/权限异常全处理）/ `ConptyNative`（15 个 P/Invoke + 句柄计数器 `LiveHandleCount`）/ `ConptySession` / `FakeTerminalSession`。
+- `tests/GitUI.Core.Tests/TerminalSettingsTests`（10 用例）+ `tests/GitUI.Shell.Tests`（28 用例，其中 ConPTY 集成 10 条覆盖 echo/pwd/ls/git status/less/exit/kill -9/resize/stdin/生命周期）。
+
+**验证**：`dotnet build` 全解决方案零警告零错误；`dotnet test` 205 用例全绿；App 启动 22 秒稳定响应。
+
+**踩坑**：
+
+1. **`STARTUPINFOEX.lpAttributeList` 必须显式赋值**（关键坑）：`AllocateProcThreadAttributeList` + `UpdatePseudoConsoleAttribute` 之后若忘了 `si.lpAttributeList = _attributeList`，`CreateProcessW` 照样成功——子进程静默继承父进程控制台（输出直接打到宿主终端）、ConPTY 管道永远无输出，表现为集成测试无限挂起。无任何报错指向真相，只能靠最小对照复现定位。
+2. **`DllImport` 方法改名必须同步 `EntryPoint`**：内部包装方法带 `Native` 后缀时，P/Invoke 默认按方法名找导出，运行期 `EntryPointNotFoundException`（`CreatePipeNative` 不在 kernel32 里）。
+3. **`AutomationProperties.Name` 是附加属性**：不能进对象初始化器（CS0747），用 `AutomationProperties.SetName(btn, name)`。本 SDK 投影亦无 `Window.ProtectedCursor`，splitter 用 hover 背景提示替代光标形状。
+4. **lambda 不能捕获 out 参数**（CS1628）：`BuildConsoleMenu(out var item)` 内部的 Click lambda 引用 `item` 报错，改成元组返回后解构。
+5. **本机 ConPTY 环境损坏的识别与兜底**：本机（RDP 会话）conhost 伪终端客户端初始化整体失败——子进程秒退 `0xC0000142`、无任何输出，微软官方 ConPTY 参考实现在独立计划任务上下文中同样失败，cmd.exe 与 bash.exe 无差别；伪控制台 conhost 进程本身能启动。这不属于应用层可修复。已把集成测试改为"预检 + 软跳过"：每程序集先用 `bash -c echo` 探测 8 秒，预检跑在专用后台线程并受 15 秒看门狗保护（坏环境下 `ClosePseudoConsole` 也可能挂起，超时后放弃线程），环境不可用时输出诊断并跳过全部会话类用例，正常桌面会话中完整运行。
+
+**S0d 剩余验证**（预检跳过的 10 条集成用例，需在 conhost 正常的桌面会话执行 `dotnet test tests/GitUI.Shell.Tests`）：echo / pwd / ls / git status / less / exit / kill -9 句柄归零 / resize 列宽回读 / stdin 写入 / 双 Start 拒绝。
 
 ---
 
@@ -141,6 +215,7 @@ var btn = new Button { Padding = new Thickness(12), ... };
 | Git 操作 | **libgit2sharp（主）+ git CLI（兜底）** | 无子进程开销、纯内存操作、支持 blob/tree/commit 直接读取，大 log 查询快；merge/rebase/cherry-pick 等 libgit2 支持薄弱场景走 CLI |
 | Diff 引擎 | Myers + `DiffPkg`（Microsoft 内部 diff 库，GitHub/VSCode 同款） | 与 VSCode 的 diff 算法一致，性能优秀 |
 | Diff 渲染 | **自绘 `DiffCanvas`（`DrawingContext`）** | 完全控制行对齐、字级高亮、滚动性能；这是与竞品的核心体验差异点 |
+| 终端 | **ConPTY + 自绘 `TerminalCanvas`（方案 A，见 §4.7）** | 与 DiffCanvas 同族的自绘渲染策略，主题一致、可编程解析；代价是与 DiffCanvas 同级的技术风险 |
 | 状态管理 | 仓库级 `RepositorySession` + 全局 `Settings` | 见 §5 数据流 |
 | 发布 | **自包含 exe，单目录**（self-contained） | 无沙箱限制，可直接读写任意路径与系统 git 凭据 |
 
@@ -158,10 +233,11 @@ UI 线程 (DispatcherQueue)
 ### 3.3 分层
 
 ```
-┌─ UI Layer：XAML Pages + Controls（LogPage, DiffView, BranchesPage...）
+┌─ UI Layer：XAML Pages + Controls（LogPage, DiffView, BranchesPage, TerminalCanvas, ConsolePane...）
 ├─ ViewModel：LogViewModel, ChangesViewModel, CommitViewModel（可测试，无 UI 依赖）
 ├─ Domain：GitModel（CommitNode, DiffHunk, TreeEntry, BranchRef）── 不可变记录类型
 ├─ RepositoryService：把 GitModel 映射到 libgit2sharp 调用
+├─ Shell：ConptySession + TerminalParser + BashLocator（ConPTY P/Invoke 与终端状态机，见 §4.7）
 └─ Infrastructure：SettingsStore, EditorLauncher, EncodingSniffer, LargeFileFilter
 ```
 
@@ -172,22 +248,22 @@ UI 线程 (DispatcherQueue)
 ### 4.1 窗口主布局
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ TitleBar: [仓库名·分支▾] 搜索框(⌘K)        ⋯             │
-├────────────┬─────────────────────────────────────────────┤
-│ NavView    │  主内容区（按页签切换）                       │
-│ ┌────────┐ │ ┌─ Log / Changes / Branches / Settings ────┐│
-│ │ Log    │ │ │                                           ││
-│ │ 变更   │ │ │                                           ││
-│ │ 分支   │ │ │                                           ││
-│ │ ⋯设置  │ │ │                                           ││
-│ └────────┘ │ └───────────────────────────────────────────┘│
-├────────────┴─────────────────────────────────────────────┤
-│ 状态栏: main* (+3 -12) │ 2 uncommitted │ ⌘K │ git 版本    │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ TitleBar: [仓库名·分支▾] 搜索框(⌘K)                      [⋯]        │
+├────────┬──────────────────────────────┬──────────────────────────────┤
+│ NavView│  主内容区（按页签切换）       │  Git Bash 面板（可折叠/拖宽）│
+│ ┌─────┐│ ┌─ Log / Changes / ────────┐ │ ┌─ ▣ Git Bash  [⧉ ⤢ ⋯] ──┐│
+│ │ Log ││ │                           │ │ │ $ git status             ││
+│ │ 变更││ │   Log / Diff 视图         │ │ │ On branch main           ││
+│ │ 分支││ │                           │ │ │ Changes to be committed: ││
+│ │ 设置││ │                           │ │ │ ...                      ││
+│ │ ⋯   ││ │                           │ │ │ $ █                      ││
+│ └─────┘│ └───────────────────────────┘ │ └──────────────────────────┘│
+└────────┴──────────────────────────────┴──────────────────────────────┘
 ```
 
 - **可停靠多面板**：主区支持左右分屏（左 Log / 右 Diff），实现方式为自定义 `Grid` + 拖拽 `GridSplitter`，v1 不做完整 DockingManager。
+- **Git Bash 面板**：位于最右侧，可折叠为 0 宽或拖拽宽度；v1 用**自绘 PTY + 自绘终端渲染**（方案 A），是核心能力之一，见 §4.7。
 - 所有窗口支持 Win11 的 Mica 背景与自定义 title bar，实现细节见 §4.1.1。
 
 ### 4.1.1 窗口背景与标题栏（WinUI 3 Mica 实现）
@@ -374,6 +450,252 @@ Unversioned (未跟踪)       [⊕] [⚙ 加入.gitignore]
 - 支持参数化命令（`git commit (with message)…`）
 - 实现：自定义 `AutoSuggestBox` + 命令注册表（`[Command("git.commit")]` 属性标记）
 
+### 4.7 Git Bash 面板（自绘 PTY 终端，v1 核心能力）
+
+**定位**：右侧一栏常驻终端，用户可边写命令边看 diff，覆盖所有 GUI 未直接支持的 git 操作（`git blame`、`git reflog`、交互式 rebase、`git config` 等）与用户自己的 shell 脚本。
+
+#### 4.7.1 方案选型（关键决策）
+
+三种实现路径的取舍：
+
+| 方案 | 形态 | 代码量 | 是否完整 bash | v1 结论 |
+|---|---|---|---|---|
+| **A. 自绘 PTY** | ConPTY 取字节流 + 自绘 `TerminalCanvas` 渲染 | 800–1500 行 | ✅ | ✅ **采用** |
+| B. 命令执行面板 | 输入框 + 输出区，仅 git 命令 | 150–300 行 | ❌ | 降级兜底（§九 回退点） |
+| C. 外部 ConHost 窗口 | ConPTY + `SetParent` 挂 conhost.exe | 300–500 行 | ✅ | 备选，v1 不做 |
+
+**采用 A 的理由**：
+1. **主题一致**：自绘可完全跟随 Mica 与设置里的主题色（字体、字号、ANSI 色板），C 会让 conhost 的白/黑窗口色与主界面割裂；
+2. **可编程**：能拦截输出做结构化解析（`git status` 输出 → `IndexState` 回写），B/C 拿不到；
+3. **交互可扩展**：未来可加"命令历史搜索"、"命令块折叠"、"选中行发送到 Changes 页暂存"，A 是这些能力的唯一底座。
+
+**代价**：A 需要自建 PTY 集成 + 终端状态机解析器 + 自绘渲染器，与 DiffCanvas（§4.4）同级技术风险，是**项目第 2 大技术风险点**，独立列为 §S3b 阶段（§八）。
+
+#### 4.7.2 承载位置与交互
+
+**位置**：`MainWindow` 根 `Grid` 的最右侧列，与 sidebar 对称：
+
+```
+Grid  3 列 × 2 行
+ Row0 = TitleBar (48)        跨 3 列
+ Row1 = Content    *
+   Col0 = Sidebar         (Auto，由 Border.Width 控制：200 / 72)
+   Col1 = Main            (1, Star)
+   Col2 = ConsolePane     (Auto，由 Border.Width 控制：480 / 0)
+```
+
+- `ConsolePane` 用固定 `Width` 的 `Border` 包裹，与 `_sidebarBorder` 完全对称，参见 [MainWindow.xaml.cs:104-118](D:/Code/Gitter/src/GitUI.App/MainWindow.xaml.cs#L104)；
+- `GridSplitter` 位于 `Col2` 左边缘（`HorizontalAlignment=Left`），拖拽范围 `[360, 960]` px；折叠态时 `ConsolePane.Width = 0` **且** `_consoleColumn.Width = 0` **且** `_splitter.Visibility = Collapsed`，三处必须一起改（避坑同源 §11.3）；
+- `_titleBarStrip` 的 `ColumnSpan` 从 2 改为 3，否则标题栏右侧露出背景；
+- 面板从 Row1 顶部开始，占满行高，不响应标题栏拖拽热区。
+
+**工具条**（32px 高）：
+
+```
+┌──────────────────────────────────┐
+│ ▣ Git Bash                ⧉ ⤢ ⋯ │
+└──────────────────────────────────┘
+```
+
+| 按钮 | 图标 | 行为 |
+|---|---|---|
+| `⧉` 清空 | `FontIcon` | 发送 `\x1b[3J\x1b[K\x1b[3d`（清屏 + 清 scrollback + 光标归位），**不杀进程** |
+| `⤢` 折叠 | `FontIcon` | 切换 `ConsolePaneCollapsed`，宽度 ↔ 0；快捷键 `Ctrl+J` |
+| `⋯` 更多 | `MenuFlyout` | 重开 shell / 用默认编辑器打开 `.bashrc` / 切换工作目录 / 复制输出 |
+
+**状态条**（20px 高，底部）：
+
+```
+git 2.47.1   bash 5.2   bash@128×30   main*   ✓ Running
+```
+
+显示 git 版本、bash 版本、当前 PTY 字符尺寸、当前仓库分支、会话状态。
+
+**快捷键**：
+
+| 快捷键 | 行为 |
+|---|---|
+| `Ctrl+J` | 切换面板显示/隐藏（VSCode 语义） |
+| `Alt+Enter` | 面板最大化（Col2 占 100%） |
+| `Ctrl+Shift+J` | 切换"跟随仓库工作目录"模式 |
+| `Ctrl+Shift+C` | 复制输出区选中文本 |
+| `Ctrl+Shift+V` | 粘贴到输入行 |
+
+#### 4.7.3 自绘终端渲染器
+
+新增 `TerminalCanvas` 控件（`Grid` + `DrawingContext`，与 `DiffCanvas` 同族），负责把 PTY 字节流渲染为可视字符。
+
+**状态机**：解析 ConPTY 输出的 ANSI/VT 序列，维护一张 `TerminalBuffer`（`columns × rows` 的字符网格 + 光标位置 + 属性栈）：
+
+| 状态 | 处理的序列 | 结果 |
+|---|---|---|
+| Ground | 可打印字节 | 写入 buffer[cursor]，前进光标 |
+| Ground | `\n` `\r` `\b` `\t` `\x07` `\x0e` `\x0f` | 控制字符处理（`\t` 跳到下一个 8 列对齐） |
+| Esc | `[` `]` `(` `)` `7` `8` `=` `>` `M` `D` `E` `c` | 进入对应子状态 |
+| CSI | `A` `B` `C` `D` `E` `F` `G` `H` `J` `K` `m` `r` `s` `u` | 光标移动、清屏、SGR 属性、保存/恢复光标 |
+| OSC | `\a` `\x1b\\` | 标题、超链接（v1 仅解析 `\x1b]0;...\x07` 设置标题） |
+
+**渲染**：
+
+- 只在可视区域 + 上下 overscan 20 行的区间绘制；
+- 行高 = `fontSize * 1.2`，字符宽 = 固定 `fontSize * 0.6`（等宽字体）；
+- 字号默认 13，字体 `Cascadia Mono` / `Consolas` / 系统回退；
+- 行内字符按 SGR 属性分组，每组一个 `DrawText` 调用，减少绘制开销；
+- 光标：闪烁的 `BlockCursor`（500ms 周期），当前活动行用半透明底色标记；
+- 滚动：`ScrollViewer` 包裹 buffer 视图，scrollback 上限 10000 行（可配）。
+
+**输入**：
+
+| 输入源 | 处理 |
+|---|---|
+| 键盘 `Key` | 转 Unicode codepoint → UTF-8 字节 → 写入 PTY |
+| 方向键 / 功能键 | 手写转义序列：`\x1b[A` 上、`\x1b[C` 右、`\x1b[5~` PgUp、`\x1b[1;5~` Ctrl+PgUp |
+| 粘贴 | `TextBox.Paste` 事件 → UTF-8 编码 → 写入 PTY |
+| 鼠标点击 | 仅聚焦，v1 不做鼠标坐标写入（ConPTY 鼠标协议有兼容性问题） |
+| 剪贴板选中文本 | 选中矩形区域，按 buffer 字符网格提取，忽略样式属性 |
+
+#### 4.7.4 ConPTY 集成
+
+**调用序列**（Windows SDK，`CreatePseudoConsole` 需 Win10 1803+）：
+
+```csharp
+// 1. 建立 IO 管道
+CreatePipe(out hInputRead, out hInputWrite, sa, 0, NULL, NULL);
+CreatePipe(out hOutputRead, out hOutputWrite, sa, 0, NULL, NULL);
+
+// 2. 启动 conhost 承载伪控制台
+STARTUPINFOEX si = { dwFlags = EXTENDED_STARTUPINFO_PRESENT, ... };
+// 用 SetThreadpoolAttribute 挂 PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE + hPC
+
+// 3. 创建伪控制台
+CreatePseudoConsole(size: (120, 30),
+                    hInput: hInputWrite,
+                    hOutput: hOutputRead,
+                    0, out hPC);
+
+// 4. 在伪控制台上启动 bash
+CreateProcessW(bashPath, "-l -i", ..., &si, out pi);
+
+// 5. 输出读线程：阻塞 ReadFile(hOutputRead, buffer, out bytesRead, null)
+//    → 转 TerminalParser → buffer 更新 → 触发 TerminalCanvas 重绘
+
+// 6. 输入写：WriteFile(hInputWrite, utf8Bytes, len, out _, null)
+```
+
+**关键实现约束**：
+
+| 约束 | 说明 |
+|---|---|
+| 输出读线程必须是 `Thread` | 不能用 `Task.Run`，`Task` 会被线程池回收导致 buffer 撕裂 |
+| `SECURITY_ATTRIBUTES.bInheritHandle = true` | 否则子进程拿不到管道句柄 |
+| `CREATE_NO_WINDOW` | 否则弹出黑框 |
+| `ClosePseudoConsole` 必须在退出前调用 | 否则 conhost 进程泄漏 |
+| 高 DPI 换算 | `columns = floor(widthPx / charWidth * 96 / dpi)`，同源 §4.1.1 |
+| 字体度量 | 用 `TextGeometry` 计算 `charWidth`，不用 `ActualWidth`（会随窗口抖动） |
+
+**工作目录绑定**：
+
+- 打开仓库时若面板未打开，`cwd` 记下但不启动；
+- 已打开时通过 PTY 写入 `cd "<repo path>"\n`；
+- 用户手动 `cd` 后 `_followRepo` 置 false 并 toast 提示；
+- 切换仓库时若 `_followRepo` 为 true，自动写入新的 `cd` 命令。
+
+**未安装 Git 的处理**：
+
+1. 首启检测 `BashLocator.TryLocate()`；
+2. 未找到时面板显示空状态：`未检测到 Git for Windows` + `下载` 按钮（跳转 https://git-scm.com/download/win） + `手动指定路径` 输入框；
+3. 找到后启动 `bash -l -i` 并显示欢迎提示。
+
+**崩溃与退出**：
+
+- `WaitForSingleObject(pi.hProcess, INFINITE)` 在后台线程；
+- bash `exit` / `Ctrl+D` → 显示"会话已结束 · 点击重开"占位；
+- 面板未打开时不启动进程，`Lazy<TerminalSession>` 延迟初始化；
+- 窗口关闭时 `ClosePseudoConsole` → `TerminateProcess` → `CloseHandle`，全在 `try/finally`。
+
+#### 4.7.5 接口与分层
+
+新增 `GitUI.Shell` 项目，不引用 libgit2sharp，避免污染 Core/Git 层：
+
+```csharp
+namespace GitUI.Shell;
+
+/// <summary>终端会话抽象，供 UI 与测试共用。</summary>
+public interface ITerminalSession : IDisposable
+{
+    void Start();
+    void Write(ReadOnlySpan<byte> data);
+    event Action<ReadOnlyMemory<byte>>? OutputReady;
+    event Action<int>? Exited;
+    void Resize(int columns, int rows);
+    bool IsRunning { get; }
+    string? Title { get; }
+}
+
+/// <summary>终端解析器：字节流 → buffer 更新。</summary>
+public sealed class TerminalParser
+{
+    public TerminalBuffer Buffer { get; }
+    public void Feed(ReadOnlySpan<byte> data);
+}
+
+/// <summary>字符网格，非线程安全，由主线程读。</summary>
+public sealed class TerminalBuffer
+{
+    public int Columns { get; }
+    public int Rows { get; }
+    public char this[int col, int row] { get; }
+    public SgrAttribute this[int col, int row] { get; }  // 前景色/背景色/粗体/斜体
+    public (int col, int row) Cursor { get; }
+}
+
+/// <summary>bash 可执行文件定位：三级回退。</summary>
+public static class BashLocator
+{
+    public static bool TryLocate(string? overridePath, out string bashPath, out string? error);
+}
+```
+
+**测试策略**（对齐 §八 的可独立验证原则）：
+
+| 层 | 手段 | 覆盖 |
+|---|---|---|
+| `BashLocator` | 单测，mock `PATH` 与注册表 | 三级回退、空格路径、不存在路径、权限不足 |
+| `TerminalParser` | 纯算法单测（黄金用例集） | CSI/OSC/SGR、颜色、光标、清屏、行回绕、CRLF、`\t` 制表、超长行截断、Unicode 组合字符、UTF-8 多字节 |
+| `TerminalCanvas` | Headless 渲染测（截图对比） | 10k 行 scrollback 渲染 < 200ms、闪烁动画、主题切换刷新、DPI 变化 |
+| `ConptySession` | 集成测 | 启动/写入/读取/resize/退出/退出码/异常退出 |
+| `ConsolePane` | UI 自动化（WinAppDriver） | 折叠/展开、拖拽、清空、跟随仓库切换、粘贴、复制 |
+| 端到端 | 冒烟脚本 | 打开仓库 → 开面板 → `git status` → 断言 stdout 出现在输出区 |
+
+`ITerminalSession` 抽象让 UI 层可用 `FakeTerminalSession` 单测，不需真启 conhost——这是 §九 中"ConPTY 需管理员权限部分场景"这条风险的缓解手段。
+
+#### 4.7.6 与现有模块的联动
+
+| 联动点 | 触发 | 行为 |
+|---|---|---|
+| Log 页 → 面板 | 右键提交 → "在终端查看" | 面板 `cd` 到仓库 + 写入 `git show <sha>` |
+| Changes 页 → 面板 | 右键文件 → "在终端打开" | 面板 `cd` 到文件所在目录 + 写入 `git status -- <path>` |
+| Branches 页 → 面板 | 右键分支 → "在终端 checkout" | 面板写入 `git checkout <branch>` |
+| 面板输出 → Changes | 用户跑 `git status` 后 | 解析 stdout 更新 `IndexState`（可选，默认关，v2 开启） |
+| 提交对话框 → 面板 | 提交前预览 | 面板写入 `git diff --cached` |
+
+**v1 只做前 4 项的单向联动**（GUI → 面板），反向解析留 v2。
+
+#### 4.7.7 技术风险（专属）
+
+| 风险 | 影响 | 缓解 | 验证 |
+|---|---|---|---|
+| 自绘终端渲染性能不足（大量输出卡顿） | 高 | 只绘可视区 + overscan 20 行；`DrawText` 批量合并 | S3b |
+| ANSI/VT 序列解析 bug 导致乱码或崩溃 | 高 | 黄金用例集 ≥ 50 个，覆盖 xterm.js 的兼容性测试集 | S2b |
+| ConPTY 需管理员权限的部分场景 | 中 | 用 `SECURITY_ATTRIBUTES` + 默认 DACL，测试普通账户运行 | S0d |
+| bash 未安装 | 中 | 首启检测 + 一键下载 + 状态栏红点 | S0c |
+| 中文路径 / 中文提交信息乱码 | 中 | ConPTY 内部 UTF-8 + 启动参数 `chcp 65001` | S0d |
+| 全屏程序（`vim`、`less`）渲染错位 | 中 | 解析器必须支持 `rmir`（滚动区）、`8`/`>`（应用光标/键）、`H`/`F`（上下边界） | S3b |
+| 长时间运行后管道读线程泄漏 | 中 | `try/finally` + `CloseHandle`；单测模拟异常退出 | S0d |
+| 高 DPI 下字符宽度计算错误 | 中 | `TextGeometry` 计算 + `dpi/96` 换算，同源 §4.1.1 | S3b |
+| 输入焦点错乱（面板与主内容区互抢） | 中 | `GotFocus`/`LostFocus` 显式管理，键盘输入仅在面板聚焦时转发 | S3b |
+| 大输出拖垮内存（`tail -f /var/log`） | 中 | scrollback 上限 10000 行，超出自动丢弃最旧；toast 提示 | S3b |
+
 ---
 
 ## 五、数据流与状态管理
@@ -381,12 +703,15 @@ Unversioned (未跟踪)       [⊕] [⚙ 加入.gitignore]
 ### 5.1 状态分层
 
 ```
-SettingsStore        ← 全局设置（主题、默认编辑器、diff 模式），JSON 持久化
+SettingsStore        ← 全局设置（主题、默认编辑器、diff 模式、终端配置），JSON 持久化
 RepoSession          ← 仓库级状态，每开一个仓库一个实例
  ├─ IndexState       ← git status 结果，监听文件变化刷新
  ├─ LogState         ← rev-list 分页缓存 + 过滤条件
  ├─ DiffState        ← 当前打开的 diff 目标
  └─ WorkingTreeWatcher ← 文件监视器（FileSystemWatcher）
+TerminalSession      ← 终端会话，App 级单例（Lazy 初始化，与窗口同生命周期）
+ ├─ ITerminalSession  ← ConPTY + 读写线程
+ └─ TerminalBuffer    ← 字符网格 + 光标 + SGR 属性
 ```
 
 - 单例 `IRepositoryService`，注入 `IWorker` 队列
@@ -419,6 +744,8 @@ RepoSession          ← 仓库级状态，每开一个仓库一个实例
    - `Ctrl+Tab` 循环切换页签
    - `F5` 刷新所有
    - `Ctrl+1..4` 直达页签
+   - `Ctrl+J` 切换 Git Bash 面板显示/隐藏
+   - `Ctrl+Shift+J` 切换"面板跟随当前仓库目录"模式
 3. **右键菜单分层**：常用 6 个直接列出，其余进 "⋯ 更多"，避免一次展开 20 项
 4. **可撤销**：所有危险操作（删分支、reset、rebase）弹确认框且显示具体影响范围（"将丢弃 3 个提交：a3f9c2, b71d44, c5e830"）；`reset` 默认 `--soft` 并明确提示
 5. **提交消息助手**：
@@ -442,12 +769,14 @@ GitUI/
 │  │   └─ Services/            # IRepositoryService, ISettingsStore, IEditorLauncher
 │  ├─ GitUI.Git/               # libgit2sharp 实现 + 队列 worker
 │  ├─ GitUI.Diff/              # Diff 引擎与自绘控件
+│  ├─ GitUI.Shell/             # ConPTY + TerminalParser + BashLocator（不引用 libgit2sharp）
 │  ├─ GitUI.ViewModels/        # 所有 ViewModel（CommunityToolkit.Mvvm）
-│  └─ GitUI.Controls/          # 可复用控件（LogListItem, DiffCanvas, BranchTree）
+│  └─ GitUI.Controls/          # 可复用控件（LogListItem, DiffCanvas, TerminalCanvas, ConsolePane, BranchTree）
 ├─ tests/
 │  ├─ GitUI.Core.Tests/
 │  ├─ GitUI.Git.Tests/         # 用临时 repo fixture 做集成测试
-│  └─ GitUI.Diff.Tests/        # diff 算法单测（黄金用例）
+│  ├─ GitUI.Diff.Tests/        # diff 算法单测（黄金用例）
+│  └─ GitUI.Shell.Tests/       # TerminalParser 黄金用例 + ConptySession 集成测试
 └─ docs/
 ```
 
@@ -469,6 +798,80 @@ GitUI/
 - 单元测试：`SettingsStore` 的读写与损坏文件回退（≥ 5 个用例）
 
 **通过标准**：空壳能稳定运行 10 分钟不崩溃，`dotnet test` 全绿。
+
+### S0b · Git Bash 面板外壳（ConPTY 之前）
+
+**范围**：`MainWindow` 根 `Grid` 改为 3 列（Sidebar / Main / ConsolePane），`GridSplitter` + 拖拽 + 折叠；工具条 32px、状态条 20px；`AppSettings` 新增 6 个终端字段（`ConsolePaneCollapsed` / `ConsolePaneWidth` / `BashPath` / `TerminalFontFamily` / `TerminalFontSize` / `TerminalFollowRepo`）并补 `Normalize` 归一化；`Ctrl+J` / `Ctrl+Shift+J` 快捷键；**ConPTY 用 stub**——面板里放一个 `TextBox` 模拟输出。
+
+**可独立验证**：
+- `dotnet build` 零警告通过；
+- 手动折叠/拖拽/重启后宽度与折叠状态持久化；
+- 单元测试：`AppSettings` 终端字段的反序列化（正常、越界、缺失、损坏文件，≥ 4 个用例）；
+- 与 sidebar 折叠互不干扰（两个都能独立折叠，`_consoleColumn` 与 `_sidebarColumn` 各管各的）。
+
+**通过标准**：面板能开能关、能拖能保存、快捷键生效；空壳不崩溃。
+
+### S0c · Bash 定位器
+
+**范围**：`GitUI.Shell` 项目；`BashLocator.TryLocate()` 三级回退（`settings.BashPath` → `where bash.exe` → `%ProgramFiles%\Git\bin\bash.exe`）；路径含空格、权限不足、不存在等异常处理。
+
+**可独立验证**：
+- 单元测试 4 场景全绿：`PATH` 里有、Git 安装目录、都不存在、路径含空格；
+- `TreatWarningsAsErrors=true` 下零警告；
+- 不引用 libgit2sharp（依赖检查）。
+
+**通过标准**：定位器单测全绿，异常路径全部处理。
+
+### S0d · ConPTY 集成（不渲染）
+
+**范围**：`ConptyNative.cs` P/Invoke（`CreatePipe` / `CreatePseudoConsole` / `ResizePseudoConsole` / `ClosePseudoConsole` / `CreateProcessW`）；`ConptySession` 实现 `ITerminalSession`；输出读线程（`Thread`，阻塞 `ReadFile`）；`FakeTerminalSession` 测试替身。
+
+**可独立验证**：
+- 集成测试：`bash -c "echo $SHELL && pwd"` 断言 stdout 出现在 `OutputReady` 事件；
+- `resize` 后 `tput cols` 返回新值；
+- bash `exit` 后 `Exited` 事件触发且退出码正确；
+- 异常退出（`kill -9`）不导致句柄泄漏（`CloseHandle` 单测）。
+
+**通过标准**：`echo` / `ls` / `git status` / `less` / `exit` 五条路径全绿。
+
+### S2b · TerminalParser（无渲染）
+
+**范围**：终端状态机解析器，与 S2 Diff 引擎并行独立；处理 CSI / OSC / SGR / 光标 / 滚动 / 行回绕 / 制表 / CRLF / UTF-8 多字节 / Unicode 组合字符 / 超长行截断。
+
+**可独立验证**：
+- 纯算法单测，无 UI、无 PTY、无 conhost；
+- 黄金用例集 ≥ 50 个（参考 xterm.js 兼容性测试集）；
+- 与 `tmux` 输出的真实会话录制对比（作为 oracle）；
+- 性能基准：10 MB 输出流解析 < 500ms。
+
+**通过标准**：黄金用例全绿；性能基准达标。
+
+### S3b · TerminalCanvas 渲染（技术风险验证）
+
+**范围**：自绘 `TerminalCanvas`（`DrawingContext`），与 S3 DiffCanvas 同族；行高 = `fontSize * 1.2`；只绘可视区 + 上下 overscan 20 行；SGR 分组批量绘制；闪烁光标；scrollback 上限 10000 行；主题切换刷新；DPI 变化重算字符宽度；`Ctrl+Shift+C` 复制选中区。
+
+**可独立验证**：
+- Headless 渲染测试工程：喂入 S2b 的 parser 输出，断言"第 N 行第 M 列是什么字符、什么颜色"（截图对比 + 几何断言）；
+- 性能基准：10k 行 scrollback 下滚动帧率 ≥ 30fps；
+- 手动验证清单：`git status` / `git log --graph` / `less` / `vim` / `htop` / `tree` 六个真实终端程序渲染无错位；
+- 全屏程序测试：`rmir`（滚动区）、`8`/`>`（应用光标/键）、`H`/`F`（上下边界）全支持。
+
+**通过标准**：10k 行首帧渲染 < 200ms；滚动无掉帧；6 个真实终端程序视觉检查通过。
+
+> **关键决策点**：如果 S3b 性能不达标或全屏程序渲染有系统性 bug，**降级到方案 C**（`SetParent` 挂 conhost.exe），见 §九 的回退策略。这是终端能力唯一的架构回退点。
+
+### S0e · 面板接线 + 与工作区联动
+
+**范围**：`TerminalSession` 单例 `Lazy` 注入；跟随仓库模式；工具条三点菜单；Log/Changes/Branches 页右键菜单 → 面板命令；空状态（bash 未安装提示 + 下载链接）。
+
+**可独立验证**：
+- 打开仓库 → 面板显示 `pwd` = 仓库路径；
+- 切仓库 → 面板自动 `cd`；
+- 用户手动 `cd` → `_followRepo` 置 false 并 toast；
+- Log 页右键"在终端查看" → 面板写入 `git show <sha>` 且 stdout 出现；
+- 未安装 Git 时显示空状态卡片 + 下载链接可点击。
+
+**通过标准**：6 条联动路径手动验证全通过；UI 自动化测试覆盖"开仓库 → 开面板 → 执行命令 → 看到输出"完整链路。
 
 ### S1 · 领域模型与 Git 读取层（无 UI）
 
@@ -556,11 +959,17 @@ GitUI/
 S0 ──┬── S1 ──┬── S4 ──┬── S5 ── S6 ── S7
      │        │        │
      │        └── S2 ── S3 ┘        （S2/S3 与 S1 并行，S3 完成后 S4/S5 共用）
+     │
+     └── S0b ── S0c ── S0d ──┐
+                              ├── S2b ── S3b ── S0e ── （并入 S7 打磨）
+                              │
+                              └── （S0d 与 S2b 并行，S3b 依赖 S2b + S0d）
 ```
 
-- **可并行**：S1 与 S2 无依赖，可由两人并行；S3 依赖 S2
-- **阻塞点**：S3 是 S4/S5 的共同前置（都复用 DiffCanvas）；S3 失败时走 §S3 的回退决策，不影响 S1/S2
-- **回退成本**：S3 回退只影响自身与后续接入方式，不影响 S1/S2 的模型与引擎
+- **可并行**：S1 与 S2 无依赖，可由两人并行；S3 依赖 S2；**Git Bash 支线（S0b/S0c/S0d/S2b/S3b/S0e）与 S1/S2/S3/S4/S5/S6 全程并行**，可由第三人或后续接入；
+- **阻塞点**：S3 是 S4/S5 的共同前置（都复用 DiffCanvas）；S3 失败时走 §S3 的回退决策；S3b 是 S0e 的前置（复用 TerminalCanvas），S3b 失败时降级到方案 C；
+- **回退成本**：S3 回退只影响 Diff 相关；S3b 回退到方案 C 只影响终端渲染方式，`ITerminalSession` 抽象不变，UI 层零改动；
+- **接入点**：S0b 只需改 `MainWindow` 根网格，不触碰 S0 已有的 sidebar / titlebar / 主题逻辑，可与 S1/S2 同日启动。
 
 ---
 
@@ -574,6 +983,15 @@ S0 ──┬── S1 ──┬── S4 ──┬── S5 ── S6 ── S7
 | 中文/日文路径与编码 | 中 | `core.quotepath=false` 自动设置 | S2 |
 | 大仓库（> 1GB .git）内存 | 中 | 强制分页 rev-list，`GitObject` 用完立即释放 | S1 |
 | libgit2 `Repository` 句柄跨线程访问崩溃 | 高 | `GitRequest` 纯数据化，worker 内开合 repo | S1 |
+| **自绘 TerminalCanvas 性能不足（大量输出卡顿）** | **高** | 只绘可视区 + overscan 20 行；SGR 分组批量绘制；scrollback 上限 10000 行 | **S3b** |
+| **ANSI/VT 序列解析 bug（乱码/崩溃）** | **高** | 黄金用例 ≥ 50 个，参考 xterm.js 兼容性测试集；tmux 录制作为 oracle | **S2b** |
+| **ConPTY 需管理员权限的部分场景** | 中 | `SECURITY_ATTRIBUTES` + 默认 DACL；普通账户冒烟 | S0d |
+| **bash 未安装** | 中 | 首启检测 + 一键下载 + 状态栏红点 | S0c |
+| **全屏程序（`vim`/`less`/`htop`）渲染错位** | 中 | 解析器支持 `rmir`/`8`/`>`/`H`/`F`；手动验证 6 个真实终端程序 | S3b |
+| **管道读线程句柄泄漏** | 中 | `try/finally` + `CloseHandle`；异常退出单测 | S0d |
+| **高 DPI 字符宽度计算错误** | 中 | `TextGeometry` 计算 + `dpi/96` 换算，同源 §4.1.1 | S3b |
+| **面板与主内容区输入焦点互抢** | 中 | `GotFocus`/`LostFocus` 显式管理；仅聚焦时转发键盘 | S3b |
+| **`tail -f` 类大输出拖垮内存** | 中 | scrollback 上限 + 溢出丢弃 + toast 提示 | S3b |
 
 ---
 
@@ -585,3 +1003,7 @@ S0 ──┬── S1 ──┬── S4 ──┬── S5 ── S6 ── S7
 | Diff 视图 | 自绘 DiffCanvas | 2026-10-02 |
 | 发布形态 | 自包含 exe，单目录 | 2026-10-02 |
 | Repo Map | v2 再做，v1 用分支树覆盖 80% 需求 | 2026-10-02 |
+| Git Bash 面板形态 | **方案 A：自绘 PTY + 自绘终端渲染**（不采用方案 B 命令面板或方案 C 外部 ConHost） | 2026-10-02 |
+| Git Bash 面板位置 | 窗口最右侧一栏，与 sidebar 对称；不是导航页签 | 2026-10-02 |
+| 终端承载层 | 新增 `GitUI.Shell` 项目，不引用 libgit2sharp | 2026-10-02 |
+| 终端与 GUI 联动方向 | v1 只做 GUI → 面板（Log/Changes/Branches 右键写入命令）；面板输出 → IndexState 回写留 v2 | 2026-10-02 |

@@ -19,6 +19,24 @@ public sealed class AppSettings
     /// <summary>侧边栏是否收起（仅显示图标）。</summary>
     public bool SidebarCollapsed { get; set; } = false;
 
+    /// <summary>Git Bash 面板是否折叠（宽度为 0）。</summary>
+    public bool ConsolePaneCollapsed { get; set; } = false;
+
+    /// <summary>Git Bash 面板宽度（逻辑像素），Normalize 约束在 [360, 960]。</summary>
+    public double ConsolePaneWidth { get; set; } = 480;
+
+    /// <summary>bash.exe 手动指定路径；null/空表示自动定位（三级回退）。</summary>
+    public string? BashPath { get; set; }
+
+    /// <summary>终端字体族，默认 Cascadia Mono（缺失时回退 Consolas）。</summary>
+    public string TerminalFontFamily { get; set; } = "Cascadia Mono";
+
+    /// <summary>终端字号（逻辑像素），Normalize 约束在 [8, 32]。</summary>
+    public double TerminalFontSize { get; set; } = 13;
+
+    /// <summary>终端是否跟随当前仓库切换工作目录（Ctrl+Shift+J 切换）。</summary>
+    public bool TerminalFollowRepo { get; set; } = true;
+
     public static AppSettings Default => new();
 }
 

@@ -114,6 +114,20 @@ public sealed class JsonSettingsStore : ISettingsStore
             s.DiffMode = DiffViewMode.SideBySide;
         }
 
+        // 终端面板宽度与字号：NaN/Infinity 或越界一律归一到合法范围
+        s.ConsolePaneWidth = ClampDouble(s.ConsolePaneWidth, 360, 960, 480);
+        s.TerminalFontSize = ClampDouble(s.TerminalFontSize, 8, 32, 13);
+
+        if (string.IsNullOrWhiteSpace(s.TerminalFontFamily))
+        {
+            s.TerminalFontFamily = "Cascadia Mono";
+        }
+
+        if (string.IsNullOrWhiteSpace(s.BashPath))
+        {
+            s.BashPath = null;
+        }
+
         // RecentRepos 去重并限制数量
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var list = new List<string>(5);
@@ -128,6 +142,17 @@ public sealed class JsonSettingsStore : ISettingsStore
         s.RecentRepos = list;
 
         return s;
+    }
+
+    /// <summary>把 double 归一化：非有限值取默认，越界则夹到 [min, max]。</summary>
+    private static double ClampDouble(double value, double min, double max, double fallback)
+    {
+        if (!double.IsFinite(value))
+        {
+            return fallback;
+        }
+
+        return Math.Clamp(value, min, max);
     }
 
     /// <summary>把仓库路径加入最近列表，保持最新在前且去重。</summary>

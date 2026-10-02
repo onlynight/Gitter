@@ -31,6 +31,7 @@
   <ItemGroup>
     <ProjectReference Include="..\GitUI.Core\GitUI.Core.csproj" />
     <ProjectReference Include="..\GitUI.Git\GitUI.Git.csproj" />
+    <ProjectReference Include="..\GitUI.Shell\GitUI.Shell.csproj" />
   </ItemGroup>
 
   <ItemGroup>

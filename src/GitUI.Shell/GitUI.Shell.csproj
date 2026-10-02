@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>GitUI.Shell</RootNamespace>
+    <AssemblyName>GitUI.Shell</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    依赖约束（design.md §4.7.5）：本项目不得引用 libgit2sharp，
+    避免 ConPTY/P-Invoke 层污染 Core/Git。由 DependencyCheckTests 自动验证。
+  -->
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GitUI.Shell.Tests" />
+  </ItemGroup>
+
+</Project>
