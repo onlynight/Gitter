@@ -19,12 +19,6 @@ public sealed class AppSettings
     /// <summary>侧边栏是否收起（仅显示图标）。</summary>
     public bool SidebarCollapsed { get; set; } = false;
 
-    /// <summary>Git Bash 面板是否折叠（宽度为 0）。</summary>
-    public bool ConsolePaneCollapsed { get; set; } = false;
-
-    /// <summary>Git Bash 面板宽度（逻辑像素），Normalize 约束在 [360, 960]。</summary>
-    public double ConsolePaneWidth { get; set; } = 480;
-
     /// <summary>bash.exe 手动指定路径；null/空表示自动定位（三级回退）。</summary>
     public string? BashPath { get; set; }
 

@@ -1,7 +1,7 @@
 # Git UI 工具设计方案（WinUI 3 / .NET）
 
-> 状态：定稿 v1.3（2026-10-02 增补 S2 实施记录）
-> 日期：2026-10-02
+> 状态：定稿 v1.4（2026-10-03 Git Bash 承载位置变更：右侧面板 → 左侧导航页签，见 §11.12）
+> 日期：2026-10-03
 > S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11
 
 ## 十一、S0 实施记录与踩坑总结
@@ -152,6 +152,9 @@ var btn = new Button { Padding = new Thickness(12), ... };
 
 **S0d 剩余验证**（预检跳过的 10 条集成用例，需在 conhost 正常的桌面会话执行 `dotnet test tests/GitUI.Shell.Tests`）：echo / pwd / ls / git status / less / exit / kill -9 句柄归零 / resize 列宽回读 / stdin 写入 / 双 Start 拒绝。
 
+> 注：S0b 交付的"右侧停靠面板"承载方式已于 2026-10-03 变更为左侧导航页签（§11.12），
+> 本节保留为历史记录；其中的 ConPTY/句柄结论不受影响。
+
 ### 11.11 S2 实施记录（2026-10-02）
 
 **交付**：
@@ -215,6 +218,26 @@ var btn = new Button { Padding = new Thickness(12), ... };
 
 - `ComputeDiff_MultipleSeparateChanges_MultipleHunks`：原用例的修改相距 3 行，旧 LineDiff 永不合并所以期望多 hunk；git 语义（gap ≤ 2×context 合并）下是单 hunk。用例改为相距 ≥7 行断言多 hunk，另补 `ComputeDiff_NearbyChanges_MergeIntoSingleHunk` 固化合并行为。
 - `SplitLines` 幻影尾行修正后，`GetFileDiff` 对纯新增/删除文件的 hunk 不再多出空 `+` 行（原 S1 测试用 `InRange(3,4)` 掩盖的行为）。
+
+### 11.12 Git Bash 承载位置变更（2026-10-03）
+
+**决策**：经用户确认，Git Bash 不再作为右侧停靠面板（占用主显示区域），改为左侧导航栏中与其他页签**同级**的导航项，选中时占据主内容区。§4.1 / §4.7.2 / §十 已同步更新。
+
+**交付**：
+
+- `GitUI.App/Pages/BashPage`（新，代码构建）：原 ConsolePane 的工具条 + 输出区 + 输入行 + 状态条整体迁入；实例在窗口生命周期内缓存（`_bashPage ??=`），切换页签不丢输出；监听 `ISettingsStore.Changed` 同步"跟随仓库"开关（Ctrl+Shift+J 全局切换时页签 UI 自动刷新）。
+- `MainWindow`：根 Grid 3 列改回 2 列，`_titleBarStrip` ColumnSpan 3→2；删除 ConsolePane 列、自绘拖拽手柄、折叠三处联动、宽度 clamp 等右栏专属逻辑（约 300 行）；导航项新增 `("\uE756", "Git Bash", "bash")`（分支与设置之间）；`Ctrl+J` 语义改为页签切换（不在页签 → 进入；在页签 → 回 Log）；工具条"折叠面板"按钮移除（页签天然全屏，无折叠语义）。
+- `AppSettings`：移除 `ConsolePaneCollapsed` / `ConsolePaneWidth`（右栏宽度/折叠状态失去载体）；`Normalize` 移除对应 clamp。旧设置文件里的 `consolePane*` 键加载时被忽略（System.Text.Json 默认行为），有测试固化。
+- 无障碍补齐：导航按钮与汉堡按钮补 `AutomationProperties.Name`（§6.8 要求，S7 扫描前置）。
+- `scripts/smoke-bash-nav.ps1`（新）：UIA 冒烟——找到侧边栏 Git Bash 按钮 → Invoke 进入 → 断言页内工具条与输入框出现。
+
+**验证**：`dotnet build` 零警告；Core.Tests 51/51（含旧版设置键兼容用例）；UIA 冒烟通过（侧边栏五项：Log / 变更 / 分支 / Git Bash / 设置，点击后 Bash 页内容出现）。
+
+**对后续阶段的影响**：
+
+- S3b（TerminalCanvas）直接落在 `BashPage` 内，不再涉及窗口级 Grid/列操作；
+- S0e 的"面板未打开时不启动进程"语义变为"未进入页签不启动"，`Lazy` 会话单例不变；
+- §4.7.2 的 `Alt+Enter`（面板最大化）随右栏废弃；`Ctrl+Shift+C/V` 保持，S3b 实装。
 
 ---
 
@@ -309,25 +332,25 @@ UI 线程 (DispatcherQueue)
 
 ## 四、界面布局设计
 
-### 4.1 窗口主布局
+### 4.1 窗口主布局（2026-10-03 更新：Git Bash 为导航页签）
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ TitleBar: [仓库名·分支▾] 搜索框(⌘K)                      [⋯]        │
-├────────┬──────────────────────────────┬──────────────────────────────┤
-│ NavView│  主内容区（按页签切换）       │  Git Bash 面板（可折叠/拖宽）│
-│ ┌─────┐│ ┌─ Log / Changes / ────────┐ │ ┌─ ▣ Git Bash  [⧉ ⤢ ⋯] ──┐│
-│ │ Log ││ │                           │ │ │ $ git status             ││
-│ │ 变更││ │   Log / Diff 视图         │ │ │ On branch main           ││
-│ │ 分支││ │                           │ │ │ Changes to be committed: ││
-│ │ 设置││ │                           │ │ │ ...                      ││
-│ │ ⋯   ││ │                           │ │ │ $ █                      ││
-│ └─────┘│ └───────────────────────────┘ │ └──────────────────────────┘│
-└────────┴──────────────────────────────┴──────────────────────────────┘
+├────────┬─────────────────────────────────────────────────────────────┤
+│ NavView│  主内容区（按页签切换，占满剩余宽度）                       │
+│ ┌─────┐│ ┌─ Log / Changes / Branches / Git Bash / Settings ───────┐ │
+│ │ Log ││ │                                                         │ │
+│ │ 变更││ │   （选中 Git Bash 页签时：工具条 + 终端 + 状态条）      │ │
+│ │ 分支││ │                                                         │ │
+│ │Bash ││ │                                                         │ │
+│ │ 设置││ │                                                         │ │
+│ └─────┘│ └─────────────────────────────────────────────────────────┘ │
+└────────┴─────────────────────────────────────────────────────────────┘
 ```
 
 - **可停靠多面板**：主区支持左右分屏（左 Log / 右 Diff），实现方式为自定义 `Grid` + 拖拽 `GridSplitter`，v1 不做完整 DockingManager。
-- **Git Bash 面板**：位于最右侧，可折叠为 0 宽或拖拽宽度；v1 用**自绘 PTY + 自绘终端渲染**（方案 A），是核心能力之一，见 §4.7。
+- **Git Bash 页签**：与 Log/Changes/Branches/Settings 同级的导航项，选中时占据主内容区（§4.7.2）；`Ctrl+J` 切换该页签。
 - 所有窗口支持 Win11 的 Mica 背景与自定义 title bar，实现细节见 §4.1.1。
 
 ### 4.1.1 窗口背景与标题栏（WinUI 3 Mica 实现）
@@ -535,37 +558,36 @@ Unversioned (未跟踪)       [⊕] [⚙ 加入.gitignore]
 
 **代价**：A 需要自建 PTY 集成 + 终端状态机解析器 + 自绘渲染器，与 DiffCanvas（§4.4）同级技术风险，是**项目第 2 大技术风险点**，独立列为 §S3b 阶段（§八）。
 
-#### 4.7.2 承载位置与交互
+#### 4.7.2 承载位置与交互（2026-10-03 变更：导航页签）
 
-**位置**：`MainWindow` 根 `Grid` 的最右侧列，与 sidebar 对称：
+**位置**：Git Bash 是左侧导航栏中与 Log/Changes/Branches/Settings **同级**的页签，选中时占据主内容区全宽（详见 §11.12 变更记录；最初设计为右侧停靠面板，已废弃）。
 
 ```
-Grid  3 列 × 2 行
- Row0 = TitleBar (48)        跨 3 列
+Grid  2 列 × 2 行
+ Row0 = TitleBar (48)        跨 2 列
  Row1 = Content    *
    Col0 = Sidebar         (Auto，由 Border.Width 控制：200 / 72)
-   Col1 = Main            (1, Star)
-   Col2 = ConsolePane     (Auto，由 Border.Width 控制：480 / 0)
+   Col1 = Main            (1, Star)——PageHost 按 _currentKey 切换页面
 ```
 
-- `ConsolePane` 用固定 `Width` 的 `Border` 包裹，与 `_sidebarBorder` 完全对称，参见 [MainWindow.xaml.cs:104-118](D:/Code/Gitter/src/GitUI.App/MainWindow.xaml.cs#L104)；
-- `GridSplitter` 位于 `Col2` 左边缘（`HorizontalAlignment=Left`），拖拽范围 `[360, 960]` px；折叠态时 `ConsolePane.Width = 0` **且** `_consoleColumn.Width = 0` **且** `_splitter.Visibility = Collapsed`，三处必须一起改（避坑同源 §11.3）；
-- `_titleBarStrip` 的 `ColumnSpan` 从 2 改为 3，否则标题栏右侧露出背景；
-- 面板从 Row1 顶部开始，占满行高，不响应标题栏拖拽热区。
+- `BashPage` 实例在窗口生命周期内**缓存复用**（`_bashPage ??=`），切换页签不丢输出；这与 §5.1 的"TerminalSession 为 App 级单例"一致；
+- 页签与 sidebar 折叠（`Ctrl` 汉堡按钮）互不干扰；
+- 面板内容占满主内容区，不响应标题栏拖拽热区。
 
-**工具条**（32px 高）：
+**工具条**（32px 高，页内顶部）：
 
 ```
 ┌──────────────────────────────────┐
-│ ▣ Git Bash                ⧉ ⤢ ⋯ │
+│ ▣ Git Bash                ⧉  ⋯ │
 └──────────────────────────────────┘
 ```
 
 | 按钮 | 图标 | 行为 |
 |---|---|---|
-| `⧉` 清空 | `FontIcon` | 发送 `\x1b[3J\x1b[K\x1b[3d`（清屏 + 清 scrollback + 光标归位），**不杀进程** |
-| `⤢` 折叠 | `FontIcon` | 切换 `ConsolePaneCollapsed`，宽度 ↔ 0；快捷键 `Ctrl+J` |
+| `⧉` 清屏 | `FontIcon` | 发送 `\x1b[3J\x1b[K\x1b[3d`（清屏 + 清 scrollback + 光标归位），**不杀进程** |
 | `⋯` 更多 | `MenuFlyout` | 重开 shell / 用默认编辑器打开 `.bashrc` / 切换工作目录 / 复制输出 |
+
+（原"折叠面板"按钮随右栏一并移除——页签天然全屏，无折叠语义。）
 
 **状态条**（20px 高，底部）：
 
@@ -579,9 +601,8 @@ git 2.47.1   bash 5.2   bash@128×30   main*   ✓ Running
 
 | 快捷键 | 行为 |
 |---|---|
-| `Ctrl+J` | 切换面板显示/隐藏（VSCode 语义） |
-| `Alt+Enter` | 面板最大化（Col2 占 100%） |
-| `Ctrl+Shift+J` | 切换"跟随仓库工作目录"模式 |
+| `Ctrl+J` | 切换到 Git Bash 页签；已在页签上时回到 Log（VSCode 语义的页签化） |
+| `Ctrl+Shift+J` | 切换"跟随仓库工作目录"模式（全局生效，页签内 UI 监听设置变更刷新） |
 | `Ctrl+Shift+C` | 复制输出区选中文本 |
 | `Ctrl+Shift+V` | 粘贴到输入行 |
 
@@ -1068,6 +1089,6 @@ S0 ──┬── S1 ──┬── S4 ──┬── S5 ── S6 ── S7
 | 发布形态 | 自包含 exe，单目录 | 2026-10-02 |
 | Repo Map | v2 再做，v1 用分支树覆盖 80% 需求 | 2026-10-02 |
 | Git Bash 面板形态 | **方案 A：自绘 PTY + 自绘终端渲染**（不采用方案 B 命令面板或方案 C 外部 ConHost） | 2026-10-02 |
-| Git Bash 面板位置 | 窗口最右侧一栏，与 sidebar 对称；不是导航页签 | 2026-10-02 |
+| Git Bash 面板位置 | ~~窗口最右侧一栏~~ **左侧导航页签（与 Log/Changes/Branches/Settings 同级），见 §11.12**（2026-10-02 原决策：最右一栏；2026-10-03 经用户确认变更） | 2026-10-03 |
 | 终端承载层 | 新增 `GitUI.Shell` 项目，不引用 libgit2sharp | 2026-10-02 |
 | 终端与 GUI 联动方向 | v1 只做 GUI → 面板（Log/Changes/Branches 右键写入命令）；面板输出 → IndexState 回写留 v2 | 2026-10-02 |

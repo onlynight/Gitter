@@ -114,8 +114,7 @@ public sealed class JsonSettingsStore : ISettingsStore
             s.DiffMode = DiffViewMode.SideBySide;
         }
 
-        // 终端面板宽度与字号：NaN/Infinity 或越界一律归一到合法范围
-        s.ConsolePaneWidth = ClampDouble(s.ConsolePaneWidth, 360, 960, 480);
+        // 终端字号：NaN/Infinity 或越界一律归一到合法范围
         s.TerminalFontSize = ClampDouble(s.TerminalFontSize, 8, 32, 13);
 
         if (string.IsNullOrWhiteSpace(s.TerminalFontFamily))
