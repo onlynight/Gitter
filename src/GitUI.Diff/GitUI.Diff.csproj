@@ -5,17 +5,21 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <RootNamespace>GitUI.Git</RootNamespace>
-    <AssemblyName>GitUI.Git</AssemblyName>
+    <RootNamespace>GitUI.Diff</RootNamespace>
+    <AssemblyName>GitUI.Diff</AssemblyName>
   </PropertyGroup>
 
+  <!--
+    依赖约束（design.md §8 S2）：Diff 引擎是纯算法层，不得引用 libgit2sharp，
+    也不得引用 GitUI.Git。由 GitUI.Diff.Tests/DependencyCheckTests 自动验证。
+  -->
+
   <ItemGroup>
-    <PackageReference Include="LibGit2Sharp" Version="0.32.0" />
+    <InternalsVisibleTo Include="GitUI.Diff.Tests" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\GitUI.Core\GitUI.Core.csproj" />
-    <ProjectReference Include="..\GitUI.Diff\GitUI.Diff.csproj" />
   </ItemGroup>
 
 </Project>

@@ -43,8 +43,7 @@ public interface IRepositoryService
     IReadOnlyList<WorktreeFileStatus> GetStatus(string workDir);
 
     /// <summary>
-    /// 纯文本 diff 计算，不依赖 git。S1 阶段是行级 LCS 简化实现，
-    /// S2 会用 DiffPkg 替换为字级引擎。
+    /// 纯文本 diff 计算，不依赖 git。S2 起委托 <see cref="IDiffEngine"/>（Myers）。
     /// </summary>
     IReadOnlyList<DiffHunk> ComputeDiff(string oldText, string newText);
 }

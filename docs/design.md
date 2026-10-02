@@ -1,8 +1,8 @@
 # Git UI 工具设计方案（WinUI 3 / .NET）
 
-> 状态：定稿 v1.2（2026-10-02 增补 S0b/S0c/S0d 实施记录）
+> 状态：定稿 v1.3（2026-10-02 增补 S2 实施记录）
 > 日期：2026-10-02
-> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10
+> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11
 
 ## 十一、S0 实施记录与踩坑总结
 
@@ -71,7 +71,7 @@ var btn = new Button { Padding = new Thickness(12), ... };
 ### 11.7 S0 未做（留给后续阶段）
 
 - Git 仓库读取与 Log 视图（S1 + S4）
-- Diff 引擎与 DiffCanvas（S2 + S3）
+- ~~Diff 引擎~~（S2 已完成，见 §11.11）；DiffCanvas 渲染（S3）
 - Git Bash 面板收尾（S2b TerminalParser + S3b TerminalCanvas 渲染 + S0e 与工作区联动）；S0b/S0c/S0d 已完成，见 §11.10
 - Changes 三层列表与提交对话框（S5）
 - Branches 分支树与操作（S6）
@@ -151,6 +151,70 @@ var btn = new Button { Padding = new Thickness(12), ... };
 5. **本机 ConPTY 环境损坏的识别与兜底**：本机（RDP 会话）conhost 伪终端客户端初始化整体失败——子进程秒退 `0xC0000142`、无任何输出，微软官方 ConPTY 参考实现在独立计划任务上下文中同样失败，cmd.exe 与 bash.exe 无差别；伪控制台 conhost 进程本身能启动。这不属于应用层可修复。已把集成测试改为"预检 + 软跳过"：每程序集先用 `bash -c echo` 探测 8 秒，预检跑在专用后台线程并受 15 秒看门狗保护（坏环境下 `ClosePseudoConsole` 也可能挂起，超时后放弃线程），环境不可用时输出诊断并跳过全部会话类用例，正常桌面会话中完整运行。
 
 **S0d 剩余验证**（预检跳过的 10 条集成用例，需在 conhost 正常的桌面会话执行 `dotnet test tests/GitUI.Shell.Tests`）：echo / pwd / ls / git status / less / exit / kill -9 句柄归零 / resize 列宽回读 / stdin 写入 / 双 Start 拒绝。
+
+### 11.11 S2 实施记录（2026-10-02）
+
+**交付**：
+
+- `GitUI.Core/Services`：`IDiffEngine`（`ComputeHunks` + `ComputeWordDiff`）；`DiffText`（全项目统一的行切分语义）；`DiffOptions`（ContextLines，Normalized 截断 [0,64]）。
+- `GitUI.Core/Models`：`WordSegment` / `WordSegmentKind`（字级差异分段）；`DiffHunk` 块头注释改为 git 精确语义（0 计数一侧 = 插入/删除点前一行行号）。
+- `GitUI.Diff`（新项目，纯算法层，不引用 libgit2sharp / GitUI.Git，由 DependencyCheckTests 验证）：
+  - `MyersDiffAlgorithm`：Myers O(ND) 线性空间分治（middle snake），intern 后整型序列 + 确定性步数预算（`StepBudget`），预算耗尽退化为整段替换（正确性不受影响）。
+  - `MyersDiffEngine`（`IDiffEngine` 实现）：三层策略——① 唯一行锚点预分割（两侧各唯一且同值的行，贪心保 i/j 同序，中位锚点二分递归，git xdl/histogram 同源思路）；② 无锚点窗口走 Myers 分治；③ 预算耗尽兜底整段替换。hunk 组装直接沿 ops 取前后 ≤ context 个 Equal 作为上下文（天然对齐），相距 ≤ 2×context 的编辑块合并（git/GNU 同语义）。
+  - `WordTokenizer`：ASCII 词元连跑 / 空白连跑 / 其余字符逐字符（CJK 逐字），VSCode 行内 diff 同源粒度。
+  - `EncodingSniffer`：BOM → 严格 UTF-8 校验（拒绝超长/代理区）→ GBK 启发式（高位字节全成合法双字节且 ≥2 对，防 "café" 单重音字符误判）→ Latin1 兜底；`Decode` 剥 BOM。
+  - `BinaryDetector`：前 8000 字节含 NUL 即二进制（git buffer_is_binary 同款）。
+  - `LargeFileFilter`：>5MB 或 >20k 行（§4.4 阈值）。
+  - `TextDiffPipeline`：字节级端到端管线（二进制判定 → 字节/行数上限 → 两侧各自探测解码 → 行级引擎），产出 `TextDiffResult`（含 `OldEndsWithNewline`/`NewEndsWithNewline` 标志，S3 渲染 "\ No newline" 用）。
+- `GitUI.Git`：`LibGit2RepositoryService` 注入 `IDiffEngine`（默认 Myers），`ComputeDiff` 委托引擎；`LineDiff`（S1 临时 LCS）删除；`SplitLines` 统一走 `DiffText`；`GitFixtureBuilder` 补 `core.quotepath=false`（§9 风险表 S2 项）。
+- `tests/GitUI.Diff.Tests`（新项目）：91 用例（下表）；`tests/GitUI.Git.Tests` 增补 `UnicodePathDiffTests`（3 用例）。
+- `scripts/verify-s2.ps1`：构建零警告 → 全量测试 → 黄金用例 → oracle → 性能基准，一键执行。
+
+**验证**：`dotnet build` 全解决方案零警告零错误；`dotnet test` 300 用例全绿（Core 54 + Diff 91 + Shell 38 + Git 117，本环境 ConPTY 集成 10 条也完整运行通过）；黄金用例 32/32；oracle 10/10；性能基准见下。
+
+**测试矩阵**（GitUI.Diff.Tests）：
+
+| 类 | 用例 | 内容 |
+|---|---|---|
+| GoldenLineDiffTests | 32 | 黄金用例集：纯增/删（首中尾）、单行改、gap6 合并 / gap7 拆分、跨块移动、整文件替换、空↔非空、全同、CRLF↔LF、EOF 换行、空行内容、context 0/1/100/clamp、100 处分散修改、重复行追加/重排、超长单行、中文、tab/space；每个用例同时断言"应用 hunk 精确还原新文本" |
+| WordDiffTests | 8 | 标识符整体替换、CJK 逐字、空白段、空串、段串接回原行（通用性质） |
+| EncodingSnifferTests | 13 | BOM 三种、UTF-8 中英混排、GBK 判定、Latin1 重音、截断 UTF-8、GBK roundtrip、BOM 剥除、UTF-16 LE |
+| BinaryDetectorTests | 6 | 纯文本/NUL/窗口边界 7999:8000/空/中文 |
+| LargeFileFilterTests | 4 | 5MB 与 20k 行的边界（恰好等于不算超限） |
+| TextDiffPipelineTests | 14 | 端到端：二进制两侧、字节/行数上限、边界值仍 diff、GBK 端到端、编码覆盖、null 侧=新增/删除、EOF 标志、context 透传 |
+| GnuDiffOracleTests | 10 | 与 `diff -u` 对照：块划分允许不同但①应用结果=新文本 ②净行数变化一致 ③无差异判定一致；8 个确定性随机种子 + 2 个固定用例；找不到 diff.exe 时软跳过 |
+| DiffPerformanceTests | 4 | 20k 分散 100 处修改 <300ms / 20k 整块替换 <300ms / 全异 5k 预算兜底 / 20k 全同快路径 |
+| DependencyCheckTests | 1 | GitUI.Diff 不引用 LibGit2Sharp / GitUI.Git / GitUI.App |
+
+**性能基准**（本机实测，Debug 构建）：
+
+- 20k 行分散 100 处修改：**12ms**（阈值 300ms）
+- 20k 行中间整块替换（500→600 行）：**18ms**
+- 20k 行完全相同：**3ms**
+- 5k×5k 完全不同（预算兜底路径）：**188ms**，产出单个整段替换 hunk，结果仍正确
+
+**关键实现决策**：
+
+1. **DiffPkg 不存在，自研 Myers**：设计稿选型"DiffPkg（Microsoft 内部 diff 库）"，NuGet 查证该包不存在（0 结果）。按设计意图（VSCode 同款 Myers 算法）自研，落点 `GitUI.Diff`；性能要求（20k < 300ms）远超达标。
+2. **行语义全项目统一到 `DiffText`**：S1 的 `SplitLines` 有两处问题——"a\n" 会多出幻影空尾行（S1 测试用 InRange 掩盖了）；且剥除所有 `\r` 会让 CRLF→LF 变成"无差异"，与 git 矛盾。S2 起以 `DiffText` 为准：无幻影尾行、`\r` 属于行内容；EOF 是否有换行符由 `TextDiffResult` 的标志单独携带（`"a\nb"` vs `"a\nb\n"` 行内容相同 → 无 hunk，与 git 的 `\ No newline` 标记走渲染层不同路）。
+3. **块头遵循 git**：纯新增/纯删除块（0 计数一侧）的起始行 = 插入/删除点前一行行号，文件最前为 0（`@@ -1,0 +2,1 @@`）；这与 S1 `BuildInsertionHunk` 的全文件新增约定一致，`ParseUnifiedDiff` 解析 libgit2 patch 也天然一致。
+4. **锚点分割 + 预算回退**（性能护城河）：纯 Myers 对"完全不同的超大文件"是 O(D²) 灾难；唯一行锚点把分散修改切成微窗口（20k×100 处修改 12ms 的来源）；锚点缺失的窗口（全是重复行）才走 Myers，预算 `max(65536, (n+m)×1024)` 步，耗尽退化为整段替换——结果永远正确，只是块划分非最小（设计允许"块划分不同但内容等价"）。
+5. **编码探测的 GBK 阈值**：GBK 与 Latin1 不可双检（Latin1 任何字节都合法），启发式要求"每个高位字节都构成合法 GBK 双字节序列且 ≥2 对"——`café`（1 对候选）判 Latin1，真实 GBK 中文文件（≥4 对）判 GBK。编码可经 `TextDiffOptions.EncodingOverride` 手动覆盖（§4.4）。
+6. **oracle 的等价性断言**：与 GNU diff 允许块划分不同（锚点/预算路径都会造成合法差异），因此不比对 hunk 结构，只断言三件事：引擎输出应用到旧文本 = 新文本、净行数变化与 GNU 一致、"无差异"判定一致。
+
+**踩坑**（全部实测抓出）：
+
+1. **middle snake 反向坐标的蛇长符号**：反向（从末端起算）找到的蛇，实际坐标长度是 `xr - xr0`（延伸量），写反成 `xr0 - xr` 会得到负长度 → 递归窗口非法 → IndexOutOfRange / 无进展递归栈溢出（xunit 进程直接崩溃，且堆栈只会显示一串 ComputeRange）。这是 Myers 线性空间变体最隐蔽的实现错误。
+2. **组内 Equal 必须作为上下文行输出**：合并后的编辑块区间里夹着的 Equal op，在组装 hunk 体时要输出为两侧的 `" "` 上下文行；漏掉这个分支会把它当插入行（`+`），表现为上下文行全部变成 `+` 行、旧侧丢行。
+3. **编辑组区间是排他的**：单编辑块的组 `[start, end)` 必须 `ends.Add(k + 1)`，写成 `k` 会让 `ops[end-1]` 取到前一个操作（单编辑 hunk 直接越界崩溃）。
+4. **锚点唯一性必须两侧分别计数**：单一差值计数（a 侧 +1、b 侧 -1）无法区分"两侧各一次"（=0）与"两侧各两次"（=0），后者会误判为锚点，产生漏发插入行的错误编辑脚本。
+5. **测试工具自身也要测**：GNU diff 输出解析器最初在切换 hunk 时未清空行缓冲，导致后续 hunk 累积前一 hunk 的所有行（净行数、added/deleted 全错）。oracle 数值异常时先怀疑解析器，再怀疑引擎。
+6. **xUnit2029**：`Assert.Empty(collection.Where(...))` 会报 xUnit 分析器警告（TreatWarningsAsErrors 下即失败），改用 `Assert.DoesNotContain`。
+
+**对 S1 的两处修正**（随 S2 语义统一）：
+
+- `ComputeDiff_MultipleSeparateChanges_MultipleHunks`：原用例的修改相距 3 行，旧 LineDiff 永不合并所以期望多 hunk；git 语义（gap ≤ 2×context 合并）下是单 hunk。用例改为相距 ≥7 行断言多 hunk，另补 `ComputeDiff_NearbyChanges_MergeIntoSingleHunk` 固化合并行为。
+- `SplitLines` 幻影尾行修正后，`GetFileDiff` 对纯新增/删除文件的 hunk 不再多出空 `+` 行（原 S1 测试用 `InRange(3,4)` 掩盖的行为）。
 
 ---
 

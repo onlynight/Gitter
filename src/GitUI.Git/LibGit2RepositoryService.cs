@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Text;
 using System.Text.RegularExpressions;
 using GitUI.Core.Services;
 using LibGit2Sharp;
@@ -39,6 +38,17 @@ namespace GitUI.Git
     /// </summary>
     public sealed class LibGit2RepositoryService : CoreIRepositoryService
     {
+        private readonly GitUI.Core.Services.IDiffEngine _diffEngine;
+
+        /// <param name="diffEngine">
+        /// 纯文本 diff 引擎（S2）。默认 Myers（GitUI.Diff）；
+        /// 测试可注入替身。libgit2 树对树的 diff 不走这里（见 GetFileDiff/GetCommitDiff）。
+        /// </param>
+        public LibGit2RepositoryService(GitUI.Core.Services.IDiffEngine? diffEngine = null)
+        {
+            _diffEngine = diffEngine ?? GitUI.Diff.MyersDiffEngine.Instance;
+        }
+
         public string Open(string path)
         {
             ArgumentException.ThrowIfNullOrEmpty(path);
@@ -265,10 +275,7 @@ namespace GitUI.Git
 
         public IReadOnlyList<CoreDiffHunk> ComputeDiff(string oldText, string newText)
         {
-            return LineDiff.ComputeHunks(
-                SplitLines(oldText ?? string.Empty),
-                SplitLines(newText ?? string.Empty),
-                contextLines: 3);
+            return _diffEngine.ComputeHunks(oldText ?? string.Empty, newText ?? string.Empty);
         }
 
         // ---------- 私有辅助 ----------
@@ -510,7 +517,7 @@ namespace GitUI.Git
         private static int CountLines(Blob blob)
         {
             var text = blob.GetContentText();
-            return string.IsNullOrEmpty(text) ? 0 : SplitLines(text).Length;
+            return DiffText.CountLines(text);
         }
 
         private static CoreDiffHunk BuildInsertionHunk(Blob blob)
@@ -589,18 +596,7 @@ namespace GitUI.Git
             count = comma >= 0 && int.TryParse(s[(comma + 1)..], out var c) ? c : 1;
         }
 
-        internal static string[] SplitLines(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return Array.Empty<string>();
-            var list = new List<string>();
-            var current = new StringBuilder();
-            foreach (var ch in text)
-            {
-                if (ch == '\n') { list.Add(current.ToString()); current.Clear(); }
-                else if (ch != '\r') current.Append(ch);
-            }
-            list.Add(current.ToString());
-            return list.ToArray();
-        }
+        /// <summary>行切分统一走 <see cref="DiffText"/>（S2 起：无幻影尾行、\r 视为行内容）。</summary>
+        internal static string[] SplitLines(string text) => DiffText.SplitLines(text);
     }
 }

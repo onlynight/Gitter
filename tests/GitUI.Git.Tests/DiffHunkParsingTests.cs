@@ -75,10 +75,23 @@ public sealed class DiffHunkParsingTests : IDisposable
     [Fact]
     public void ComputeDiff_MultipleSeparateChanges_MultipleHunks()
     {
-        var oldText = "a1\na2\na3\na4\na5\na6\na7\na8\na9\n";
-        var newText = "A1\na2\na3\na4\nA5\na6\na7\na8\nA9\n";
+        // S2 起 hunk 组装遵循 git 语义：相距 ≤ 2×context(3) 行相同内容的编辑块合并，
+        // 因此用相距 ≥ 7 行的两处修改断言多 hunk。
+        var oldLines = Enumerable.Range(1, 18).Select(i => $"a{i}");
+        var oldText = string.Join('\n', oldLines) + "\n";
+        var newText = oldText.Replace("a1\n", "A1\n").Replace("a18\n", "A18\n");
         var hunks = Svc.ComputeDiff(oldText, newText);
-        Assert.True(hunks.Count >= 2, $"expected >= 2 hunks, got {hunks.Count}");
+        Assert.Equal(2, hunks.Count);
+    }
+
+    [Fact]
+    public void ComputeDiff_NearbyChanges_MergeIntoSingleHunk()
+    {
+        // 相距 3 行相同内容（≤ 2×context）→ 合并为一个 hunk（git/GNU diff 同语义）
+        var oldText = "a1\na2\na3\na4\na5\na6\na7\na8\na9\n";
+        var newText = "A1\na2\na3\na4\nA5\na6\na7\na8\na9\n";
+        var hunks = Svc.ComputeDiff(oldText, newText);
+        Assert.Single(hunks);
     }
 
     [Fact]

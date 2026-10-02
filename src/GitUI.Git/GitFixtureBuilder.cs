@@ -34,6 +34,8 @@ namespace GitUI.Git
             // core.autocrlf=false 保证 blob 内容与写入内容逐字节一致（Windows 下默认会转 CRLF）
             Run(workDir, home, "config", "core.autocrlf", "false");
             Run(workDir, home, "config", "core.longpaths", "true");
+            // 中文/日文路径按原样输出，不做八进制转义（design.md §9 风险表 S2 项）
+            Run(workDir, home, "config", "core.quotepath", "false");
             Run(workDir, home, "config", "user.email", "fixture@gitui.test");
             Run(workDir, home, "config", "user.name", "Fixture");
             return new GitFixtureBuilder(workDir, home);
