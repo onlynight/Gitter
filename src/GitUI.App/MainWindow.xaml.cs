@@ -21,12 +21,12 @@ public sealed partial class MainWindow : Window
     private readonly ISettingsStore _settings;
     private readonly Button[] _navButtons;
     private readonly Grid _pageHost;
-    private readonly Border _titleBarStrip;
     private readonly Grid _sidebarHost;
     private readonly FontIcon _toggleIcon;
     private readonly Button _collapseBtn;
     private readonly Border _sidebarBorder;
     private readonly Grid _rightHost;
+    private readonly ColumnDefinition _sidebarColumn;
     private bool _collapsed;
     private int _sidebarWidth;
 
@@ -49,19 +49,9 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         _settings = settings;
 
-        // 标题栏拖拽热区：只覆盖左侧 app 名区域（200px），
-        // 右侧留出空间放可点击按钮。
-        // 标题栏拖拽热区：覆盖整个标题栏行，仅用于窗口拖拽。
-        // 可点击按钮通过在其后添加保证 z-order 在上层。
-        _titleBarStrip = new Border
-        {
-            Height = TitleBarHeight,
-            VerticalAlignment = VerticalAlignment.Top,
-            Background = ClearBrush,
-        };
-
-        this.SetTitleBar(_titleBarStrip);
-        this.ExtendsContentIntoTitleBar = true;
+        // 使用 ExtendsContentIntoTitleBar = false：标题栏完全交给 WinUI 系统绘制，
+        // 避免系统标题栏遮挡我们自己放在 Row 0 的 appTitle / collapseBtn。
+        // 窗口仍可通过系统标题栏区域（窗口顶部 48px）拖拽。
         this.Title = "GitUI";
 
         try { this.SystemBackdrop = new MicaBackdrop(); }
@@ -118,12 +108,14 @@ public sealed partial class MainWindow : Window
         _rightHost = new Grid();
         _rightHost.Children.Add(_pageHost);
 
-        // ---- 标题栏：TitleBarStrip（拖拽热区）+ appTitle + collapseBtn ----
+        // ---- 标题栏：app 名 + 收起按钮 ----
+        // 汉堡图标固定于左上角，不跟随 sidebar 折叠状态变化位置。
         _toggleIcon = new FontIcon
         {
             Glyph = "\uE700",
             FontSize = 15,
             VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
         };
 
         _collapseBtn = new Button
@@ -137,7 +129,7 @@ public sealed partial class MainWindow : Window
             Height = 36,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(_sidebarWidth + 8, 0, 0, 0),
+            Margin = new Thickness(8, 0, 0, 0),
         };
         _collapseBtn.Click += CollapseToggle_Click;
 
@@ -146,42 +138,47 @@ public sealed partial class MainWindow : Window
             Text = "GitUI",
             FontSize = 14,
             FontWeight = new Windows.UI.Text.FontWeight(600),
-            Margin = new Thickness(20, 0, 0, 0),
+            Margin = new Thickness(52, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
 
-        // ---- 根布局 ----
-        // Grid: Row 0 = 标题栏 48px，Row 1 = 内容 *
-        //   Col 0: Row 1 = sidebar Border (定宽)
-        //   Col 1: Row 0 = TitleBarStrip + appTitle + collapseBtn
-        //         Row 1 = rightHost (pageHost)
+        // ---- 根布局：2 列 × 2 行 ----
+        //   Row 0 = 标题栏 48px
+        //   Row 1 = 内容 *
+        //   Col 0 = sidebar 宽度（Border.Width 控制实际宽度）
+        //   Col 1 = 剩余 *
+        // sidebar 只占 Row 1，从 y=48 开始；标题栏元素在 Row 0 全宽。
         var rootGrid = new Grid();
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TitleBarHeight) });
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _sidebarColumn = new ColumnDefinition { Width = new GridLength(_sidebarWidth) };
+        rootGrid.ColumnDefinitions.Add(_sidebarColumn);
+        rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        // sidebar 跨越 Row 0 到 Row 1（从顶部开始）
-        _sidebarBorder.VerticalAlignment = VerticalAlignment.Stretch;
-        Grid.SetRow(_sidebarBorder, 0);
-        Grid.SetRowSpan(_sidebarBorder, 2);
-        rootGrid.Children.Add(_sidebarBorder);
-
-        // 右侧 titlebar 元素用 Margin.Left = sidebar 宽度定位
-        _titleBarStrip.Margin = new Thickness(_sidebarWidth, 0, 0, 0);
-        Grid.SetRow(_titleBarStrip, 0);
-        rootGrid.Children.Add(_titleBarStrip);
-
+        // 标题栏元素（Row 0，全宽覆盖两列）
+        // z-order: appTitle 底, collapseBtn 顶（无 TitleBarStrip，系统标题栏处理拖拽）
         appTitle.HorizontalAlignment = HorizontalAlignment.Left;
-        appTitle.Margin = new Thickness(_sidebarWidth + 20, 0, 0, 0);
         Grid.SetRow(appTitle, 0);
+        Grid.SetColumn(appTitle, 0);
+        Grid.SetColumnSpan(appTitle, 2);
         rootGrid.Children.Add(appTitle);
 
         _collapseBtn.HorizontalAlignment = HorizontalAlignment.Left;
-        _collapseBtn.Margin = new Thickness(_sidebarWidth + 8, 0, 0, 0);
+        _collapseBtn.Margin = new Thickness(8, 0, 0, 0); // 固定左上角
         Grid.SetRow(_collapseBtn, 0);
+        Grid.SetColumn(_collapseBtn, 0);
+        Grid.SetColumnSpan(_collapseBtn, 2);
         rootGrid.Children.Add(_collapseBtn);
 
-        _rightHost.Margin = new Thickness(_sidebarWidth, 0, 0, 0);
+        // sidebar 在 Col 0, Row 1（不与标题栏重叠）
+        Grid.SetColumn(_sidebarBorder, 0);
+        Grid.SetRow(_sidebarBorder, 1);
+        rootGrid.Children.Add(_sidebarBorder);
+
+        // 右侧内容 host：Col 1, Row 1
+        _rightHost.Margin = new Thickness(0);
+        Grid.SetColumn(_rightHost, 1);
         Grid.SetRow(_rightHost, 1);
         rootGrid.Children.Add(_rightHost);
 
@@ -201,12 +198,10 @@ public sealed partial class MainWindow : Window
     {
         _collapsed = !_collapsed;
         _sidebarWidth = _collapsed ? SidebarCollapsedWidth : SidebarExpandedWidth;
-        // 更新 sidebar 宽度（Border.Width）
+        // 更新 sidebar 宽度（Border.Width + ColumnDefinition）
         _sidebarBorder.Width = _sidebarWidth;
-        // 更新 collapseBtn 位置：sidebar 右端 + 8
-        _collapseBtn.Margin = new Thickness(_sidebarWidth + 8, 0, 0, 0);
-        // 更新右侧内容 host 左缘
-        _rightHost.Margin = new Thickness(_sidebarWidth, TitleBarHeight, 0, 0);
+        _sidebarColumn.Width = new GridLength(_sidebarWidth);
+        // 汉堡按钮位置固定在左上角，不随折叠状态变化
         _toggleIcon.Glyph = _collapsed ? "\uE712" : "\uE700";
         _settings.Update(s => s.SidebarCollapsed = _collapsed);
         _settings.Save();
@@ -260,32 +255,40 @@ public sealed partial class MainWindow : Window
 
     private Button BuildNavItem(string glyph, string label, string key)
     {
-        // 用 StackPanel(Horizontal) 精确控制：icon(22) + margin + label
-        // 避免 Grid + Star 列让内容自适应时超出 Border 分配的空间
-        var row = new StackPanel
+        // row = Grid，2 列：Col 0 (icon, Width=22), Col 1 (label, Auto)
+        // 展开：label 可见，row 左对齐，icon 与 label 并排
+        // 折叠：label 隐藏，row HorizontalAlignment=Center，icon 单独居中
+        var row = new Grid
         {
-            Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var icon = new FontIcon
         {
             Glyph = glyph,
             FontSize = 16,
             Width = 22,
+            Height = 22,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 0, 14, 0),
+            Margin = new Thickness(0),
             Tag = "icon",
         };
+        Grid.SetColumn(icon, 0);
         row.Children.Add(icon);
 
         var text = new TextBlock
         {
             Text = label,
+            Margin = new Thickness(14, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
             Tag = "label",
         };
+        Grid.SetColumn(text, 1);
         row.Children.Add(text);
 
         var btn = new Button
@@ -359,23 +362,22 @@ public sealed partial class MainWindow : Window
         button.Background = isSelected ? SelectedBrush : isActive ? HoverBrush : ClearBrush;
         button.Opacity = isSelected ? 1.0 : isActive ? 1.0 : 0.8;
 
-        // 折叠时：隐藏标签，图标居中；展开时：图标 + 标签并排
-        if (button.Content is StackPanel row && row.Children.Count >= 2
+        // 折叠时：隐藏标签，row 居中让 icon 居中；
+        // 展开时：row 左对齐，icon 靠左 + label 靠右，边距对称
+        if (button.Content is Grid row && row.Children.Count >= 2
             && row.Children[0] is FontIcon icon
             && row.Children[1] is TextBlock label)
         {
             if (_collapsed)
             {
                 label.Visibility = Visibility.Collapsed;
-                icon.Margin = new Thickness(0);
-                // StackPanel 只有 icon 时，通过 button 的 HorizontalContentAlignment 居中
-                button.HorizontalAlignment = HorizontalAlignment.Center;
+                // row 只有 icon 时居中，icon 自身 Center 于 Col 0
+                row.HorizontalAlignment = HorizontalAlignment.Center;
             }
             else
             {
                 label.Visibility = Visibility.Visible;
-                icon.Margin = new Thickness(0, 0, 14, 0);
-                button.HorizontalAlignment = HorizontalAlignment.Stretch;
+                row.HorizontalAlignment = HorizontalAlignment.Stretch;
             }
         }
     }
