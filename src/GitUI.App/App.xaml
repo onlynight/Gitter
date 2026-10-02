@@ -1,0 +1,6 @@
+<application:Application
+    x:Class="GitUI.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:application="using:Microsoft.UI.Xaml">
+</application:Application>

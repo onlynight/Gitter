@@ -16,6 +16,9 @@ public interface ISettingsStore
     /// <summary>持久化当前设置。返回是否成功。</summary>
     bool Save();
 
+    /// <summary>对当前设置做修改并触发 Changed 事件，但不自动持久化。</summary>
+    void Update(Action<AppSettings> mutate);
+
     /// <summary>设置变更时触发，用于 UI 联动（如主题切换）。</summary>
     event EventHandler? Changed;
 }

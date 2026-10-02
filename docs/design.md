@@ -2,6 +2,81 @@
 
 > 状态：定稿 v1.0
 > 日期：2026-10-02
+> S0 已实现（2026-10-02），验证详见 §11
+
+## 十一、S0 实施记录与踩坑总结
+
+S0 阶段实际开发中遇到并解决的 WinUI 3 陷阱，后续阶段开发前必读：
+
+### 11.1 `MicaBackdrop` 的正确命名空间
+
+`MicaBackdrop` 在 `Microsoft.UI.Xaml.Media` 命名空间下，**不是** `Microsoft.UI.Composition`。
+
+```csharp
+using Microsoft.UI.Xaml.Media;   // 正确
+// using Microsoft.UI.Composition;  // 错误：编译期找不到
+
+this.SystemBackdrop = new MicaBackdrop();
+```
+
+如果命名空间写错，编译期不报错（因为隐式引用了别的位置的 MicaBackdrop），运行时会以 `STATUS_STACK_BUFFER_OVERRUN (0xc000027b)` 崩溃在 `Microsoft.UI.Xaml.dll`，异常代码和位置完全指向 XAML 加载失败，极易误判为 XAML 语法问题。
+
+### 11.2 `Button.Padding` 不能直接设
+
+WinUI 3 的 `Button.Padding` 不是可直接在 XAML 属性中设置的属性（编译期报错），必须通过 Style 的 Setter，或在代码后置中赋值：
+
+```csharp
+// 代码后置：可以
+var btn = new Button { Padding = new Thickness(12), ... };
+
+// XAML：报错，不要这样写
+<Button Padding="12">   <!-- error -->
+```
+
+参考项目 ECHWorkers 通过 `SidebarItemButton` 样式定义 Padding，本项目的 sidebar 按钮全部改为代码后置构建，避开 XAML 属性问题。
+
+### 11.3 `_titleBarStrip` 不能在视觉树中出现两次（关键坑）
+
+`this.SetTitleBar(element)` 会把传入的 element 用作标题栏拖拽热区。该 element **只能作为视觉树中的一个节点的子元素**（通常是右侧内容 Grid 的直接子元素，与 PageHost 并列）。
+
+之前踩的坑：在 ShowPage 里往 `_pageHost` 里 `Add(_titleBarStrip)`，导致同一元素同时是 `_pageHost` 和 `rightHost` 的子元素，触发 XAML 运行时的 `0xc000027b` 崩溃。
+
+**正确做法**（参考 ECHWorkers）：
+
+```xml
+<Grid Grid.Column="1">
+    <Grid x:Name="PageHost"/>
+    <Border x:Name="TitleBarStrip" Height="48" VerticalAlignment="Top" Background="Transparent"/>
+</Grid>
+```
+
+两个 Grid 子元素并列，`TitleBarStrip` 只在视觉树里出现一次。切换页面时 `PageHost.Children` 全清重建，但 `TitleBarStrip` 保持不动。
+
+### 11.4 高 DPI 最小尺寸设置暂不实现
+
+参考项目的 `GWL_MINTRACKSIZE` + 链式 `WndProc` 方案在本项目 S0 阶段测试中触发崩溃（可能是 EnumWindows 时机问题）。S0 阶段先不做最小尺寸限制，S4 打磨阶段再加。当前窗口只设默认尺寸 1120×700，用户可自由缩小到 WinUI 3 的默认下限。
+
+### 11.5 主题切换的正确调用时机
+
+`Application.Current.RequestedTheme` 必须在 `Application.Current != null` 时设置。构造函数里立即调用可能为 null，需要 try/catch 或判空。主题切换后必须手动调用 `ApplyCaptionColors()` 重新设置标题栏配色，因为 `ActualThemeChanged` 事件在构造函数里还未生效。
+
+### 11.6 S0 实际交付清单
+
+- 3 个 csproj（App / Core / Git）+ 1 个测试项目
+- App 支持 Mica 背景、自定义标题栏（透明）、四页签导航、主题切换（跟随系统/浅色/深色）、Diff 模式设置
+- SettingsStore 10 个测试用例全绿（含损坏文件回退、枚举越界归一化、最近仓库去重与截断、更新事件触发）
+- 完整解决方案 `dotnet build` 零警告零错误
+- App 实际启动稳定运行 ≥ 10 秒
+
+### 11.7 S0 未做（留给后续阶段）
+
+- Git 仓库读取与 Log 视图（S1 + S4）
+- Diff 引擎与 DiffCanvas（S2 + S3）
+- Changes 三层列表与提交对话框（S5）
+- Branches 分支树与操作（S6）
+- 命令面板、快捷键、无障碍、多窗口（S7）
+- 高 DPI 最小尺寸限制（S4，需重新调研 WndProc 挂钩时机）
+- MSIX 打包（S7，v1 目标自包含 exe 单目录）
 
 ---
 

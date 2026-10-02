@@ -1,0 +1,8 @@
+<root:Window
+    x:Class="GitUI.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:root="using:Microsoft.UI.Xaml"
+    Title="GitUI">
+    <Grid x:Name="RootGrid"/>
+</root:Window>

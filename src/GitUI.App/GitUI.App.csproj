@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>false</UseWPF>
+    <UseWinUI>true</UseWinUI>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>GitUI.App</RootNamespace>
+    <AssemblyName>GitUI.App</AssemblyName>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <PublishWindowsAppPackage>false</PublishWindowsAppPackage>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <Version>0.0.1</Version>
+    <AssemblyVersion>0.0.1.0</AssemblyVersion>
+    <FileVersion>0.0.1.0</FileVersion>
+    <ApplicationIcon>app_icon.ico</ApplicationIcon>
+    <NoWarn>$(NoWarn);NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GitUI.Core\GitUI.Core.csproj" />
+    <ProjectReference Include="..\GitUI.Git\GitUI.Git.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="app_icon.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- 确保 XAML 编译产物被复制到发布目录 -->
+  <Target Name="CopyXamlArtifactsToPublish" BeforeTargets="Publish">
+    <ItemGroup>
+      <XamlArtifact Include="$(IntermediateOutputPath)**\*.xbf" />
+      <XamlArtifact Include="$(OutputPath)\$(AssemblyName).pri" Condition="Exists('$(OutputPath)\$(AssemblyName).pri')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(XamlArtifact)" DestinationFiles="@(XamlArtifact->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
