@@ -14,10 +14,20 @@ namespace GitUI.App;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
+    private const int SidebarExpandedWidth = 200;
+    private const int SidebarCollapsedWidth = 72;
+    private const int TitleBarHeight = 48;
+
     private readonly ISettingsStore _settings;
     private readonly Button[] _navButtons;
     private readonly Grid _pageHost;
     private readonly Border _titleBarStrip;
+    private readonly Grid _sidebarHost;
+    private readonly ColumnDefinition _sidebarColumn;
+    private readonly FontIcon _toggleIcon;
+    private bool _collapsed;
+    private int _sidebarWidth;
+
     private string _currentKey = "log";
 
     private static SolidColorBrush SelectedBrush =>
@@ -39,7 +49,7 @@ public sealed partial class MainWindow : Window
 
         _titleBarStrip = new Border
         {
-            Height = 48,
+            Height = TitleBarHeight,
             VerticalAlignment = VerticalAlignment.Top,
             Background = ClearBrush,
         };
@@ -61,10 +71,7 @@ public sealed partial class MainWindow : Window
                 workArea.Y + (workArea.Height - 700) / 2));
         }
 
-        // 最小尺寸限制通过 GWL_MINTRACKSIZE 设置（简化版：不做 DPI 换算，仅按逻辑值）
-        // 参考 ECHWorkers 的链式 WndProc 方案（S0 阶段先不做，M0 完成后再加）
-
-        // 布局
+        // ---- 侧边栏 ----
         var items = new (string Glyph, string Label, string Key)[]
         {
             ("\uE789", "Log", "log"),
@@ -74,22 +81,55 @@ public sealed partial class MainWindow : Window
         };
 
         var buttons = new List<Button>();
-        var sidebar = new StackPanel { Spacing = 2 };
+        var navStack = new StackPanel { Spacing = 2 };
         foreach (var (glyph, label, key) in items)
         {
             var btn = BuildNavItem(glyph, label, key);
             buttons.Add(btn);
-            sidebar.Children.Add(btn);
+            navStack.Children.Add(btn);
         }
         _navButtons = buttons.ToArray();
 
+        _sidebarHost = new Grid();
+        _sidebarHost.Children.Add(navStack);
+
+        // ---- 右侧内容区 ----
         _pageHost = new Grid();
 
-        var titleBorder = new Border
+        var rightHost = new Grid();
+        rightHost.Children.Add(_pageHost);
+
+        // ---- 标题栏：app 名 + 收起按钮 ----
+        _toggleIcon = new FontIcon
+        {
+            Glyph = "\uE700", // Collapse（向左）
+            FontSize = 15,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var collapseBtn = new Button
+        {
+            Content = _toggleIcon,
+            Background = ClearBrush,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(8),
+            CornerRadius = new CornerRadius(8),
+            Width = 36,
+            Height = 36,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        collapseBtn.Click += CollapseToggle_Click;
+
+        var titleBarRow = new Grid();
+        titleBarRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        titleBarRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        // app 名（左，与 sidebar 对齐）
+        var appTitle = new Border
         {
             Margin = new Thickness(20, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Top,
-            Height = 48,
+            Height = TitleBarHeight,
             Child = new TextBlock
             {
                 Text = "GitUI",
@@ -98,20 +138,44 @@ public sealed partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center,
             },
         };
+        Grid.SetColumn(appTitle, 0);
+        titleBarRow.Children.Add(appTitle);
 
-        var rightHost = new Grid();
-        rightHost.Children.Add(_pageHost);
-        rightHost.Children.Add(_titleBarStrip);
+        // 收起按钮（在 sidebar 右侧列的左端）
+        var collapseBorder = new Border
+        {
+            Margin = new Thickness(8, 0, 0, 0),
+            Height = TitleBarHeight,
+            Child = collapseBtn,
+        };
+        Grid.SetColumn(collapseBorder, 1);
+        titleBarRow.Children.Add(collapseBorder);
 
+        // ---- 根布局：Row 0 = 标题栏，Row 1 = 内容（sidebar + right） ----
         var rootGrid = new Grid();
-        rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
-        rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(sidebar, 0);
-        rootGrid.Children.Add(sidebar);
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TitleBarHeight) });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        Grid.SetRow(titleBarRow, 0);
+        rootGrid.Children.Add(titleBarRow);
+
+        // 内容行：sidebar + rightHost
+        _sidebarWidth = _settings.Current.SidebarCollapsed ? SidebarCollapsedWidth : SidebarExpandedWidth;
+        var contentGrid = new Grid();
+        _sidebarColumn = new ColumnDefinition { Width = new GridLength(_sidebarWidth) };
+        contentGrid.ColumnDefinitions.Add(_sidebarColumn);
+        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(_sidebarHost, 0);
+        contentGrid.Children.Add(_sidebarHost);
         Grid.SetColumn(rightHost, 1);
-        rootGrid.Children.Add(rightHost);
-        Grid.SetColumn(titleBorder, 0);
-        rootGrid.Children.Add(titleBorder);
+        contentGrid.Children.Add(rightHost);
+
+        Grid.SetRow(contentGrid, 1);
+        rootGrid.Children.Add(contentGrid);
+
+        // 标题栏拖拽条覆盖整个标题栏行
+        Grid.SetRow(_titleBarStrip, 0);
+        rootGrid.Children.Add(_titleBarStrip);
 
         RootGrid.Children.Clear();
         RootGrid.Children.Add(rootGrid);
@@ -121,8 +185,19 @@ public sealed partial class MainWindow : Window
         _settings.Changed += (_, _) => ApplyTheme(_settings.Current.Theme);
 
         RefreshNavVisuals();
-
         ShowPage("log");
+    }
+
+    /// <summary>标题栏折叠/展开按钮点击处理。</summary>
+    private void CollapseToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _collapsed = !_collapsed;
+        _sidebarWidth = _collapsed ? SidebarCollapsedWidth : SidebarExpandedWidth;
+        _sidebarColumn.Width = new GridLength(_sidebarWidth);
+        _toggleIcon.Glyph = _collapsed ? "\uE712" : "\uE700"; // 展开：E712(向右)，收起：E700(向左)
+        _settings.Update(s => s.SidebarCollapsed = _collapsed);
+        _settings.Save();
+        RefreshNavVisuals();
     }
 
     /// <summary>按 ThemePreference 应用主题并同步标题栏配色。</summary>
@@ -172,9 +247,29 @@ public sealed partial class MainWindow : Window
 
     private Button BuildNavItem(string glyph, string label, string key)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
-        row.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center });
-        row.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var icon = new FontIcon
+        {
+            Glyph = glyph,
+            FontSize = 16,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 14, 0),
+        };
+        Grid.SetColumn(icon, 0);
+        row.Children.Add(icon);
+
+        var text = new TextBlock
+        {
+            Text = label,
+            VerticalAlignment = VerticalAlignment.Center,
+            Tag = "label",
+        };
+        Grid.SetColumn(text, 1);
+        row.Children.Add(text);
 
         var btn = new Button
         {
@@ -246,8 +341,11 @@ public sealed partial class MainWindow : Window
 
         button.Background = isSelected ? SelectedBrush : isActive ? HoverBrush : ClearBrush;
         button.Opacity = isSelected ? 1.0 : isActive ? 1.0 : 0.8;
-    }
 
-    // P/Invoke / WndProc 挂钩 / GWL_MINTRACKSIZE 在 S0 阶段未启用；
-    // 参考 ECHWorkers.WinUI3 的链式 WndProc 方案，在 S4 打磨阶段按需加入。
+        // 折叠时隐藏标签文字
+        if (button.Content is Grid row && row.Children.Count >= 2 && row.Children[1] is TextBlock label)
+        {
+            label.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
+        }
+    }
 }

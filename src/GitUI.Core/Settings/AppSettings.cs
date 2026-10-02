@@ -16,6 +16,9 @@ public sealed class AppSettings
     /// <summary>Diff 视图默认模式：SideBySide 或 Inline。</summary>
     public DiffViewMode DiffMode { get; set; } = DiffViewMode.SideBySide;
 
+    /// <summary>侧边栏是否收起（仅显示图标）。</summary>
+    public bool SidebarCollapsed { get; set; } = false;
+
     public static AppSettings Default => new();
 }
 
