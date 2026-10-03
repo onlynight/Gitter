@@ -412,10 +412,12 @@ public sealed class BranchesPage : UserControl
             Text = b.IsHead ? "\u2713 " + b.Name : b.Name,
             FontSize = 13,
             FontWeight = b.IsHead ? new Windows.UI.Text.FontWeight(600) : new Windows.UI.Text.FontWeight(400),
-            Foreground = b.IsHead ? HeadBrush : null,
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
+        // 仅 HEAD 分支着色；其余分支不能设 Foreground=null——null 本地值会覆盖主题
+        // 默认前景画刷导致文字不可见（分支名消失 bug）
+        if (b.IsHead) name.Foreground = HeadBrush;
         var meta = new TextBlock
         {
             Text = b.Meta,
