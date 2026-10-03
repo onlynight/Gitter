@@ -577,18 +577,24 @@ namespace GitUI.Git
         private static void ParseHunkHeader(
             string header, out int oldStart, out int oldCount, out int newStart, out int newCount)
         {
+            // "@@ -1,7 +1,7 @@ [可选节标题]"：按空白分词后取首个 -/+ token，剥掉符号再解析。
+            // 此前直接对 header[idx..] 做 TryParse：旧侧起始行被解析成 -1（负号没剥）、
+            // 计数因尾部杂质解析失败回退成 1（S3 渲染真实仓库时暴露）。
             oldStart = oldCount = newStart = newCount = 0;
-            var idx = header.IndexOf('-', 2);
-            if (idx < 0) return;
-            ParseRange(header[idx..].Trim(), out oldStart, out oldCount);
+            string? oldTok = null, newTok = null;
+            foreach (var tok in header.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (oldTok is null && tok.Length > 1 && tok[0] == '-') oldTok = tok[1..];
+                else if (newTok is null && tok.Length > 1 && tok[0] == '+') newTok = tok[1..];
+            }
 
-            var plus = header.IndexOf('+', idx);
-            if (plus < 0) return;
-            ParseRange(header[plus..].Trim(), out newStart, out newCount);
+            if (oldTok is not null) ParseRange(oldTok, out oldStart, out oldCount);
+            if (newTok is not null) ParseRange(newTok, out newStart, out newCount);
         }
 
         private static void ParseRange(string s, out int start, out int count)
         {
+            // "1,7" 或 "1"（git 语义：省略计数表示 1）
             start = count = 0;
             var comma = s.IndexOf(',');
             var range = comma >= 0 ? s[..comma] : s;

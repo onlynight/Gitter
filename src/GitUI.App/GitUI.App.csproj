@@ -20,6 +20,9 @@
     <FileVersion>0.0.1.0</FileVersion>
     <ApplicationIcon>app_icon.ico</ApplicationIcon>
     <NoWarn>$(NoWarn);NU1701</NoWarn>
+    <!-- GitUI.Controls 引入 Win2D（原生 dll 按 RID 解析）；RID 固定 x64，输出路径形状不变 -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -32,6 +35,7 @@
     <ProjectReference Include="..\GitUI.Core\GitUI.Core.csproj" />
     <ProjectReference Include="..\GitUI.Git\GitUI.Git.csproj" />
     <ProjectReference Include="..\GitUI.Shell\GitUI.Shell.csproj" />
+    <ProjectReference Include="..\GitUI.Controls\GitUI.Controls.csproj" />
   </ItemGroup>
 
   <ItemGroup>

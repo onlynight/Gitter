@@ -14,6 +14,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="GitUI.Git.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\GitUI.Core\GitUI.Core.csproj" />
     <ProjectReference Include="..\GitUI.Diff\GitUI.Diff.csproj" />
   </ItemGroup>

@@ -25,6 +25,12 @@
                     </StackPanel>
                 </StackPanel>
             </Border>
+            <Border Background="#FF303030" CornerRadius="10" Padding="16">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="开发工具" FontSize="13" FontWeight="SemiBold"/>
+                    <controls:Button x:Name="DiffPreviewBtn" Content="打开 Diff 渲染预览（S3 验证）" Padding="12,6" CornerRadius="6" Click="DiffPreview_Click"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </Grid>
 </UserControl>

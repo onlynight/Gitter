@@ -39,6 +39,12 @@ public sealed partial class SettingsPage : UserControl
         _settings.Save();
     }
 
+    /// <summary>打开 S3 Diff 渲染预览窗口（手动验证工具，非正式页签）。</summary>
+    private void DiffPreview_Click(object sender, RoutedEventArgs e)
+    {
+        new DiffPreviewWindow(_settings).Activate();
+    }
+
     private void RefreshAppearance()
     {
         if (ThemeSystemBtn == null) return;

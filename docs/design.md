@@ -2,7 +2,7 @@
 
 > 状态：定稿 v1.4（2026-10-03 Git Bash 承载位置变更：右侧面板 → 左侧导航页签，见 §11.12）
 > 日期：2026-10-03
-> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11
+> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11；S3 已实现（2026-10-03），验证详见 §11.13
 
 ## 十一、S0 实施记录与踩坑总结
 
@@ -71,7 +71,7 @@ var btn = new Button { Padding = new Thickness(12), ... };
 ### 11.7 S0 未做（留给后续阶段）
 
 - Git 仓库读取与 Log 视图（S1 + S4）
-- ~~Diff 引擎~~（S2 已完成，见 §11.11）；DiffCanvas 渲染（S3）
+- ~~Diff 引擎~~（S2 已完成，见 §11.11）；~~DiffCanvas 渲染~~（S3 已完成，见 §11.13；S4 复用）
 - Git Bash 面板收尾（S2b TerminalParser + S3b TerminalCanvas 渲染 + S0e 与工作区联动）；S0b/S0c/S0d 已完成，见 §11.10
 - Changes 三层列表与提交对话框（S5）
 - Branches 分支树与操作（S6）
@@ -238,6 +238,58 @@ var btn = new Button { Padding = new Thickness(12), ... };
 - S3b（TerminalCanvas）直接落在 `BashPage` 内，不再涉及窗口级 Grid/列操作；
 - S0e 的"面板未打开时不启动进程"语义变为"未进入页签不启动"，`Lazy` 会话单例不变；
 - §4.7.2 的 `Alt+Enter`（面板最大化）随右栏废弃；`Ctrl+Shift+C/V` 保持，S3b 实装。
+
+### 11.13 S3 实施记录（2026-10-03）
+
+**交付**：
+
+- `GitUI.Diff/Render`（纯渲染管线，零 UI 依赖，与引擎同程序集）：
+  - `DiffRenderModel`：`DiffHunk[]` → 视觉行序列。并排模式每行左右两格（纯增/删与段长不齐的余量一侧放 `Filler` 填充格）；内联模式单格、删除行在前（unified 顺序）。行号跨 hunk 连续追踪（git 0 计数语义：0 计数侧无行号）；tab 展开到 8 列制表位；"\ No newline at end of file" 标记行（由 `TextDiffResult` 的 EOF 标志驱动，仅标记真实存在内容的侧）；`ChangeBlocks`（连续变更区间，Alt+↑/↓ 导航单元）；`EnsureWordDiff(first,last)` 惰性字级差异——构建时只做 1:1 行配对（VSCode 同款），可视行的配对行才调 `ComputeWordDiff` 并缓存（单对 >4096 字符跳过防 O(n·m)）。
+  - `DiffLayoutEngine`：模型 + `DiffMetrics` + `DiffViewport` → `DiffFrame`（`FillRectCommand`/`TextCommand` 绘制命令列表）。行高 18px 固定栅格；只绘可视区 + 上下 overscan 20 行（上方行以负 y 输出）；行号槽固定不随水平滚动；并排两列均分、文本按等宽格**逐 run 软件裁剪**（列边界处首字符 ceil/末字符 floor，不依赖图形栈裁剪，杜绝压到行号槽）；内联双行号槽 + `+`/`-` 标记列；当前变更块左缘 3px 高亮条。
+  - `DiffPalette`：浅/深两套语义色（GitHub Diff / VSCode 配色基准），管线与测试只见 `DiffColorKind`。
+  - `DiffMetrics`：行高 18、字符宽默认 7.8（运行期由控件实测注入）、GutterPadding 8、OverscanRows 20。
+- `GitUI.Controls`（新 WinUI 类库）：`DiffCanvas` 控件（纯代码构建）——Win2D `CanvasControl` 即时绘制，翻译绘制命令为 `FillRectangle`/`DrawText`；双 `ScrollBar`（行滚动 + 水平滚动）；字符宽与垂直居中偏移用 `CanvasTextLayout` 实测（DIP 坐标，DPI 档位变化才重算）；`ActualThemeChanged` 换调色板；键盘 ↑↓/PgUp/PgDn/Home/End/←→，`Alt+↓/↑` 变更块跳转（最小滚动，块不可见时定位到 1/3 屏）；滚轮 3 行/格；`Message` 空态文案（二进制/大文件/无差异）。
+- `GitUI.App`：`DiffPreviewWindow`（S3 手动验证工具，非正式页签）——路径输入 → 提交列表（最近 100）→ 变更文件列表 → DiffCanvas 渲染；设置页新增"开发工具 → 打开 Diff 渲染预览（S3 验证）"入口。
+- `tests/GitUI.Render.Tests`（新 Headless 渲染测试工程，61 用例）：软件光栅化 `PixelBuffer`（FillRect → 像素缓冲，**截图对比**层）+ 命令级**几何断言**。
+- `scripts/verify-s3.ps1`（一键：构建零警告 → 全量测试 → 渲染管线 → 性能基准）；`scripts/smoke-diff-preview.ps1`（UIA 冒烟）；`scripts/capture-diff-preview.ps1` / `capture-diff-inline.ps1`（截屏视觉核查工具）。
+
+**验证**：`dotnet build` 全解决方案零警告零错误；`dotnet test` **363 用例全绿**（Core 51 + Diff 91 + Render 61 + Shell 38 + Git 122）；UIA 冒烟通过（设置 → 预览窗口 → 打开本仓库 → 选提交/文件 → Diff 视图渲染）；截屏视觉核查通过（并排/内联/字级高亮/Alt+↓ 当前变更条/中文渲染，见下）。
+
+**测试矩阵**（GitUI.Render.Tests）：
+
+| 类 | 用例 | 内容 |
+|---|---|---|
+| ModelSideBySideTests | 15 | 上下文配对、纯增/删填充、修改对 1:1、段长不齐余量、hunk 头、跨 hunk 行号跳变、EOF 标记（单/双侧/无）、空输入、tab 展开、MaxTextColumns、变更块划分 |
+| ModelInlineTests | 6 | unified 顺序（ctx-del-add-ctx）、双行号列、无填充行、字级配对属主、EOF 标记、CJK 内容 |
+| WordHighlightTests | 7 | 段串接覆盖两侧、配对格共享分段表、范围惰性、幂等缓存、超长对跳过、未配对行无高亮、CJK 逐字 |
+| LayoutGeometryTests | 14 | 18px 栅格 y 坐标、hunk 头全宽、行号右对齐固定、水平滚动只移文本（含列边界整格裁剪）、字级段 x 映射（含前导 Equal 段占列）、长行裁剪（48 字符 = colW/charW）、overscan 负 y、FirstRow 夹紧、当前变更条、内联标记列、空模型 |
+| PixelRenderTests | 8 | 像素级颜色块断言：增/删/上下文/填充/hunk 头背景、字级高亮矩形与行背景区分、当前变更条、overscan 裁剪、内联整行背景 |
+| PaletteTests | 3 | 全种别已配、主题差异、字级高亮与行背景可区分 |
+| RenderPerformanceTests | 4 | 10k 行首帧 <200ms、并排/内联 120 帧滚动 <33ms、一屏字级 <16ms |
+| DependencyCheckTests | 2 | 渲染管线程序集不引用任何 UI/图形栈/git |
+
+**性能基准**（本机实测，Debug 构建）：
+
+- 10k 渲染行 diff（≈1240 hunk）首帧（模型 + 可视区字级 + 布局）：**14ms**（阈值 200ms；模型 14ms + 字级/布局 <1ms）
+- 10k 行 120 帧滚动模拟：**平均 0.07ms / 峰值 2.75ms**（30fps 帧预算 33ms）
+- 一屏（60 行）字级差异计算：<16ms（惰性，仅可视区）
+
+**关键实现决策**：
+
+1. **命令式渲染管线 + Win2D 薄壳**：布局产出与图形栈无关的绘制命令，Headless 测试用软件光栅化做像素断言；`DiffCanvas` 只做事件接线与 Win2D 翻译。"截图对比 + 几何断言"两层验证都不需要 GPU/XAML 运行时（本机 ConPTY 环境损坏的教训：凡是能脱离系统服务验证的都要能脱离）。
+2. **字级差异惰性化**：10k 行 diff 若构建时全量算字级会吃掉首帧预算；改为 `EnsureWordDiff(可视区±overscan)`，滚动时增量计算并缓存，实测首帧字级开销 <1ms。
+3. **等宽格软件裁剪**：列边界处按 `ceil/floor` 整格裁剪文本 run，部分可见字符整格丢弃——与图形栈裁剪无关，像素测试完全确定，且杜绝长行 bleed 到行号槽。
+4. **Win2D 需要 RID**：`Microsoft.Graphics.Canvas.dll` 按架构解析，AnyCPU 构建下不可引用（WIN2D0001）。App/Controls 固定 `RuntimeIdentifier=win-x64` + `AppendRuntimeIdentifierToOutputPath=false`（输出路径形状不变，脚本零改动）。
+5. **脚本 UTF-8 BOM**：PowerShell 5.1 对无 BOM 的 UTF-8 脚本按 ANSI/GBK 读取，中文字符串会吞掉引号导致解析错误；`smoke-*.ps1`/`capture-*.ps1`/`verify-*.ps1` 必须带 BOM。
+6. **CanvasControl 度量 API 实测**：本机 Win2D 1.4.0 的 `CanvasTextLayout` 无 `LayoutMetrics`/`GetLineMetrics()`（与常见教程不同），用 `LayoutBounds.Width` 量字符步进、`LineMetrics[0].Height` 量自然行高；WinUI 3 投影无可重写的 `OnPointerWheelChanged`，改事件订阅。
+
+**踩坑**：
+
+1. **S1 遗留 bug：`ParseHunkHeader` 把真实仓库的 hunk 头全部解析错**（视觉核查抓出）：旧实现 `header.IndexOf('-')` 后把 `"-1,7 +1,7 @@"` 整段喂给 `ParseRange`——`int.TryParse("-1")` 成功 → OldStart = **-1**；计数部分 `"7 +1,7 @@"` 解析失败回退 → OldCount = **1**。渲染表现为块头 `@@ --1,1 +1,1 @@`、行号 -1/0 不可见（`>0` 才绘制）、后续从 1 重排。S1 的 DiffHunkParsingTests 只断言行内容、从未断言块头字段，因此一路绿灯。已修复（按空白分词、剥符号再解析）并补 5 个回归用例（含节标题、`-0,0` 纯增、省略计数=1）。
+2. **GetCommitDiff 的 hunk 无 EOF 标志**：libgit2 patch 中的 `\ No newline` 行在 `ParseUnifiedDiff` 中被静默丢弃，`DiffResult` 也不携带 EOF 信息——提交 diff 暂无 EOF 标记行（`TextDiffPipeline` 来源的 diff 有）。S4/S5 接线时若需要，让服务层透出该标志即可，渲染端已支持。
+3. **性能基准负载要按"渲染行数"设计**：首版用"10k 行 100 处修改"只有 792 渲染行（hunk 少）；改为每 8 行一处修改（> 2×context 保证 hunk 不合并）才与设计的"10k 行 diff"对齐。
+
+**手动验证清单状态**（design.md §8-S3）：本仓库（含中文、长行、表格、markdown）并排/内联渲染无错位 ✅；10 个真实仓库 × 20 个真实 diff 的人眼核查留给使用者，入口：设置 → 打开 Diff 渲染预览，配合 `scripts/capture-diff-preview.ps1`（并排）与 `capture-diff-inline.ps1`（内联 + Alt+↓）截屏工具。
 
 ---
 

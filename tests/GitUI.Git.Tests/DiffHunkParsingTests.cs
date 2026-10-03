@@ -100,3 +100,53 @@ public sealed class DiffHunkParsingTests : IDisposable
         Assert.Empty(Svc.ComputeDiff("same\nsame\n", "same\nsame\n"));
     }
 }
+
+/// <summary>
+/// S3 回归：ParseUnifiedDiff 的 hunk 头解析（docs/design.md §11.13）。
+/// 旧实现把 "-1,7 +1,7 @@" 整段喂给 TryParse：OldStart 解析成 -1、
+/// OldCount 因尾部杂质回退 1 —— 真实仓库 diff 的行号与块头全部错位。
+/// </summary>
+public sealed class HunkHeaderParseTests
+{
+    private static (int OldStart, int OldCount, int NewStart, int NewCount) Parse(string patch)
+    {
+        var hunks = LibGit2RepositoryService.ParseUnifiedDiff(patch);
+        Assert.Single(hunks);
+        return (hunks[0].OldStart, hunks[0].OldCount, hunks[0].NewStart, hunks[0].NewCount);
+    }
+
+    [Fact]
+    public void StandardHeader_BothCounts()
+    {
+        var h = Parse("@@ -1,7 +1,7 @@\n ctx\n-old\n+new\n ctx\n ctx\n ctx\n ctx");
+        Assert.Equal((1, 7, 1, 7), h);
+    }
+
+    [Fact]
+    public void TrailingSectionHeading_Ignored()
+    {
+        var h = Parse("@@ -12,4 +12,5 @@ public static void Main()\n ctx");
+        Assert.Equal((12, 4, 12, 5), h);
+    }
+
+    [Fact]
+    public void PureAddition_CountZeroOldSide()
+    {
+        var h = Parse("@@ -0,0 +1,3 @@\n+a\n+b\n+c");
+        Assert.Equal((0, 0, 1, 3), h);
+    }
+
+    [Fact]
+    public void PureDeletion_CountZeroNewSide()
+    {
+        var h = Parse("@@ -1,3 +0,0 @@\n-a\n-b\n-c");
+        Assert.Equal((1, 3, 0, 0), h);
+    }
+
+    [Fact]
+    public void OmittedCount_MeansOne()
+    {
+        var h = Parse("@@ -5 +5 @@\n-old\n+new");
+        Assert.Equal((5, 1, 5, 1), h);
+    }
+}
