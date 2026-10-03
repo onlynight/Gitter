@@ -2,7 +2,7 @@
 
 > 状态：定稿 v1.5（2026-10-03 Git Bash 承载位置变更：右侧面板 → 左侧导航页签，见 §11.12）
 > 日期：2026-10-03
-> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11；S3 已实现（2026-10-03），验证详见 §11.13；S4 已实现（2026-10-03），验证详见 §11.14；S5 已实现（2026-10-03），验证详见 §11.15；S6 已实现（2026-10-03），验证详见 §11.16；S7 已实现（2026-10-03），验证详见 §11.17；通用 git diff（任意两点比较，§4.2 P1 基础版）已随 S7 补充实现
+> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11；S3 已实现（2026-10-03），验证详见 §11.13；S4 已实现（2026-10-03），验证详见 §11.14；S5 已实现（2026-10-03），验证详见 §11.15；S6 已实现（2026-10-03），验证详见 §11.16；S7 已实现（2026-10-03），验证详见 §11.17；S2b/S3b/S0e 已实现（2026-10-03），验证详见 §11.18；通用 git diff（任意两点比较，§4.2 P1 基础版）已随 S7 补充实现
 
 ## 十一、S0 实施记录与踩坑总结
 
@@ -441,6 +441,40 @@ var btn = new Button { Padding = new Thickness(12), ... };
 - 踩坑：比较栏按钮可用性依赖 `_vm.Selected`，而它在异步 `SelectAsync` 内赋值——只在同步 `SelectCommit`/`Rebind` 刷新会留下"按钮禁用但已有选中"的窗口期（冒烟 ElementNotEnabled 抓出），`UpdateDetail`（SelectionChanged 路径）必须同步刷新。
 - 测试：`TreeDiffTests`（5：跨提交对比增/删/改、方向反转、同树空 diff、未知 SHA 抛错、VM 基准流程）；smoke-log-page 扩展基准设置/清除链路。
 
+### 11.18 S2b/S3b/S0e 实施记录（2026-10-03，Git Bash 支线收官）
+
+**交付**：
+
+- **S2b TerminalParser**（`GitUI.Shell`，纯逻辑零 UI）：
+  - `TerminalBuffer`：**行指针数组**网格（滚动 = 行引用旋转 + 备用行复用，O(cols)，10MB 输出 ≈ 14 万次滚动零分配零大块搬移）；主/备屏（?1049/47/1047）；scrollback 上限 10000（Queue + 淘汰行数组回收）；DECSTBM 滚动区；**xterm 挂起换行模型**（写满一行光标钉末列，下个可见字符触发）；SGR 属性驻留表（cell 8 字节 int 索引，无引用写屏障——xterm.js 同款设计）；宽字符占两格（续格标记）、组合字符忽略。
+  - `TerminalParser`：Ground/Escape/CSI/OSC 状态机；光标移动/擦除（ED/EL）/插删（ICH/DCH/IL/DL）/滚动（CSI S/T）/DECSTBM/DECSC·DECRC/RIS；SGR 全量（16/256/RGB、bold 提亮、reverse）；OSC 0/2 标题；私有模式 ?1 ?5 ?6 ?7 ?25 ?47 ?1047 ?1049 ?2004；UTF-8 增量解码（跨 Feed 截断序列缓存）+ ASCII 快路径（跳过 Decoder）；DSR/DA 应答事件（宿主写回 PTY，vim 类全屏程序必需）。
+- **S3b 渲染**：
+  - `Shell/Render/TerminalRenderModel`（纯逻辑零 UI）：buffer + 视口 → 填充矩形/文本 run 命令；同属性相邻格合并 run（SGR 分组批量绘制）；绝对行号（0 = scrollback 最旧）；`TerminalPalette` 浅/深两套 + SGR 解析（bold 提亮 0-7、reverse 交换、256/RGB 直通）。
+  - `GitUI.Controls/TerminalCanvas`：Win2D 即时绘制渲染命令；滚动条（scrollback 视窗）；光标闪烁（500ms，仅聚焦）；选区（鼠标拖拽矩形，按行提取文本）+ Ctrl+Shift+C 复制 / Ctrl+Shift+V 粘贴（括号粘贴跟随 buffer）；键盘 → PTY 编码（方向键/Home/End 随 ?1 模式切换应用光标序列、Ctrl+字母控制字符、Enter/BS/Tab/Esc）；字体度量 CanvasTextLayout 实测；主题即时切换。
+- **S0e BashPage 接线**：TerminalCanvas + TerminalParser + ConptySession（`bash -i -l`）三方接通；Lazy 会话（页签首显启动，重复无害）；输出/应答经 DispatcherQueue 回投；跟随仓库（上下文变化写 `cd "<repo>"`）；BashLocator 失败空态卡片（下载页 + 手动指定路径 + 重开）；⋯菜单（重开 shell/复制屏幕输出/打开 .bashrc/跟随仓库切换）；状态条（会话状态/PTY 尺寸/跟随/ Shell 名）；会话退出显示 code。
+- 测试：`TerminalParserGoldenTests` 64 用例（§8-S2b 黄金集 ≥50 达标：控制字符/光标/擦除/插删/滚动区/SGR 全量/模式开关/备屏/UTF-8 跨 Feed/宽字符/组合字符/DSR 应答/鲁棒性）+ tmux oracle（无 tmux 软跳过）+ 10MB 基准（Release 达标 <500ms）；`TerminalRenderTests` 15 用例（run 合并/拆分、颜色解析含 bold 提亮与 reverse、scrollback 绝对行、光标/选区几何、10k scrollback 可视布局 100 帧 <1600ms）。
+
+**验证**：Shell.Tests 118 用例全绿（Debug 下 perf 分档预算 1200ms、Release 500ms 达标实测 ~450ms）；Git Bash 真实会话冒烟 `smoke-bash-terminal.ps1` PASS（ConPTY 探测失败时软跳过 exit 2）；无障碍扫描 96 交互元素零缺失；全解决方案构建零警告。
+
+**关键实现决策**：
+
+1. **行指针数组 + 属性驻留索引**（对齐 xterm.js 架构）：TerminalCell 8 字节（char + int 索引），滚动 = 30 次行引用旋转，消除 10MB 输出下 20GB 的逐行搬移与 700MB 的滚动分配——这是 500ms 预算达标的根。
+2. **SGR memo 缓存**：shell 输出反复使用少数几种属性，参数向量 → 属性索引的字典命中后零分配（曾占 ~300ms）。
+3. **顶行数组移交 + 备用行**：滚动时 row0 数组整体入队（内容零拷贝），底行取自回收池——**严禁同一数组既入队又留屏**（别名让历史行被后续写入污染，测试抓出）。
+4. **冒烟触发双通道**：命令面板/终端均避免 RDP 会话 SendKeys 静默失效（§11.17 教训延续），终端冒烟只断言状态条与元素存在性，键盘链路由 Shell.Tests 的 ConPTY 集成测试覆盖。
+
+**踩坑**（全部实测）：
+
+1. **C# "7" 贪吃十六进制**：`` 后的 7 是 hex digit，被合并成单字符 U+01B7 'Ʒ'——测试/代码中的 ESC 一律写 ``。
+2. **滚动区未初始化**：构造函数漏设 DECSTBM 默认值（0/0），导致每次 LF 都命中"区底"整屏滚动——黄金用例大面积失败的首因。
+3. **行引用旋转的数组别名**：row0 数组入队 scrollback 后又被旋转复用为底行，历史行被后续写入静默污染（断言 line13 变 line19）。
+4. **lambda 早于字段赋值注册**：可空流分析把捕获的 readonly 字段视为可能 null（CS8602），事件挂接必须移到字段赋值之后。
+5. **perf 跨程序集并行**：Shell perf 与其他程序集 perf 并行时 CPU 争抢，必须有 Category=Perf trait + 串行 collection（§11.14 教训延续）。
+6. **状态条正则**：'×'（U+00D7）不是 ASCII 'x'，UIA 断言要按实际字符写。
+
+**对后续的影响**：Git Bash 支线 S0b–S0e 全部完成；v2 项（输出解析回写 IndexState、命令块折叠、鼠标坐标协议）在 known-issues.md 跟踪。
+
+---
 **遗留与范围外**（known-issues.md 持续跟踪）：
 
 - Git Bash 支线（S2b TerminalParser / S3b TerminalCanvas / S0e 接线）仍为并行阶段，未在本批范围；

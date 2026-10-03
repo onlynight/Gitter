@@ -82,8 +82,5 @@ public sealed class TmuxOracleTests
             return stdout;
         }
 
-        static void Run2()
-        {
-        }
     }
 }

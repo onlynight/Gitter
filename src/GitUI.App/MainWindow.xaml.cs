@@ -491,8 +491,10 @@ public sealed partial class MainWindow : Window
     private void ShowPage(string key)
     {
         _currentKey = key;
+        // S0e：Bash 页签首次显示时启动 ConPTY 会话（Lazy）
+        if (key == "bash") _bashPage?.OnShown();
 
-        _bashPage ??= new BashPage(_settings);
+        _bashPage ??= new BashPage(_settings, _repoContext);
         UIElement page = key switch
         {
             "changes" => _changesPage ??= new ChangesPage(_settings, _repoService, _repoContext),

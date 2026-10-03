@@ -9,6 +9,7 @@ namespace GitUI.Shell.Tests;
 /// S2b TerminalParser 黄金用例集（design.md §8-S2b：≥50 例，参考 xterm.js 兼容性测试集）。
 /// 用例计数：本文件 xunit 用例（Theory 展开后）≥ 60。
 /// </summary>
+[Collection("PerfSerial")]
 public sealed class TerminalParserGoldenTests
 {
     private static (TerminalBuffer Buf, TerminalParser Parser) NewTerm(int cols = 10, int rows = 4)
@@ -708,6 +709,7 @@ public sealed class TerminalParserGoldenTests
     // ---- 性能基准（§8-S2b：10MB < 500ms）----
 
     [Fact]
+    [Trait("Category", "Perf")]
     public void Perf_10MB_Under500Ms()
     {
         var (b, p) = NewTerm(cols: 120, rows: 30);

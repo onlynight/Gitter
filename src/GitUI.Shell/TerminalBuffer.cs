@@ -124,6 +124,20 @@ public sealed class TerminalBuffer
         return _attrTable[ActiveScreen[row][col].AttrIndex];
     }
 
+    /// <summary>格属性索引（渲染管线用，越界返回 0 = Normal）。</summary>
+    internal int GetAttrIndexInternal(int col, int row)
+    {
+        if (col < 0 || col >= Columns || row < 0 || row >= Rows) return 0;
+        return ActiveScreen[row][col].AttrIndex;
+    }
+
+    /// <summary>屏幕行数组（渲染管线用；只读不写）。越界返回 null。</summary>
+    internal TerminalCell[]? GetScreenRowInternal(int row)
+    {
+        if (row < 0 || row >= Rows) return null;
+        return ActiveScreen[row];
+    }
+
     /// <summary>是否为宽字符续格（渲染时跳过）。</summary>
     public bool IsWideContinuation(int col, int row) => GetChar(col, row) == TerminalCell.WideContinuation;
 
@@ -368,14 +382,25 @@ public sealed class TerminalBuffer
             screen[row][c] = TerminalCell.Blank(CurrentAttrIndex);
     }
 
+    /// <summary>清屏按钮：等价 CSI 2J + 3J + 光标归位。</summary>
+    public void EraseDisplayAll()
+    {
+        EraseDisplay(2);
+        ClearScrollback();
+        SetCursor(0, 0);
+    }
+
     /// <summary>清空 scrollback（CSI 3J / 清屏按钮）。</summary>
     internal void ClearScrollback()
     {
         if (!_usingAlt) _scrollback.Clear();
     }
 
+    /// <summary>宿主触发的全量重置（重开 shell / 清屏按钮）；RIS 由解析器走 <see cref="ResetInternal"/>。</summary>
+    public void HardReset() => ResetInternal();
+
     /// <summary>全量重置（RIS，ESC c）。</summary>
-    internal void Reset()
+    internal void ResetInternal()
     {
         _usingAlt = false;
         _scrollback.Clear();

@@ -315,7 +315,7 @@ public sealed class TerminalParser
                 _state = State.Ground;
                 return;
             case (byte)'c': // RIS 全量重置
-                _buffer.Reset();
+                _buffer.ResetInternal();
                 _state = State.Ground;
                 return;
             case (byte)'=': // 应用小键盘
