@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using Windows.UI;
 using Windows.System;
 
@@ -44,7 +45,6 @@ public sealed class BranchesPage : UserControl
     private readonly Button _rebaseBtn;
     private readonly Button _ffBtn;
 
-    private Button? _selectedRowButton;
     private bool _suppressRecent;
 
     public BranchesPage(ISettingsStore settings, IRepositoryService repoService, RepositoryContext context)
@@ -218,7 +218,10 @@ public sealed class BranchesPage : UserControl
     private static readonly SolidColorBrush ClearBrush = new(Microsoft.UI.Colors.Transparent);
 
     private static SolidColorBrush RowSelectedBrush =>
-        IsLight ? Make(0x24, 0x1C, 0x1B, 0x1F) : Make(0x38, 0xFF, 0xFF, 0xFF);
+        IsLight ? Make(0x40, 0x1C, 0x1B, 0x1F) : Make(0x55, 0xFF, 0xFF, 0xFF);
+
+    private static SolidColorBrush AccentBrush =>
+        Make(0xFF, 0x00, 0x78, 0xD7); // 系统强调蓝
 
     private static SolidColorBrush SectionBrush =>
         IsLight ? Make(0x14, 0x1C, 0x1B, 0x1F) : Make(0x1C, 0xFF, 0xFF, 0xFF);
@@ -436,11 +439,33 @@ public sealed class BranchesPage : UserControl
         Grid.SetColumn(meta, 1);
         row.Children.Add(meta);
 
+        // 选中态完全由 VM 状态驱动（点击只更新 VM，重建时统一渲染）——
+        // 手工背景切换在重建时会失步（known-issues 第二批教训的同型）
         var isSelected = _vm.Selected is not null && _vm.Selected.Name == b.Name && _vm.Selected.IsRemote == b.IsRemote;
+
+        var accent = new Rectangle
+        {
+            Width = 3,
+            Fill = AccentBrush,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Margin = new Thickness(2, 4, 0, 4),
+            Visibility = isSelected ? Visibility.Visible : Visibility.Collapsed,
+        };
+
+        var rowHost = new Grid();
+        rowHost.Children.Add(accent);
+        row.ColumnDefinitions.Insert(0, new ColumnDefinition { Width = new GridLength(5) });
+        // 插入强调条列后，原 name/meta 的列号整体右移
+        Grid.SetColumn(name, 1);
+        Grid.SetColumn(meta, 2);
+        Grid.SetColumn(row, 1);
+        rowHost.Children.Add(row);
+
         var btn = new Button
         {
-            Content = row,
-            Padding = new Thickness(12, 4, 12, 4),
+            Content = rowHost,
+            Padding = new Thickness(4, 4, 12, 4),
             Margin = new Thickness(8, 1, 8, 1),
             CornerRadius = new CornerRadius(6),
             Background = isSelected ? RowSelectedBrush : ClearBrush,
@@ -449,16 +474,8 @@ public sealed class BranchesPage : UserControl
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             MinHeight = 34,
         };
-        if (isSelected) _selectedRowButton = btn;
-        AutomationProperties.SetName(btn, $"分支 {b.Name}{(b.IsHead ? " 当前" : "")}");
-        btn.Click += (_, _) =>
-        {
-            if (_selectedRowButton is not null && !ReferenceEquals(_selectedRowButton, btn))
-                _selectedRowButton.Background = ClearBrush;
-            btn.Background = RowSelectedBrush;
-            _selectedRowButton = btn;
-            _vm.Select(b);
-        };
+        AutomationProperties.SetName(btn, $"分支 {b.Name}{(b.IsHead ? " 当前" : "")}{(isSelected ? " 已选中" : "")}");
+        btn.Click += (_, _) => _vm.Select(b);
         return btn;
     }
 
@@ -494,7 +511,6 @@ public sealed class BranchesPage : UserControl
         }
 
         _repeater.ItemsSource = _vm.Rows;
-        _selectedRowButton = null;
 
         var sel = _vm.Selected;
         var hasLocal = sel is not null && !sel.IsRemote;
