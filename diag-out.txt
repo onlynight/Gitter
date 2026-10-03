@@ -1,3 +1,0 @@
-OK: Git Bash 页签状态 = 运行中 · winpty · 99×30 · 跟随仓库: 开
-OK: ConPTY 会话运行中
-SMOKE-BASH-TERMINAL PASS
