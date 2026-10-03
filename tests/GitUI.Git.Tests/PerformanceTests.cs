@@ -14,6 +14,7 @@ namespace GitUI.Git.Tests;
 /// 大仓 fixture 用 git fast-import 单进程灌入，构造本身只要几秒。
 /// [Trait("Category","Perf")] 用于 verify-s1.ps1 分组；数字同时写入临时日志文件。
 /// </summary>
+[Collection("PerfSerial")]
 public sealed class PerformanceTests : IDisposable
 {
     public void Dispose() { }
