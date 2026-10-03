@@ -1,8 +1,8 @@
 # Git UI 工具设计方案（WinUI 3 / .NET）
 
-> 状态：定稿 v1.4（2026-10-03 Git Bash 承载位置变更：右侧面板 → 左侧导航页签，见 §11.12）
+> 状态：定稿 v1.5（2026-10-03 Git Bash 承载位置变更：右侧面板 → 左侧导航页签，见 §11.12）
 > 日期：2026-10-03
-> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11；S3 已实现（2026-10-03），验证详见 §11.13
+> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11；S3 已实现（2026-10-03），验证详见 §11.13；S4 已实现（2026-10-03），验证详见 §11.14；S5 已实现（2026-10-03），验证详见 §11.15；S6 已实现（2026-10-03），验证详见 §11.16
 
 ## 十一、S0 实施记录与踩坑总结
 
@@ -70,11 +70,9 @@ var btn = new Button { Padding = new Thickness(12), ... };
 
 ### 11.7 S0 未做（留给后续阶段）
 
-- Git 仓库读取与 Log 视图（S1 + S4）
-- ~~Diff 引擎~~（S2 已完成，见 §11.11）；~~DiffCanvas 渲染~~（S3 已完成，见 §11.13；S4 复用）
+- ~~Git 仓库读取与 Log 视图~~（S1 已完成见 §11.9；Log 页 S4 已完成见 §11.14）；~~Diff 引擎~~（S2 已完成，见 §11.11）；~~DiffCanvas 渲染~~（S3 已完成，见 §11.13；S4 复用）
 - Git Bash 面板收尾（S2b TerminalParser + S3b TerminalCanvas 渲染 + S0e 与工作区联动）；S0b/S0c/S0d 已完成，见 §11.10
-- Changes 三层列表与提交对话框（S5）
-- Branches 分支树与操作（S6）
+- ~~Changes 三层列表与提交对话框~~（S5 已完成，见 §11.15）；~~Branches 分支树与操作~~（S6 已完成，见 §11.16）
 - 命令面板、快捷键、无障碍、多窗口（S7）
 - 高 DPI 最小尺寸限制（S4，需重新调研 WndProc 挂钩时机）
 - MSIX 打包（S7，v1 目标自包含 exe 单目录）
@@ -290,6 +288,142 @@ var btn = new Button { Padding = new Thickness(12), ... };
 3. **性能基准负载要按"渲染行数"设计**：首版用"10k 行 100 处修改"只有 792 渲染行（hunk 少）；改为每 8 行一处修改（> 2×context 保证 hunk 不合并）才与设计的"10k 行 diff"对齐。
 
 **手动验证清单状态**（design.md §8-S3）：本仓库（含中文、长行、表格、markdown）并排/内联渲染无错位 ✅；10 个真实仓库 × 20 个真实 diff 的人眼核查留给使用者，入口：设置 → 打开 Diff 渲染预览，配合 `scripts/capture-diff-preview.ps1`（并排）与 `capture-diff-inline.ps1`（内联 + Alt+↓）截屏工具。
+
+### 11.14 S4 实施记录（2026-10-03）
+
+**交付**：
+
+- `GitUI.ViewModels`（新项目，net8.0 纯逻辑层，零 UI/零 git 依赖，由 DependencyCheckTests 验证）：
+  - `LogViewModel`：Log 页状态机——分页加载（每页 50，`Items` 累积）、搜索过滤、按天分组与折叠状态（跨分页保留）、选中提交 → 变更文件。重活在 `Task.Run`（服务为同步接口），状态经 `SemaphoreSlim` 串行化，`StructureChanged`（结构性）/`SelectionChanged`（轻量）两个事件由 UI 经 DispatcherQueue 回投；公开 Task 方法 await 返回后状态即可见（集成测试直接驱动，无需 UI）。
+  - `LogFilterParser`：搜索语法 → `LogFilter`。`author:` `branch:` `after:` `before:` `topic:`（前缀大小写不敏感、支持引号包裹含空格的值），自由词按字面子串匹配（`Regex.Escape` + `(?i)`），多词 AND（`(?i)(?=.*p1)(?=.*p2)`）；`topic:` 值原样透传正则语义；非法日期降级为自由词；同前缀后者生效。
+  - `LogDayGrouping` / `LogFormatting`：按 CommitterDate 本地日分组（与排序键一致）、组头标题（今天/昨天/同省年/跨年 + 星期）、行内相对时间。
+  - `LogRow` 扁平行模型（组头行 / 提交行 + 徽章 + 预拼好的 meta 文本），UI 元素工厂直接消费。
+- `GitUI.App/Pages/LogPage`（重写，纯代码构建，stub XAML 删除）：工具条（仓库路径 + 最近仓库下拉 + 分支下拉 + 搜索框 + 刷新）→ `ItemsRepeater`（StackLayout 虚拟化）+ 自定义 `IElementFactory`；单分支时间轴（行内贯穿竖线 + 节点圆点，合并提交放大换色）；按天分组折叠（组头按钮切换，折叠状态在 VM 按日期键保存）；滚动距底 < 240px 触发 `LoadNextPageAsync`；右侧详情（提交头 / 变更文件列表 / DiffCanvas 复用 S3）；状态条（"已加载 N / 共 M · K 个分组"，UIA 断言锚点）；全部交互元素带 AutomationProperties.Name。
+- `MainWindow`：Log 页签缓存（`_logPage ??=`，切页签不丢已加载状态与选中），注入 `LibGit2RepositoryService`。
+- `LibGit2RepositoryService.GetLog` 快路径（见下"关键实现决策"1）；`GitFixtureBuilder` 新增 `CommitOn`（指定时间戳提交，`BulkCommits` 末尾补写 commit-graph）。
+- `tests/GitUI.ViewModels.Tests`（新项目，50 用例）；`tests/GitUI.Git.Tests` 增补 `GetLogFastPathTests`（4 用例，fast/慢路径交叉验证）。
+- `scripts/verify-s4.ps1`（一键：构建零警告 → 全量测试（Category!=Perf）→ 100k 性能基准）；`scripts/smoke-log-page.ps1`（UIA 冒烟）。
+
+**验证**：`dotnet build` 全解决方案零警告零错误；`dotnet test` **417 用例全绿**（Core 51 + ViewModels 50 + Diff 91 + Render 61 + Shell 38 + Git 126）；UIA 冒烟通过（打开本仓库 → 首屏 12 条 → `author:nonexistent-xyz` 0 条 → `author:wyndam` 12 条 → 分组折叠 12→9→恢复 → 点击提交 → 22 个文件项 → Diff 视图渲染）。
+
+**测试矩阵**（GitUI.ViewModels.Tests）：
+
+| 类 | 用例 | 内容 |
+|---|---|---|
+| LogFilterParserTests | 13 | 空输入、自由词字面转义（含正则元字符）、topic 原样透传、author/branch 前缀（大小写不敏感）、引号值、日期（含 T 写法/引号空格时刻/非法降级）、组合、重复前缀后者生效、前缀空值降级 |
+| LogGroupingTests | 8 | 同日单组保序、跨日边界（23:59/00:01）、跳过空日、今天/昨天/同年/跨年标题、空输入 |
+| LogFormattingTests | 6 | 今天/昨天/天数/同年月日/跨年、29/30 天边界 |
+| LogViewModelTests | 15 | 打开归一化、非仓库报错、空仓库、**分页 50→100→120 无重叠**、越页空操作、**跨天分组边界**、**折叠行数与恢复**、折叠跨分页保留、author 过滤（含 0 条）、自由词/大小写/多词 AND/清空、branch: 限定可达、UI 分支与搜索叠加、日期区间过滤、选中加载变更文件、根提交空文件、徽章与 meta、事件触发 |
+| LogPagePerformanceTests | 2 | **10 万提交首屏 50 条 < 500ms**、**下一页 < 200ms**（Trait Perf，verify-s4 单独跑） |
+| DependencyCheckTests | 2 | ViewModels 不引用 UI/git 程序集、解析器纯静态 |
+
+**性能基准**（本机实测，Debug 构建，10 万提交 fixture 由 fast-import 灌入）：
+
+- 首屏（Open，50 条，含 GetLog + 解析 + 分组 + 行构建）：**125ms**（阈值 500ms）
+- 稳态重开（Refresh）：**112ms**
+- 滚动加载下一页（skip=50）：**112ms**（阈值 200ms）
+
+**关键实现决策**：
+
+1. **GetLog 大仓库快路径：libgit2 revwalk → git CLI**（本阶段最重要发现）：
+   - libgit2sharp 的 revwalk 有**每句柄首次迭代 ~600ms 的固定冷启动开销**（10 万提交 packfile；`Head.Tip` 对象读取仅 1ms 证明 ODB 冷读无问题；写 commit-graph 也无法消除——libgit2 不读 commit-graph）。"每请求开合句柄"的 S1 模型下，取 50 条也要付 600ms，任何分页方案都爆 500ms 预算。
+   - git CLI 读同一仓库（现代 Git 自动维护 commit-graph）单次冷读 ~70ms。因此无过滤查询改为两次 `git rev-list`（`--count` + `--skip/--max-count` 窗口）分别供给精确 TotalCount 与分页窗口，再经 libgit2 `Lookup`（首对象读 1ms）物化 50 个 CommitNode——§3.1"git CLI 兜底"授权范围内。
+   - **仅大仓库启用**（pack idx ≥ 128KB ≈ 2k 提交）：CLI 进程启动 ~25ms，小仓库纯 libgit2 全遍历稳态 ~5ms 更快，保住 S1 的 GetLog(10) 稳态 < 50ms 阈值。idx 检查失败/CLI 不可用/ref 不存在均回退原全量遍历路径，正确性不受影响。
+2. **分页 + 全量 TotalCount 的语义保持**：S1 的 `TotalCount = 过滤后精确总数` 不变（Topo/Log/快路径交叉测试固化）。慢路径（带过滤）维持全量遍历——过滤查询通常结果集小且是用户显式动作，不设 100k 预算。
+3. **分组用 CommitterDate（本地日）**：与 GetLog 排序键一致，避免"作者日期 3 天前"出现在"今天"分组的错位；行内相对时间同键。
+4. **ItemsRepeater + 轻量行工厂**：`IElementFactory` 不做容器回收（每页 50 行、实存量 = 可视区量级），行构建即点即弃；选中高亮以 `_selectedSha`（页面字段）为唯一事实源，工厂重建行时不会出现陈旧选中态；选中变化只改两个按钮背景 + 右侧详情，不重设 ItemsSource（避免滚动跳动）；结构性变化（翻页/过滤/折叠）才整体重建并按需回到顶部。
+5. **搜索语法解析与 UI 分支选择叠加**：查询文本未写 `branch:` 时 UI 分支下拉生效，写了则以查询为准——两处入口语义一致且可测试（`BuildFilter` 单点合并）。
+6. **UIA 断言锚点**：状态条文案 `已加载 N / 共 M` 设计为脚本断言锚点；注意 TextBlock **不能**设 `AutomationProperties.Name`（显式 Name 覆盖动态文本，冒烟第一次运行即踩中），让其 UIA Name = 文本内容本身。
+
+**踩坑**（全部实测抓出）：
+
+1. **libgit2 revwalk 每句柄首迭代 ~600ms**：见关键决策 1。诊断过程中先用分段计时锁定（open 15ms / rev-list count 373ms / walk 50 = 589ms / 物化 50 ≈ 0ms），再用"新句柄单次对象读取 1ms vs 新句柄 walk 50 = 580ms"分辨 ODB 冷读与 revwalk 冷启动。
+2. **快路径一刀切会打爆小仓库阈值**：rev-list 两次进程启动 ~45ms，S1 的 GetLog(10) 稳态阈值 50ms 直接失败——性能优化必须双端对齐旧有预算，最终以 pack idx 大小自适应分流。
+3. **`(?=p1)(?=p2)` 是"同一位置同时命中"**：多词 AND 写成无 `.*` 的相邻前瞻后，"fix deref"（两词出现在不同位置）永远匹配失败。改 `(?=.*p1)(?=.*p2)`（服务端 MatchesTopic 已用 Singleline，跨行安全）。
+4. **fixture 时间戳的时区对称性**：`CommitOn` 用 `ToUniversalTime().ToString("u")` 存 UTC，libgit2 读回时带存储时区的 DateTimeOffset；分组键是 `LocalDateTime`——测试若用 `TimeSpan.Zero` 构造"23:59"，在 +8 时区实际落在次日 07:59，跨日断言必炸。测试时间戳一律用本地 offset 构造。
+5. **git rev-list 对时间倒挂的线性链只能按链序输出**（父不先于子的基本契约，date/topo 均不例外），与 libgit2 GIT_SORT_TIME 的纯时间序在倒挂历史上不一致——fixture 提交一律按时间递增构造，产品代码不依赖两种序的差异。
+6. **xUnit2029 之外又见 xUnit2013**：`Assert.Equal(1, col.Count())` / `Assert.Equal(0, col.Count)` 在 TreatWarningsAsErrors 下即编译失败，用 `Assert.Single` / `Assert.Empty`。
+7. **命名参数大小写**：record/构造器参数 `limit`（小写）不能以 `Limit:` 命名传入（CS1739），且探针代码编译失败时 `dotnet test` 默认跑**旧二进制**——基准数字突然"稳定"而代码刚改过时，先确认构建是否真的成功。
+
+### 11.15 S5 实施记录（2026-10-03）
+
+**交付**：
+
+- `GitUI.Core`：
+  - `UnifiedPatch`（新）：unified diff 解析（`ParseHunks`，自 LibGit2RepositoryService 迁出，语义不变）+ `SplitHunks`（按 "@@" 边界切成可直接 `git apply --cached` 的分块，hunk 级暂存的数据源）。两法同界判定，块序号与渲染 hunk 一一对应。
+  - `GitOperationException`（操作名 + 完整 stderr + 退出码）/ `PushException`（§5.3 分类 + 下一步建议文案）/ `PushErrorClassifier`（纯文本 stderr 分类规则，单测覆盖）/ `DiffNumStat`。
+  - `IRepositoryService` 扩展 S5 写操作（Stage/Unstage/Commit/GetWorktreePatch/GetIndexPatch/ApplyIndexPatch/Push/GetNumStat/GetRecentCommitSubjects）与 S6 分支操作（CreateBranch/RenameBranch/DeleteBranch/Checkout/MergeBranch/Rebase/Pull/MergeBase/UniqueCommits/BranchDeleteImpact）。
+- `GitUI.Git`：上述接口实现。提交用 libgit2（`repo.Commit` + 提交前 index 空 Guard）；git CLI 操作经 `ArgumentList` 逐参数注入（无注入面）；`Push` 120s 超时、失败按 stderr 分类抛 `PushException`；`Stage` 等 `git add -A --`、`Unstage` 等 `git reset -q HEAD --`（unborn HEAD 回退 `git rm --cached`）；`ApplyIndexPatch` 走 stdin 管道。
+- `GitUI.ViewModels`：
+  - `ChangesViewModel`：三层列表（Conflict/Changes/Staged/Unversioned）+ numstat 行数统计；勾选（IDEA 语义：Changes/Unversioned 默认勾、Unversioned 默认不勾，勾选偏好按 (分类, 路径) 键保存）；hunk 级暂存（Staged 视图反向 apply）；提交（in-flight 守卫幂等 + 勾选文件预览 + 冲突文件拦截）与推送（失败分类 + RetryPush）；`CommitPrefixSuggester`（按勾选文件路径给 conventional 前缀）。
+  - **部分暂存追踪**（`_partiallyStaged`）：做过 hunk 级暂存的文件在提交时跳过整文件 add——整文件 add 会覆盖 index 里的部分暂存结果（集成测试抓出）。
+- `GitUI.Controls/DiffCanvas`：`DiffRow.HunkIndex`（行 → hunk 归属）+ `DiffRenderModel.TryGetHunkRowRange/TryGetHunkIndexAtRow` + 点击画布选块（`HunkSelected` 事件）+ 选中块半透明覆盖层 + `SetSelectedHunk`。
+- `GitUI.App`：`RepositoryContext`（App 级当前仓库，Log/Changes 页共享，任一页打开即全局感知）；ChangesPage 重写（纯代码构建：三层列表行 = Button（UIA InvokePattern）+ CheckBox + numstat；右侧 diff + 暂存/撤销按钮（按视图类型启用）；底部提交栏：前缀建议/最近消息/文件预览/Ctrl+Enter）。
+- 测试：`ChangesViewModelTests`（12：三层+统计、默认勾选、勾选提交 3 文件进 HEAD、取消勾选 Staged 先撤销、空消息拒绝、并发双击幂等、二次点击无重复、冲突拦截、层移动、hunks/chunks 计数、前缀建议、最近消息）；`HunkStagingTests`（3：**单 hunk 暂存 → 提交 → HEAD 只含该 hunk**、Staged 视图反向撤销单块、损坏 patch 报错且状态不变）；`PushFlowTests`（5：stderr 分类规则、**e2e 提交并推送到 bare 远程、远端 tip == 本地 tip**、non-fast-forward 分类+重试、不可达域名网络分类、无失败重试空操作）。
+- 脚本：`verify-s5.ps1`（构建零警告 → 全量测试 → UIA 冒烟）；`smoke-changes-page.ps1`（自建临时仓库 → 打开 → 选文件 → Diff 出现 → 暂存 → 提交 → **断言 HEAD 消息/内容/工作区状态**）。
+
+**验证**：`dotnet build` 零警告零错误；`dotnet test` **435 用例全绿**（Core 51 + ViewModels 68 + Diff 91 + Render 61 + Shell 38 + Git 126）；`VERIFY-S5 PASS`（UIA 冒烟全链路 + 权威 git 状态断言）。
+
+**关键实现决策**：
+
+1. **hunk 级暂存的权威语义**：渲染 hunk 与 `git apply` 分块同以 "@@" 为界（`UnifiedPatch` 单点保证）；正向 apply = 工作区变更进 index，反向 apply（Staged 视图）= 从 index 撤销；应用后按路径在新层重新定位选中文件并重载 diff（`ReloadSelectedDiff`）。
+2. **提交的三步原子序**：暂存勾选 → 撤销未勾选的 Staged → `repo.Commit`；提交前检查 index 非空（幂等第一道），VM 层 in-flight 守卫（并发双击只产生一个提交——并发测试证明），提交后清空勾选偏好。
+3. **推送失败不影响提交生效**：`CommitOutcome = (Sha, PushFailure?)`，push 异常被分类捕获；重试走独立 `RetryPushAsync`。分类规则按 stderr 关键词（认证/网络/non-fast-forward），本地 bare 远程 + 域名不可达 + 竞争 clone 三种真实路径覆盖。
+4. **ChangesPage 行用 Button 而非 Border+PointerPressed**：UIA InvokePattern 只有 Button 提供，冒烟可驱动（LogPage 同款）。
+
+**踩坑**（全部实测抓出）：
+
+1. **InfoBar 进视觉树即触发 XAML fail-fast（0xc000027b，combase E_FAIL）**：本机（RDP 会话 + WinAppSDK 2.5）上 InfoBar 无法使用，表现为点击"变更"页签应用整体崩溃且 UIA Invoke 返回 E_FAIL（进程短暂存活）。用分段排除法（环境变量逐段跳过构建）定位到 InfoBar；换成 TextBlock 横幅后恢复。与 §11.1 的 MicaBackdrop 崩溃签名同源——WinUI 控件在损坏会话上的兼容性不可假设。
+2. **整文件 add 覆盖部分暂存**：`git add -A -- <file>` 会把工作区全部变更写进 index，抹掉此前 `git apply --cached` 的选择性暂存。提交路径对 `_partiallyStaged` 集合内的文件跳过整文件暂存。
+3. **VM 层操作完成后忘记触发 StructureChanged**：StageFiles/StageHunks 只发 SelectionChanged，三层列表与状态条永远不刷新（UIA 冒烟"暂存后状态没变"——git index 实际已暂存，纯 UI 断层）。把 `StructureChanged` 收进 `LoadCoreAsync` 统一触发。
+4. **UIA 断言锚点不能设显式 AutomationProperties.Name**（§11.14 同坑第二次）：TextBlock 的显式 Name 覆盖动态文本，状态条/文件头都因此失真过；凡承载动态文本的 TextBlock 一律不设 Name。
+5. **PowerShell 冒烟：函数名 `Git` 遮蔽 git.exe** 导致 `& git` 无限递归（CallDepthOverflow）；数组参数展开 `@arr` 对原生命令有效。**双重 BOM**（utf-8-sig 读后未剥再以 sig 写回）让 `-File` 解析炸出 "'#'不是命令"。**数组 `-notmatch`** 返回非匹配元素集合（恒真），判断"是否包含"要用 `-match` + `-not`。
+6. **temp 仓库必须隔离用户全局 git 配置**（autocrlf）：冒烟脚本自建仓库后 `config core.autocrlf false`，否则 CRLF 幻影修改让层分类漂移（GitFixtureBuilder §11.9 的教训在脚本侧重演）。
+
+### 11.16 S6 实施记录（2026-10-03）
+
+**交付**：
+
+- `GitUI.ViewModels/BranchesViewModel`：Local/Remote 分支树（组头 + `[name] (sha · tip 主题)` 行，HEAD 分支加 ✓ 前缀高亮）；Create / Rename / Delete / Checkout / Merge(--no-ff 可选) / Rebase / FastForward(merge --ff-only) / Pull / Pull --rebase / Push；**删除两段式**——`RequestDeletePreview` 用 `BranchDeleteImpact`（从目标可达、其余全部引用不可达的提交，精确影响集）计算丢失提交，产出 `BranchDeletePreview.ConfirmationText`（"将丢弃 N 个提交：<短SHA 列表>"，N 与实际一致是 S6 通过标准）；FastForward 额外做终态校验（HEAD==目标 tip）。
+- `GitUI.App/Pages/BranchesPage`（纯代码构建）：树（ItemsRepeater + 行 Button，UIA 可驱动）+ 顶部 Pull / Pull Rebase / Push（§4.5 IDEA 同款）+ 操作栏（检出/创建/重命名/删除/合并/变基/快进，按选中项与 IsHead 动态启用）；删除/创建/重命名走 `ContentDialog`，确认按钮带"确认"前缀（与页面操作按钮在 UIA 命名空间不重名）；与 Log/Changes 共享 `RepositoryContext`。
+- `GitUI.Git`：`FastForward`（`git merge --ff-only`，新增接口方法）；`DeleteBranch` 改走 CLI `git branch -d/-D`（libgit2sharp 0.32 的 `Branches.Remove` 静默无效，见踩坑 1）。
+- 测试：`BranchesViewModelTests`（12）：分组与 tip 元信息、**checkout 后 HEAD 移动**、创建/重命名 ref 终态、**删除后 ref 消失 + 影响集 N 值与 rev-list --count 一致 + 确认文案含正确 N 与短 SHA**、全合并分支零影响免 force、merge --ff 线性化（单父）、merge --no-ff 产生双父合并提交、**rebase 后线性化（单父链含上游提交）**、分叉时 fast-forward 被拒且 HEAD 不动、冲突合并报错且 HEAD 不动、状态条 transient 语义。
+- 脚本：`verify-s6.ps1`（构建零警告 → 全量测试 → UIA 冒烟）；`smoke-branches-page.ps1`（自建临时仓库：树显示 → 检出 feature（git HEAD 权威断言）→ 删除确认对话框断言"将丢弃 1 个提交" → 取消保留 → 确认删除后 ref 消失）。
+
+**验证**：`dotnet build` 零警告零错误；`dotnet test` **449 用例全绿**（Core 51 + ViewModels 80 + Diff 91 + Render 61 + Shell 38 + Git 126 + Render/其余）；`VERIFY-S6 PASS`（UIA 冒烟：确认文案 N 值与实际独有提交数一致、终态 ref 断言全过）。
+
+**关键实现决策**：
+
+1. **删除影响的精确定义**：`BranchDeleteImpact = 从目标分支可达 且 从其余全部引用（本地+远程跟踪）不可达` 的提交——即删除后真正不可达的集合。影响为空 ⇒ 删除安全（无需 force）；非空 ⇒ UI 强制展示确认文案后以 `-D` 执行。
+2. **快进用 `--ff-only` 而非"普通 merge + 后置校验"**：第一版先 merge 再校验 HEAD==tip，结果分叉时 git 已经创建合并提交（HEAD 被污染）才报错——语义错误。`--ff-only` 让 git 在分叉时直接拒绝（exit ≠ 0），HEAD 永不污染；VM 层保留终态校验作为第二道。
+3. **危险操作文案格式遵循 §6.4 原文**：`将丢弃 N 个提交：a3f9c2, b71d44…`（短 SHA）；测试同时断言 N 值（= `rev-list --count main..side`）与 SHA 归属（log -1 验证该 SHA 即 side 独有提交）。
+4. **恢复路径**：确认对话框明示"删除后可从 reflog 或列出的提交 SHA 重建分支"；集成测试以"删除前记 tip → 删除 → 从 tip 重建 → 可达数恢复"验证（Git GUI 重建的标准等价路径）。
+
+**踩坑**（全部实测抓出）：
+
+1. **libgit2sharp 0.32 `Branches.Remove(string, bool)` 静默无效**：调用不抛异常、ref 原样保留（`Remove(string)` 单参重载存在但 (string,bool) 调用被编译器接受后运行期空转）。`Remove(Branch, bool)` 重载不存在（CS1503）。删除改走 `git branch -d/-D`（§3.1 CLI 兜底授权），失败以 stderr 上浮。
+2. **LoadCoreAsync 无条件清 `_error`**（与 S5 的 StructureChanged 遗漏同族）：BranchesViewModel 的写操作失败设置 `_error` 后，随后的树刷新把它抹掉——快进失败/合并冲突在 UI 上不可见。错误的生命周期归写操作管，刷新路径不得触碰。
+3. **内容 vs 主题混淆**（测试侧三连）：`ShowFile(rev, path)` 返回文件内容（"2"），提交主题走 `log --format=%s`（"main-2"）——断言前先分清。
+4. **ContentDialog 按钮命名**：对话框 PrimaryButton 与页面操作按钮同名（"删除"）会让 UIA FindByName 命中歧义；对话框按钮统一"确认××"前缀。
+
+**对后续阶段的影响**：
+
+- S7（命令面板/快捷键/多窗口）：分支操作已全部收敛为 `BranchesViewModel` 的 Task 方法，命令注册表可直接映射；
+- `ContentDialog` + XamlRoot 模式可复用到 S7 的全局确认/输入场景；
+- 危险操作确认的两段式（Preview 数据 + 对话框）适用于 reset/rebase --onto 等 S7 补充操作。
+
+---
+**对后续阶段的影响**：
+
+- S6 直接复用：`GitOperationException`、`RunGit`、`RepositoryContext`、行 Button 模式、确认对话框数据源（`BranchDeleteImpact`/`UniqueCommits` 已就位并随 S5 落地测试）。
+
+---
+**对后续阶段的影响**：
+
+- S5（Changes 页）与 S6（Branches 页）复用 `LogViewModel` 的"Task 方法 + 双事件 + DispatcherQueue 回投"骨架与 `LibGit2RepositoryService` 注入方式；
+- `HasLargePack` 分流与 rev-list 快路径对只读查询成立；S5/S6 需要写操作的命令（commit/checkout）继续走 libgit2/CLI 直连，不受影响；
+- LogPage 的 `_selectedSha` 单一事实源 + 行工厂模式可直接套用到 Changes 三层列表；
+- S0e 接线时，"在终端查看" 右键命令可挂在 LogPage 的提交行 Button 上（当前未加右键菜单，S4 范围外）。
 
 ---
 

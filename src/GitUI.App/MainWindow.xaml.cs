@@ -1,5 +1,6 @@
 using GitUI.App.Pages;
 using GitUI.Core.Settings;
+using GitUI.Git;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -37,6 +38,17 @@ public sealed partial class MainWindow : Window
 
     // Git Bash 页签缓存：切换页签不丢输出；S0e 的终端会话将是 App 级单例（§5.1）
     private BashPage? _bashPage;
+
+    // Log 页签缓存（S4）：切换页签不丢已加载的提交列表与选中状态
+    private LogPage? _logPage;
+
+    // 变更页签缓存（S5）：与 Log 页共享 RepositoryContext（当前仓库）
+    private ChangesPage? _changesPage;
+
+    // 分支页签缓存（S6）：与 Log 页共享 RepositoryContext（当前仓库）
+    private BranchesPage? _branchesPage;
+
+    private readonly RepositoryContext _repoContext = new();
 
     private string _currentKey = "log";
 
@@ -392,11 +404,11 @@ public sealed partial class MainWindow : Window
         _bashPage ??= new BashPage(_settings);
         UIElement page = key switch
         {
-            "changes" => new ChangesPage(),
-            "branches" => new BranchesPage(),
+            "changes" => _changesPage ??= new ChangesPage(_settings, new LibGit2RepositoryService(), _repoContext),
+            "branches" => _branchesPage ??= new BranchesPage(_settings, new LibGit2RepositoryService(), _repoContext),
             "bash" => _bashPage,
             "settings" => new SettingsPage(_settings),
-            _ => new LogPage(),
+            _ => _logPage ??= new LogPage(_settings, new LibGit2RepositoryService(), _repoContext),
         };
 
         _pageHost.Children.Clear();
