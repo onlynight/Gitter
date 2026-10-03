@@ -10,7 +10,9 @@ public sealed record FileDiffView(
     bool IsStagedView,
     IReadOnlyList<DiffHunk> Hunks,
     IReadOnlyList<string> PatchChunks,
-    bool CanStageHunks);
+    bool CanStageHunks,
+    bool OldEndsWithNewline = true,
+    bool NewEndsWithNewline = true);
 
 /// <summary>一次提交的结果。PushFailure 非 null 表示提交成功但推送失败（分类见 design.md §5.3）。</summary>
 public sealed record CommitOutcome(string Sha, PushFailure? PushFailure);
@@ -66,8 +68,20 @@ public sealed class ChangesViewModel
     public bool IsRepoOpen => _workDir is not null;
     public bool IsLoading => _isLoading;
     public string? Error => _error;
+
+    /// <summary>错误完整详情（GitOperationException 的完整 stderr / 其他异常的 ToString），
+    /// 供"复制错误详情"。无错误时为 null。</summary>
+    public string? ErrorDetail { get; private set; }
     public string? TransientMessage => _transient;
     public CommitOutcome? LastOutcome => _lastOutcome;
+
+    /// <summary>清掉一次性成功消息（页面 5s 定时器调用）。</summary>
+    public void ClearTransient()
+    {
+        if (_transient is null) return;
+        _transient = null;
+        StructureChanged?.Invoke();
+    }
     public bool IsCommitting => _isCommitting;
 
     public WorktreeFileStatus? Selected => _selected;
@@ -160,6 +174,7 @@ public sealed class ChangesViewModel
             {
                 _workDir = workDir;
                 _checkedOverrides.Clear();
+                _partiallyStaged.Clear();
                 _selected = null;
                 _selectedDiff = null;
                 _transient = null;
@@ -196,11 +211,11 @@ public sealed class ChangesViewModel
             {
                 var view = await Task.Run(() => LoadDiffCore(workDir, entry));
                 _selectedDiff = view;
-                _error = null;
+                _error = null; ErrorDetail = null;
             }
             catch (Exception ex)
             {
-                _error = ex.Message;
+                SetError(ex);
             }
             SelectionChanged?.Invoke();
         }
@@ -222,7 +237,8 @@ public sealed class ChangesViewModel
         var chunks = UnifiedPatch.SplitHunks(patch);
         // 渲染 hunk 与 apply 分块必须一一对应（同为 "@@" 边界）；不齐（mode change 等）禁用块级操作
         var canStage = hunks.Count > 0 && hunks.Count == chunks.Count;
-        return new FileDiffView(entry.Path, entry.Category, stagedView, hunks, chunks, canStage);
+        var (oldEof, newEof) = UnifiedPatch.DetectEndOfNewline(patch);
+        return new FileDiffView(entry.Path, entry.Category, stagedView, hunks, chunks, canStage, oldEof, newEof);
     }
 
     /// <summary>
@@ -248,11 +264,11 @@ public sealed class ChangesViewModel
                 var patch = string.Concat(hunkIndices.Select(i => view.PatchChunks[i]));
                 await Task.Run(() => _repo.ApplyIndexPatch(workDir, patch, reverse: view.IsStagedView));
                 if (!view.IsStagedView) _partiallyStaged.Add(view.Path);
-                _error = null;
+                _error = null; ErrorDetail = null;
             }
             catch (Exception ex)
             {
-                _error = ex.Message;
+                SetError(ex);
             }
             await LoadCoreAsync();
             ReloadSelectedDiff(workDir);
@@ -314,12 +330,12 @@ public sealed class ChangesViewModel
                 }
                 if (staged.Count > 0)
                     await Task.Run(() => _repo.Unstage(workDir, staged.Select(e => e.Path).ToList()));
-                _error = null;
+                _error = null; ErrorDetail = null;
                 _transient = null;
             }
             catch (Exception ex)
             {
-                _error = ex.Message;
+                SetError(ex);
             }
             await LoadCoreAsync();
             SelectionChanged?.Invoke();
@@ -343,6 +359,7 @@ public sealed class ChangesViewModel
         if (string.IsNullOrWhiteSpace(message))
         {
             _error = "提交消息不能为空";
+            ErrorDetail = null;
             StructureChanged?.Invoke();
             return null;
         }
@@ -353,7 +370,7 @@ public sealed class ChangesViewModel
         {
             if (_isCommitting) return null;
             _isCommitting = true;
-            _error = null;
+            _error = null; ErrorDetail = null;
             _transient = null;
             StructureChanged?.Invoke();
 
@@ -373,6 +390,7 @@ public sealed class ChangesViewModel
             {
                 _isCommitting = false;
                 _error = "存在未解决的冲突文件，请先解决冲突再提交";
+                ErrorDetail = null;
                 StructureChanged?.Invoke();
                 return null;
             }
@@ -404,14 +422,17 @@ public sealed class ChangesViewModel
                 outcome = new CommitOutcome(sha, failure);
                 _lastOutcome = outcome;
                 _transient = $"已提交 {sha[..Math.Min(7, sha.Length)]}";
+                // 提交消费了 index 里的部分暂存状态；工作区剩余改动是全新的未暂存内容，
+                // 标记必须清除，否则下次勾选整文件提交会被跳过（known-issues 1.1）
+                _partiallyStaged.Clear();
             }
             catch (InvalidOperationException ex)
             {
-                _error = ex.Message;
+                SetError(ex);
             }
             catch (Exception ex)
             {
-                _error = ex.Message;
+                SetError(ex);
             }
 
             _isCommitting = false;
@@ -493,7 +514,7 @@ public sealed class ChangesViewModel
                 return (s, u, st);
             });
             ApplyLayers(status, unstagedStats, stagedStats);
-            _error = null;
+            _error = null; ErrorDetail = null;
             _transient = null;
         }
         catch (Exception ex)
@@ -559,6 +580,13 @@ public sealed class ChangesViewModel
             _error = ex.Message;
             StructureChanged?.Invoke();
         }
+    }
+
+    /// <summary>统一错误写入：保留完整详情供复制（known-issues 1.7）。</summary>
+    private void SetError(Exception ex)
+    {
+        _error = ex.Message;
+        ErrorDetail = ex is GitOperationException g ? g.StdError : ex.ToString();
     }
 
     private void SetLoading(bool loading)

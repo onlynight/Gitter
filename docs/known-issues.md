@@ -1,51 +1,43 @@
 # 已知问题与技术债清单
 
-> 状态：S4/S5/S6 验收后梳理（2026-10-03）
+> 状态：S4/S5/S6 验收后梳理（2026-10-03）；2026-10-03 第一批修复（1.1/1.2/1.3/1.4/1.6/1.7/1.8，见文末修复记录）
 > 范围：当前 master（682d770..5383b0a 三次阶段提交后）的全部已知缺陷、设计妥协、未完成计划项与验证限制。
 > 用途：S7（打磨与发布）的输入；每项标注影响与建议处置时机。
 
 ## 一、产品行为问题（已确认、未修）
 
-### 1.1 hunk 部分暂存标记在提交后残留，可能吞掉后续提交
+### 1.1 hunk 部分暂存标记在提交后残留，可能吞掉后续提交 ✅ 已修复（2026-10-03）
 - **现象**：对某文件做过 hunk 级暂存（`ChangesViewModel._partiallyStaged`）后，该标记在提交后不清除。用户下次勾选该文件整文件提交时，`CommitAsync` 会跳过整文件 `git add`——该文件的新修改静默不进 HEAD。
-- **复现**：文件两处修改 → 暂存其中一块 → 提交 → 再修改同一文件 → 勾选提交 → 新修改不进提交（需要先点"暂存文件"清除标记）。
-- **影响**：中（数据不丢失，但提交内容与用户勾选意图不符，违反"勾选 = 纳入提交"的直觉）。
-- **建议**：提交完成后清除该文件的标记；或以"index 与工作区是否还有该文件的未暂存差异"动态判定，替代持久集合。处置时机：S7 前修复。
+- **修复**：提交成功后与打开仓库时清空 `_partiallyStaged`（提交消费了 index 的部分暂存状态，工作区剩余改动是全新未暂存内容）。测试：`KnownIssuesFixTests.PartialStagedFlag_*`。
 
-### 1.2 Log 页分支下拉不感知分支变化
+### 1.2 Log 页分支下拉不感知分支变化 ✅ 已修复（2026-10-03）
 - **现象**：`LogPage.UpdateBranchCombo` 仅在 `WorkDir` 变化时重建。在分支页创建/删除/重命名分支后，Log 页的分支下拉仍是旧列表，直到重新打开仓库。
-- **影响**：低-中（过滤结果可能基于已删除分支名，查询报错或为空）。
-- **建议**：`RepositoryContext` 增加"分支集变化"通知，或 Log 页在可见性变化时轻量刷新分支列表。处置时机：S7。
+- **修复**：`BranchesViewModel.BranchListChanged`（创建/重命名/删除成功后触发）→ `BranchesPage` 转发 `RepositoryContext.NotifyBranchesChanged()` → Log 页 `LogViewModel.RefreshBranchesAsync()` 并强制重建下拉。测试：`BranchListChanged_FiresOnCreateDeleteRename` / `RefreshBranches_LogSeesBranchesCreatedInBranchesPage`。
 
-### 1.3 RepositoryContext 通知是单向的（Changes/Branches → 无回传 Log）
+### 1.3 RepositoryContext 通知是单向的（Changes/Branches → 无回传 Log）✅ 已修复（2026-10-03）
 - **现象**：Log 页打开仓库会驱动 Changes/Branches 页自动加载（`context.Changed`）；反过来在 Changes 页打开另一个仓库后，Log 页仍停留在旧仓库。
-- **影响**：低（页签间仓库不一致，用户可能混淆）。
-- **建议**：LogPage 同样订阅 `context.Changed`（注意避免与自身的 `_context.Set` 形成回环，需比对 WorkDir）。处置时机：S7。
+- **修复**：LogPage 订阅 `context.Changed`，比对 WorkDir 不一致才跟随打开（自身打开时 WorkDir 已更新，天然防回环）。
 
-### 1.4 冲突解决无引导 UI
+### 1.4 冲突解决无引导 UI ✅ 最小闭环已补（2026-10-03）
 - **现象**：合并/变基冲突后，Changes 页的"冲突"分组仅列出文件并拦截提交（"存在未解决的冲突文件"），没有标记已解决、打开编辑器、按侧采纳（Accept Current/Incoming）等任何引导。
-- **影响**：中（冲突场景用户必须切到命令行）。
-- **建议**：S7 最小实现"编辑器打开 + 解决后暂存"两个动作即可闭环；design §4.4 的行级 Accept 属 v2。
+- **修复**：Changes 页新增"在编辑器打开"按钮（设置指定 `ExternalEditor` 或系统默认关联程序）；选中冲突文件时"暂存文件"按钮动态换为"标记已解决"（git add 移除冲突条目）。行级 Accept 仍属 v2。
 
-### 1.5 DiffCanvas 选块只支持单块
+### 1.5 DiffCanvas 选块只支持单块（未修，低优先级）
 - **现象**：点击 diff 画布仅记录一个选中 hunk；"暂存此块/撤销此块"一次只处理一块，多块要反复操作（每次 `git apply --cached` + 全量刷新）。
 - **影响**：低（功能可用、效率欠佳）。
 - **建议**：Ctrl/Shift 多选 + 批量 `StageHunksAsync`（VM 已支持 `IReadOnlyList<int>`，只差 UI）。处置时机：S7 打磨。
 
-### 1.6 提交 diff 不显示 "\ No newline at end of file" 标记
+### 1.6 提交 diff 不显示 "\ No newline at end of file" 标记 ✅ 已修复（2026-10-03）
 - **现象**：`GetCommitDiff`（libgit2 patch 来源）的 hunk 无 EOF 标志，`ParseUnifiedDiff` 丢弃该标记行（§11.13 遗留）；工作区 diff（TextDiffPipeline 来源）正常。
-- **影响**：低（Log 页查看提交 diff 时尾部无换行的信息缺失）。
-- **建议**：服务层从 patch 中解析 `\ No newline` 并透出（DiffResult 加 EOF 标志），渲染端已支持。处置时机：S7。
+- **修复**：`DiffResult` 增加尾参 `OldEndsWithNewline`/`NewEndsWithNewline`（默认 true，向后兼容）；`UnifiedPatch.DetectEndOfNewline` 从 patch 标记行解析；`GetFileDiff` 直接读 blob 末尾；Changes/Log 页把标志透传 `DiffCanvas.Load`。测试：`DiffEndOfNewlineTests`（解析 4 例 + 服务层 3 例）。
 
-### 1.7 错误提示无"复制完整输出"
+### 1.7 错误提示无"复制完整输出" ✅ 已修复（2026-10-03）
 - **现象**：`GitOperationException` 的 Message 只取 stderr 最后一行（≤300 字符）；异常对象携带完整 `StdError` 但 UI 横幅没有复制入口（design §5.3 要求"含 stdout/stderr 前 5 行 + 复制完整输出"）。
-- **影响**：低-中（排障需要重跑操作）。
-- **建议**：错误横幅加"复制"按钮，取 `ex` 强转 `GitOperationException` 读 StdError。处置时机：S7。
+- **修复**：Changes/Branches ViewModel 增加 `ErrorDetail`（GitOperationException 取完整 StdError，其余取 ToString，成功路径清空）；页面横幅旁新增"复制错误详情"按钮（剪贴板）。测试：`ErrorDetail_CapturedForGitOperationException` / `ErrorDetail_ClearedWithNextSuccess`。
 
-### 1.8 状态条 transient 消息不会自动消退
+### 1.8 状态条 transient 消息不会自动消退 ✅ 已修复（2026-10-03）
 - **现象**："已检出 xxx / 已删除 xxx"等成功消息一直停留到下一次操作或刷新，无超时。
-- **影响**：低（信息可能过时误导）。
-- **建议**：DispatcherQueueTimer 5s 后清除 `_transient`。处置时机：S7。
+- **修复**：`ClearTransient()`（Changes/Branches VM）+ 页面 5s `DispatcherQueueTimer`（每次 Rebind 重置，天然去抖）。测试：`ClearTransient_RemovesSuccessMessage`。
 
 ## 二、技术债与设计妥协
 
@@ -118,6 +110,20 @@
 
 | 优先级 | 项 |
 |---|---|
-| 高（发版前必修） | 1.1 部分暂存标记残留；1.7 复制完整输出；三（打包前）干净环境复测 |
-| 中（体验断层） | 1.2/1.3 仓库与分支状态联动；1.4 冲突解决最小闭环；1.8 transient 超时 |
-| 低（可延后） | 1.5 多块选择；1.6 EOF 标志；2.1 过滤下推；2.2 接口拆分；其余 |
+| 高（发版前必修） | ~~1.1 部分暂存标记残留~~✅；~~1.7 复制完整输出~~✅；三（打包前）干净环境复测（待办） |
+| 中（体验断层） | ~~1.2/1.3 仓库与分支状态联动~~✅；~~1.4 冲突解决最小闭环~~✅；~~1.8 transient 超时~~✅ |
+| 低（可延后） | 1.5 多块选择；~~1.6 EOF 标志~~✅；2.1 过滤下推；2.2 接口拆分；其余 |
+
+## 修复记录
+
+### 2026-10-03 第一批（7 项：1.1 / 1.2 / 1.3 / 1.4 最小闭环 / 1.6 / 1.7 / 1.8）
+
+- `ChangesViewModel`：提交成功/打开仓库清 `_partiallyStaged`；`ErrorDetail` + `SetError` 统一写入；`ClearTransient()`；`FileDiffView` 携带 EOF 标志。
+- `BranchesViewModel`：`ErrorDetail` / `ClearTransient()` / `TransientMessage` / `BranchListChanged`（创建/重命名/删除后触发）。
+- `RepositoryContext`：`BranchesChanged` 事件 + `NotifyBranchesChanged()`。
+- `LogViewModel`：`RefreshBranchesAsync()`（不动提交与选中状态）。
+- `UnifiedPatch.DetectEndOfNewline`；`DiffResult` 尾参 EOF 标志；`GetCommitDiff`/`GetFileDiff` 透出。
+- ChangesPage：复制错误详情按钮、"在编辑器打开"按钮、冲突文件"标记已解决"动态标签、transient 5s 定时器、EOF 透传。
+- BranchesPage：复制错误详情按钮、transient 5s 定时器、BranchListChanged → context 转发。
+- LogPage：订阅 `context.Changed`（防回环）与 `context.BranchesChanged`（强制重建分支下拉）、EOF 透传。
+- 验证：新增 `KnownIssuesFixTests`（8）+ `DiffEndOfNewlineTests`（7）；全量 453 用例绿；三条 UIA 冒烟（log/changes/branches）全过。

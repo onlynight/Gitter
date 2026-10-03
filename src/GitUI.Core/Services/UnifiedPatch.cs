@@ -87,6 +87,30 @@ public static class UnifiedPatch
         return result;
     }
 
+    /// <summary>
+    /// 从 patch 文本检测两侧文件末尾是否有换行符（git 的 "\ No newline at end of file"
+    /// 标记跟随在缺失换行的一侧内容行之后）。无标记时两侧均为 true。
+    /// </summary>
+    public static (bool OldEndsWithNewline, bool NewEndsWithNewline) DetectEndOfNewline(string? patch)
+    {
+        bool oldEof = true, newEof = true;
+        if (string.IsNullOrEmpty(patch)) return (oldEof, newEof);
+
+        string prev = string.Empty;
+        foreach (var raw in patch.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.StartsWith("\\ No newline at end of file", StringComparison.Ordinal))
+            {
+                if (prev.StartsWith('+')) newEof = false;
+                else if (prev.StartsWith('-')) oldEof = false;
+                else if (prev.StartsWith(' ')) { oldEof = false; newEof = false; }
+            }
+            prev = line;
+        }
+        return (oldEof, newEof);
+    }
+
     private static string Join(List<string> header, List<string> body) =>
         string.Join("\n", header.Concat(body).Where(l => l.Length > 0)) + "\n";
 

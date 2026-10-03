@@ -56,11 +56,29 @@ public sealed class BranchesViewModel
     /// <summary>树 / 状态条 / 错误变化。</summary>
     public event Action? StructureChanged;
 
+    /// <summary>分支引用集合变化（创建/重命名/删除成功后触发），供跨页联动。</summary>
+    public event Action? BranchListChanged;
+
+    /// <summary>清掉一次性成功消息（页面 5s 定时器调用，known-issues 1.8）。</summary>
+    public void ClearTransient()
+    {
+        if (_transient is null) return;
+        _transient = null;
+        StructureChanged?.Invoke();
+    }
+
+    /// <summary>一次性成功消息（已检出/已创建…），页面定时器据此自动消退。</summary>
+    public string? TransientMessage => _transient;
+
     public string? WorkDir => _workDir;
     public bool IsRepoOpen => _workDir is not null;
     public bool IsLoading => _isLoading;
     public bool IsBusy => _isBusy;
     public string? Error => _error;
+
+    /// <summary>错误完整详情（GitOperationException 的完整 stderr / 其他异常的 ToString），
+    /// 供"复制错误详情"（known-issues 1.7）。</summary>
+    public string? ErrorDetail { get; private set; }
     public IReadOnlyList<BranchRow> Rows => _rows;
     public BranchItemRow? Selected => _selected;
 
@@ -133,14 +151,17 @@ public sealed class BranchesViewModel
     public Task CheckoutAsync(string branch) => RunWrite($"已检出 {branch}", () => _repo.Checkout(_workDir!, branch));
 
     public Task CreateAsync(string name, string? fromSha) =>
-        RunWrite($"已创建 {name}", () => _repo.CreateBranch(_workDir!, name, fromSha));
+        RunWrite($"已创建 {name}", () => _repo.CreateBranch(_workDir!, name, fromSha),
+            affectsBranchList: true);
 
     public Task RenameAsync(string oldName, string newName) =>
-        RunWrite($"已重命名 {oldName} → {newName}", () => _repo.RenameBranch(_workDir!, oldName, newName));
+        RunWrite($"已重命名 {oldName} → {newName}", () => _repo.RenameBranch(_workDir!, oldName, newName),
+            affectsBranchList: true);
 
     /// <summary>删除分支。UI 必须先 <see cref="RequestDeletePreview"/> 并在影响 &gt; 0 时取得用户确认。</summary>
     public Task DeleteAsync(string branch, bool force) =>
-        RunWrite($"已删除 {branch}", () => _repo.DeleteBranch(_workDir!, branch, force));
+        RunWrite($"已删除 {branch}", () => _repo.DeleteBranch(_workDir!, branch, force),
+            affectsBranchList: true);
 
     /// <summary>合并到当前分支（noFastForward = 强制产生合并提交）。</summary>
     public Task MergeAsync(string branch, bool noFastForward, string? message) =>
@@ -196,7 +217,7 @@ public sealed class BranchesViewModel
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            SetError(ex);
         }
         StructureChanged?.Invoke();
     }
@@ -218,7 +239,8 @@ public sealed class BranchesViewModel
     }
 
     private async Task RunWrite(
-        string successMessage, Action action, bool validateFastForward = false, string? fastForwardTarget = null)
+        string successMessage, Action action, bool validateFastForward = false,
+        string? fastForwardTarget = null, bool affectsBranchList = false)
     {
         if (_workDir is null) return;
         await _gate.WaitAsync();
@@ -232,11 +254,13 @@ public sealed class BranchesViewModel
                 if (validateFastForward && fastForwardTarget is not null)
                     await ValidateFastForwardAsync(fastForwardTarget);
                 _error = null;
+                ErrorDetail = null;
                 _transient = successMessage;
+                if (affectsBranchList) BranchListChanged?.Invoke();
             }
             catch (Exception ex)
             {
-                _error = ex.Message;
+                SetError(ex);
             }
             await LoadCoreAsync();
             SetFlag(false, ref _isBusy);
@@ -246,6 +270,13 @@ public sealed class BranchesViewModel
             _isBusy = false;
             _gate.Release();
         }
+    }
+
+    /// <summary>统一错误写入：保留完整详情供复制（known-issues 1.7）。</summary>
+    private void SetError(Exception ex)
+    {
+        _error = ex.Message;
+        ErrorDetail = ex is GitOperationException g ? g.StdError : ex.ToString();
     }
 
     /// <summary>快进校验：当前 HEAD 必须已移动到目标分支 tip，否则视为失败（含"无法快进"）。</summary>

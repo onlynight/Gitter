@@ -31,6 +31,8 @@ public sealed class BranchesPage : UserControl
     private readonly ComboBox _recentBox;
     private readonly TextBlock _status;
     private readonly TextBlock _banner;
+    private readonly Button _copyErrBtn;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _transientTimer;
     private readonly ItemsRepeater _repeater;
     private readonly ScrollViewer _listScroll;
 
@@ -106,10 +108,18 @@ public sealed class BranchesPage : UserControl
         {
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.OrangeRed),
-            Margin = new Thickness(12, 2, 12, 2),
+            VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
         };
         AutomationProperties.SetName(_banner, "分支提示");
+
+        _copyErrBtn = BuildToolButton("复制错误详情");
+        _copyErrBtn.Visibility = Visibility.Collapsed;
+        _copyErrBtn.Click += (_, _) => CopyErrorDetail();
+
+        var bannerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(10, 2, 10, 2) };
+        bannerRow.Children.Add(_banner);
+        bannerRow.Children.Add(_copyErrBtn);
 
         // ---- 操作栏（对选中分支）----
         _checkoutBtn = BuildToolButton("检出");
@@ -174,8 +184,8 @@ public sealed class BranchesPage : UserControl
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(22) });
         Grid.SetRow(toolbar, 0);
         root.Children.Add(toolbar);
-        Grid.SetRow(_banner, 1);
-        root.Children.Add(_banner);
+        Grid.SetRow(bannerRow, 1);
+        root.Children.Add(bannerRow);
         Grid.SetRow(ops, 2);
         root.Children.Add(ops);
         Grid.SetRow(_listScroll, 3);
@@ -187,6 +197,17 @@ public sealed class BranchesPage : UserControl
 
         _vm.StructureChanged += () => DispatcherQueue.TryEnqueue(Rebind);
         _context.Changed += () => DispatcherQueue.TryEnqueue(OnContextChanged);
+        // 分支集合变化（创建/重命名/删除）转发给其他页（known-issues 1.2）
+        _vm.BranchListChanged += () => _context.NotifyBranchesChanged();
+
+        // 一次性成功消息 5s 自动消退（known-issues 1.8）
+        _transientTimer = DispatcherQueue.CreateTimer();
+        _transientTimer.Interval = TimeSpan.FromSeconds(5);
+        _transientTimer.Tick += (_, _) =>
+        {
+            _transientTimer.Stop();
+            _vm.ClearTransient();
+        };
 
         Rebind();
     }
@@ -225,6 +246,22 @@ public sealed class BranchesPage : UserControl
     }
 
     private BranchItemRow? Sel() => _vm.Selected;
+
+    private void CopyErrorDetail()
+    {
+        var detail = _vm.ErrorDetail;
+        if (detail is null) return;
+        try
+        {
+            var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            dp.SetText(detail);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("copy error detail: " + ex);
+        }
+    }
 
     // ---- 行为 ----
 
@@ -436,6 +473,20 @@ public sealed class BranchesPage : UserControl
         {
             _banner.Text = string.Empty;
             _banner.Visibility = Visibility.Collapsed;
+        }
+
+        // 复制完整错误详情（known-issues 1.7）
+        _copyErrBtn.Visibility = _vm.ErrorDetail is null ? Visibility.Collapsed : Visibility.Visible;
+
+        // transient 5s 消退（known-issues 1.8）
+        if (!string.IsNullOrEmpty(_vm.TransientMessage))
+        {
+            _transientTimer.Stop();
+            _transientTimer.Start();
+        }
+        else
+        {
+            _transientTimer.Stop();
         }
 
         _repeater.ItemsSource = _vm.Rows;

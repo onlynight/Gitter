@@ -252,6 +252,8 @@ public sealed class LogPage : UserControl
         // VM 事件 → UI 线程
         _vm.StructureChanged += () => DispatcherQueue.TryEnqueue(Rebind);
         _vm.SelectionChanged += () => DispatcherQueue.TryEnqueue(UpdateDetail);
+        _context.Changed += () => DispatcherQueue.TryEnqueue(OnContextChanged);
+        _context.BranchesChanged += () => DispatcherQueue.TryEnqueue(OnBranchesChangedExternally);
         ActualThemeChanged += (_, _) => Rebind();
 
         Rebind();
@@ -506,6 +508,30 @@ public sealed class LogPage : UserControl
         }
     }
 
+    /// <summary>其他页签打开仓库后 Log 页跟随（known-issues 1.3；自身打开会先更新 WorkDir，不会回环）。</summary>
+    private void OnContextChanged()
+    {
+        var workDir = _context.WorkDir;
+        if (workDir is null || workDir == _vm.WorkDir) return;
+        _repoBox.Text = workDir;
+        _scrollToTopPending = true;
+        _ = _vm.OpenRepositoryAsync(workDir);
+    }
+
+    /// <summary>分支页增删分支后刷新下拉（known-issues 1.2）。</summary>
+    private void OnBranchesChangedExternally()
+    {
+        if (!_vm.IsRepoOpen) return;
+        _ = RefreshBranchesComboAsync();
+    }
+
+    private async Task RefreshBranchesComboAsync()
+    {
+        await _vm.RefreshBranchesAsync();
+        _branchRepoKey = null; // 强制 UpdateBranchCombo 重建
+        UpdateBranchCombo();
+    }
+
     private void PopulateRecents()
     {
         _suppressBranchEvent = true;
@@ -591,7 +617,7 @@ public sealed class LogPage : UserControl
     {
         if (f.IsBinary) _canvas.Clear("二进制文件已修改，无法比较");
         else if (f.Hunks.Count == 0) _canvas.Clear("无差异");
-        else _canvas.Load(f.Hunks);
+        else _canvas.Load(f.Hunks, f.OldEndsWithNewline, f.NewEndsWithNewline);
     }
 
     private void OnListScrollChanged(object? sender, ScrollViewerViewChangedEventArgs e)

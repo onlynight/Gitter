@@ -269,10 +269,15 @@ namespace GitUI.Git
                 hunks = new[] { BuildDeletionHunk(oldBlob) };
             }
 
+            // EOF 标志直接看 blob 内容末尾（新增/删除/修改三条路径统一处理）
+            bool oldEof = oldBlob is null || BlobEndsWithNewline(oldBlob);
+            bool newEof = newBlob is null || BlobEndsWithNewline(newBlob);
+
             return new CoreDiffResult(
                 Path: path, OldPath: path, IsBinary: isBinary,
                 IsNew: isNew, IsDeleted: isDeleted, IsRenamed: false,
-                Hunks: hunks, AddedLines: added, DeletedLines: deleted);
+                Hunks: hunks, AddedLines: added, DeletedLines: deleted,
+                OldEndsWithNewline: oldEof, NewEndsWithNewline: newEof);
         }
 
         public IReadOnlyList<CoreWorktreeFileStatus> GetStatus(string workDir)
@@ -914,6 +919,11 @@ namespace GitUI.Git
             IReadOnlyList<CoreDiffHunk> hunks =
                 entry.IsBinaryComparison ? Array.Empty<CoreDiffHunk>() : ParseUnifiedDiff(entry.Patch);
 
+            // EOF 标志：从 patch 的 "\ No newline" 标记行解析（S4 遗留项，§known-issues 1.6）
+            var (oldEof, newEof) = entry.IsBinaryComparison
+                ? (true, true)
+                : GitUI.Core.Services.UnifiedPatch.DetectEndOfNewline(entry.Patch);
+
             return new CoreDiffResult(
                 Path: path,
                 OldPath: isRenamed ? oldPath : path,
@@ -923,7 +933,9 @@ namespace GitUI.Git
                 IsRenamed: isRenamed,
                 Hunks: hunks,
                 AddedLines: entry.LinesAdded,
-                DeletedLines: entry.LinesDeleted);
+                DeletedLines: entry.LinesDeleted,
+                OldEndsWithNewline: oldEof,
+                NewEndsWithNewline: newEof);
         }
 
         /// <summary>
@@ -958,6 +970,12 @@ namespace GitUI.Git
             if (inWorkdir && !s.Equals(FileStatus.NewInWorkdir)) result.Add(CoreStatusCategory.Changes);
             if (result.Count == 0) result.Add(CoreStatusCategory.Changes);
             return result;
+        }
+
+        private static bool BlobEndsWithNewline(Blob blob)
+        {
+            var text = blob.GetContentText();
+            return text.Length == 0 || text.EndsWith("\n", StringComparison.Ordinal);
         }
 
         private static int CountLines(Blob blob)

@@ -12,6 +12,8 @@ namespace GitUI.Core.Models;
 /// <param name="Hunks">差异块列表。二进制或空 diff 时为空。</param>
 /// <param name="AddedLines">新增行数汇总。</param>
 /// <param name="DeletedLines">删除行数汇总。</param>
+/// <param name="OldEndsWithNewline">旧文件末尾是否有换行符（渲染 "\ No newline" 标记）。</param>
+/// <param name="NewEndsWithNewline">新文件末尾是否有换行符。</param>
 public sealed record DiffResult(
     string Path,
     string OldPath,
@@ -21,7 +23,9 @@ public sealed record DiffResult(
     bool IsRenamed,
     IReadOnlyList<DiffHunk> Hunks,
     int AddedLines,
-    int DeletedLines)
+    int DeletedLines,
+    bool OldEndsWithNewline = true,
+    bool NewEndsWithNewline = true)
 {
     public bool IsModified => !IsNew && !IsDeleted && !IsRenamed;
 

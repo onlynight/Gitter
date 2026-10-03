@@ -142,6 +142,26 @@ public sealed class LogViewModel
     /// <summary>刷新（同参数重载第一页）。</summary>
     public Task RefreshAsync() => WorkDir is null ? Task.CompletedTask : LoadAsync(reset: true);
 
+    /// <summary>
+    /// 只刷新分支列表（known-issues 1.2：分支页增删分支后 Log 页下拉联动），
+    /// 不动已加载的提交与选中状态。
+    /// </summary>
+    public async Task RefreshBranchesAsync()
+    {
+        var workDir = WorkDir;
+        if (workDir is null) return;
+        await _gate.WaitAsync();
+        try
+        {
+            Branches = await Task.Run(() => _repo.GetBranches(workDir));
+            StructureChanged?.Invoke();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     /// <summary>滚动加载下一页（design.md §8-S4"分页加载数量"）。无更多或加载中时为空操作。</summary>
     public async Task LoadNextPageAsync()
     {

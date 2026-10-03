@@ -48,6 +48,9 @@ public sealed class ChangesPage : UserControl
     private readonly Button _commitBtn;
     private readonly Button _commitPushBtn;
     private readonly Button _retryPushBtn;
+    private readonly Button _copyErrBtn;
+    private readonly Button _openEditorBtn;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _transientTimer;
 
     private bool _suppressRecent;
     private bool _scrollToTopPending;
@@ -104,10 +107,22 @@ public sealed class ChangesPage : UserControl
         {
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.OrangeRed),
-            Margin = new Thickness(12, 2, 12, 2),
+            VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
         };
         AutomationProperties.SetName(_banner, "变更提示");
+
+        _copyErrBtn = BuildToolButton("复制错误详情");
+        _copyErrBtn.Visibility = Visibility.Collapsed;
+        _copyErrBtn.Click += (_, _) => CopyErrorDetail();
+
+        _openEditorBtn = BuildToolButton("在编辑器打开");
+        _openEditorBtn.IsEnabled = false;
+        _openEditorBtn.Click += (_, _) => _ = OpenSelectedInEditorAsync();
+
+        var bannerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(10, 2, 10, 2) };
+        bannerRow.Children.Add(_banner);
+        bannerRow.Children.Add(_copyErrBtn);
 
         // ---- 左：三层列表 ----
         _repeater = new ItemsRepeater { Layout = new StackLayout() };
@@ -153,6 +168,7 @@ public sealed class ChangesPage : UserControl
         _unstageHunkBtn.Click += (_, _) => StageSelectedHunks(reverse: true);
 
         var opsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(8, 2, 8, 2) };
+        opsRow.Children.Add(_openEditorBtn);
         opsRow.Children.Add(_stageFileBtn);
         opsRow.Children.Add(_unstageFileBtn);
         opsRow.Children.Add(new TextBlock { Text = "  ", Width = 8 });
@@ -299,8 +315,8 @@ public sealed class ChangesPage : UserControl
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(22) });
         Grid.SetRow(toolbar, 0);
         root.Children.Add(toolbar);
-        Grid.SetRow(_banner, 1);
-        root.Children.Add(_banner);
+        Grid.SetRow(bannerRow, 1);
+        root.Children.Add(bannerRow);
         Grid.SetRow(content, 2);
         root.Children.Add(content);
         Grid.SetRow(commitBar, 3);
@@ -314,6 +330,15 @@ public sealed class ChangesPage : UserControl
         _vm.SelectionChanged += () => DispatcherQueue.TryEnqueue(UpdateSelection);
         _context.Changed += () => DispatcherQueue.TryEnqueue(OnContextChanged);
         ActualThemeChanged += (_, _) => Rebind();
+
+        // 一次性成功消息 5s 自动消退（known-issues 1.8）
+        _transientTimer = DispatcherQueue.CreateTimer();
+        _transientTimer.Interval = TimeSpan.FromSeconds(5);
+        _transientTimer.Tick += (_, _) =>
+        {
+            _transientTimer.Stop();
+            _vm.ClearTransient();
+        };
 
         Rebind();
     }
@@ -378,6 +403,51 @@ public sealed class ChangesPage : UserControl
             _recentBox.Items.Add(p);
         _recentBox.SelectedIndex = -1;
         _suppressRecent = false;
+    }
+
+    private void CopyErrorDetail()
+    {
+        var detail = _vm.ErrorDetail;
+        if (detail is null) return;
+        try
+        {
+            var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            dp.SetText(detail);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("copy error detail: " + ex);
+        }
+    }
+
+    /// <summary>用外部编辑器（设置指定或系统默认）打开选中文件（known-issues 1.4）。</summary>
+    private async Task OpenSelectedInEditorAsync()
+    {
+        var entry = _vm.Selected;
+        var workDir = _vm.WorkDir;
+        if (entry is null || workDir is null) return;
+        var full = System.IO.Path.Combine(workDir, entry.Path.Replace('/', System.IO.Path.DirectorySeparatorChar));
+        try
+        {
+            var editor = _settings.Current.ExternalEditor;
+            if (!string.IsNullOrWhiteSpace(editor))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(editor, '"' + full + '"')
+                {
+                    UseShellExecute = true,
+                });
+            }
+            else
+            {
+                var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(full);
+                _ = await Windows.System.Launcher.LaunchFileAsync(file);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("open in editor: " + ex);
+        }
     }
 
     private void StageSelectedHunks(bool reverse)
@@ -551,6 +621,21 @@ public sealed class ChangesPage : UserControl
             _retryPushBtn.Visibility = Visibility.Collapsed;
         }
 
+        // 复制完整错误详情（known-issues 1.7）
+        var detail = _vm.ErrorDetail;
+        _copyErrBtn.Visibility = detail is null ? Visibility.Collapsed : Visibility.Visible;
+
+        // transient 5s 消退（known-issues 1.8）：每次 Rebind 重置计时
+        if (!string.IsNullOrEmpty(_vm.TransientMessage))
+        {
+            _transientTimer.Stop();
+            _transientTimer.Start();
+        }
+        else
+        {
+            _transientTimer.Stop();
+        }
+
         _repeater.ItemsSource = BuildFlatRows();
         _selectedRowButton = null;
         if (_scrollToTopPending)
@@ -609,21 +694,27 @@ public sealed class ChangesPage : UserControl
         if (selected is null)
         {
             _fileHeader.Text = string.Empty;
+            _openEditorBtn.IsEnabled = false;
             _canvas.Clear("选择左侧文件查看差异");
             UpdateHunkButtons(-1);
             return;
         }
 
         _fileHeader.Text = selected.Path;
+        _openEditorBtn.IsEnabled = true;
+        // 冲突文件下"暂存文件"即"标记已解决"（git add 移除冲突条目），换标签提示语义
+        var isConflict = selected.IsConflict;
+        _stageFileBtn.Content = isConflict ? "标记已解决" : "暂存文件";
+        AutomationProperties.SetName(_stageFileBtn, isConflict ? "标记已解决" : "暂存文件");
         if (view is null)
         {
-            _canvas.Clear(selected.IsConflict ? "冲突文件：请在解决冲突后暂存" : "无差异");
+            _canvas.Clear(selected.IsConflict ? "冲突文件：解决后点击标记已解决" : "无差异");
             UpdateHunkButtons(-1);
             return;
         }
 
         if (view.Hunks.Count == 0) _canvas.Clear("无差异");
-        else _canvas.Load(view.Hunks);
+        else _canvas.Load(view.Hunks, view.OldEndsWithNewline, view.NewEndsWithNewline);
         UpdateHunkButtons(-1);
     }
 
