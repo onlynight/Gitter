@@ -65,7 +65,7 @@ public sealed class LogPage : UserControl
             if (e.Key == VirtualKey.Enter) { _ = OpenRepoAsync(); e.Handled = true; }
         };
 
-        _recentBox = new ComboBox { Width = 110, PlaceholderText = "最近" };
+        _recentBox = new ComboBox { MinWidth = 110, PlaceholderText = "最近" };
         AutomationProperties.SetName(_recentBox, "最近仓库");
         _recentBox.SelectionChanged += (_, _) =>
         {
@@ -80,7 +80,7 @@ public sealed class LogPage : UserControl
         var openBtn = BuildToolButton("打开仓库");
         openBtn.Click += (_, _) => _ = OpenRepoAsync();
 
-        _branchBox = new ComboBox { Width = 130, PlaceholderText = "分支" };
+        _branchBox = new ComboBox { MinWidth = 130, PlaceholderText = "分支" };
         AutomationProperties.SetName(_branchBox, "分支选择");
         _branchBox.SelectionChanged += (_, _) =>
         {
@@ -110,7 +110,7 @@ public sealed class LogPage : UserControl
         var toolbar = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = 8,
             Margin = new Thickness(10, 6, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -225,7 +225,7 @@ public sealed class LogPage : UserControl
             Text = "未设置基准：显示与父提交的差异",
         };
 
-        var compareRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(12, 2, 12, 2) };
+        var compareRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 2, 12, 2) };
         compareRow.Children.Add(_pinCompareBtn);
         compareRow.Children.Add(_clearCompareBtn);
         compareRow.Children.Add(_compareIndicator);

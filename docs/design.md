@@ -2,7 +2,7 @@
 
 > 状态：定稿 v1.5（2026-10-03 Git Bash 承载位置变更：右侧面板 → 左侧导航页签，见 §11.12）
 > 日期：2026-10-03
-> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11；S3 已实现（2026-10-03），验证详见 §11.13；S4 已实现（2026-10-03），验证详见 §11.14；S5 已实现（2026-10-03），验证详见 §11.15；S6 已实现（2026-10-03），验证详见 §11.16；S7 已实现（2026-10-03），验证详见 §11.17；S2b/S3b/S0e 已实现（2026-10-03），验证详见 §11.18；通用 git diff（任意两点比较，§4.2 P1 基础版）已随 S7 补充实现
+> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11；S3 已实现（2026-10-03），验证详见 §11.13；S4 已实现（2026-10-03），验证详见 §11.14；S5 已实现（2026-10-03），验证详见 §11.15；S6 已实现（2026-10-03），验证详见 §11.16；S7 已实现（2026-10-03），验证详见 §11.17；S2b/S3b/S0e 已实现（2026-10-03），验证详见 §11.18；终端多后端（winpty 兜底）与 shell 选择已实现（2026-10-03），详见 §11.19；通用 git diff（任意两点比较，§4.2 P1 基础版）已随 S7 补充实现
 
 ## 十一、S0 实施记录与踩坑总结
 
@@ -473,6 +473,36 @@ var btn = new Button { Padding = new Thickness(12), ... };
 6. **状态条正则**：'×'（U+00D7）不是 ASCII 'x'，UIA 断言要按实际字符写。
 
 **对后续的影响**：Git Bash 支线 S0b–S0e 全部完成；v2 项（输出解析回写 IndexState、命令块折叠、鼠标坐标协议）在 known-issues.md 跟踪。
+
+---
+### 11.19 终端多后端与 shell 选择（2026-10-03，P1-P4）
+
+用户报告：Git Bash 页启动 bash.exe 弹 0xC0000142 系统错误框且应用崩溃；要求分析 VSCode/ZCode 方案并消除外部依赖。crash.log + WER 取证后定位两层根因并实施分层优化。
+
+**根因分析**（截图 + WER + 本机二进制取证）：
+- 收件箱 ConPTY 路径（`CreatePseudoConsole` → 系统 conhost pty 模式托管）在本机 RDP 会话下，子进程 DLL 初始化整体失败（bash/cmd 无差别；普通方式启动 bash 正常——问题锁定在 ConPTY 层）。
+- **VSCode/ZCode 的差异**：它们随应用分发 node-pty 的 `conpty.dll` + `OpenConsole.exe`（microsoft/terminal 开源构建，MIT），由**自带的 OpenConsole 充当控制台宿主**，完全不经过收件箱 conhost 的 pty 模式；并有 winpty 作为传统兜底。本机取证：`ZCode/resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64/` 下有完整发行物。
+
+**交付**：
+- **P1 shell 解耦**：`AppSettings.TerminalShell`（powershell/cmd/bash，默认 PowerShell 系统内置零依赖）+ `NormalizeTerminalShell` 归一化；TerminalPage（原 BashPage 更名，页签名"终端"）工具条 Shell 下拉，切换即重启会话；bash 不可用不再阻塞终端（PowerShell/CMD 始终可用）。
+- **P2 winpty 兜底后端**：`WinPtySession`（ITerminalSession 完整实现）——winpty.dll/winpty-agent.exe P/Invoke（config_new → open → conin/conout 管道 → spawn → set_size），隐藏 agent 控制台（CONCEAL）；ConPTY 不可用时自动降级，本机 RDP 会话实测"运行中 · winpty"。
+- **P4 诊断**：状态条显示后端档位（"ConPTY"/"winpty"）；crash.log 全局异常日志（S7 已建）；`check-accessibility.ps1` 加固（元素失效跳过 + Invoke 重试 + 存活监控）。
+- **随应用分发二进制**：`src/GitUI.App/pty/{winpty,openconsole}/`（MIT，node-pty 同源快照），csproj Content 随构建复制。
+
+**验证**：Shell.Tests 117 全绿（含 winpty 后端编译、ConPTY 集成 12 条回归）；smoke-bash-terminal 在本机 RDP 会话 PASS（winpty 会话运行中、空态/提示路径正常）；无障碍扫描 5 页 90 元素零缺失。
+
+**关键实现决策**：
+
+1. **winpty 先行、OpenConsole handoff 暂缓（原 P2/P3 交换）**：conpty.dll 的 `CreatePseudoConsole` 经 PowerShell Add-Type 实证返回 E_INVALIDARG（签名/内部 OpenConsole 探测与预期不符），而 winpty 的 C API 完全公开稳定且 winpty 的设计目标正是"ConPTY 不可用的环境"。盲实现 OpenConsole signal-pipe 握手协议风险高——需 microsoft/terminal 的 winconpty + node-pty conpty.cc 源码参考，列入后续。
+2. **winpty 管道模型**：winpty_open 启动隐藏 agent → `conin/conout` 命名管道名 → CreateFileW 打开读写 → spawn 配置 AUTO_SHUTDOWN|EXIT_AFTER_CLIENT_SHUTDOWN（shell 退出 agent 退出，客户端退出 shell 退出）。
+3. **页签缓存 + 分层降级正交**：会话创建收敛到 EnsureSessionStartedAsync（预检 → shell 解析 → 后端分派），RestartSession（shell 切换/重开菜单）与页签缓存互不干扰。
+
+**踩坑**（全部实测）：
+1. conpty.dll `CreatePseudoConsole` 标准 5 参签名调用返回 E_INVALIDARG（与收件箱语义不完全兼容）——API 级 drop-in 假设不成立，必须走握手协议。
+2. 事件挂接时机：C# 可空流分析对"lambda 注册早于 readonly 字段赋值"报 CS8602（BashPage/TerminalPage 两次踩中）——事件挂接统一移到字段赋值后。
+3. shell 下拉 SelectionChanged 挂接过早引用 _buffer/_canvas → 同型 CS8602。
+4. Grid.InsertColumn 后原有 SetColumn 不自动右移 → 强调条列插入后 name/meta 需手动 +1。
+5. 冒烟状态条正则：'×'(U+00D7) 非 ASCII 'x'；RDP 下 UIA Invoke 首调 E_FAIL 需重试；轮询期间必须检查应用存活。
 
 ---
 **遗留与范围外**（known-issues.md 持续跟踪）：

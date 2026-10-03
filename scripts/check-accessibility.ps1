@@ -24,7 +24,15 @@ try {
         $scopeRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $and)
     }
     function Invoke-Button($btn) {
-        ($btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+        # RDP 会话下 UIA Invoke 可能暂时 E_FAIL，重试 5 次
+        for ($try = 1; $try -le 5; $try++) {
+            try {
+                ($btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+                return
+            } catch {
+                Start-Sleep -Milliseconds 600
+            }
+        }
     }
 
     # 交互元素控制类型（列表项由宿主 List 命名策略覆盖，单独统计不单独判违规）
@@ -41,7 +49,7 @@ try {
         @{ key = 'Log';      label = 'Log' },
         @{ key = 'changes';  label = '变更' },
         @{ key = 'branches'; label = '分支' },
-        @{ key = 'bash';     label = 'Git Bash' },
+        @{ key = 'bash';     label = '终端' },
         @{ key = 'settings'; label = '设置' }
     )
 
@@ -53,17 +61,24 @@ try {
         if ($null -eq $nav) { Write-Output "WARN: 页签 '$($page.label)' 未找到，跳过"; continue }
         Invoke-Button $nav
         Start-Sleep -Seconds 2
+        $p.Refresh()
+        if ($p.HasExited) { Write-Output 'FAIL: 应用在页签切换期间退出'; exit 1 }
 
         foreach ($t in $interactiveTypes) {
             $els = $main.FindAll([System.Windows.Automation.TreeScope]::Descendants,
                 (New-Object System.Windows.Automation.PropertyCondition(
                     [System.Windows.Automation.AutomationElement]::ControlTypeProperty, $t)))
             foreach ($el in $els) {
-                $totalChecked++
-                $name = $el.Current.Name
-                if ([string]::IsNullOrWhiteSpace($name)) {
-                    $autoId = $el.Current.AutomationId
-                    $violations.Add("$($page.key): $($t.ProgrammaticName) 无 Name (AutomationId=$autoId)")
+                # 元素可能在扫描中途失效（winpty 会话持续输出等），跳过而非中断
+                try {
+                    $totalChecked++
+                    $name = $el.Current.Name
+                    if ([string]::IsNullOrWhiteSpace($name)) {
+                        $autoId = $el.Current.AutomationId
+                        $violations.Add("$($page.key): $($t.ProgrammaticName) 无 Name (AutomationId=$autoId)")
+                    }
+                } catch [System.Windows.Automation.ElementNotAvailableException] {
+                    continue
                 }
             }
         }

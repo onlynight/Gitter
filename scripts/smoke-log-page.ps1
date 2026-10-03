@@ -25,7 +25,14 @@ function Find-ByName($scopeRoot, $ctlType, $name) {
 }
 
 function Invoke-Button($btn) {
-    ($btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+    for ($try = 1; $try -le 5; $try++) {
+        try {
+            ($btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+            return
+        } catch {
+            Start-Sleep -Milliseconds 600
+        }
+    }
 }
 
 function Find-AllButtons($scopeRoot) {

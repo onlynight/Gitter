@@ -38,7 +38,7 @@ public sealed partial class MainWindow : Window
     private int _sidebarWidth;
 
     // Git Bash 页签缓存：切换页签不丢输出；S0e 的终端会话将是 App 级单例（§5.1）
-    private BashPage? _bashPage;
+    private Pages.TerminalPage? _terminalPage;
 
     // Log 页签缓存（S4）：切换页签不丢已加载的提交列表与选中状态
     private LogPage? _logPage;
@@ -118,7 +118,7 @@ public sealed partial class MainWindow : Window
             ("\uE789", "Log", "log"),
             ("\uE7E8", "变更", "changes"),
             ("\uE713", "分支", "branches"),
-            ("\uE756", "Git Bash", "bash"),
+            ("\uE756", "终端", "bash"),
             ("\uE713", "设置", "settings"),
         };
 
@@ -492,14 +492,14 @@ public sealed partial class MainWindow : Window
     {
         _currentKey = key;
         // S0e：Bash 页签首次显示时启动 ConPTY 会话（Lazy）
-        if (key == "bash") _bashPage?.OnShown();
+        if (key == "bash") _terminalPage?.OnShown();
 
-        _bashPage ??= new BashPage(_settings, _repoContext);
+        _terminalPage ??= new TerminalPage(_settings, _repoService, _repoContext);
         UIElement page = key switch
         {
             "changes" => _changesPage ??= new ChangesPage(_settings, _repoService, _repoContext),
             "branches" => _branchesPage ??= new BranchesPage(_settings, _repoService, _repoContext),
-            "bash" => _bashPage,
+            "bash" => _terminalPage,
             "settings" => new SettingsPage(_settings, ExportSettingsAsync, ImportSettingsAsync),
             _ => _logPage ??= new LogPage(_settings, _repoService, _repoContext),
         };
@@ -530,7 +530,7 @@ public sealed partial class MainWindow : Window
             new("转到 Log (Ctrl+1)", () => ShowPage("log")),
             new("转到变更 (Ctrl+2)", () => ShowPage("changes")),
             new("转到分支 (Ctrl+3)", () => ShowPage("branches")),
-            new("转到 Git Bash (Ctrl+4)", () => ShowPage("bash")),
+            new("转到终端 (Ctrl+4)", () => ShowPage("bash")),
             new("转到设置 (Ctrl+5)", () => ShowPage("settings")),
             new("刷新当前页 (F5)", RefreshCurrentPage),
             new("新建窗口", OpenNewWindow),

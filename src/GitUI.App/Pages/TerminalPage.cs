@@ -1,5 +1,6 @@
 using System.Text;
 using GitUI.Controls;
+using GitUI.Core.Services;
 using GitUI.Core.Settings;
 using GitUI.Shell;
 using Microsoft.UI.Xaml;
@@ -11,35 +12,39 @@ using Windows.System;
 namespace GitUI.App.Pages;
 
 /// <summary>
-/// Git Bash 页签（S0e 接线，design.md §4.7.2 / §8-S0e）：
-/// TerminalCanvas（S3b）+ TerminalParser（S2b）+ ConptySession（S0d）三方接通；
-/// Lazy 会话（首次进入页签才启动进程）；跟随仓库（打开/切换仓库写入 cd）；
-/// Bash 未安装空态（下载链接 + 手动指定路径）；状态条（会话状态 / PTY 尺寸 / 跟随仓库）。
-/// 会话输出经 DispatcherQueue 回投 UI 线程（解析与绘制同线程串行）。
+/// 终端页（S0e + P1/P2/P4，design.md §4.7）：
+/// TerminalCanvas（S3b）+ TerminalParser（S2b）+ 多后端会话（ConPTY / winpty，P2/P3）。
+/// shell 可选 PowerShell / CMD / Git Bash（P1：默认 PowerShell 系统内置零外部依赖）；
+/// ConPTY 不可用（RDP 0xC0000142，§11.10.5）自动降级 winpty 后端（P2）；
+/// ConPTY 预检门控 + SEM_FAILCRITICALERRORS 弹窗抑制；
+/// 跟随仓库；Lazy 会话；状态条（后端档位 / PTY 尺寸 / 跟随仓库）。
 /// </summary>
-public sealed class BashPage : UserControl
+public sealed class TerminalPage : UserControl
 {
     private readonly ISettingsStore _settings;
+    private readonly IRepositoryService _repoService;
     private readonly RepositoryContext _context;
     private readonly TerminalCanvas _canvas;
     private readonly TerminalParser _parser;
     private readonly TerminalBuffer _buffer;
 
-    private ConptySession? _session;
+    private ITerminalSession? _session;
     private bool _sessionRequested;
     private string? _bashPath;
     private int _cols = 80;
     private int _rows = 24;
     private string _sessionState = "未启动";
+    private string _backend = "";
 
     private readonly UIElement _emptyState;
     private readonly TextBlock _statusLeft;
     private readonly ToggleMenuFlyoutItem _followRepoItem;
     private bool _shown;
 
-    public BashPage(ISettingsStore settings, RepositoryContext context)
+    public TerminalPage(ISettingsStore settings, IRepositoryService repoService, RepositoryContext context)
     {
         _settings = settings;
+        _repoService = repoService;
         _context = context;
 
         var host = new Grid();
@@ -51,7 +56,7 @@ public sealed class BashPage : UserControl
         var titleIcon = new FontIcon { Glyph = "\uE756", FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
         var title = new TextBlock
         {
-            Text = "Git Bash",
+            Text = "终端",
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(6, 0, 0, 0),
@@ -72,14 +77,28 @@ public sealed class BashPage : UserControl
         var moreBtn = BuildToolbarButton("\uE712", "更多");
         moreBtn.Flyout = menu;
 
+        var shellLabel = new TextBlock { Text = "Shell:", FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8 };
+        var shellBox = new ComboBox { MinWidth = 110, FontSize = 11.5 };
+        AutomationProperties.SetName(shellBox, "终端 Shell 选择");
+        foreach (var s in new[] { "PowerShell", "CMD", "Git Bash" }) shellBox.Items.Add(s);
+        shellBox.SelectedIndex = CurrentShellKind() switch
+        {
+            TerminalShellKind.Cmd => 1,
+            TerminalShellKind.Bash => 2,
+            _ => 0,
+        };
+        _shellBox = shellBox;
+
         var toolsHost = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
-            Spacing = 2,
+            Spacing = 4,
             Margin = new Thickness(0, 0, 6, 0),
         };
+        toolsHost.Children.Add(shellLabel);
+        toolsHost.Children.Add(shellBox);
         toolsHost.Children.Add(clearBtn);
         toolsHost.Children.Add(moreBtn);
 
@@ -103,14 +122,29 @@ public sealed class BashPage : UserControl
         Grid.SetRow(_canvas, 1);
         host.Children.Add(_canvas);
 
-        // 清屏按钮的字段捕获晚于赋值（可空流分析要求注册点在赋值后）
+        _emptyState = BuildEmptyState(host);
+
+        // 清屏按钮：字段捕获晚于赋值（可空流分析），注册移到这里
         clearBtn.Click += (_, _) =>
         {
             _buffer.EraseDisplayAll();
             _canvas.NotifyOutput();
         };
 
-        _emptyState = BuildEmptyState(host);
+        // Shell 切换：重启会话（字段捕获同上，注册移到 _buffer/_canvas 赋值后）
+        _shellBox.SelectionChanged += (_, _) =>
+        {
+            if (_shellBox.SelectedIndex < 0) return;
+            var kind = _shellBox.SelectedIndex switch
+            {
+                1 => TerminalShellKind.Cmd,
+                2 => TerminalShellKind.Bash,
+                _ => TerminalShellKind.PowerShell,
+            };
+            _settings.Update(s => s.TerminalShell = kind);
+            _settings.Save();
+            RestartSession();
+        };
 
         // —— 状态条（20px）——
         _statusLeft = new TextBlock
@@ -120,7 +154,6 @@ public sealed class BashPage : UserControl
             Margin = new Thickness(12, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        // 不设显式 Name 的动态文本约定之外：此处 Name 供无障碍定位，内容经 ToScreenText 摘要在画布侧
         var statusRow = new Grid { Height = 20 };
         statusRow.Children.Add(_statusLeft);
 
@@ -141,103 +174,141 @@ public sealed class BashPage : UserControl
         UpdateStatus();
     }
 
-    private static readonly object _traceLock = new();
-    internal static void Trace(string message)
-    {
-        try
-        {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitUI");
-            Directory.CreateDirectory(dir);
-            File.AppendAllText(Path.Combine(dir, "bash-trace.log"),
-                DateTime.Now.ToString("HH:mm:ss.fff") + " " + message + Environment.NewLine);
-        }
-        catch { }
-    }
+    private readonly ComboBox _shellBox;
 
     /// <summary>页签宿主在首次显示时调用（Lazy 会话启动；重复调用无害）。</summary>
     public void OnShown()
     {
         if (_shown) return;
         _shown = true;
-        Trace("OnShown");
         _ = EnsureSessionStartedAsync();
         _canvas.Focus(FocusState.Programmatic);
     }
 
-    // ---- 会话生命周期 ----
+    // ---- 会话生命周期（分层后端：ConPTY → winpty）----
+
+    private void EnsureSessionStarted()
+    {
+        if (_sessionRequested) return;
+        _sessionRequested = true;
+        _ = EnsureSessionStartedAsync();
+    }
 
     private async Task EnsureSessionStartedAsync()
     {
         if (_sessionRequested) return;
         _sessionRequested = true;
-        Trace("ensure: entered");
+
+        // 0. shell 解析（P1：PowerShell/CMD 系统内置零依赖，bash 可选）
+        var shellKind = CurrentShellKind();
+        string commandLine;
+        string? cwd = ResolveWorkDir();
+        if (shellKind == TerminalShellKind.Bash)
+        {
+            if (!BashLocator.TryLocate(_settings.Current.BashPath, out var bashPath, out var bashError))
+            {
+                _sessionState = "未找到 bash";
+                ShowEmptyState("未检测到 Git Bash（已选 Git Bash shell）：" + (bashError ?? "请安装 Git for Windows 或改用 PowerShell/CMD。"));
+                UpdateStatus();
+                return;
+            }
+            _bashPath = bashPath;
+            commandLine = $"\"{bashPath}\" -i -l";
+        }
+        else if (shellKind == TerminalShellKind.Cmd)
+        {
+            commandLine = "cmd.exe";
+        }
+        else
+        {
+            commandLine = "powershell.exe -NoLogo";
+        }
 
         // 1. ConPTY 环境预检：RDP/非交互会话下伪控制台子进程 DLL 初始化整体失败
-        //    （bash/cmd 0xC0000142，§11.10.5）——先探测，避免启动即弹系统错误框
+        //    （bash/cmd 0xC0000142，§11.10.5）——先探测，选择健康后端
         _sessionState = "正在检测终端环境…";
         UpdateStatus();
-        Trace("ensure: probe start");
-        var healthy = await Task.Run(() => ConptyProbe.IsHealthy());
-        Trace("ensure: probe done, healthy=" + healthy);
-        Trace("ensure: after probe branch");
-        if (!healthy)
+        var backend = "";
+        var healthy = await Task.Run(() =>
         {
-            _sessionState = "环境不支持";
-            ShowEmptyState("当前会话环境不支持伪控制台（远程桌面 / 非交互会话下常见）——请在本机桌面会话中运行 GitUI。");
-            UpdateStatus();
-            return;
-        }
+            var conpty = ConptyProbe.IsHealthy();
+            backend = conpty ? "ConPTY" : "winpty";
+            return conpty;
+        });
+        _backend = backend;
 
-        // 2. bash 定位
-        if (!BashLocator.TryLocate(_settings.Current.BashPath, out var bashPath, out var error))
+        if (healthy)
         {
-            _sessionState = "未找到 bash";
-            ShowEmptyState("未检测到 Git Bash：" + (error ?? "请安装 Git for Windows 或手动指定路径。"));
+            // 2. ConPTY 后端
+            _sessionState = "启动中";
             UpdateStatus();
-            return;
+            StartConptySession(commandLine, cwd);
         }
-
-        _bashPath = bashPath;
-        Trace("ensure: start session");
-        HideEmptyState();
-        StartSession();
-        FollowRepoIfNeeded();
+        else
+        {
+            // 3. winpty 后端（P2）：ConPTY 不可用时仍提供完整终端
+            _sessionState = "启动中";
+            UpdateStatus();
+            StartWinPtySession(commandLine, cwd);
+        }
     }
 
-    private void StartSession()
+    private void StartConptySession(string commandLine, string? cwd)
     {
         try
         {
             var session = new ConptySession(
-                commandLine: $"\"{_bashPath}\" -i -l",
-                workingDirectory: ResolveWorkDir(),
+                commandLine: commandLine,
+                workingDirectory: cwd,
                 initialColumns: _cols,
                 initialRows: _rows);
-            session.OutputReady += bytes => DispatcherQueue.TryEnqueue(() =>
-            {
-                _parser.Feed(bytes.Span);
-                _canvas.NotifyOutput();
-            });
-            session.Exited += code => DispatcherQueue.TryEnqueue(() =>
-            {
-                _sessionState = $"已退出 (code {code})";
-                UpdateStatus();
-            });
+            WireSession(session);
             session.Start();
             _session = session;
             _sessionState = "运行中";
-            Trace("session started");
         }
         catch (Exception ex)
         {
             _sessionState = "启动失败";
-            ShowEmptyState(ex.Message);
+            ShowEmptyState("ConPTY 会话启动失败：" + ex.Message);
         }
         UpdateStatus();
     }
 
-    /// <summary>重启 shell（⋯ 菜单 / 空态"使用此路径"后）。</summary>
+    private void StartWinPtySession(string commandLine, string? cwd)
+    {
+        try
+        {
+            HideEmptyState();
+            var session = new WinPtySession(commandLine, cwd, _cols, _rows);
+            WireSession(session);
+            session.Start();
+            _session = session;
+            _sessionState = "运行中";
+        }
+        catch (Exception ex)
+        {
+            _sessionState = "winpty 启动失败";
+            ShowEmptyState("winpty 会话启动失败：" + ex.Message);
+        }
+        UpdateStatus();
+    }
+
+    private void WireSession(ITerminalSession session)
+    {
+        session.OutputReady += bytes => DispatcherQueue.TryEnqueue(() =>
+        {
+            _parser.Feed(bytes.Span);
+            _canvas.NotifyOutput();
+        });
+        session.Exited += code => DispatcherQueue.TryEnqueue(() =>
+        {
+            _sessionState = $"已退出 (code {code})";
+            UpdateStatus();
+        });
+    }
+
+    /// <summary>重启 shell（shell 切换 / ⋯ 菜单 / 会话退出后）。</summary>
     private void RestartSession()
     {
         _session?.Dispose();
@@ -245,7 +316,7 @@ public sealed class BashPage : UserControl
         _sessionRequested = false;
         _buffer.HardReset();
         _canvas.NotifyOutput();
-        _ = EnsureSessionStartedAsync();
+        EnsureSessionStarted();
     }
 
     private string ResolveWorkDir()
@@ -285,7 +356,18 @@ public sealed class BashPage : UserControl
         UpdateStatus();
     }
 
-    // ---- 空态（bash 未安装 / 启动失败）----
+    private string CurrentShellKind()
+    {
+        var v = (_settings.Current.TerminalShell ?? string.Empty).Trim().ToLowerInvariant();
+        return v switch
+        {
+            TerminalShellKind.Cmd => TerminalShellKind.Cmd,
+            TerminalShellKind.Bash => TerminalShellKind.Bash,
+            _ => TerminalShellKind.PowerShell,
+        };
+    }
+
+    // ---- 空态（环境不支持 / bash 未安装 / 启动失败）----
 
     private UIElement BuildEmptyState(Grid host)
     {
@@ -296,32 +378,33 @@ public sealed class BashPage : UserControl
             Spacing = 10,
             Visibility = Visibility.Collapsed,
         };
-        AutomationProperties.SetName(card, "Git Bash 未安装提示");
+        AutomationProperties.SetName(card, "终端环境提示");
 
-        var msg = new TextBlock { FontSize = 15, HorizontalAlignment = HorizontalAlignment.Center, Text = "未检测到 Git Bash" };
+        var msg = new TextBlock
+        {
+            FontSize = 14,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            Text = "终端不可用",
+        };
+        var hint = new TextBlock
+        {
+            FontSize = 11.5,
+            Opacity = 0.7,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            Text = "可改用其他 Shell（工具条下拉）或打开下载页安装 Git Bash。",
+        };
+
         var download = new Button { Content = "打开下载页（git-scm.com）", HorizontalAlignment = HorizontalAlignment.Center };
         AutomationProperties.SetName(download, "打开 Git 下载页");
         download.Click += (_, _) => _ = Launcher.LaunchUriAsync(new Uri("https://git-scm.com/download/win"));
 
-        var manualRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center };
-        var pathBox = new TextBox { MinWidth = 320, PlaceholderText = @"C:\Program Files\Git\bin\bash.exe" };
-        AutomationProperties.SetName(pathBox, "手动指定 bash 路径");
-        var useBtn = new Button { Content = "使用此路径" };
-        AutomationProperties.SetName(useBtn, "使用此路径");
-        useBtn.Click += (_, _) =>
-        {
-            var path = pathBox.Text.Trim();
-            if (path.Length == 0) return;
-            _settings.Update(s => s.BashPath = path);
-            _settings.Save();
-            RestartSession();
-        };
-        manualRow.Children.Add(pathBox);
-        manualRow.Children.Add(useBtn);
-
         card.Children.Add(msg);
+        card.Children.Add(hint);
         card.Children.Add(download);
-        card.Children.Add(manualRow);
 
         Grid.SetRow(card, 1);
         host.Children.Add(card);
@@ -332,17 +415,14 @@ public sealed class BashPage : UserControl
     {
         _emptyState.Visibility = Visibility.Visible;
         _canvas.Visibility = Visibility.Collapsed;
-        var msg = FindFirstCardText(_emptyState);
-        if (msg is not null) msg.Text = message ?? string.Empty;
+        if (_emptyState is Panel panel
+            && panel.Children.Count > 0
+            && panel.Children[0] is TextBlock msg
+            && message is not null)
+        {
+            msg.Text = message;
+        }
     }
-
-    /// <summary>取空态卡片的首个 TextBlock（标题行）。</summary>
-    private static TextBlock? FindFirstCardText(UIElement root) => root switch
-    {
-        TextBlock tb => tb,
-        Panel panel => panel.Children.OfType<UIElement>().Select(FindFirstCardText).FirstOrDefault(t => t is not null),
-        _ => null,
-    };
 
     private void HideEmptyState()
     {
@@ -373,18 +453,6 @@ public sealed class BashPage : UserControl
         };
         menu.Items.Add(copy);
 
-        var bashrc = new MenuFlyoutItem { Text = "用默认编辑器打开 .bashrc" };
-        AutomationProperties.SetName(bashrc, "打开 .bashrc");
-        bashrc.Click += (_, _) =>
-        {
-            var profile = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".bashrc");
-            if (!File.Exists(profile)) return;
-            var file = Windows.Storage.StorageFile.GetFileFromPathAsync(profile).GetAwaiter().GetResult();
-            _ = Launcher.LaunchFileAsync(file);
-        };
-        menu.Items.Add(bashrc);
-
         var follow = new ToggleMenuFlyoutItem
         {
             Text = "跟随仓库工作目录",
@@ -408,8 +476,8 @@ public sealed class BashPage : UserControl
     private void UpdateStatus()
     {
         var follow = _settings.Current.TerminalFollowRepo ? "开" : "关";
-        _statusLeft.Text = $"{_sessionState} · {_cols}×{_rows} · 跟随仓库: {follow}"
-            + (_bashPath is null ? "" : $" · {Path.GetFileName(_bashPath)}");
+        var backend = string.IsNullOrEmpty(_backend) ? "" : $" · {_backend}";
+        _statusLeft.Text = $"{_sessionState}{backend} · {_cols}×{_rows} · 跟随仓库: {follow}";
     }
 
     private static Button BuildToolbarButton(string glyph, string automationName)

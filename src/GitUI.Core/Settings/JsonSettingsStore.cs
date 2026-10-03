@@ -145,6 +145,8 @@ public sealed class JsonSettingsStore : ISettingsStore
             s.BashPath = null;
         }
 
+        s.NormalizeTerminalShell();
+
         // RecentRepos 去重并限制数量
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var list = new List<string>(5);

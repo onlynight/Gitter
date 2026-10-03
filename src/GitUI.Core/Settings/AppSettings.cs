@@ -31,6 +31,21 @@ public sealed class AppSettings
     /// <summary>终端是否跟随当前仓库切换工作目录（Ctrl+Shift+J 切换）。</summary>
     public bool TerminalFollowRepo { get; set; } = true;
 
+    /// <summary>终端 shell：powershell（默认，系统内置）/ cmd（系统内置）/ bash（需 Git for Windows）。</summary>
+    public string TerminalShell { get; set; } = TerminalShellKind.PowerShell;
+
+    /// <summary>归一化终端 shell 值（未知值回退 PowerShell）。</summary>
+    public void NormalizeTerminalShell()
+    {
+        var v = (TerminalShell ?? string.Empty).Trim().ToLowerInvariant();
+        TerminalShell = v switch
+        {
+            TerminalShellKind.Cmd => TerminalShellKind.Cmd,
+            TerminalShellKind.Bash => TerminalShellKind.Bash,
+            _ => TerminalShellKind.PowerShell,
+        };
+    }
+
     public static AppSettings Default => new();
 }
 

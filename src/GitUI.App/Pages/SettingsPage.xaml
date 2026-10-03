@@ -6,7 +6,7 @@
     <Grid Margin="24">
         <StackPanel Spacing="16">
             <TextBlock Text="设置" FontSize="22" FontWeight="SemiBold"/>
-            <Border Background="#FF303030" CornerRadius="10" Padding="16">
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
                     <TextBlock Text="主题" FontSize="13" FontWeight="SemiBold"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -16,7 +16,7 @@
                     </StackPanel>
                 </StackPanel>
             </Border>
-            <Border Background="#FF303030" CornerRadius="10" Padding="16">
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
                     <TextBlock Text="Diff 模式" FontSize="13" FontWeight="SemiBold"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -25,13 +25,13 @@
                     </StackPanel>
                 </StackPanel>
             </Border>
-            <Border Background="#FF303030" CornerRadius="10" Padding="16">
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
                     <TextBlock Text="开发工具" FontSize="13" FontWeight="SemiBold"/>
                     <controls:Button x:Name="DiffPreviewBtn" Content="打开 Diff 渲染预览（S3 验证）" Padding="12,6" CornerRadius="6" Click="DiffPreview_Click"/>
                 </StackPanel>
             </Border>
-            <Border Background="#FF303030" CornerRadius="10" Padding="16">
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
                     <TextBlock Text="设置文件" FontSize="13" FontWeight="SemiBold"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">

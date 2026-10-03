@@ -43,6 +43,8 @@
 
   <ItemGroup>
     <Content Include="app_icon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- S0e/P3：终端宿主二进制随应用分发（winpty 兜底 + OpenConsole 预留，MIT） -->
+    <Content Include="pty\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 确保 XAML 编译产物被复制到发布目录 -->

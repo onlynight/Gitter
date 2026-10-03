@@ -3,6 +3,84 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:Microsoft.UI.Xaml.Controls">
 
+    <!--
+      Fluent 柔和主题 · Lightweight Styling 覆盖层
+
+      原理：WinUI 3 的 TextBox / ComboBox 默认模板绑定了下列主题资源键。
+      在 App 级 ThemeDictionaries 里覆盖这些键，即可全局改皮肤，
+      无需复制控件模板（隐式样式会整体替换默认样式导致模板丢失，不可用）。
+
+      设计令牌（"Fluent 柔和"，方案 A 定稿 v1）：
+        控件圆角    6px（默认 4）
+        控件高度    34px（默认 32）
+        常态填充    浅色 85% 白 / 深色 8% 白（比默认更"实"，Mica 上不发虚）
+        边框        1px hairline：常态 9%，悬停 14%
+        聚焦        背景变实 + 全边框转系统强调色（跟随 Windows 主题色）
+        占位符      44% 不透明度（默认约 55%，避免与正文打架）
+        下拉弹层    保留默认亚克力 + 8px 圆角 + 选中项 accent pill
+    -->
+
+    <ResourceDictionary.ThemeDictionaries>
+
+        <ResourceDictionary x:Key="Light">
+            <CornerRadius x:Key="ControlCornerRadius">6</CornerRadius>
+
+            <!-- TextBox -->
+            <SolidColorBrush x:Key="TextControlBackground" Color="#D9FFFFFF"/>
+            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#EDFFFFFF"/>
+            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#FFFFFFFF"/>
+            <SolidColorBrush x:Key="TextControlBorderBrush" Color="#17000000"/>
+            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#24000000"/>
+            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="{ThemeResource SystemAccentColor}"/>
+            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#70000000"/>
+            <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#70000000"/>
+            <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#70000000"/>
+            <x:Double x:Key="TextControlThemeMinHeight">34</x:Double>
+
+            <!-- ComboBox（收起态与输入框同规格） -->
+            <SolidColorBrush x:Key="ComboBoxBackground" Color="#D9FFFFFF"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#EDFFFFFF"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundFocused" Color="#FFFFFFFF"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#17000000"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#24000000"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrushFocused" Color="{ThemeResource SystemAccentColor}"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceholderForeground" Color="#70000000"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceholderForegroundFocused" Color="#70000000"/>
+            <x:Double x:Key="ComboBoxMinHeight">34</x:Double>
+        </ResourceDictionary>
+
+        <ResourceDictionary x:Key="Default">
+            <CornerRadius x:Key="ControlCornerRadius">6</CornerRadius>
+
+            <!-- TextBox -->
+            <SolidColorBrush x:Key="TextControlBackground" Color="#14FFFFFF"/>
+            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#1FFFFFFF"/>
+            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#FF2B2B2B"/>
+            <SolidColorBrush x:Key="TextControlBorderBrush" Color="#14FFFFFF"/>
+            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#24FFFFFF"/>
+            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="{ThemeResource SystemAccentColor}"/>
+            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#70FFFFFF"/>
+            <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#70FFFFFF"/>
+            <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#70FFFFFF"/>
+            <x:Double x:Key="TextControlThemeMinHeight">34</x:Double>
+
+            <!-- ComboBox（收起态与输入框同规格） -->
+            <SolidColorBrush x:Key="ComboBoxBackground" Color="#14FFFFFF"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#1FFFFFFF"/>
+            <SolidColorBrush x:Key="ComboBoxBackgroundFocused" Color="#FF2B2B2B"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#14FFFFFF"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#24FFFFFF"/>
+            <SolidColorBrush x:Key="ComboBoxBorderBrushFocused" Color="{ThemeResource SystemAccentColor}"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceholderForeground" Color="#70FFFFFF"/>
+            <SolidColorBrush x:Key="ComboBoxPlaceholderForegroundFocused" Color="#70FFFFFF"/>
+            <x:Double x:Key="ComboBoxMinHeight">34</x:Double>
+        </ResourceDictionary>
+
+        <!-- 高对比度模式不覆盖，保持系统无障碍默认 -->
+        <ResourceDictionary x:Key="HighContrast"/>
+
+    </ResourceDictionary.ThemeDictionaries>
+
     <!-- 侧边导航项：静态圆角，选中/悬停由 MainWindow.xaml.cs 代码后置着色 -->
     <Style x:Key="SidebarItemButton" TargetType="controls:Button">
         <Setter Property="Background" Value="Transparent"/>

@@ -71,7 +71,7 @@ public sealed class ChangesPage : UserControl
             if (e.Key == VirtualKey.Enter) { _ = OpenRepoAsync(); e.Handled = true; }
         };
 
-        _recentBox = new ComboBox { Width = 100, PlaceholderText = "最近" };
+        _recentBox = new ComboBox { MinWidth = 100, PlaceholderText = "最近" };
         AutomationProperties.SetName(_recentBox, "最近仓库");
         _recentBox.SelectionChanged += (_, _) =>
         {
@@ -92,7 +92,7 @@ public sealed class ChangesPage : UserControl
         var toolbar = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = 8,
             Margin = new Thickness(10, 6, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -119,7 +119,7 @@ public sealed class ChangesPage : UserControl
         _openEditorBtn.IsEnabled = false;
         _openEditorBtn.Click += (_, _) => _ = OpenSelectedInEditorAsync();
 
-        var bannerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(10, 2, 10, 2) };
+        var bannerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(10, 2, 10, 2) };
         bannerRow.Children.Add(_banner);
         bannerRow.Children.Add(_copyErrBtn);
 
@@ -269,7 +269,7 @@ public sealed class ChangesPage : UserControl
         var commitBar = new Grid { Margin = new Thickness(10, 4, 10, 4) };
         commitBar.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         commitBar.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var assistRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 0, 0, 4) };
+        var assistRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 0, 0, 4) };
         assistRow.Children.Add(_prefixBox);
         assistRow.Children.Add(_recentMsgBox);
         var commitRow = new Grid();
@@ -277,7 +277,7 @@ public sealed class ChangesPage : UserControl
         commitRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_messageBox, 0);
         commitRow.Children.Add(_messageBox);
-        var commitBtns = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(8, 0, 0, 0) };
+        var commitBtns = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(8, 0, 0, 0) };
         commitBtns.Children.Add(_commitBtn);
         commitBtns.Children.Add(_commitPushBtn);
         commitBtns.Children.Add(_retryPushBtn);

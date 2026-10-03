@@ -62,7 +62,7 @@ public sealed class BranchesPage : UserControl
             if (e.Key == VirtualKey.Enter) { _ = OpenRepoAsync(); e.Handled = true; }
         };
 
-        _recentBox = new ComboBox { Width = 100, PlaceholderText = "最近" };
+        _recentBox = new ComboBox { MinWidth = 100, PlaceholderText = "最近" };
         AutomationProperties.SetName(_recentBox, "最近仓库");
         _recentBox.SelectionChanged += (_, _) =>
         {
@@ -91,7 +91,7 @@ public sealed class BranchesPage : UserControl
         var toolbar = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = 8,
             Margin = new Thickness(10, 6, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -116,7 +116,7 @@ public sealed class BranchesPage : UserControl
         _copyErrBtn.Visibility = Visibility.Collapsed;
         _copyErrBtn.Click += (_, _) => CopyErrorDetail();
 
-        var bannerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(10, 2, 10, 2) };
+        var bannerRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(10, 2, 10, 2) };
         bannerRow.Children.Add(_banner);
         bannerRow.Children.Add(_copyErrBtn);
 

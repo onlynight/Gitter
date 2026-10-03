@@ -32,7 +32,16 @@ try {
         $scopeRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $and)
     }
     function Invoke-Button($btn) {
-        ($btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+        # RDP 会话下首次 Invoke 可能返回 E_FAIL（UIA 提供程序冷启动），重试 5 次
+        for ($try = 1; $try -le 5; $try++) {
+            try {
+                ($btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+                return
+            } catch {
+                Start-Sleep -Milliseconds 600
+            }
+        }
+        throw "Invoke-Button 重试 5 次仍失败"
     }
     function Status-Text($scopeRoot) {
         $texts = $scopeRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants,
@@ -51,12 +60,12 @@ try {
     # 等 UIA 树就绪
     $deadline = (Get-Date).AddSeconds(15)
     while ((Get-Date) -lt $deadline) {
-        $probe2 = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) 'Git Bash'
+        $probe2 = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '终端'
         if ($null -ne $probe2) { break }
         Start-Sleep -Milliseconds 500
     }
 
-    Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) 'Git Bash')
+    Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '终端')
 
     # 轮询状态：ConPTY 预检（≤8s 硬超时）+ 会话启动；每步检查应用存活
     $status = ''
@@ -68,7 +77,7 @@ try {
         $status = Status-Text $main
         if ($status.StartsWith('环境不支持')) {
             Write-Output ("SOFT-SKIP: " + $status)
-            $card = Find-ByName $main ([System.Windows.Automation.ControlType]::Group) 'Git Bash 未安装提示'
+            $card = Find-ByName $main ([System.Windows.Automation.ControlType]::Group) '终端环境提示'
             if ($null -ne $card) { Write-Output 'OK: 空态卡片已展示' }
             exit 2
         }
