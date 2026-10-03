@@ -102,6 +102,11 @@ public sealed class ConptySession : ITerminalSession
             si.StartupInfo.cb = Marshal.SizeOf<ConptyNative.STARTUPINFOEX>();
             si.lpAttributeList = _attributeList; // 关键：不带 attribute list 的 EXTENDED_STARTUPINFO 会让子进程继承父控制台
             var envBlock = BuildEnvironmentBlock(out var hasEnvBlock);
+            // SEM_FAILCRITICALERRORS 会被子进程继承：ConPTY 子进程 DLL 初始化失败
+            // （RDP 会话下 bash/cmd 0xC0000142，§11.10.5）时不再弹系统错误对话框，
+            // 子进程静默失败，由 Exited 事件走应用层的会话退出提示。
+            var previousErrorMode = ConptyNative.SetErrorMode(
+                ConptyNative.GetErrorMode() | ConptyNative.SEM_FAILCRITICALERRORS);
             try
             {
                 ConptyNative.CreateProcess(
@@ -115,6 +120,7 @@ public sealed class ConptySession : ITerminalSession
             }
             finally
             {
+                ConptyNative.SetErrorMode(previousErrorMode);
                 if (hasEnvBlock)
                 {
                     Marshal.FreeHGlobal(envBlock);

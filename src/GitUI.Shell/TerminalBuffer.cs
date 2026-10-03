@@ -447,38 +447,43 @@ public sealed class TerminalBuffer
         if (columns < 2 || rows < 2) return;
         if (columns == Columns && rows == Rows) return;
 
+        var oldCols = Columns;
+        var oldRows = Rows;
+
         foreach (var gridRef in new[] { _usingAlt ? _altScreen : _screen, _usingAlt ? _screen : _altScreen })
         {
-            var grid = gridRef;
+            var isPrimary = ReferenceEquals(gridRef, _screen);
             var next = NewGrid(columns, rows);
-            var copyRows = Math.Min(rows, Rows);
-            var copyCols = Math.Min(columns, Columns);
-            for (var r = 0; r < copyRows; r++)
-            {
-                Array.Copy(grid[r], 0, next[r], 0, copyCols);
-            }
-            if (ReferenceEquals(grid, _screen)) _screen = next;
-            else _altScreen = next;
-        }
 
-        // 主屏缩小：把放不下的顶部行转入 scrollback，保住底部内容（终端常见行为）
-        if (rows < Rows && !_usingAlt)
-        {
-            var evict = Rows - rows;
-            for (var r = 0; r < evict; r++)
+            if (isPrimary && !_usingAlt && rows < oldRows)
             {
-                PushScrollback(_screen[r]);
+                // 主屏缩小：顶部 (oldRows - rows) 行移入 scrollback，保住底部内容；
+                // 行数组整体入队（内容零拷贝），复制底部行到新网格
+                // （此前的实现先换新网格再按旧行数索引 —— IndexOutOfRangeException，
+                //   XAML UnhandledException × N，crash.log 抓出）
+                var evict = oldRows - rows;
+                for (var r = 0; r < evict; r++)
+                {
+                    PushScrollback(gridRef[r]);
+                }
+                var copyCols = Math.Min(columns, oldCols);
+                for (var r = 0; r < rows; r++)
+                {
+                    Array.Copy(gridRef[r + evict], 0, next[r], 0, copyCols);
+                }
             }
-            // 内容整体上移 evict 行（行引用旋转，免拷贝）
-            for (var r = 0; r + evict < Rows; r++)
+            else
             {
-                _screen[r] = _screen[r + evict];
+                var copyRows = Math.Min(rows, oldRows);
+                var copyCols = Math.Min(columns, oldCols);
+                for (var r = 0; r < copyRows; r++)
+                {
+                    Array.Copy(gridRef[r], 0, next[r], 0, copyCols);
+                }
             }
-            for (var r = Rows - evict; r < Rows; r++)
-            {
-                _screen[r] = NewScrollbackLine();
-                FillRow(_screen, r, Columns, TerminalCell.Blank(0));
-            }
+
+            if (ReferenceEquals(gridRef, _screen)) _screen = next;
+            else _altScreen = next;
         }
 
         Columns = columns;

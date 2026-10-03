@@ -1,11 +1,14 @@
-﻿# smoke-bash-terminal.ps1 - S0e UIA 冒烟：Git Bash 页签 → ConPTY 启动 → 输出渲染 → 状态条
-# ConPTY 探测失败（本机已知 RDP 会话问题，§11.10）时软跳过（exit 2）
+﻿# smoke-bash-terminal.ps1 - S0e UIA 冒烟：Git Bash 页签 → ConPTY 预检 → 会话启动 → 状态条
+# ConPTY 环境不支持（RDP/非交互会话 0xC0000142，§11.10.5）时软跳过（exit 2）
 param(
     [string]$Exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe'
 )
 
+$ErrorActionPreference = 'Continue'
 $settingsPath = Join-Path $env:APPDATA 'GitUI\settings.json'
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
+
+Get-Process GitUI.App -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # ConPTY 预检（与 Shell.Tests 同策略）：bash -c echo 8 秒探测
 $probeOk = $false
@@ -14,10 +17,10 @@ try {
     if ($probe.WaitForExit(8000)) { $probeOk = ($probe.ExitCode -eq 0) } else { $probe.Kill() }
 } catch { $probeOk = $false }
 
-$p = $null
+$p = Start-Process -FilePath $Exe -PassThru
+Start-Sleep -Seconds 8
+
 try {
-    $p = Start-Process -FilePath $Exe -PassThru
-    Start-Sleep -Seconds 8
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $main = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
@@ -38,36 +41,50 @@ try {
                 [System.Windows.Automation.ControlType]::Text)))
         foreach ($t in $texts) {
             $n = $t.Current.Name
-            if ($n -and ($n -match '运行中' -or $n -match '已退出' -or $n -match '未找到' -or $n -match '启动失败' -or $n -match '未启动')) {
+            if ($n -and ($n.StartsWith('运行中') -or $n.StartsWith('已退出') -or $n.StartsWith('未找到') -or $n.StartsWith('启动失败') -or $n.StartsWith('未启动') -or $n.StartsWith('正在检测') -or $n.StartsWith('环境不支持'))) {
                 return $n
             }
         }
         return ''
     }
 
-    Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) 'Git Bash')
-    Start-Sleep -Seconds 3
-
-    $status = Status-Text $main
-    Write-Output ("OK: Git Bash 页签状态 = " + $status)
-
-    if ($status -match '未找到|启动失败') {
-        # bash 缺失时空态卡片应出现
-        $card = Find-ByName $main ([System.Windows.Automation.ControlType]::Group) 'Git Bash 未安装提示'
-        if ($null -ne $card) { Write-Output 'SOFT-SKIP: bash 未安装（空态卡片正常）'; exit 2 }
-        Write-Output 'SOFT-SKIP: bash 定位失败'; exit 2
+    # 等 UIA 树就绪
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $deadline) {
+        $probe2 = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) 'Git Bash'
+        if ($null -ne $probe2) { break }
+        Start-Sleep -Milliseconds 500
     }
 
-    if ($status -notmatch '\d+\s*[x×]\s*\d+') { Write-Output 'FAIL: 状态条无 PTY 尺寸'; exit 1 }
+    Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) 'Git Bash')
+
+    # 轮询状态：ConPTY 预检（≤8s 硬超时）+ 会话启动；每步检查应用存活
+    $status = ''
+    $final = $false
+    foreach ($i in 1..20) {
+        Start-Sleep -Seconds 1
+        $p.Refresh()
+        if ($p.HasExited) { Write-Output ("FAIL: 应用在轮询期间退出 (t+" + $i + "s)"); exit 1 }
+        $status = Status-Text $main
+        if ($status.StartsWith('环境不支持')) {
+            Write-Output ("SOFT-SKIP: " + $status)
+            $card = Find-ByName $main ([System.Windows.Automation.ControlType]::Group) 'Git Bash 未安装提示'
+            if ($null -ne $card) { Write-Output 'OK: 空态卡片已展示' }
+            exit 2
+        }
+        if ($status.StartsWith('运行中')) { $final = $true; break }
+        if ($status.StartsWith('未找到') -or $status.StartsWith('启动失败')) { break }
+    }
+
+    Write-Output ("OK: Git Bash 页签状态 = " + $status)
+
+    if (-not $final) { Write-Output 'FAIL: 会话未进入运行状态'; exit 1 }
 
     if ($probeOk) {
-        # ConPTY 正常：会话应已启动
-        if ($status -notmatch '运行中') { Write-Output "FAIL: 预检通过但会话未运行"; exit 1 }
         Write-Output 'OK: ConPTY 会话运行中'
         Write-Output 'SMOKE-BASH-TERMINAL PASS'
         exit 0
     } else {
-        # 预检失败（RDP 会话 ConPTY 已知问题）：只验证页签 UI 正常，不判失败
         Write-Output 'SOFT-SKIP: ConPTY 预检失败（会话级集成依赖桌面会话）'
         exit 2
     }

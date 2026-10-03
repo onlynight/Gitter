@@ -84,6 +84,14 @@ internal static class ConptyNative
 
     // ---- 伪控制台 ----
 
+    internal const uint SEM_FAILCRITICALERRORS = 0x0003;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern uint SetErrorMode(uint uMode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern uint GetErrorMode();
+
     internal static void CreatePseudoConsole(int columns, int rows, IntPtr hInput, IntPtr hOutput, out IntPtr hPC)
     {
         var hr = CreatePseudoConsoleNative(new COORD { X = (short)columns, Y = (short)rows }, hInput, hOutput, 0, out hPC);

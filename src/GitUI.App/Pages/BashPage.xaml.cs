@@ -141,34 +141,68 @@ public sealed class BashPage : UserControl
         UpdateStatus();
     }
 
+    private static readonly object _traceLock = new();
+    internal static void Trace(string message)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitUI");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "bash-trace.log"),
+                DateTime.Now.ToString("HH:mm:ss.fff") + " " + message + Environment.NewLine);
+        }
+        catch { }
+    }
+
     /// <summary>页签宿主在首次显示时调用（Lazy 会话启动；重复调用无害）。</summary>
     public void OnShown()
     {
         if (_shown) return;
         _shown = true;
-        EnsureSessionStarted();
-        FollowRepoIfNeeded();
+        Trace("OnShown");
+        _ = EnsureSessionStartedAsync();
         _canvas.Focus(FocusState.Programmatic);
     }
 
     // ---- 会话生命周期 ----
 
-    private void EnsureSessionStarted()
+    private async Task EnsureSessionStartedAsync()
     {
         if (_sessionRequested) return;
         _sessionRequested = true;
+        Trace("ensure: entered");
 
+        // 1. ConPTY 环境预检：RDP/非交互会话下伪控制台子进程 DLL 初始化整体失败
+        //    （bash/cmd 0xC0000142，§11.10.5）——先探测，避免启动即弹系统错误框
+        _sessionState = "正在检测终端环境…";
+        UpdateStatus();
+        Trace("ensure: probe start");
+        var healthy = await Task.Run(() => ConptyProbe.IsHealthy());
+        Trace("ensure: probe done, healthy=" + healthy);
+        Trace("ensure: after probe branch");
+        if (!healthy)
+        {
+            _sessionState = "环境不支持";
+            ShowEmptyState("当前会话环境不支持伪控制台（远程桌面 / 非交互会话下常见）——请在本机桌面会话中运行 GitUI。");
+            UpdateStatus();
+            return;
+        }
+
+        // 2. bash 定位
         if (!BashLocator.TryLocate(_settings.Current.BashPath, out var bashPath, out var error))
         {
             _sessionState = "未找到 bash";
-            ShowEmptyState(error);
+            ShowEmptyState("未检测到 Git Bash：" + (error ?? "请安装 Git for Windows 或手动指定路径。"));
             UpdateStatus();
             return;
         }
 
         _bashPath = bashPath;
+        Trace("ensure: start session");
         HideEmptyState();
         StartSession();
+        FollowRepoIfNeeded();
     }
 
     private void StartSession()
@@ -193,6 +227,7 @@ public sealed class BashPage : UserControl
             session.Start();
             _session = session;
             _sessionState = "运行中";
+            Trace("session started");
         }
         catch (Exception ex)
         {
@@ -210,7 +245,7 @@ public sealed class BashPage : UserControl
         _sessionRequested = false;
         _buffer.HardReset();
         _canvas.NotifyOutput();
-        EnsureSessionStarted();
+        _ = EnsureSessionStartedAsync();
     }
 
     private string ResolveWorkDir()
@@ -293,12 +328,21 @@ public sealed class BashPage : UserControl
         return card;
     }
 
-    private void ShowEmptyState(string? error)
+    private void ShowEmptyState(string? message)
     {
         _emptyState.Visibility = Visibility.Visible;
         _canvas.Visibility = Visibility.Collapsed;
-        if (error is not null) _statusLeft.Text = "错误: " + error;
+        var msg = FindFirstCardText(_emptyState);
+        if (msg is not null) msg.Text = message ?? string.Empty;
     }
+
+    /// <summary>取空态卡片的首个 TextBlock（标题行）。</summary>
+    private static TextBlock? FindFirstCardText(UIElement root) => root switch
+    {
+        TextBlock tb => tb,
+        Panel panel => panel.Children.OfType<UIElement>().Select(FindFirstCardText).FirstOrDefault(t => t is not null),
+        _ => null,
+    };
 
     private void HideEmptyState()
     {

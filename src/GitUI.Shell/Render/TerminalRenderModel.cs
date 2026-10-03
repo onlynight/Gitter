@@ -90,6 +90,7 @@ public static class TerminalRenderModel
 
             for (var c = 0; c < cols; c++)
             {
+                if (c >= line.Length) break; // scrollback 行长度可能短于当前列数（resize 后）
                 var cell = line[c];
                 if (cell.Char == TerminalCell.WideContinuation) continue;
 
