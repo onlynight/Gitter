@@ -36,6 +36,12 @@ public interface IRepositoryService
     /// <summary>该提交相对于其父提交的 diff。根提交返回空列表。</summary>
     IReadOnlyList<DiffResult> GetCommitDiff(string workDir, string sha);
 
+    /// <summary>
+    /// 任意两个提交之间的树 diff（design.md §4.2 P1"任意两点比较"，S7 通用 git diff）。
+    /// 与 GetCommitDiff 不同，不要求父子关系。
+    /// </summary>
+    IReadOnlyList<DiffResult> GetTreeDiff(string workDir, string aSha, string bSha);
+
     /// <summary>两棵树之间指定文件的 diff。任一侧不存在视为新增/删除。</summary>
     DiffResult GetFileDiff(string workDir, string path, string aSha, string bSha);
 

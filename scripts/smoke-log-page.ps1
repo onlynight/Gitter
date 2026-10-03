@@ -154,6 +154,22 @@ try {
     Write-Output ("OK: 变更文件项 = " + $fileCount)
     if ($fileCount -lt 1) { Write-Output 'FAIL: 文件列表为空'; exit 1 }
 
+    # ---- 8. 通用 git diff：设基准 → 清除（按钮出现/消失）----
+    $pinBtn = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '设为比较基准'
+    if ($null -eq $pinBtn) { Write-Output 'FAIL: 设为比较基准按钮未找到'; exit 1 }
+    Invoke-Button $pinBtn
+    Start-Sleep -Seconds 2
+
+    $clearBtn = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '清除比较基准'
+    if ($null -eq $clearBtn) { Write-Output 'FAIL: 设基准后应出现清除按钮'; exit 1 }
+    Write-Output 'OK: 比较基准已设置（清除按钮出现）'
+
+    Invoke-Button $clearBtn
+    Start-Sleep -Seconds 2
+    $clearGone = $null -eq (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '清除比较基准')
+    if (-not $clearGone) { Write-Output 'FAIL: 清除后按钮应消失'; exit 1 }
+    Write-Output 'OK: 清除比较基准恢复默认父 diff 视图'
+
     ($firstFileItem.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select()
     Start-Sleep -Seconds 2
 

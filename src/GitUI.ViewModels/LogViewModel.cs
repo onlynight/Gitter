@@ -107,6 +107,7 @@ public sealed class LogViewModel
                 Branch = null;
                 Query = string.Empty;
                 _selected = null;
+                _compareBase = null;
                 _selectedFiles = Array.Empty<DiffResult>();
                 _selectedError = null;
                 _collapsedDays.Clear();
@@ -204,7 +205,8 @@ public sealed class LogViewModel
         StructureChanged?.Invoke();
     }
 
-    /// <summary>选中提交并加载其变更文件（design.md §8-S4"点击提交 → 右侧文件列表"）。</summary>
+    /// <summary>选中提交并加载其变更文件（design.md §8-S4"点击提交 → 右侧文件列表"）。
+    /// 设置了比较基准时（S7 通用 git diff），加载的是所选提交对基准提交的树 diff。</summary>
     public async Task SelectAsync(CommitNode commit)
     {
         ArgumentNullException.ThrowIfNull(commit);
@@ -219,10 +221,14 @@ public sealed class LogViewModel
 
             var workDir = WorkDir;
             if (workDir is null) return;
+            var baseCommit = _compareBase;
             IReadOnlyList<DiffResult> files;
             try
             {
-                files = await Task.Run(() => _repo.GetCommitDiff(workDir, commit.Sha));
+                files = await Task.Run(() =>
+                    baseCommit is not null && baseCommit.Sha != commit.Sha
+                        ? _repo.GetTreeDiff(workDir, baseCommit.Sha, commit.Sha)
+                        : _repo.GetCommitDiff(workDir, commit.Sha));
                 _selectedError = null;
             }
             catch (Exception ex)
@@ -237,6 +243,24 @@ public sealed class LogViewModel
         {
             _gate.Release();
         }
+    }
+
+    // ---- S7 通用 git diff：比较基准（任意两点比较，design.md §4.2 P1）----
+
+    private CommitNode? _compareBase;
+
+    /// <summary>
+    /// 比较基准提交。非空且不等于所选提交时，右侧文件列表显示
+    /// "所选提交 对 基准提交" 的树 diff；null 恢复默认"对父提交"。
+    /// </summary>
+    public CommitNode? CompareBase => _compareBase;
+
+    public void SetCompareBase(CommitNode? baseCommit)
+    {
+        _compareBase = baseCommit;
+        StructureChanged?.Invoke();
+        // 重新加载当前选中的差异面
+        if (_selected is not null) _ = SelectAsync(_selected);
     }
 
     // ---- 内部 ----

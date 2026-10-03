@@ -249,6 +249,19 @@ namespace GitUI.Git
             return patch.Select(ToDiffResult).ToList();
         }
 
+        /// <summary>任意两提交的树 diff（S7 通用 git diff，known-issues"任意两点比较"）。</summary>
+        public IReadOnlyList<CoreDiffResult> GetTreeDiff(string workDir, string aSha, string bSha)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(aSha);
+            ArgumentException.ThrowIfNullOrEmpty(bSha);
+            using var repo = OpenRepo(workDir);
+            var a = repo.Lookup<Commit>(aSha) ?? throw new InvalidOperationException($"找不到提交 {aSha}");
+            var b = repo.Lookup<Commit>(bSha) ?? throw new InvalidOperationException($"找不到提交 {bSha}");
+
+            var patch = repo.Diff.Compare<Patch>(a.Tree, b.Tree);
+            return patch.Select(ToDiffResult).ToList();
+        }
+
         public CoreDiffResult GetFileDiff(string workDir, string path, string? aSha, string? bSha)
         {
             ArgumentException.ThrowIfNullOrEmpty(path);

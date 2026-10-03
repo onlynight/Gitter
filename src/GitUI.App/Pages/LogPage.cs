@@ -41,6 +41,9 @@ public sealed class LogPage : UserControl
     private readonly TextBlock _detailMessage;
     private readonly ListView _fileList;
     private readonly DiffCanvas _canvas;
+    private readonly Button _pinCompareBtn;
+    private readonly Button _clearCompareBtn;
+    private readonly TextBlock _compareIndicator;
 
     private bool _suppressBranchEvent;
     private string? _branchRepoKey;
@@ -187,11 +190,52 @@ public sealed class LogPage : UserControl
             Margin = new Thickness(12, 0, 12, 6),
             Visibility = Visibility.Collapsed,
         };
+        // S7 通用 git diff：比较基准栏（任意两点比较，design.md §4.2 P1）
+        _pinCompareBtn = new Button
+        {
+            Content = "设为比较基准",
+            Padding = new Thickness(8, 2, 8, 2),
+            CornerRadius = new CornerRadius(6),
+            FontSize = 11.5,
+        };
+        AutomationProperties.SetName(_pinCompareBtn, "设为比较基准");
+        _pinCompareBtn.Click += (_, _) =>
+        {
+            if (_vm.Selected is not null) _vm.SetCompareBase(_vm.Selected);
+        };
+
+        _clearCompareBtn = new Button
+        {
+            Content = "清除比较基准",
+            Padding = new Thickness(8, 2, 8, 2),
+            CornerRadius = new CornerRadius(6),
+            FontSize = 11.5,
+            Visibility = Visibility.Collapsed,
+        };
+        AutomationProperties.SetName(_clearCompareBtn, "清除比较基准");
+        _clearCompareBtn.Click += (_, _) => _vm.SetCompareBase(null);
+
+        _compareIndicator = new TextBlock
+        {
+            FontSize = 11,
+            Opacity = 0.7,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Text = "未设置基准：显示与父提交的差异",
+        };
+
+        var compareRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(12, 2, 12, 2) };
+        compareRow.Children.Add(_pinCompareBtn);
+        compareRow.Children.Add(_clearCompareBtn);
+        compareRow.Children.Add(_compareIndicator);
+
         var detailHeader = new StackPanel { Orientation = Orientation.Vertical };
         AutomationProperties.SetName(detailHeader, "提交详情");
         detailHeader.Children.Add(_detailSubject);
         detailHeader.Children.Add(_detailMeta);
         detailHeader.Children.Add(_detailMessage);
+        detailHeader.Children.Add(compareRow);
 
         _fileList = new ListView
         {
@@ -564,7 +608,21 @@ public sealed class LogPage : UserControl
 
         _canvas.Clear("加载变更中…");
         _fileList.Items.Clear();
+        UpdateCompareBar();
         _ = _vm.SelectAsync(c);
+    }
+
+    /// <summary>比较基准栏状态（S7 通用 git diff）。</summary>
+    private void UpdateCompareBar()
+    {
+        var baseCommit = _vm.CompareBase;
+        var hasBase = baseCommit is not null;
+        _clearCompareBtn.Visibility = hasBase ? Visibility.Visible : Visibility.Collapsed;
+        _pinCompareBtn.IsEnabled = _vm.Selected is not null
+            && (!hasBase || _vm.Selected.Sha != baseCommit!.Sha);
+        _compareIndicator.Text = hasBase
+            ? $"基准 {baseCommit!.ShortSha}：所选提交显示与基准的差异"
+            : "未设置基准：显示与父提交的差异";
     }
 
     /// <summary>提交全文去掉首行主题后的正文（无正文时返回空串）。</summary>
@@ -577,6 +635,7 @@ public sealed class LogPage : UserControl
 
     private void UpdateDetail()
     {
+        UpdateCompareBar(); // 选中态在 SelectAsync 内异步赋值，这里同步刷新比较栏可用性
         var files = _vm.SelectedFiles;
         _fileList.Items.Clear();
         foreach (var f in files)
@@ -636,6 +695,7 @@ public sealed class LogPage : UserControl
         _status.Text = _vm.StatusText;
         UpdateEmptyState();
         UpdateBranchCombo();
+        UpdateCompareBar();
         _repeater.ItemsSource = _vm.Rows;
         _selectedRowButton = null;
 
