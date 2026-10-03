@@ -189,11 +189,11 @@ public sealed class BranchesViewModel
         var workDir = _workDir!;
         try
         {
-            var (branches, head) = await Task.Run(() =>
+            var (branches, tips) = await Task.Run(() =>
             {
                 var b = _repo.GetBranches(workDir);
-                var h = _repo.HeadSha(workDir);
-                return (b, h);
+                var t = _repo.GetBranchTipSubjects(workDir);
+                return (b, t);
             });
 
             var rows = new List<BranchRow>();
@@ -202,13 +202,13 @@ public sealed class BranchesViewModel
 
             rows.Add(new BranchGroupRow($"本地分支 ({locals.Count})", locals.Count, IsRemote: false));
             foreach (var b in locals)
-                rows.Add(await ToItemRow(workDir, b));
+                rows.Add(ToItemRow(b, tips));
 
             if (remotes.Count > 0)
             {
                 rows.Add(new BranchGroupRow($"远程分支 ({remotes.Count})", remotes.Count, IsRemote: true));
                 foreach (var b in remotes)
-                    rows.Add(await ToItemRow(workDir, b));
+                    rows.Add(ToItemRow(b, tips));
             }
 
             _rows = rows;
@@ -222,18 +222,19 @@ public sealed class BranchesViewModel
         StructureChanged?.Invoke();
     }
 
-    /// <summary>分支 → 行。取 tip 提交主题（单次 GetCommit；远程跟踪分支失败不致命）。</summary>
-    private async Task<BranchItemRow> ToItemRow(string workDir, BranchRef b)
+    /// <summary>分支 → 行。tip 主题来自一次 for-each-ref 批量取回（known-issues 2.6：去 N+1 查询）。</summary>
+    private static BranchItemRow ToItemRow(BranchRef b, IReadOnlyDictionary<string, string> tipSubjects)
     {
-        string meta = b.Sha is null ? "（空分支）" : b.Sha[..Math.Min(7, b.Sha.Length)];
-        if (b.Sha is not null)
+        string meta;
+        if (b.Sha is null)
         {
-            try
-            {
-                var tip = await Task.Run(() => _repo.GetCommit(workDir, b.Sha));
-                if (tip is not null) meta += $" · {tip.Subject}";
-            }
-            catch { /* tip 主题拿不到就只显示 SHA */ }
+            meta = "（空分支）";
+        }
+        else
+        {
+            meta = b.Sha[..Math.Min(7, b.Sha.Length)];
+            if (tipSubjects.TryGetValue(b.Sha, out var subject))
+                meta += $" · {subject}";
         }
         return new BranchItemRow(b.Name, b.Sha, b.IsHead, b.IsRemote, meta, ImpactCount: null);
     }

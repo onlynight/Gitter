@@ -110,7 +110,6 @@ public sealed class ChangesPage : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
         };
-        AutomationProperties.SetName(_banner, "变更提示");
 
         _copyErrBtn = BuildToolButton("复制错误详情");
         _copyErrBtn.Visibility = Visibility.Collapsed;
@@ -144,7 +143,6 @@ public sealed class ChangesPage : UserControl
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(12, 8, 12, 2),
         };
-        AutomationProperties.SetName(_fileHeader, "变更文件名");
 
         _stageFileBtn = BuildToolButton("\uE8E5", "暂存文件");
         _stageFileBtn.Click += (_, _) =>
@@ -177,10 +175,7 @@ public sealed class ChangesPage : UserControl
 
         _canvas = new DiffCanvas { Mode = settings.Current.DiffMode };
         _canvas.Clear("选择左侧文件查看差异");
-        _canvas.HunkSelected += (_, hunk) =>
-        {
-            UpdateHunkButtons(hunk);
-        };
+        _canvas.HunkSelectionChanged += (_, _) => UpdateHunkButtons();
 
 
         var diffHost = new Grid();
@@ -260,7 +255,6 @@ public sealed class ChangesPage : UserControl
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(8, 0, 0, 0),
         };
-        AutomationProperties.SetName(_preview, "提交文件预览");
 
         _commitBtn = BuildToolButton("提交");
         _commitBtn.Click += (_, _) => _ = CommitAsync(push: false);
@@ -452,10 +446,11 @@ public sealed class ChangesPage : UserControl
 
     private void StageSelectedHunks(bool reverse)
     {
-        var hunk = _canvas.SelectedHunk;
-        if (hunk < 0) return;
-        _ = _vm.StageHunksAsync(new[] { hunk });
-        _canvas.SetSelectedHunk(-1);
+        // known-issues 1.5：Ctrl+点击可多选，一次批量暂存/撤销
+        var hunks = _canvas.SelectedHunks;
+        if (hunks.Count == 0) return;
+        _ = _vm.StageHunksAsync(hunks);
+        _canvas.SetSelectedHunks(Array.Empty<int>());
     }
 
     private async Task CommitAsync(bool push)
@@ -696,7 +691,7 @@ public sealed class ChangesPage : UserControl
             _fileHeader.Text = string.Empty;
             _openEditorBtn.IsEnabled = false;
             _canvas.Clear("选择左侧文件查看差异");
-            UpdateHunkButtons(-1);
+            UpdateHunkButtons();
             return;
         }
 
@@ -709,19 +704,19 @@ public sealed class ChangesPage : UserControl
         if (view is null)
         {
             _canvas.Clear(selected.IsConflict ? "冲突文件：解决后点击标记已解决" : "无差异");
-            UpdateHunkButtons(-1);
+            UpdateHunkButtons();
             return;
         }
 
         if (view.Hunks.Count == 0) _canvas.Clear("无差异");
         else _canvas.Load(view.Hunks, view.OldEndsWithNewline, view.NewEndsWithNewline);
-        UpdateHunkButtons(-1);
+        UpdateHunkButtons();
     }
 
-    private void UpdateHunkButtons(int selectedHunk)
+    private void UpdateHunkButtons()
     {
         var view = _vm.SelectedDiff;
-        var canStage = view is { CanStageHunks: true } && selectedHunk >= 0;
+        var canStage = view is { CanStageHunks: true } && _canvas.SelectedHunks.Count > 0;
         _stageHunkBtn.IsEnabled = canStage && view!.IsStagedView == false;
         _unstageHunkBtn.IsEnabled = canStage && view!.IsStagedView;
     }

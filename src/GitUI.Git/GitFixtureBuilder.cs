@@ -223,6 +223,11 @@ namespace GitUI.Git
         /// <summary>在隔离 HOME 的本仓库内执行任意 git 命令（S5/S6 测试辅助）。</summary>
         public string RunGit(params string[] args) => Run(_workDir, _homeDir, args);
 
+        /// <summary>执行 git 命令并注入确定性 GIT_AUTHOR_DATE / GIT_COMMITTER_DATE（同秒提交会让
+        /// rev-list 与显式排序的同分 tie-break 不一致，跨路径对照测试必须用稳定日期）。</summary>
+        public string RunGitWithDate(string dateStamp, params string[] args)
+            => Run(_workDir, _homeDir, args, dateStamp);
+
         /// <summary>在任意目录执行 git 命令（无 HOME 隔离；bare 仓库/clone 辅助）。显式注入测试身份。</summary>
         public static string RunGitIn(string dir, params string[] args)
         {

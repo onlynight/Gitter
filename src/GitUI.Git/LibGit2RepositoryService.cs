@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using GitUI.Core.Services;
@@ -145,28 +146,43 @@ namespace GitUI.Git
             }
 
             // S4 快路径（design.md §8-S4：10 万提交首屏 50 条 < 500ms、下一页 < 200ms）：
-            // 无 author/topic/时间过滤时，两次 `git rev-list`（--count + --skip/--max-count 窗口）
-            // 分别供给精确 TotalCount 与分页窗口，再用 libgit2 Lookup 物化窗口内的提交。
-            // 不走 libgit2 revwalk 的原因：实测其"每句柄首次迭代"固定开销 ~600ms（10 万提交
-            // 的 packfile，commit-graph 也无法消除），单是取 50 条就会爆掉预算；
-            // git CLI（现代 Git 自动维护 commit-graph）冷读同仓库每次只要 ~70ms。
+            // 走 git rev-list CLI（现代 Git 自动维护 commit-graph）而不用 libgit2 revwalk——
+            // 实测 revwalk"每句柄首次迭代"固定开销 ~600ms（10 万提交的 packfile，
+            // commit-graph 也无法消除），单是取 50 条就会爆掉预算；CLI 冷读同仓库每次 ~70ms。
             // CLI 兜底在 §3.1 授权范围内；CLI 不可用时回退 libgit2 全量遍历路径。
             // 仅大仓库启用：CLI 进程启动 ~25ms，小仓库（S1 稳态 ~5ms）纯 libgit2 更快。
-            if (f.Author is null && f.Topic is null && f.After is null && f.Before is null
-                && f.Limit > 0 && HasLargePack(workDir))
+            //
+            // S4.1（known-issues 2.1）：author/日期过滤也可下推（-i --author / --since / --until，
+            // topic 的 .NET 正则语义无法安全映射 git --grep，仍走慢路径），一次流式调用
+            // 同时得到精确 TotalCount 与分页窗口，10 万提交的过滤查询从 ~1.3s 降到 ~300ms。
+            if (f.Topic is null && f.Limit > 0 && HasLargePack(workDir))
             {
                 var refName = f.Branch ?? "HEAD";
-                var window = TryRevListWindow(workDir, refName, f.Skip, f.Limit);
-                if (window is not null && TryRevListCount(workDir, refName) is { } revTotal)
+                if (f.Author is null && f.After is null && f.Before is null)
                 {
-                    var fastPage = new List<CoreCommitNode>(window.Count);
-                    foreach (var sha in window)
+                    var window = TryRevListWindow(workDir, refName, f.Skip, f.Limit);
+                    if (window is not null && TryRevListCount(workDir, refName) is { } revTotal)
+                    {
+                        var fastPage = new List<CoreCommitNode>(window.Count);
+                        foreach (var sha in window)
+                        {
+                            var c = repo.Lookup<Commit>(sha);
+                            if (c is not null)
+                                fastPage.Add(ToCommitNode(c, branchTips, tagTargets));
+                        }
+                        return new CoreLogPage(fastPage, revTotal, f.Skip, f.Limit);
+                    }
+                }
+                else if (TryRevListFilteredWindow(workDir, refName, f, out var filteredTotal) is { } filtered)
+                {
+                    var filteredPage = new List<CoreCommitNode>(filtered.Count);
+                    foreach (var sha in filtered)
                     {
                         var c = repo.Lookup<Commit>(sha);
                         if (c is not null)
-                            fastPage.Add(ToCommitNode(c, branchTips, tagTargets));
+                            filteredPage.Add(ToCommitNode(c, branchTips, tagTargets));
                     }
-                    return new CoreLogPage(fastPage, revTotal, f.Skip, f.Limit);
+                    return new CoreLogPage(filteredPage, filteredTotal, f.Skip, f.Limit);
                 }
             }
 
@@ -411,6 +427,27 @@ namespace GitUI.Git
                 int? added = int.TryParse(parts[0], out var a) ? a : null;
                 int? deleted = int.TryParse(parts[1], out var d) ? d : null;
                 result[parts[^1]] = new CoreDiffNumStat(added, deleted);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 全部分支（本地 + 远程跟踪）tip 的提交主题，一次 <c>git for-each-ref</c> 调用取回，
+        /// 供分支树展示（known-issues 2.6：替代逐分支 GetCommit 的 N+1 查询）。键 = tip 提交 SHA。
+        /// </summary>
+        public IReadOnlyDictionary<string, string> GetBranchTipSubjects(string workDir)
+        {
+            var r = RunGit(workDir, new[] { "for-each-ref",
+                "--format=%(objectname)\t%(subject)", "refs/heads/", "refs/remotes/" });
+            var result = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var raw in r.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var line = raw.TrimEnd('\r');
+                var tab = line.IndexOf('\t');
+                if (tab <= 0) continue;
+                var sha = line[..tab];
+                var subject = line[(tab + 1)..].Replace("\t", " ");
+                result[sha] = subject;
             }
             return result;
         }
@@ -690,6 +727,82 @@ namespace GitUI.Git
         }
 
         /// <summary>
+        /// 带过滤的 rev-list 窗口（known-issues 2.1）：author 用 <c>-i --author=</c>（值按
+        /// POSIX 正则转义为字面，等价"名称或邮箱大小写不敏感子串"语义），日期用
+        /// <c>--since/--until</c>（@epoch，按提交者日期——与排序键及 git 自身语义一致）。
+        /// 一次流式调用同时输出精确 TotalCount（全部匹配行计数）与 <c>[skip, skip+limit)</c>
+        /// 窗口。CLI 不可用 / 失败时返回 null，调用方回退 libgit2 全量遍历路径。
+        /// </summary>
+        private static List<string>? TryRevListFilteredWindow(
+            string workDir, string refName, CoreLogFilter f, out int total)
+        {
+            total = 0;
+            try
+            {
+                var psi = new ProcessStartInfo("git")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                psi.ArgumentList.Add("-C");
+                psi.ArgumentList.Add(workDir);
+                psi.ArgumentList.Add("rev-list");
+                if (f.Author is not null)
+                {
+                    psi.ArgumentList.Add("-i");
+                    psi.ArgumentList.Add("--author=" + EscapePosixRegex(f.Author));
+                }
+                if (f.After is not null)
+                    psi.ArgumentList.Add("--since=@" + f.After.Value.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
+                if (f.Before is not null)
+                    psi.ArgumentList.Add("--until=@" + f.Before.Value.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
+                psi.ArgumentList.Add(refName);
+
+                using var process = Process.Start(psi);
+                if (process is null) return null;
+
+                var window = new List<string>(Math.Min(f.Limit, 1024));
+                var index = 0;
+                string? line;
+                while ((line = process.StandardOutput.ReadLine()) is not null)
+                {
+                    if (line.Length == 0) continue;
+                    if (index >= f.Skip && window.Count < f.Limit)
+                        window.Add(line);
+                    index++;
+                }
+
+                if (!WaitForExitOrKill(process, 30_000)) return null;
+                if (process.ExitCode != 0) return null;
+
+                total = index;
+                return window;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 把用户输入的字面子串转成 POSIX basic regex 字面（转义正则元字符），
+        /// 使 <c>--author</c> 的正则匹配退化为子串匹配，与 MatchesAuthor 语义一致。
+        /// </summary>
+        private static string EscapePosixRegex(string literal)
+        {
+            var sb = new StringBuilder(literal.Length + 8);
+            foreach (var ch in literal)
+            {
+                if ("\\.[]{}()*+?^$|".Contains(ch, StringComparison.Ordinal))
+                    sb.Append('\\');
+                sb.Append(ch);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// <c>git rev-list --count &lt;ref&gt;</c> 取可达提交总数。
         /// git CLI 不可用 / 超时 / ref 不存在时返回 null，调用方回退 libgit2 全量遍历路径。
         /// </summary>
@@ -776,8 +889,10 @@ namespace GitUI.Git
 
         private static bool MatchesTime(Commit c, CoreLogFilter f)
         {
-            if (f.After is { } after && c.Author.When < after) return false;
-            if (f.Before is { } before && c.Author.When > before) return false;
+            // 提交者日期（known-issues 2.1：过滤语义与排序键、分组键、git --since/--until 统一；
+            // 此前用作者日期，与 rev-list 下推路径会产生不同结果）
+            if (f.After is { } after && c.Committer.When < after) return false;
+            if (f.Before is { } before && c.Committer.When > before) return false;
             return true;
         }
 

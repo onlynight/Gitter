@@ -111,7 +111,6 @@ public sealed class BranchesPage : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
         };
-        AutomationProperties.SetName(_banner, "分支提示");
 
         _copyErrBtn = BuildToolButton("复制错误详情");
         _copyErrBtn.Visibility = Visibility.Collapsed;

@@ -1,6 +1,6 @@
 # 已知问题与技术债清单
 
-> 状态：S4/S5/S6 验收后梳理（2026-10-03）；2026-10-03 第一批修复（1.1/1.2/1.3/1.4/1.6/1.7/1.8，见文末修复记录）
+> 状态：S4/S5/S6 验收后梳理（2026-10-03）；2026-10-03 第一批修复（1.1/1.2/1.3/1.4/1.6/1.7/1.8）与第二批修复（1.5/2.1/2.3/2.4/2.6/2.8），见文末修复记录
 > 范围：当前 master（682d770..5383b0a 三次阶段提交后）的全部已知缺陷、设计妥协、未完成计划项与验证限制。
 > 用途：S7（打磨与发布）的输入；每项标注影响与建议处置时机。
 
@@ -22,10 +22,9 @@
 - **现象**：合并/变基冲突后，Changes 页的"冲突"分组仅列出文件并拦截提交（"存在未解决的冲突文件"），没有标记已解决、打开编辑器、按侧采纳（Accept Current/Incoming）等任何引导。
 - **修复**：Changes 页新增"在编辑器打开"按钮（设置指定 `ExternalEditor` 或系统默认关联程序）；选中冲突文件时"暂存文件"按钮动态换为"标记已解决"（git add 移除冲突条目）。行级 Accept 仍属 v2。
 
-### 1.5 DiffCanvas 选块只支持单块（未修，低优先级）
+### 1.5 DiffCanvas 选块只支持单块 ✅ 已修复（2026-10-03 第二批）
 - **现象**：点击 diff 画布仅记录一个选中 hunk；"暂存此块/撤销此块"一次只处理一块，多块要反复操作（每次 `git apply --cached` + 全量刷新）。
-- **影响**：低（功能可用、效率欠佳）。
-- **建议**：Ctrl/Shift 多选 + 批量 `StageHunksAsync`（VM 已支持 `IReadOnlyList<int>`，只差 UI）。处置时机：S7 打磨。
+- **修复**：DiffCanvas 改为 `SelectedHunks` 集合——普通点击替换单选、Ctrl+点击 toggle 多选、空白处普通点击清除；覆盖层绘制全部选中块；`HunkSelectionChanged` 事件（取代单块的 `HunkSelected`）；Changes 页"暂存此块/撤销此块"按当前选中集合批量调用 `StageHunksAsync`（VM 早已支持列表）。
 
 ### 1.6 提交 diff 不显示 "\ No newline at end of file" 标记 ✅ 已修复（2026-10-03）
 - **现象**：`GetCommitDiff`（libgit2 patch 来源）的 hunk 无 EOF 标志，`ParseUnifiedDiff` 丢弃该标记行（§11.13 遗留）；工作区 diff（TextDiffPipeline 来源）正常。
@@ -41,39 +40,38 @@
 
 ## 二、技术债与设计妥协
 
-### 2.1 带过滤的 GetLog 未优化（10 万提交单次 >1s）
+### 2.1 带过滤的 GetLog 未优化（10 万提交单次 >1s）✅ author/日期已下推（2026-10-03 第二批）
 - **背景**：S4 快路径只覆盖无过滤查询；author/topic/时间过滤仍走 libgit2 全量遍历，且受 **libgit2 revwalk 每句柄冷启动 ~600ms**（10 万提交 packfile，commit-graph 无法消除，§11.14）叠加拖累。
-- **影响**：大仓库上过滤查询明显慢（无预算要求，但可用性一般）。
-- **建议**：过滤条件下推 rev-list CLI（`--author`/`--since`/`--grep`）；或引入常驻 Repository 句柄池（与 §3.2 线程模型一并设计）。处置时机：性能问题被用户感知时。
+- **修复**：topic 为空且大仓库时，author（`-i --author=`，值经 POSIX 元字符转义为字面子串，与慢路径大小写不敏感子串语义一致）与日期（`--since/--until` @epoch）下推一次流式 rev-list，同时取回精确 TotalCount 与分页窗口；实测 10 万提交 author 过滤首屏 ~780ms（两次查询合计，修复前单次 >1.3s）。**过滤语义同步统一为提交者日期**（慢路径 `MatchesTime` 从 AuthorDate 改 CommitterDate，与排序键/分组键/git 语义一致）。topic 的 .NET 正则语义无法安全映射 `--grep`，仍走慢路径。
+- **剩余**：topic 过滤在大仓库上仍慢（v2：自定义正则转 git -E 或内嵌匹配）。
 
 ### 2.2 IRepositoryService 接口膨胀
 - **现象**：25+ 方法混装只读查询与 S5/S6 全部写操作，ViewModel 依赖面过宽，mock 成本高。
 - **建议**：按领域拆分（ILogService / IChangesService / IBranchService）或读写分离。处置时机：S7 重构窗口。
 
-### 2.3 服务实例与线程模型偏离设计
+### 2.3 服务实例与线程模型偏离设计 ✅ 单例已统一（2026-10-03 第二批）
 - **现象**：MainWindow 为三个页签各 `new LibGit2RepositoryService()`（无共享、无 GitWorker 队列）；design §3.2 的"单 worker + 请求数据化"队列未接入——当前靠 ViewModel 层 SemaphoreSlim 串行化，libgit2 句柄"每请求开合"策略仍是安全底线。
-- **影响**：无正确性问题（句柄不跨线程）；长任务（push/pull 120s）期间同页操作被 gate 阻塞。
-- **建议**：S7 统一注入单例 + 评估是否需要 GitWorker（当前同步 Task.Run 模型实测够用）。
+- **修复**：MainWindow 持有唯一 `_repoService` 注入三个页签。GitWorker 队列仍评估中（当前同步 Task.Run 模型实测够用）。
 
-### 2.4 UIA 自动化约定无防护
+### 2.4 UIA 自动化约定无防护 ✅ 已加静态检查（2026-10-03 第二批）
 - **现象**："承载动态文本的 TextBlock 一律不设 AutomationProperties.Name"是口头约定（设了就覆盖文本，冒烟锚点失效，§11.14/§11.15 两次踩中）；无脚本化扫描防止回归。
-- **建议**：S7 无障碍扫描脚本同时校验"动态文本元素不得有显式 Name"。
+- **修复**：新增 `scripts/check-uia-conventions.ps1`（源码扫描：SetName 目标为 TextBlock 变量即违规，exit 1），并清理既有违规（Changes/Branches 页横幅与文件头、Log 页空态、提交预览——这些动态文本的 UIA Name 现在等于内容本身，屏幕阅读器与冒烟锚点都受益）。
 
 ### 2.5 InfoBar 弃用但根因未查
 - **现象**：本机（RDP 会话 + WinAppSDK 2.5）InfoBar 进视觉树即 XAML fail-fast（§11.15），已全部改用 TextBlock 横幅。根因（SDK bug？会话环境？）未定位；换机器/升级 SDK 后行为未知。
 - **建议**：干净桌面环境复测一次；若复现，最小 repro 上报 WinAppSDK。
 
-### 2.6 Changes 页数据加载无分页、分支树 N+1 查询
+### 2.6 Changes 页数据加载无分页、分支树 N+1 查询 ✅ N+1 已修（2026-10-03 第二批）
 - **现象**：`GetStatus` 全量返回（万级变更仓库单次加载慢，无预算断言）；`BranchesViewModel.LoadCoreAsync` 对每个分支各调一次 `GetCommit` 取 tip 主题（分支多时打开变慢）。
-- **建议**：分支 tip 主题改为一次 `GetLog(Limit: N)` 反查；Status 大仓库实测后再定分页策略。
+- **修复**：新增 `GetBranchTipSubjects`（一次 `git for-each-ref --format=%(objectname)	%(subject)` 取回全部分支 tip 主题），BranchesViewModel 改查字典。Changes 页 GetStatus 分页仍待大仓库实测后再定。
 
 ### 2.7 diff 行级操作未实现
 - **现象**：design §4.4 的行级操作（冲突时 Accept Current/Incoming/Both）未做，S5 只交付 hunk 级暂存。
 - **建议**：v2（与冲突解决 UI 一并设计）。
 
-### 2.8 PowerShell 冒烟脚本可移植性
+### 2.8 PowerShell 冒烟脚本可移植性 ✅ exe 已参数化（2026-10-03 第二批）
 - **现象**：脚本硬编码 exe 绝对路径与默认仓库路径；临时仓库未隔离 HOME（已仓库级关闭 autocrlf/quotepath 并注入 user.name/email，全局 hooks 等仍可能渗入）。
-- **建议**：路径参数化（已有 param 但 exe 路径写死）；fixture 式 HOME 隔离可复用 GitFixtureBuilder 思路。
+- **修复**：三个冒烟脚本增加 `-Exe` 参数（默认值 = 当前 Debug 输出路径），可直接指向 Release 或其他构建产物。HOME 隔离仍待做（低优先级）。
 
 ## 三、未完成计划项（S7 及后续阶段输入）
 
@@ -112,9 +110,20 @@
 |---|---|
 | 高（发版前必修） | ~~1.1 部分暂存标记残留~~✅；~~1.7 复制完整输出~~✅；三（打包前）干净环境复测（待办） |
 | 中（体验断层） | ~~1.2/1.3 仓库与分支状态联动~~✅；~~1.4 冲突解决最小闭环~~✅；~~1.8 transient 超时~~✅ |
-| 低（可延后） | 1.5 多块选择；~~1.6 EOF 标志~~✅；2.1 过滤下推；2.2 接口拆分；其余 |
+| 低（可延后） | ~~1.5 多块选择~~✅；~~1.6 EOF 标志~~✅；~~2.1 过滤下推~~✅；2.2 接口拆分（S7 重构窗口）；其余 |
 
 ## 修复记录
+
+### 2026-10-03 第二批（6 项：1.5 / 2.1 / 2.3 / 2.4 / 2.6 / 2.8）
+
+- `LibGit2RepositoryService`：`TryRevListFilteredWindow`（author/日期过滤下推，流式取 TotalCount+窗口）、`EscapePosixRegex`、`GetBranchTipSubjects`（for-each-ref 批量）、`MatchesTime` 统一 CommitterDate。
+- `DiffCanvas`：多块选择（Ctrl toggle，`SelectedHunks` 集合 + `HunkSelectionChanged` 事件 + 多块覆盖层）。
+- `BranchesViewModel`：tip 主题改查批量字典（去 N+1）。
+- `MainWindow`：App 级唯一服务实例注入三页签。
+- ChangesPage：hunk 批量暂存接线（`StageHunksAsync` 传选中集合）。
+- 脚本：冒烟 `-Exe` 参数化；新增 `check-uia-conventions.ps1` 并清理 4 处动态文本 TextBlock 的显式 SetName。
+- 测试：`KnownIssuesBatch2Tests`（7：author 下推对照/大小写/正则字面、日期下推对照、topic 慢路径、tip subjects、分支行主题）；`GetLogFastPathTests` 升级 10k 提交真实越过 CLI 阈值；perf 新增 10 万提交 author 过滤基准（778ms，宽预算 2s）。
+- 教训补记：**同秒提交会让 rev-list 与显式排序的 tie-break 不一致**——跨路径对照测试的 fixture 必须用确定性日期（新增 `RunGitWithDate`）。
 
 ### 2026-10-03 第一批（7 项：1.1 / 1.2 / 1.3 / 1.4 最小闭环 / 1.6 / 1.7 / 1.8）
 

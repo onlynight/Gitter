@@ -50,6 +50,9 @@ public sealed partial class MainWindow : Window
 
     private readonly RepositoryContext _repoContext = new();
 
+    // App 级唯一服务实例（known-issues 2.3：此前三页各自 new，无共享）
+    private readonly LibGit2RepositoryService _repoService = new();
+
     private string _currentKey = "log";
 
     private static SolidColorBrush SelectedBrush =>
@@ -404,11 +407,11 @@ public sealed partial class MainWindow : Window
         _bashPage ??= new BashPage(_settings);
         UIElement page = key switch
         {
-            "changes" => _changesPage ??= new ChangesPage(_settings, new LibGit2RepositoryService(), _repoContext),
-            "branches" => _branchesPage ??= new BranchesPage(_settings, new LibGit2RepositoryService(), _repoContext),
+            "changes" => _changesPage ??= new ChangesPage(_settings, _repoService, _repoContext),
+            "branches" => _branchesPage ??= new BranchesPage(_settings, _repoService, _repoContext),
             "bash" => _bashPage,
             "settings" => new SettingsPage(_settings),
-            _ => _logPage ??= new LogPage(_settings, new LibGit2RepositoryService(), _repoContext),
+            _ => _logPage ??= new LogPage(_settings, _repoService, _repoContext),
         };
 
         _pageHost.Children.Clear();

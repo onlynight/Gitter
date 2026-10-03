@@ -157,7 +157,6 @@ public sealed class LogPage : UserControl
             Margin = new Thickness(24, 0, 24, 0),
             Visibility = Visibility.Collapsed,
         };
-        AutomationProperties.SetName(_emptyState, "Log 空态");
 
         var listHost = new Grid();
         listHost.Children.Add(_listScroll);

@@ -1,11 +1,11 @@
 ﻿# smoke-log-page.ps1 - S4 UIA 冒烟：打开仓库 → 首屏条目 → 搜索过滤 → 分组折叠 → 点击提交 → 文件 → Diff 视图
 # design.md §8-S4"UI 自动化测试覆盖搜索 → 分组 → 点击 → 显示 diff 完整链路"
 param(
+    [string]$Exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe',
     [string]$RepoPath = 'D:\Code\Gitter',
     [string]$Author = 'wyndam'
 )
 
-$exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe'
 $settingsPath = Join-Path $env:APPDATA 'GitUI\settings.json'
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
 

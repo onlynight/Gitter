@@ -69,6 +69,21 @@ public sealed class LogPagePerformanceTests : IDisposable
 
     [Fact]
     [Trait("Category", "Perf")]
+    public async Task AuthorFilter_100k_Under2000Ms()
+    {
+        // known-issues 2.1：过滤查询经 rev-list 下推后的基准（无硬预算，宽断言防回归）
+        var sw = Stopwatch.StartNew();
+        await _vm.OpenRepositoryAsync(_builder.WorkDir);
+        await _vm.SetQueryAsync("author:Fixture");
+        sw.Stop();
+
+        Assert.StartsWith("已加载 50 / 共 100000", _vm.StatusText);
+        Log($"100k author-filtered first page = {sw.ElapsedMilliseconds} ms (budget 2000)");
+        Assert.True(sw.ElapsedMilliseconds < 2000, $"过滤首屏 {sw.ElapsedMilliseconds} ms 超过 2000ms 宽预算");
+    }
+
+    [Fact]
+    [Trait("Category", "Perf")]
     public async Task LoadNextPage_Under200Ms()
     {
         await _vm.OpenRepositoryAsync(_builder.WorkDir);

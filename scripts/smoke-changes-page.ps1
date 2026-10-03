@@ -1,9 +1,9 @@
 ﻿# smoke-changes-page.ps1 - S5 UIA 冒烟：变更页打开仓库 → 三层列表 → 选文件看 diff → 暂存 → 提交 → 断言 HEAD
 param(
+    [string]$Exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe',
     [string]$Author = 'smoke'
 )
 
-$exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe'
 $settingsPath = Join-Path $env:APPDATA 'GitUI\settings.json'
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
 

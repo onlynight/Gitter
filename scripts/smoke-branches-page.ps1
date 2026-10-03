@@ -1,7 +1,8 @@
 ﻿# smoke-branches-page.ps1 - S6 UIA 冒烟：分支页打开仓库 → 树显示 → 检出 → 删除确认对话框（N 值一致）→ 删除
-param()
+param(
+    [string]$Exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe'
+)
 
-$exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe'
 $settingsPath = Join-Path $env:APPDATA 'GitUI\settings.json'
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
 

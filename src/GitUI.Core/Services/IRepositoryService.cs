@@ -76,6 +76,9 @@ public interface IRepositoryService
     /// <summary>最近 N 条提交主题（提交消息建议用）。</summary>
     IReadOnlyList<string> GetRecentCommitSubjects(string workDir, int count);
 
+    /// <summary>全部分支 tip 的提交主题（SHA → 主题），一次调用取回，供分支树展示。</summary>
+    IReadOnlyDictionary<string, string> GetBranchTipSubjects(string workDir);
+
     // ---- S6：Branches 页与分支操作 ----
 
     /// <summary>创建分支（不切换）。fromSha 为 null 时从 HEAD 创建。</summary>
