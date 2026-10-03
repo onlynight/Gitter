@@ -41,13 +41,19 @@ namespace GitUI.Git
             return new GitFixtureBuilder(workDir, home);
         }
 
-        /// <summary>提交一次工作区变更，返回提交 SHA。</summary>
+        /// <summary>提交一次工作区变更，返回提交 SHA。时间戳取自内置时钟（逐次 +1s，确定性）。</summary>
         public string Commit(string message, params (string file, string content)[] files)
+            => CommitOn(message, _clockBase.AddSeconds(_nextTimestamp++), files);
+
+        /// <summary>
+        /// 在指定时间提交一次工作区变更，返回提交 SHA。
+        /// S4 的按天分组测试用它构造跨天的确定性提交。
+        /// </summary>
+        public string CommitOn(string message, DateTimeOffset when, params (string file, string content)[] files)
         {
-            // 用 GIT_AUTHOR_DATE / GIT_COMMITTER_DATE 注入确定性时间戳，
-            // 保证拓扑测试里相邻提交的 CommitterDate 严格有序。
-            var when = _clockBase.AddSeconds(_nextTimestamp++);
-            var dateStamp = when.ToString("u");
+            _nextTimestamp++;
+            // "u" 格式（2009-06-15 13:45:30Z）转 UTC，git 的 GIT_AUTHOR_DATE/GIT_COMMITTER_DATE 均接受
+            var dateStamp = when.ToUniversalTime().ToString("u");
 
             if (files.Length == 0)
             {
@@ -166,6 +172,10 @@ namespace GitUI.Git
             // 会让 RetrieveStatus 把 HEAD 里的文件报成 Staged。reset --hard 对齐三者。
             Run(_workDir, _homeDir, "reset", "-q", "--hard");
 
+            // 写 commit-graph：现代 Git（2.24+，gc.writeCommitGraph 默认开）在 gc 时自动维护，
+            // 真实大仓库普遍存在；fast-import 不会生成，这里补上以贴近真实形态。
+            Run(_workDir, _homeDir, "commit-graph", "write", "--reachable");
+
             _nextTimestamp += count;
         }
 
@@ -174,6 +184,72 @@ namespace GitUI.Git
 
         /// <summary>从 index 移除指定路径。</summary>
         public void Unstage(string file) => Run(_workDir, _homeDir, "reset", "HEAD", "--", file);
+
+        /// <summary>初始化一个 bare 仓库（S5 push 测试的远程端）。返回路径。</summary>
+        public static string InitBare(string path)
+        {
+            Directory.CreateDirectory(path);
+            var psi = new ProcessStartInfo("git", EscapeArgs(new[] { "init", "-q", "--bare", "-b", "main", path }))
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start git.");
+            p.WaitForExit(30_000);
+            if (p.ExitCode != 0)
+                throw new InvalidOperationException($"git init --bare exited {p.ExitCode}");
+            return path;
+        }
+
+        /// <summary>添加远程仓库。</summary>
+        public void AddRemote(string name, string url)
+            => Run(_workDir, _homeDir, "remote", "add", name, url);
+
+        /// <summary>HEAD reflog 行（"%H %gs"，含 commit/checkout/reset 等事件）。</summary>
+        public IReadOnlyList<string> Reflog()
+        {
+            var outp = Run(_workDir, _homeDir, "reflog", "--format=%H %gs");
+            return outp.Length == 0
+                ? Array.Empty<string>()
+                : outp.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        /// <summary>读取某 rev 下文件内容（git show rev:path）。</summary>
+        public string ShowFile(string rev, string path)
+            => Run(_workDir, _homeDir, "show", $"{rev}:{path}");
+
+        /// <summary>在隔离 HOME 的本仓库内执行任意 git 命令（S5/S6 测试辅助）。</summary>
+        public string RunGit(params string[] args) => Run(_workDir, _homeDir, args);
+
+        /// <summary>在任意目录执行 git 命令（无 HOME 隔离；bare 仓库/clone 辅助）。显式注入测试身份。</summary>
+        public static string RunGitIn(string dir, params string[] args)
+        {
+            var full = new List<string>(args);
+            // -c 参数需放在子命令前
+            var psi = new ProcessStartInfo("git")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = dir,
+            };
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add("user.name=test");
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add("user.email=test@test");
+            foreach (var a in full) psi.ArgumentList.Add(a);
+
+            using var p = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start git.");
+            var stdout = p.StandardOutput.ReadToEnd();
+            var stderr = p.StandardError.ReadToEnd();
+            p.WaitForExit(60_000);
+            if (p.ExitCode != 0)
+                throw new InvalidOperationException($"git {string.Join(' ', args)} exited {p.ExitCode}: {stderr}");
+            return stdout.TrimEnd('\r', '\n');
+        }
 
         /// <summary>解析任意 rev 表达式到完整 SHA。</summary>
         public string Sha(string rev)

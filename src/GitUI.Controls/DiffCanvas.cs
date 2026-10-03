@@ -45,6 +45,22 @@ public sealed class DiffCanvas : Grid
     /// <summary>当前变更块索引变化（状态条可据此显示"变更 N/M"）。</summary>
     public event EventHandler? CurrentChangeChanged;
 
+    /// <summary>用户点击选中某个 hunk（S5 hunk 级暂存）；参数为 hunk 序号。清除选择时参数为 -1。</summary>
+    public event EventHandler<int>? HunkSelected;
+
+    private int _selectedHunk = -1;
+
+    /// <summary>当前选中的 hunk 序号（-1 = 未选中）。供外部读回与高亮绘制。</summary>
+    public int SelectedHunk => _selectedHunk;
+
+    /// <summary>外部设置选中 hunk（-1 清除）；不触发事件。</summary>
+    public void SetSelectedHunk(int hunkIndex)
+    {
+        if (_selectedHunk == hunkIndex) return;
+        _selectedHunk = hunkIndex;
+        _canvas.Invalidate();
+    }
+
     public DiffCanvas()
     {
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -59,7 +75,7 @@ public sealed class DiffCanvas : Grid
             UpdateScrollRanges();
             _canvas.Invalidate();
         };
-        _canvas.PointerPressed += (_, _) => Focus(FocusState.Pointer);
+        _canvas.PointerPressed += OnCanvasPointerPressed;
         Grid.SetRow(_canvas, 0);
         Grid.SetColumn(_canvas, 0);
         Children.Add(_canvas);
@@ -135,6 +151,7 @@ public sealed class DiffCanvas : Grid
         _hunks = hunks ?? throw new ArgumentNullException(nameof(hunks));
         _oldEndsWithNewline = oldEndsWithNewline;
         _newEndsWithNewline = newEndsWithNewline;
+        _selectedHunk = -1;
         RebuildModel(resetScroll: true);
     }
 
@@ -145,9 +162,32 @@ public sealed class DiffCanvas : Grid
         _model = null;
         _message = message ?? string.Empty;
         _currentBlock = -1;
+        _selectedHunk = -1;
         _vScroll.Maximum = 0;
         _hScroll.Maximum = 0;
         _canvas.Invalidate();
+    }
+
+    /// <summary>
+    /// 点击画布：定位到行 → 所属 hunk，更新选中态并触发 <see cref="HunkSelected"/>。
+    /// 点在空白区（超出内容行数）清除选择。
+    /// </summary>
+    private void OnCanvasPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        Focus(FocusState.Pointer);
+        if (_model is null || _model.Rows.Count == 0) return;
+
+        var point = e.GetCurrentPoint(_canvas).Position.Y;
+        int firstRow = (int)Math.Round(_vScroll.Value);
+        int row = firstRow + (int)(point / _metrics.LineHeight);
+
+        int? hunk = _model.TryGetHunkIndexAtRow(row);
+        var next = hunk ?? -1;
+        if (next == _selectedHunk) return;
+        _selectedHunk = next;
+        HunkSelected?.Invoke(this, next);
+        _canvas.Invalidate();
+        e.Handled = false; // 不吞掉事件：外部仍可感知按下（如滚动条交互不受影响）
     }
 
     /// <summary>跳到下一个变更块（已到最后则停在原地）。</summary>
@@ -326,6 +366,30 @@ public sealed class DiffCanvas : Grid
                     break;
             }
         }
+
+        DrawHunkSelectionOverlay(session, sender, viewport);
+    }
+
+    /// <summary>选中 hunk 的半透明覆盖层（S5 选块反馈），与滚动同步。</summary>
+    private void DrawHunkSelectionOverlay(
+        Microsoft.Graphics.Canvas.CanvasDrawingSession session, CanvasControl sender, DiffViewport viewport)
+    {
+        if (_model is null || _selectedHunk < 0) return;
+        var range = _model.TryGetHunkRowRange(_selectedHunk);
+        if (range is null) return;
+
+        int firstRow = (int)Math.Round(_vScroll.Value);
+        double y = (range.FirstRow - firstRow) * _metrics.LineHeight;
+        double height = (range.LastRow - range.FirstRow + 1) * _metrics.LineHeight;
+        if (y >= sender.ActualHeight || y + height <= 0) return;
+
+        var overlay = ActualTheme == ElementTheme.Light
+            ? Windows.UI.Color.FromArgb(0x26, 0x00, 0x60, 0xD0)
+            : Windows.UI.Color.FromArgb(0x38, 0x60, 0xB8, 0xFF);
+        session.FillRectangle(
+            0, (float)Math.Max(0, y),
+            (float)sender.ActualWidth, (float)Math.Min(height, sender.ActualHeight - Math.Max(0, y)),
+            overlay);
     }
 
     private CanvasTextFormat TextFormat => _textFormat ??= new CanvasTextFormat

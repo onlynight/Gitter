@@ -44,11 +44,12 @@ public sealed class DiffCell
 /// </summary>
 public sealed class DiffRow
 {
-    public DiffRow(DiffCell? left, DiffCell? right, int index)
+    public DiffRow(DiffCell? left, DiffCell? right, int index, int hunkIndex = -1)
     {
         Left = left;
         Right = right;
         Index = index;
+        HunkIndex = hunkIndex;
     }
 
     /// <summary>左格（并排 = 旧内容；内联 = 本行唯一内容）。hunk 头/内联标记行也在这里。</summary>
@@ -59,6 +60,12 @@ public sealed class DiffRow
 
     /// <summary>在 <see cref="DiffRenderModel.Rows"/> 中的行索引。</summary>
     public int Index { get; }
+
+    /// <summary>
+    /// 本行所属 hunk 序号（S5 hunk 级暂存的选块定位用）。
+    /// -1 表示不属于任何 hunk（EOF 标记行）。
+    /// </summary>
+    public int HunkIndex { get; }
 
     /// <summary>本行是否为 hunk 头分隔行（全宽绘制、不参与水平滚动）。</summary>
     public bool IsHunkHeader => Left?.Kind == DiffRowKind.HunkHeader;

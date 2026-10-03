@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Text;
 using System.Text.RegularExpressions;
 using GitUI.Core.Services;
 using LibGit2Sharp;
@@ -15,6 +17,10 @@ using CoreWorktreeFileStatus = GitUI.Core.Models.WorktreeFileStatus;
 using CoreStatusCategory = GitUI.Core.Models.StatusCategory;
 using CoreIRepositoryService = GitUI.Core.Services.IRepositoryService;
 using CoreRepositoryNotFoundException = GitUI.Core.Services.RepositoryNotFoundException;
+using CoreGitOperationException = GitUI.Core.Services.GitOperationException;
+using CorePushFailureKind = GitUI.Core.Models.PushFailureKind;
+using CorePushException = GitUI.Core.Services.PushException;
+using CoreDiffNumStat = GitUI.Core.Models.DiffNumStat;
 
 namespace GitUI.Git
 {
@@ -114,7 +120,6 @@ namespace GitUI.Git
                 return new CoreLogPage(Array.Empty<CoreCommitNode>(), 0, filter.Skip, filter.Limit);
 
             var f = filter.Normalize();
-            var commitFilter = BuildCommitFilter(repo, f);
 
             // 预计算 branch/tag → SHA 映射。ToCommitNode 若每个提交都全量扫
             // repo.Branches / repo.Tags，复杂度是 O(提交数 × 分支数)，万级仓库下不可接受。
@@ -138,6 +143,34 @@ namespace GitUI.Git
                     tagTargets[sha] = names = new List<string>();
                 names.Add(t.FriendlyName);
             }
+
+            // S4 快路径（design.md §8-S4：10 万提交首屏 50 条 < 500ms、下一页 < 200ms）：
+            // 无 author/topic/时间过滤时，两次 `git rev-list`（--count + --skip/--max-count 窗口）
+            // 分别供给精确 TotalCount 与分页窗口，再用 libgit2 Lookup 物化窗口内的提交。
+            // 不走 libgit2 revwalk 的原因：实测其"每句柄首次迭代"固定开销 ~600ms（10 万提交
+            // 的 packfile，commit-graph 也无法消除），单是取 50 条就会爆掉预算；
+            // git CLI（现代 Git 自动维护 commit-graph）冷读同仓库每次只要 ~70ms。
+            // CLI 兜底在 §3.1 授权范围内；CLI 不可用时回退 libgit2 全量遍历路径。
+            // 仅大仓库启用：CLI 进程启动 ~25ms，小仓库（S1 稳态 ~5ms）纯 libgit2 更快。
+            if (f.Author is null && f.Topic is null && f.After is null && f.Before is null
+                && f.Limit > 0 && HasLargePack(workDir))
+            {
+                var refName = f.Branch ?? "HEAD";
+                var window = TryRevListWindow(workDir, refName, f.Skip, f.Limit);
+                if (window is not null && TryRevListCount(workDir, refName) is { } revTotal)
+                {
+                    var fastPage = new List<CoreCommitNode>(window.Count);
+                    foreach (var sha in window)
+                    {
+                        var c = repo.Lookup<Commit>(sha);
+                        if (c is not null)
+                            fastPage.Add(ToCommitNode(c, branchTips, tagTargets));
+                    }
+                    return new CoreLogPage(fastPage, revTotal, f.Skip, f.Limit);
+                }
+            }
+
+            var commitFilter = BuildCommitFilter(repo, f);
 
             // 轻量收集：只存排序键和 Commit 引用，不物化 CommitNode。
             // 万级仓库下 TotalCount 需要完整走一遍，但只携带 SHA，成本很低。
@@ -278,6 +311,311 @@ namespace GitUI.Git
             return _diffEngine.ComputeHunks(oldText ?? string.Empty, newText ?? string.Empty);
         }
 
+        // ---------- S5：Changes 页与提交流 ----------
+
+        public void Stage(string workDir, IReadOnlyList<string> paths)
+        {
+            ValidatePaths(paths);
+            var r = RunGit(workDir, new[] { "add", "-A", "--" }.Concat(paths).ToArray());
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("暂存", r.StdError, r.ExitCode);
+        }
+
+        public void Unstage(string workDir, IReadOnlyList<string> paths)
+        {
+            ValidatePaths(paths);
+            var r = RunGit(workDir, new[] { "reset", "-q", "HEAD", "--" }.Concat(paths).ToArray());
+            if (r.ExitCode != 0)
+            {
+                // unborn HEAD（还没有任何提交）时 reset HEAD 不可用，退化为从 index 移除
+                var rm = RunGit(workDir, new[] { "rm", "--cached", "-q", "--" }.Concat(paths).ToArray());
+                if (rm.ExitCode != 0)
+                    throw new CoreGitOperationException("撤销暂存", r.StdError, r.ExitCode);
+            }
+        }
+
+        public string Commit(string workDir, string message)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(message);
+            using var repo = OpenRepo(workDir);
+
+            // 无已暂存变更时拒绝提交（幂等性保护的第一道：按钮侧还有 in-flight 守卫）
+            if (repo.Info.IsHeadUnborn)
+            {
+                if (!repo.Index.Any())
+                    throw new InvalidOperationException("没有已暂存的变更，无法提交");
+            }
+            else
+            {
+                var changes = repo.Diff.Compare<TreeChanges>(repo.Head.Tip!.Tree, DiffTargets.Index);
+                if (!changes.Any())
+                    throw new InvalidOperationException("没有已暂存的变更，无法提交");
+            }
+
+            try
+            {
+                var signature = repo.Config.BuildSignature(DateTimeOffset.Now);
+                var commit = repo.Commit(message.Trim(), signature, signature);
+                return commit.Sha;
+            }
+            catch (LibGit2SharpException ex)
+            {
+                throw new CoreGitOperationException("commit", ex.Message, 1);
+            }
+        }
+
+        public string? GetWorktreePatch(string workDir, string path)
+            => TryDiffPatch(workDir, new[] { "diff", "--", path });
+
+        public string? GetIndexPatch(string workDir, string path)
+            => TryDiffPatch(workDir, new[] { "diff", "--cached", "--", path });
+
+        public void ApplyIndexPatch(string workDir, string patch, bool reverse)
+        {
+            var args = new List<string> { "apply", "--cached", "--whitespace=nowarn" };
+            if (reverse) args.Add("--reverse");
+            args.Add("-");
+            var r = RunGit(workDir, args, stdin: patch);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException(reverse ? "撤销暂存块" : "暂存块", r.StdError, r.ExitCode);
+        }
+
+        public void Push(string workDir, string? remote, string? branch)
+        {
+            var args = new List<string> { "push" };
+            if (remote is not null) args.Add(remote);
+            if (branch is not null) args.Add(branch);
+            // push 涉及网络，放宽超时；credential helper 可能弹窗（默认行为），v1 不接管凭据
+            var r = RunGit(workDir, args, timeoutMs: 120_000);
+            if (r.ExitCode != 0)
+                throw new CorePushException(r.StdError, r.ExitCode, GitUI.Core.Services.PushErrorClassifier.Classify(r.StdError));
+        }
+
+        public IReadOnlyDictionary<string, CoreDiffNumStat> GetNumStat(string workDir, bool staged)
+        {
+            var args = staged
+                ? new[] { "diff", "--cached", "--numstat" }
+                : new[] { "diff", "--numstat" };
+            var r = RunGit(workDir, args);
+            var result = new Dictionary<string, CoreDiffNumStat>(StringComparer.Ordinal);
+            foreach (var raw in r.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var line = raw.TrimEnd('\r');
+                var parts = line.Split('\t');
+                if (parts.Length < 3) continue;
+                int? added = int.TryParse(parts[0], out var a) ? a : null;
+                int? deleted = int.TryParse(parts[1], out var d) ? d : null;
+                result[parts[^1]] = new CoreDiffNumStat(added, deleted);
+            }
+            return result;
+        }
+
+        public IReadOnlyList<string> GetRecentCommitSubjects(string workDir, int count)
+        {
+            if (count <= 0) return Array.Empty<string>();
+            return GetLog(workDir, new CoreLogFilter(Limit: count))
+                .Items.Select(c => c.Subject).ToList();
+        }
+
+        // ---------- S6：Branches 页与分支操作 ----------
+
+        public void CreateBranch(string workDir, string name, string? fromSha)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            using var repo = OpenRepo(workDir);
+            try
+            {
+                var tip = fromSha is null ? repo.Head.Tip : repo.Lookup<Commit>(fromSha);
+                if (tip is null)
+                    throw new CoreGitOperationException("创建分支", $"找不到起点提交 {fromSha}", 1);
+                repo.Branches.Add(name, tip);
+            }
+            catch (LibGit2SharpException ex)
+            {
+                throw new CoreGitOperationException("创建分支", ex.Message, 1);
+            }
+        }
+
+        public void RenameBranch(string workDir, string oldName, string newName)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(oldName);
+            ArgumentException.ThrowIfNullOrWhiteSpace(newName);
+            using var repo = OpenRepo(workDir);
+            var branch = repo.Branches[oldName]
+                ?? throw new CoreGitOperationException("重命名分支", $"分支 {oldName} 不存在", 1);
+            try
+            {
+                repo.Branches.Rename(branch, newName);
+            }
+            catch (LibGit2SharpException ex)
+            {
+                throw new CoreGitOperationException("重命名分支", ex.Message, 1);
+            }
+        }
+
+        public void DeleteBranch(string workDir, string name, bool force)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            // libgit2sharp 0.32 的 Branches.Remove(string, bool) 静默无效（ref 仍在，
+            // S6 实测抓出），直接走 CLI（§3.1 兜底授权）：-d 未合并拒绝 / -D 强制
+            var r = RunGit(workDir, new[] { "branch", force ? "-D" : "-d", name });
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("删除分支", r.StdError, r.ExitCode);
+        }
+
+        public void Checkout(string workDir, string name)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            using var repo = OpenRepo(workDir);
+            var branch = repo.Branches[name]
+                ?? throw new CoreGitOperationException("检出", $"分支 {name} 不存在", 1);
+            try
+            {
+                LibGit2Sharp.Commands.Checkout(repo, branch);
+            }
+            catch (LibGit2SharpException ex)
+            {
+                throw new CoreGitOperationException("检出", ex.Message, 1);
+            }
+        }
+
+        public void MergeBranch(string workDir, string branch, bool noFastForward, string? message)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(branch);
+            var args = new List<string> { "merge" };
+            if (noFastForward) args.Add("--no-ff");
+            if (message is not null) { args.Add("-m"); args.Add(message); }
+            args.Add(branch);
+            var r = RunGit(workDir, args);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("merge", r.StdError, r.ExitCode);
+        }
+
+        public void FastForward(string workDir, string branch)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(branch);
+            // --ff-only：分叉时 git 自身拒绝（退出码非 0），不会像普通 merge 那样
+            // 创建合并提交污染 HEAD（S6 测试抓出）
+            var r = RunGit(workDir, new[] { "merge", "--ff-only", branch });
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("fast-forward", r.StdError, r.ExitCode);
+        }
+
+        public void Rebase(string workDir, string upstream)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(upstream);
+            var r = RunGit(workDir, new[] { "rebase", upstream });
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("rebase", r.StdError, r.ExitCode);
+        }
+
+        public void Pull(string workDir, bool rebase)
+        {
+            var args = rebase ? new[] { "pull", "--rebase" } : new[] { "pull" };
+            var r = RunGit(workDir, args, timeoutMs: 120_000);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException(rebase ? "pull --rebase" : "pull", r.StdError, r.ExitCode);
+        }
+
+        public string? MergeBase(string workDir, string aSha, string bSha)
+        {
+            using var repo = OpenRepo(workDir);
+            var a = repo.Lookup<Commit>(aSha);
+            var b = repo.Lookup<Commit>(bSha);
+            if (a is null || b is null) return null;
+            return repo.ObjectDatabase.FindMergeBase(a, b)?.Sha;
+        }
+
+        public IReadOnlyList<CoreCommitNode> UniqueCommits(string workDir, string tipSha, string? baseSha)
+        {
+            using var repo = OpenRepo(workDir);
+            var tip = repo.Lookup<Commit>(tipSha);
+            if (tip is null) return Array.Empty<CoreCommitNode>();
+
+            var filter = new CommitFilter { SortBy = CommitSortStrategies.Time, IncludeReachableFrom = tip };
+            var baseCommit = baseSha is null ? null : repo.Lookup<Commit>(baseSha);
+            if (baseCommit is not null) filter.ExcludeReachableFrom = baseCommit;
+
+            return repo.Commits.QueryBy(filter)
+                .Select(c => ToCommitNode(repo, c))
+                .ToList();
+        }
+
+        public IReadOnlyList<CoreCommitNode> BranchDeleteImpact(string workDir, string branchName)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(branchName);
+            using var repo = OpenRepo(workDir);
+            var target = repo.Branches[branchName];
+            if (target?.Tip is null) return Array.Empty<CoreCommitNode>();
+
+            // 其余全部引用（本地分支 + 远程跟踪）仍可达的提交不算丢弃
+            var others = repo.Branches
+                .Where(b => b.FriendlyName != branchName && b.Tip is not null)
+                .Select(b => b.Tip!)
+                .ToList();
+
+            var filter = new CommitFilter { SortBy = CommitSortStrategies.Time, IncludeReachableFrom = target.Tip };
+            if (others.Count > 0) filter.ExcludeReachableFrom = others;
+
+            return repo.Commits.QueryBy(filter)
+                .Select(c => ToCommitNode(repo, c))
+                .ToList();
+        }
+
+        // ---------- S5/S6 CLI 辅助 ----------
+
+        private static void ValidatePaths(IReadOnlyList<string> paths)
+        {
+            if (paths is null || paths.Count == 0)
+                throw new ArgumentException("paths must not be empty", nameof(paths));
+            foreach (var p in paths)
+                ArgumentException.ThrowIfNullOrWhiteSpace(p);
+        }
+
+        private static (int ExitCode, string StdOut, string StdError) RunGit(
+            string workDir, IReadOnlyList<string> args, string? stdin = null, int timeoutMs = 60_000)
+        {
+            var psi = new ProcessStartInfo("git")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = stdin is not null,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
+            };
+            psi.ArgumentList.Add("-C");
+            psi.ArgumentList.Add(workDir);
+            foreach (var a in args) psi.ArgumentList.Add(a);
+
+            using var process = Process.Start(psi)
+                ?? throw new InvalidOperationException("Failed to start git.");
+            if (stdin is not null)
+            {
+                process.StandardInput.Write(stdin);
+                process.StandardInput.Close();
+            }
+
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            if (!process.WaitForExit(timeoutMs))
+            {
+                try { process.Kill(); } catch { /* 已退出则忽略 */ }
+                throw new CoreGitOperationException(args.FirstOrDefault("git"), "执行超时", -1);
+            }
+            return (process.ExitCode, stdout, stderr);
+        }
+
+        private string? TryDiffPatch(string workDir, IReadOnlyList<string> args)
+        {
+            var r = RunGit(workDir, args);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("diff", r.StdError, r.ExitCode);
+            var text = r.StdOut;
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+
         // ---------- 私有辅助 ----------
 
         private static Repository Discover(string workDir)
@@ -321,6 +659,114 @@ namespace GitUI.Git
             if (f.Branch is not null && repo.Branches[f.Branch] is { Tip: not null } branch)
                 filter.IncludeReachableFrom = branch.Tip;
             return filter;
+        }
+
+        /// <summary>
+        /// pack idx ≥ 128KB（约 5k 对象 ≈ 2k 提交）视为大仓库，启用 rev-list 快路径。
+        /// 只看 packfile（大仓库必然 gc 过）；loose-only 或 worktree（.git 为文件）按小仓库
+        /// 处理，正确性不变、仅走较慢的全量遍历。
+        /// </summary>
+        private static bool HasLargePack(string workDir)
+        {
+            try
+            {
+                var packDir = Path.Combine(workDir, ".git", "objects", "pack");
+                if (!Directory.Exists(packDir)) return false;
+                foreach (var idx in Directory.EnumerateFiles(packDir, "*.idx"))
+                {
+                    if (new FileInfo(idx).Length >= 128 * 1024) return true;
+                }
+            }
+            catch
+            {
+                // 枚举失败按小仓库处理
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// <c>git rev-list --count &lt;ref&gt;</c> 取可达提交总数。
+        /// git CLI 不可用 / 超时 / ref 不存在时返回 null，调用方回退 libgit2 全量遍历路径。
+        /// </summary>
+        private static int? TryRevListCount(string workDir, string refName)
+        {
+            try
+            {
+                var psi = CreateRevList(workDir, refName);
+                psi.ArgumentList.Add("--count");
+
+                using var process = Process.Start(psi);
+                if (process is null) return null;
+
+                var stdout = process.StandardOutput.ReadToEnd();
+                if (!WaitForExitOrKill(process, 10_000)) return null;
+                if (process.ExitCode != 0) return null;
+
+                return int.Parse(stdout.Trim(), System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// <c>git rev-list --skip N --max-count L &lt;ref&gt;</c> 取分页窗口的 SHA。
+        /// 失败时返回 null（调用方回退），窗口不足 L 条即到达历史尽头。
+        /// </summary>
+        private static List<string>? TryRevListWindow(string workDir, string refName, int skip, int limit)
+        {
+            try
+            {
+                var psi = CreateRevList(workDir, refName);
+                psi.ArgumentList.Add("--skip");
+                psi.ArgumentList.Add(skip.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                psi.ArgumentList.Add("--max-count");
+                psi.ArgumentList.Add(limit.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+                using var process = Process.Start(psi);
+                if (process is null) return null;
+
+                var window = new List<string>(Math.Min(limit, 1024));
+                string? line;
+                while ((line = process.StandardOutput.ReadLine()) is not null)
+                {
+                    if (line.Length > 0) window.Add(line);
+                }
+
+                if (!WaitForExitOrKill(process, 10_000)) return null;
+                if (process.ExitCode != 0) return null;
+
+                return window;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static ProcessStartInfo CreateRevList(string workDir, string refName)
+        {
+            var psi = new ProcessStartInfo("git")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add("-C");
+            psi.ArgumentList.Add(workDir);
+            psi.ArgumentList.Add("rev-list");
+            psi.ArgumentList.Add(refName);
+            return psi;
+        }
+
+        /// <summary>限时等待退出；超时杀进程并返回 false。</summary>
+        private static bool WaitForExitOrKill(Process process, int timeoutMs)
+        {
+            if (process.WaitForExit(timeoutMs)) return true;
+            try { process.Kill(); } catch { /* 已退出则忽略 */ }
+            return false;
         }
 
         private static bool MatchesTime(Commit c, CoreLogFilter f)
@@ -538,69 +984,10 @@ namespace GitUI.Git
                 Array.Empty<string>());
         }
 
-        /// <summary>解析 unified diff 文本为 <see cref="CoreDiffHunk"/> 列表。</summary>
+        /// <summary>解析 unified diff 文本为 hunk 列表（S5 起委托 Core 的 UnifiedPatch.ParseHunks，语义不变）。</summary>
         internal static IReadOnlyList<CoreDiffHunk> ParseUnifiedDiff(string? patch)
-        {
-            if (string.IsNullOrEmpty(patch)) return Array.Empty<CoreDiffHunk>();
-            var lines = patch.Split('\n');
-            var hunks = new List<CoreDiffHunk>();
-            int oldStart = 0, oldCount = 0, newStart = 0, newCount = 0;
-            var oldLines = new List<string>();
-            var newLines = new List<string>();
-            bool inHunk = false;
+            => GitUI.Core.Services.UnifiedPatch.ParseHunks(patch);
 
-            foreach (var raw in lines)
-            {
-                var line = raw.TrimEnd('\r');
-                if (line.StartsWith("@@"))
-                {
-                    if (inHunk)
-                        hunks.Add(new CoreDiffHunk(oldStart, oldCount, newStart, newCount, oldLines, newLines));
-                    inHunk = true;
-                    ParseHunkHeader(line, out oldStart, out oldCount, out newStart, out newCount);
-                    oldLines.Clear();
-                    newLines.Clear();
-                }
-                else if (inHunk)
-                {
-                    if (line.StartsWith(' ')) { oldLines.Add(line); newLines.Add(line); }
-                    else if (line.StartsWith('-')) oldLines.Add(line);
-                    else if (line.StartsWith('+')) newLines.Add(line);
-                }
-            }
-            if (inHunk)
-                hunks.Add(new CoreDiffHunk(oldStart, oldCount, newStart, newCount, oldLines, newLines));
-
-            return hunks;
-        }
-
-        private static void ParseHunkHeader(
-            string header, out int oldStart, out int oldCount, out int newStart, out int newCount)
-        {
-            // "@@ -1,7 +1,7 @@ [可选节标题]"：按空白分词后取首个 -/+ token，剥掉符号再解析。
-            // 此前直接对 header[idx..] 做 TryParse：旧侧起始行被解析成 -1（负号没剥）、
-            // 计数因尾部杂质解析失败回退成 1（S3 渲染真实仓库时暴露）。
-            oldStart = oldCount = newStart = newCount = 0;
-            string? oldTok = null, newTok = null;
-            foreach (var tok in header.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            {
-                if (oldTok is null && tok.Length > 1 && tok[0] == '-') oldTok = tok[1..];
-                else if (newTok is null && tok.Length > 1 && tok[0] == '+') newTok = tok[1..];
-            }
-
-            if (oldTok is not null) ParseRange(oldTok, out oldStart, out oldCount);
-            if (newTok is not null) ParseRange(newTok, out newStart, out newCount);
-        }
-
-        private static void ParseRange(string s, out int start, out int count)
-        {
-            // "1,7" 或 "1"（git 语义：省略计数表示 1）
-            start = count = 0;
-            var comma = s.IndexOf(',');
-            var range = comma >= 0 ? s[..comma] : s;
-            if (!int.TryParse(range, out start)) return;
-            count = comma >= 0 && int.TryParse(s[(comma + 1)..], out var c) ? c : 1;
-        }
 
         /// <summary>行切分统一走 <see cref="DiffText"/>（S2 起：无幻影尾行、\r 视为行内容）。</summary>
         internal static string[] SplitLines(string text) => DiffText.SplitLines(text);

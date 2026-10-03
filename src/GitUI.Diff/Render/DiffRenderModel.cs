@@ -66,6 +66,42 @@ public sealed class DiffRenderModel
     /// </summary>
     public IReadOnlyList<DiffChangeBlock> ChangeBlocks { get; private set; } = Array.Empty<DiffChangeBlock>();
 
+    private Dictionary<int, DiffChangeBlock>? _hunkRowRanges;
+
+    /// <summary>
+    /// hunk 序号 → [首行, 末行]（含 hunk 头行），S5 选块高亮与点击定位用。
+    /// 首次访问构建并缓存（O(行数) 一次）。
+    /// </summary>
+    public DiffChangeBlock? TryGetHunkRowRange(int hunkIndex)
+    {
+        if (hunkIndex < 0 || hunkIndex >= Hunks.Count) return null;
+        _hunkRowRanges ??= BuildHunkRowRanges();
+        return _hunkRowRanges.TryGetValue(hunkIndex, out var range) ? range : null;
+    }
+
+    /// <summary>行号 → 所属 hunk 序号；越界或不属于任何 hunk（EOF 标记行）返回 null。</summary>
+    public int? TryGetHunkIndexAtRow(int row)
+    {
+        if (row < 0 || row >= Rows.Count) return null;
+        var h = Rows[row].HunkIndex;
+        return h >= 0 ? h : null;
+    }
+
+    private Dictionary<int, DiffChangeBlock> BuildHunkRowRanges()
+    {
+        var map = new Dictionary<int, DiffChangeBlock>();
+        for (int r = 0; r < Rows.Count; r++)
+        {
+            var h = Rows[r].HunkIndex;
+            if (h < 0) continue;
+            if (map.TryGetValue(h, out var range))
+                map[h] = new DiffChangeBlock(range.FirstRow, r);
+            else
+                map[h] = new DiffChangeBlock(r, r);
+        }
+        return map;
+    }
+
     /// <summary>
     /// 为 [firstRow, lastRowInclusive] 内的配对行计算字级差异（已缓存的跳过）。
     /// 只应在绘制前对可视区 + overscan 调用，避免全量开销。
@@ -123,13 +159,17 @@ public sealed class DiffRenderModel
             return new DiffCell(kind, text, oldNo, newNo);
         }
 
+        int hunkIdx = -1;
+
         void AddRow(DiffCell? left, DiffCell? right)
         {
-            rows.Add(new DiffRow(left, right, index++));
+            rows.Add(new DiffRow(left, right, index++, hunkIdx));
         }
 
-        foreach (var hunk in hunks)
+        for (int h = 0; h < hunks.Count; h++)
         {
+            hunkIdx = h;
+            var hunk = hunks[h];
             AddRow(Cell(DiffRowKind.HunkHeader,
                 $"@@ -{hunk.OldStart},{hunk.OldCount} +{hunk.NewStart},{hunk.NewCount} @@"), null);
 
