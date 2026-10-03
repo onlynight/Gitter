@@ -62,6 +62,14 @@ try {
         return ''
     }
 
+    # 等待 UIA 树就绪（冷启动/首启可能超过固定 sleep；sidebar 任一按钮出现即可）
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $deadline) {
+        $probe = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) 'Git Bash'
+        if ($null -ne $probe) { break }
+        Start-Sleep -Milliseconds 500
+    }
+
     # ---- 1. 分支页签 + 打开仓库 ----
     Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '分支')
     Start-Sleep -Seconds 2
