@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Windows.System;
 using Windows.UI;
 
@@ -41,6 +42,13 @@ public sealed partial class MainWindow : Window
 
     // Log 页签缓存（S4）：切换页签不丢已加载的提交列表与选中状态
     private LogPage? _logPage;
+
+    // S7：标题栏应用名（随当前仓库更新）、命令面板
+    private readonly TextBlock _appTitle;
+    private Popup? _commandPalette;
+    private TextBox? _paletteInput;
+    private ListView? _paletteList;
+    private List<CommandItem> _paletteResults = new();
 
     // 变更页签缓存（S5）：与 Log 页共享 RepositoryContext（当前仓库）
     private ChangesPage? _changesPage;
@@ -172,7 +180,7 @@ public sealed partial class MainWindow : Window
         _collapseBtn.Click += CollapseToggle_Click;
         AutomationProperties.SetName(_collapseBtn, "切换侧边栏");
 
-        var appTitle = new TextBlock
+        _appTitle = new TextBlock
         {
             Text = "GitUI",
             FontSize = 14,
@@ -205,12 +213,12 @@ public sealed partial class MainWindow : Window
         _rootGrid.Children.Add(_titleBarStrip);
 
         // appTitle 在 Row 0，Col 0-1 全宽，Margin.Left 定位在 hamburger 右侧
-        appTitle.HorizontalAlignment = HorizontalAlignment.Left;
-        appTitle.Margin = new Thickness(52, 0, 0, 0); // 8(hamburger margin) + 36(按钮) + 8
-        Grid.SetRow(appTitle, 0);
-        Grid.SetColumn(appTitle, 0);
-        Grid.SetColumnSpan(appTitle, 2);
-        _rootGrid.Children.Add(appTitle);
+        _appTitle.HorizontalAlignment = HorizontalAlignment.Left;
+        _appTitle.Margin = new Thickness(52, 0, 0, 0); // 8(hamburger margin) + 36(按钮) + 8
+        Grid.SetRow(_appTitle, 0);
+        Grid.SetColumn(_appTitle, 0);
+        Grid.SetColumnSpan(_appTitle, 2);
+        _rootGrid.Children.Add(_appTitle);
 
         // collapseBtn 在最上层，固定左上角
         _collapseBtn.HorizontalAlignment = HorizontalAlignment.Left;
@@ -219,6 +227,29 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(_collapseBtn, 0);
         Grid.SetColumnSpan(_collapseBtn, 2);
         _rootGrid.Children.Add(_collapseBtn);
+
+        // S7 命令面板按钮（标题栏右侧，系统按钮左侧；design.md §4.1 标题栏命令入口）
+        var paletteBtn = new Button
+        {
+            Content = "",
+            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            FontSize = 14,
+            Background = ClearBrush,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+            CornerRadius = new CornerRadius(6),
+            Width = 32,
+            Height = 32,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 160, 0),
+        };
+        paletteBtn.Click += (_, _) => OpenCommandPalette();
+        AutomationProperties.SetName(paletteBtn, "命令面板");
+        Grid.SetRow(paletteBtn, 0);
+        Grid.SetColumn(paletteBtn, 0);
+        Grid.SetColumnSpan(paletteBtn, 2);
+        _rootGrid.Children.Add(paletteBtn);
 
         // sidebar 在 Col 0, Row 1
         Grid.SetColumn(_sidebarBorder, 0);
@@ -250,6 +281,32 @@ public sealed partial class MainWindow : Window
         };
         _rootGrid.KeyboardAccelerators.Add(toggleFollowAccel);
 
+        // ---- S7 全局快捷键（design.md §6.2）----
+        // Ctrl+Shift+P 命令面板
+        var paletteAccel = new KeyboardAccelerator { Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, Key = VirtualKey.P };
+        paletteAccel.Invoked += (_, args) => { OpenCommandPalette(); args.Handled = true; };
+        _rootGrid.KeyboardAccelerators.Add(paletteAccel);
+
+        // Ctrl+1..5 直达页签（sidebar 顺序：Log / 变更 / 分支 / Git Bash / 设置）
+        var pageKeys = new[] { ("log", VirtualKey.Number1), ("changes", VirtualKey.Number2), ("branches", VirtualKey.Number3), ("bash", VirtualKey.Number4), ("settings", VirtualKey.Number5) };
+        foreach (var (key, vk) in pageKeys)
+        {
+            var accel = new KeyboardAccelerator { Modifiers = VirtualKeyModifiers.Control, Key = vk };
+            var pageKey = key;
+            accel.Invoked += (_, args) => { ShowPage(pageKey); args.Handled = true; };
+            _rootGrid.KeyboardAccelerators.Add(accel);
+        }
+
+        // Ctrl+Tab 循环切换页签
+        var cycleAccel = new KeyboardAccelerator { Modifiers = VirtualKeyModifiers.Control, Key = VirtualKey.Tab };
+        cycleAccel.Invoked += (_, args) => { CyclePage(+1); args.Handled = true; };
+        _rootGrid.KeyboardAccelerators.Add(cycleAccel);
+
+        // F5 刷新当前页
+        var refreshAccel = new KeyboardAccelerator { Key = VirtualKey.F5 };
+        refreshAccel.Invoked += (_, args) => { RefreshCurrentPage(); args.Handled = true; };
+        _rootGrid.KeyboardAccelerators.Add(refreshAccel);
+
         RootGrid.Children.Clear();
         RootGrid.Children.Add(_rootGrid);
 
@@ -257,8 +314,39 @@ public sealed partial class MainWindow : Window
         ApplyTheme(_settings.Current.Theme);
         _settings.Changed += (_, _) => ApplyTheme(_settings.Current.Theme);
 
+        // S7：窗口标题随当前仓库更新（多窗口时任务栏可区分，design.md §6.7）
+        _repoContext.Changed += () => DispatcherQueue.TryEnqueue(UpdateWindowTitle);
+
         RefreshNavVisuals();
         ShowPage("log");
+    }
+
+    private void UpdateWindowTitle()
+    {
+        var workDir = _repoContext.WorkDir;
+        var name = workDir is null ? "GitUI" : System.IO.Path.GetFileName(workDir.TrimEnd('/', '\\')) + " - GitUI";
+        Title = name;
+        _appTitle.Text = name;
+    }
+
+    /// <summary>Ctrl+Tab：按 sidebar 顺序循环切换页签。</summary>
+    private void CyclePage(int direction)
+    {
+        var order = new[] { "log", "changes", "branches", "bash", "settings" };
+        var idx = Array.IndexOf(order, _currentKey);
+        if (idx < 0) idx = 0;
+        ShowPage(order[(idx + direction + order.Length) % order.Length]);
+    }
+
+    /// <summary>F5：刷新当前页（无刷新语义的页为空操作）。</summary>
+    private void RefreshCurrentPage()
+    {
+        switch (_currentKey)
+        {
+            case "log": _ = (_logPage is null ? Task.CompletedTask : _logPage.RefreshAsync()); break;
+            case "changes": _ = (_changesPage is null ? Task.CompletedTask : _changesPage.RefreshAsync()); break;
+            case "branches": _ = (_branchesPage is null ? Task.CompletedTask : _branchesPage.RefreshAsync()); break;
+        }
     }
 
     /// <summary>标题栏折叠/展开按钮点击处理。</summary>
@@ -410,7 +498,7 @@ public sealed partial class MainWindow : Window
             "changes" => _changesPage ??= new ChangesPage(_settings, _repoService, _repoContext),
             "branches" => _branchesPage ??= new BranchesPage(_settings, _repoService, _repoContext),
             "bash" => _bashPage,
-            "settings" => new SettingsPage(_settings),
+            "settings" => new SettingsPage(_settings, ExportSettingsAsync, ImportSettingsAsync),
             _ => _logPage ??= new LogPage(_settings, _repoService, _repoContext),
         };
 
@@ -423,6 +511,206 @@ public sealed partial class MainWindow : Window
     private void RefreshNavVisuals()
     {
         foreach (var button in _navButtons) RefreshOne(button);
+    }
+
+    // ===================== S7：命令面板（design.md §4.6） =====================
+
+    /// <summary>命令面板条目。Action 在 UI 线程执行。</summary>
+    public sealed record CommandItem(string Title, Action Action);
+
+    private List<CommandItem> _commands = new();
+
+    /// <summary>构建命令注册表（页面/设置/窗口级命令）。</summary>
+    private List<CommandItem> BuildCommands()
+    {
+        var list = new List<CommandItem>
+        {
+            new("转到 Log (Ctrl+1)", () => ShowPage("log")),
+            new("转到变更 (Ctrl+2)", () => ShowPage("changes")),
+            new("转到分支 (Ctrl+3)", () => ShowPage("branches")),
+            new("转到 Git Bash (Ctrl+4)", () => ShowPage("bash")),
+            new("转到设置 (Ctrl+5)", () => ShowPage("settings")),
+            new("刷新当前页 (F5)", RefreshCurrentPage),
+            new("新建窗口", OpenNewWindow),
+            new("导出设置到文件", () => _ = ExportSettingsAsync()),
+            new("从文件导入设置", () => _ = ImportSettingsAsync()),
+            new("主题：跟随系统", () => ApplyThemeSetting(ThemePreference.System)),
+            new("主题：浅色", () => ApplyThemeSetting(ThemePreference.Light)),
+            new("主题：深色", () => ApplyThemeSetting(ThemePreference.Dark)),
+            new("Diff 模式：并排", () => ApplyDiffModeSetting(DiffViewMode.SideBySide)),
+            new("Diff 模式：内联", () => ApplyDiffModeSetting(DiffViewMode.Inline)),
+        };
+        return list;
+    }
+
+    private void ApplyThemeSetting(ThemePreference theme)
+    {
+        _settings.Update(s2 => s2.Theme = theme);
+        _settings.Save();
+    }
+
+    private void ApplyDiffModeSetting(DiffViewMode mode)
+    {
+        _settings.Update(s2 => s2.DiffMode = mode);
+        _settings.Save();
+    }
+
+    /// <summary>打开命令面板（Ctrl+Shift+P），按当前输入过滤。</summary>
+    private void OpenCommandPalette()
+    {
+        _commands = BuildCommands();
+
+        if (_commandPalette is null)
+        {
+            _paletteInput = new TextBox { PlaceholderText = "输入命令…" };
+            _paletteList = new ListView { MaxHeight = 320, SelectionMode = ListViewSelectionMode.Single };
+            _paletteList.DoubleTapped += (_, _) => ExecutePaletteSelection();
+
+            var host = new StackPanel { Spacing = 8, MinWidth = 420 };
+            host.Children.Add(_paletteInput);
+            host.Children.Add(_paletteList);
+            var border = new Border
+            {
+                Child = host,
+                Background = Application.Current?.RequestedTheme == ApplicationTheme.Light
+                    ? MakeBrush(0xFF, 0xFA, 0xFA, 0xFB)
+                    : MakeBrush(0xFF, 0x27, 0x27, 0x27),
+                BorderBrush = MakeBrush(0x40, 0x80, 0x80, 0x80),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12),
+            };
+
+            _commandPalette = new Popup
+            {
+                Child = border,
+                IsLightDismissEnabled = true,
+            };
+            _commandPalette.XamlRoot = Content.XamlRoot;
+
+            _paletteInput.TextChanged += (_, _) => FilterPalette(_paletteInput.Text);
+            _paletteInput.KeyDown += (_, e) =>
+            {
+                switch (e.Key)
+                {
+                    case VirtualKey.Down when _paletteList is not null:
+                        if (_paletteList.SelectedIndex < _paletteResults.Count - 1)
+                            _paletteList.SelectedIndex++;
+                        e.Handled = true;
+                        break;
+                    case VirtualKey.Up when _paletteList is not null:
+                        if (_paletteList.SelectedIndex > 0)
+                            _paletteList.SelectedIndex--;
+                        e.Handled = true;
+                        break;
+                    case VirtualKey.Enter:
+                        ExecutePaletteSelection();
+                        e.Handled = true;
+                        break;
+                    case VirtualKey.Escape:
+                        _commandPalette.IsOpen = false;
+                        e.Handled = true;
+                        break;
+                }
+            };
+        }
+
+        _paletteInput!.Text = string.Empty;
+        FilterPalette(string.Empty);
+        _commandPalette!.IsOpen = true;
+        _paletteInput.Focus(FocusState.Keyboard);
+    }
+
+    private static SolidColorBrush MakeBrush(byte a, byte r, byte g, byte b)
+        => new(Windows.UI.Color.FromArgb(a, r, g, b));
+
+    private void FilterPalette(string query)
+    {
+        if (_paletteList is null) return;
+        _paletteResults = _commands
+            .Select(c => (Item: c, Score: GitUI.Core.Services.FuzzyMatcher.Score(c.Title, query)))
+            .Where(x => x.Score is not null)
+            .OrderByDescending(x => x.Score)
+            .Select(x => x.Item)
+            .ToList();
+
+        _paletteList.Items.Clear();
+        foreach (var item in _paletteResults)
+        {
+            var lvi = new ListViewItem { Content = item.Title, Padding = new Thickness(8, 4, 8, 4) };
+            AutomationProperties.SetName(lvi, item.Title);
+            _paletteList.Items.Add(lvi);
+        }
+        if (_paletteResults.Count > 0) _paletteList.SelectedIndex = 0;
+    }
+
+    private void ExecutePaletteSelection()
+    {
+        if (_paletteList is null || _commandPalette is null) return;
+        var idx = _paletteList.SelectedIndex;
+        if (idx < 0 || idx >= _paletteResults.Count) return;
+        var command = _paletteResults[idx];
+        _commandPalette.IsOpen = false;
+        command.Action();
+    }
+
+    // ===================== S7：多窗口（design.md §6.7） =====================
+
+    /// <summary>打开一个新主窗口（每仓库一窗口；窗口自带独立的页签缓存与仓库上下文）。</summary>
+    private void OpenNewWindow()
+    {
+        App.OpenNewWindow();
+    }
+
+    // ===================== S7：设置导入导出 =====================
+
+    private IntPtr Hwnd => WinRT.Interop.WindowNative.GetWindowHandle(this);
+
+    /// <summary>导出当前设置为 JSON 文件（FileSavePicker）。</summary>
+    private async System.Threading.Tasks.Task ExportSettingsAsync()
+    {
+        try
+        {
+            var picker = new Windows.Storage.Pickers.FileSavePicker
+            {
+                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
+                SuggestedFileName = "gitui-settings",
+            };
+            picker.FileTypeChoices.Add("JSON", new List<string> { ".json" });
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
+
+            var file = await picker.PickSaveFileAsync();
+            if (file is null) return;
+            await Windows.Storage.FileIO.WriteTextAsync(file, JsonSettingsStore.ToJson(_settings.Current));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("export settings: " + ex);
+        }
+    }
+
+    /// <summary>从 JSON 文件导入设置（损坏文件保持现状，不崩）。</summary>
+    private async System.Threading.Tasks.Task ImportSettingsAsync()
+    {
+        try
+        {
+            var picker = new Windows.Storage.Pickers.FileOpenPicker
+            {
+                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
+            };
+            picker.FileTypeFilter.Add(".json");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
+
+            var file = await picker.PickSingleFileAsync();
+            if (file is null) return;
+            var text = await Windows.Storage.FileIO.ReadTextAsync(file);
+            _settings.Replace(JsonSettingsStore.FromJson(text));
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("import settings: " + ex);
+        }
     }
 
     private void RefreshOne(Button button)

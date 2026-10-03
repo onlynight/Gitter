@@ -94,6 +94,7 @@ public sealed class BashPage : UserControl
             BorderThickness = new Thickness(0),
             Background = ClearBrush,
         };
+        AutomationProperties.SetName(_output, "Git Bash 输出区");
         ScrollViewer.SetVerticalScrollBarVisibility(_output, ScrollBarVisibility.Auto);
         ScrollViewer.SetHorizontalScrollBarVisibility(_output, ScrollBarVisibility.Auto);
         Grid.SetRow(_output, 1);
@@ -115,6 +116,7 @@ public sealed class BashPage : UserControl
             FontSize = _settings.Current.TerminalFontSize,
             Margin = new Thickness(0, 0, 12, 4),
         };
+        AutomationProperties.SetName(_input, "Git Bash 命令输入");
         _input.KeyDown += Input_KeyDown;
 
         var inputHost = new Grid();

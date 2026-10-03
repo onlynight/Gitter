@@ -11,7 +11,9 @@
     <RootNamespace>GitUI.App</RootNamespace>
     <AssemblyName>GitUI.App</AssemblyName>
     <WindowsPackageType>None</WindowsPackageType>
-    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <!-- S7 发布：Release 构建自包含（含 WinApp SDK），Debug 保持依赖已安装运行时（F5 快）。
+         不能经 -p: 全局传入——属性流到类库会触发 WindowsAppSDKSelfContained guard 报错 -->
+    <WindowsAppSDKSelfContained Condition="'$(Configuration)' == 'Release'">true</WindowsAppSDKSelfContained>
     <PublishWindowsAppPackage>false</PublishWindowsAppPackage>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableMsixTooling>true</EnableMsixTooling>

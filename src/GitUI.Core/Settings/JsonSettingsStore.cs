@@ -101,6 +101,24 @@ public sealed class JsonSettingsStore : ISettingsStore
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>整体替换当前设置并触发 Changed 事件，但不自动持久化（S7 设置导入）。</summary>
+    public void Replace(AppSettings settings)
+    {
+        if (settings is null) throw new ArgumentNullException(nameof(settings));
+        lock (_lock)
+        {
+            _current = Normalize(settings);
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>序列化为 JSON（与存储文件同格式，S7 设置导出用）。</summary>
+    public static string ToJson(AppSettings settings)
+        => JsonSerializer.Serialize(settings ?? AppSettings.Default, JsonOptions);
+
+    /// <summary>从 JSON 反序列化；解析失败返回默认设置（S7 设置导入用，不抛出）。</summary>
+    public static AppSettings FromJson(string json) => ParseOrDefault(json);
+
     /// <summary>修正非法值（超出范围的枚举、超长列表）到合法范围。</summary>
     internal static AppSettings Normalize(AppSettings s)
     {

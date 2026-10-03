@@ -484,6 +484,9 @@ public sealed class LogPage : UserControl
 
     // ---- 行为 ----
 
+    /// <summary>F5 / 命令面板刷新入口（S7）。</summary>
+    public Task RefreshAsync() => _vm.RefreshAsync();
+
     private void DoSearch()
     {
         _scrollToTopPending = true;

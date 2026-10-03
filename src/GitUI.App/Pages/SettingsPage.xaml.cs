@@ -12,14 +12,24 @@ public sealed partial class SettingsPage : UserControl
 {
     private readonly ISettingsStore _settings;
 
-    public SettingsPage(ISettingsStore settings)
+    /// <summary>导出/导入由宿主窗口实现（文件选择器需要窗口句柄，S7）。</summary>
+    public SettingsPage(ISettingsStore settings, Func<Task>? exportSettings = null, Func<Task>? importSettings = null)
     {
         InitializeComponent();
         _settings = settings;
+        _exportSettings = exportSettings;
+        _importSettings = importSettings;
         _settings.Changed += (_, _) => RefreshAppearance();
 
         RefreshAppearance();
     }
+
+    private readonly Func<Task>? _exportSettings;
+    private readonly Func<Task>? _importSettings;
+
+    private void Export_Click(object sender, RoutedEventArgs e) => _ = (_exportSettings?.Invoke() ?? Task.CompletedTask);
+
+    private void Import_Click(object sender, RoutedEventArgs e) => _ = (_importSettings?.Invoke() ?? Task.CompletedTask);
 
     private void Theme_Click(object sender, RoutedEventArgs e)
     {

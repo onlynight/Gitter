@@ -460,6 +460,9 @@ public sealed class ChangesPage : UserControl
         UpdateRecentMessages();
     }
 
+    /// <summary>F5 / 命令面板刷新入口（S7）。</summary>
+    public Task RefreshAsync() => _vm.RefreshAsync();
+
     private void OnListScrollChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
         // 变更列表通常不长，无分页；占位以保持与 LogPage 一致的结构

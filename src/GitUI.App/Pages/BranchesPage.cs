@@ -264,6 +264,9 @@ public sealed class BranchesPage : UserControl
 
     // ---- 行为 ----
 
+    /// <summary>F5 / 命令面板刷新入口（S7）。</summary>
+    public Task RefreshAsync() => _vm.RefreshAsync();
+
     private async Task OpenRepoAsync()
     {
         var path = _repoBox.Text.Trim();

@@ -2,7 +2,7 @@
 
 > 状态：定稿 v1.5（2026-10-03 Git Bash 承载位置变更：右侧面板 → 左侧导航页签，见 §11.12）
 > 日期：2026-10-03
-> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11；S3 已实现（2026-10-03），验证详见 §11.13；S4 已实现（2026-10-03），验证详见 §11.14；S5 已实现（2026-10-03），验证详见 §11.15；S6 已实现（2026-10-03），验证详见 §11.16
+> S0 与 S1 已实现（2026-10-02），验证详见 §11；S0b/S0c/S0d 已实现（2026-10-02），验证详见 §11.10；S2 已实现（2026-10-02），验证详见 §11.11；S3 已实现（2026-10-03），验证详见 §11.13；S4 已实现（2026-10-03），验证详见 §11.14；S5 已实现（2026-10-03），验证详见 §11.15；S6 已实现（2026-10-03），验证详见 §11.16；S7 已实现（2026-10-03），验证详见 §11.17
 
 ## 十一、S0 实施记录与踩坑总结
 
@@ -406,6 +406,42 @@ var btn = new Button { Padding = new Thickness(12), ... };
 3. **内容 vs 主题混淆**（测试侧三连）：`ShowFile(rev, path)` 返回文件内容（"2"），提交主题走 `log --format=%s`（"main-2"）——断言前先分清。
 4. **ContentDialog 按钮命名**：对话框 PrimaryButton 与页面操作按钮同名（"删除"）会让 UIA FindByName 命中歧义；对话框按钮统一"确认××"前缀。
 
+### 11.17 S7 实施记录（2026-10-03）
+
+**交付**：
+
+- `GitUI.Core`：`FuzzyMatcher`（fuzzy 打分：子串命中 +60/位置加成/词首 +8，subsequence 每字 +2/词首 +8/连续段 +3，大小写不敏感，空 query 全命中）；`ISettingsStore.Replace(AppSettings)`（整体替换，导入用）+ `JsonSettingsStore.ToJson/FromJson`（与存储文件同格式，解析失败回默认不抛出）。
+- `GitUI.App/MainWindow`：
+  - **命令面板**（Ctrl+Shift+P / 标题栏"命令面板"按钮）：Popup + 过滤输入 + ListView，↑↓ 选择、Enter/双击执行、Esc/轻点关闭；14 条命令（页签跳转×5 / 刷新 / 新建窗口 / 设置导入导出 / 主题×3 / Diff 模式×2）；fuzzy 过滤按 `FuzzyMatcher` 排序。
+  - **全局快捷键**：Ctrl+1..5 直达页签（sidebar 顺序 Log/变更/分支/Git Bash/设置）、Ctrl+Tab 循环切换、F5 刷新当前页（Log/Changes/Branches 暴露 `RefreshAsync()`，其余页空操作）。Ctrl+J / Ctrl+Shift+J / Ctrl+Enter / Alt+↑↓ 沿用既有。
+  - **多窗口**（design.md §6.7）：`App.OpenNewWindow()`——MainWindow 实例自包含（页签缓存与 RepositoryContext 均为实例字段，天然可多开）；窗口列表跟踪，最后一个窗口关闭时持久化设置；窗口标题/标题栏文本随当前仓库更新（"仓库名 - GitUI"）。
+  - **设置导入导出**：FileSavePicker/FileOpenPicker（`InitializeWithWindow` 附着窗口句柄）；设置页新增"设置文件"卡片（导出到文件…/从文件导入…，回调注入自窗口）。
+- 脚本：`scripts/publish.ps1`（Release 自包含单目录发布：`-r win-x64 --self-contained`，App.csproj 以 Configuration 条件启用 `WindowsAppSDKSelfContained`——**不能经 -p: 全局传入，属性流到类库会触发 SDK guard 报错**）；`scripts/check-accessibility.ps1`（运行时 UIA 扫描：逐页签收集全部交互元素，Name 为空即违规 exit 1）；`scripts/smoke-command-palette.ps1`；`scripts/check-uia-conventions.ps1`（第一批已建）。
+- `BashPage`：补 2 个缺失的交互元素 Name（输出区/命令输入）。
+
+**验证**：`dotnet build` 零警告零错误；`dotnet test` **484 用例全绿**（Core 62 含 FuzzyMatcherTests 11 + ViewModels 103 + Diff 91 + Render 61 + Shell 38 + Git 126 + perf 13）；无障碍扫描 **97 个交互元素全部有 Name（零缺失）**；UIA 约定检查通过；四条冒烟全过（log / changes / branches / command-palette）；**发布产物验证**：publish 自包含 227.8MB 单目录，`smoke-log-page.ps1 -Exe publish\GitUI.App.exe` 在 Release 产物上全链路通过。
+
+**关键实现决策**：
+
+1. **命令面板触发双通道**：Ctrl+Shift+P（KeyboardAccelerator）+ 标题栏按钮。冒烟用按钮而非 SendKeys——本机 RDP 会话上键盘注入不可靠（AppActivate/SendKeys 静默失效），InvokePattern 稳定。
+2. **多窗口零架构改动**：MainWindow 的页签缓存与 RepositoryContext 本就是实例字段（S5 设计时即按"将来可多开"建模），App 层只加窗口列表与关闭语义；代价是全局设置共享（最近仓库跨窗口同步，符合预期）。
+3. **快速打分而非完整 fzf**：命令集 ~14 条，子串+subsequence 两层打分足够区分；`Score` 纯函数 headless 测试 11 例固化排序语义（§8-S7"断言 fuzzy 搜索排序"）。
+4. **发布自包含按配置切换**：Debug 保持 `WindowsAppSDKSelfContained=false`（F5 快、依赖已装运行时），Release publish 自包含——比 -p: 全局传入安全。
+
+**踩坑**：
+
+1. **WindowsAppSDKSelfContained 经 `dotnet publish -p:` 传入会流向所有引用项目**，GitUI.Controls（类库）触发 SDK guard 报错"should not be applied to a class library"——必须限定在 App 项目内（Configuration 条件）。
+2. **SendKeys/AppActivate 在 RDP 会话静默失效**（键进了但窗口没收到）：S7 冒烟全部改用 UIA InvokePattern 或真实鼠标事件。
+3. **WinUI `Window` 没有 `GetWindowPointer`**：正确的 hwnd 访问是 `WinRT.Interop.WindowNative.GetWindowHandle(this)`。
+4. **无障碍扫描的第一版误报**：Bash 页输出框（只读 TextBox，ControlType=Edit）与命令输入共用 Edit 类型，补 Name 时两处都要覆盖。
+
+**遗留与范围外**（known-issues.md 持续跟踪）：
+
+- Git Bash 支线（S2b TerminalParser / S3b TerminalCanvas / S0e 接线）仍为并行阶段，未在本批范围；
+- 发布签名（v1 无证书，未做）与干净 Win11 虚拟机安装验证（需环境）；
+- IRepositoryService 接口拆分（S7 重构窗口决策：暂缓，无 mock 压力，机械改动收益低）。
+
+---
 **对后续阶段的影响**：
 
 - S7（命令面板/快捷键/多窗口）：分支操作已全部收敛为 `BranchesViewModel` 的 Task 方法，命令注册表可直接映射；
