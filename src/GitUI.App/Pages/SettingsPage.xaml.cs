@@ -167,6 +167,16 @@ public sealed partial class SettingsPage : UserControl
     {
         if (ExtensionPackageList == null) return;
 
+        // 勾选事件内同步重建可视树有重入挂死风险：延迟到下一个调度周期
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (ExtensionPackageList == null) return;
+            PopulateExtensionsCore();
+        });
+    }
+
+    private void PopulateExtensionsCore()
+    {
         ExtensionPackageList.Children.Clear();
         var s = _settings.Current;
 

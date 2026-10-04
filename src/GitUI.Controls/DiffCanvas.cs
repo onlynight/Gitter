@@ -382,8 +382,13 @@ public sealed class DiffCanvas : Grid
         KeyboardAccelerators.Add(altUp);
     }
 
-    private DiffPalette ResolvePalette() =>
-        ActualTheme == ElementTheme.Light ? DiffPalette.Light : DiffPalette.Dark;
+    private DiffPalette ResolvePalette()
+    {
+        // 主题包 diff 段覆盖：克隆内置深/浅色板后应用（不污染静态单例）
+        var palette = (ActualTheme == ElementTheme.Light ? DiffPalette.Light : DiffPalette.Dark).Clone();
+        palette.ApplyOverrides(ThemeService.ActiveDiff);
+        return palette;
+    }
 
     /// <summary>活动主题语法配色 → 样式集（ThemeService.ActiveSyntax 覆盖内置缺省）。</summary>
     private SyntaxStyleSet BuildSyntaxStyles()

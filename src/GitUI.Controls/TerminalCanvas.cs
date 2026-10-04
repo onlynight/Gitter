@@ -1,4 +1,5 @@
 using System.Text;
+using GitUI.Controls.Theme;
 using GitUI.Shell;
 using GitUI.Shell.Render;
 using Microsoft.Graphics.Canvas.Text;
@@ -117,8 +118,13 @@ public sealed class TerminalCanvas : Grid
         AutomationProperties.SetName(this, "终端输出区");
     }
 
-    private TerminalPalette ResolvePalette() =>
-        ActualTheme == ElementTheme.Light ? TerminalPalette.Light : TerminalPalette.Dark;
+    private TerminalPalette ResolvePalette()
+    {
+        // 主题包 terminal 段覆盖：克隆内置深/浅色板后应用（不污染静态单例）
+        return (ActualTheme == ElementTheme.Light
+            ? TerminalPalette.Light
+            : TerminalPalette.Dark).WithOverrides(ThemeService.ActiveTerminal);
+    }
 
     /// <summary>可视列数（由像素宽与实测字宽推出）。</summary>
     public int Columns

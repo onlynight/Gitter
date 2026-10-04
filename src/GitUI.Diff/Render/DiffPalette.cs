@@ -49,6 +49,25 @@ public sealed class DiffPalette
 {
     private readonly RgbaColor[] _colors = new RgbaColor[Enum.GetValues<DiffColorKind>().Length];
 
+    public DiffPalette() { }
+
+    private DiffPalette(RgbaColor[] colors) { _colors = colors; }
+
+    /// <summary>复制一份（主题包覆盖前先克隆，避免污染 Light/Dark 静态单例）。</summary>
+    public DiffPalette Clone() => new((RgbaColor[])_colors.Clone());
+
+    /// <summary>主题包 diff 段覆盖：键 = DiffColorKind 名，值 = #RRGGBB/#AARRGGBB；无效键值忽略。</summary>
+    public void ApplyOverrides(IReadOnlyDictionary<string, string>? overrides)
+    {
+        if (overrides is null) return;
+
+        foreach (var (key, hex) in overrides)
+        {
+            if (!Enum.TryParse<DiffColorKind>(key, ignoreCase: true, out var kind)) continue;
+            try { _colors[(int)kind] = RgbaColor.Parse(hex); } catch (FormatException) { }
+        }
+    }
+
     public static DiffPalette Light { get; } = Build(
         Background: "#FFFFFF",
         Foreground: "#1F2328",

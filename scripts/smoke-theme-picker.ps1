@@ -87,7 +87,17 @@ try {
     (New-Object System.Windows.Automation.PropertyCondition(
       [System.Windows.Automation.AutomationElement]::NameProperty,
       '启用 深色 主题')))
-  if ($extToggles.Count -lt 1) { Write-Output 'FAIL: 扩展卡片启停未找到'; return }
+  if ($extToggles.Count -lt 1) {
+    $main = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
+    $all = $main.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+      (New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::CheckBox)))
+    $cn = @()
+    foreach ($c in $all) { $cn += $c.Current.Name }
+    Write-Output ('DEBUG CHECKBOXES: [' + ($cn -join ' | ') + ']')
+    Write-Output 'FAIL: 扩展卡片启停未找到'; return
+  }
   Write-Output 'OK: 扩展卡片启停存在（启用 深色 主题）'
   if ($pkgNames.Count -lt 2) { Write-Output 'FAIL: 主题包数量不足 2'; return }
 

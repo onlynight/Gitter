@@ -1385,15 +1385,19 @@ public sealed partial class MainWindow : Window
         var file = await picker.PickSingleFileAsync();
         if (file is null) return null;
 
-        var (ok, error, packageId) = ThemeService.ImportGpk(file.Path);
+        var (ok, status, themePackageId) = ThemeService.ImportGpk(file.Path);
         if (!ok)
         {
-            return error;
+            return status;
         }
 
-        _settings.Update(s => s.ThemePackageId = packageId);
-        _settings.Save();
-        return "已导入并应用主题包：" + packageId;
+        if (themePackageId is not null)
+        {
+            _settings.Update(s => s.ThemePackageId = themePackageId);
+            _settings.Save();
+        }
+
+        return status;
     }
 
     private async System.Threading.Tasks.Task ImportSettingsAsync()

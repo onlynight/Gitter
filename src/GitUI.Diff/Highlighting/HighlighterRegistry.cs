@@ -136,6 +136,30 @@ public static class HighlighterRegistry
                 {
                     Register(h);
                 }
+
+                // 脚本高亮器（entryPoints.script → init.js 经 gitui.syntax.register 注册）
+                if (manifestDoc.RootElement.TryGetProperty("entryPoints", out var entryPoints)
+                    && entryPoints.TryGetProperty("script", out var scriptEl)
+                    && scriptEl.ValueKind == JsonValueKind.String)
+                {
+                    var scriptPath = Path.Combine(dir, scriptEl.GetString() ?? "");
+                    if (File.Exists(scriptPath))
+                    {
+                        try
+                        {
+                            var host = new ScriptHighlighterHost();
+                            host.ExecuteFile(scriptPath);
+                            foreach (var h in host.Registered)
+                            {
+                                Register(h);
+                            }
+                        }
+                        catch
+                        {
+                            // 脚本包故障（语法错误/初始化超时）→ 跳过该包的脚本部分
+                        }
+                    }
+                }
             }
             catch
             {

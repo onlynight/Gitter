@@ -1,6 +1,6 @@
 # 扩展包框架方案（GitUI Extension Package / .gpk）
 
-> 状态：设计稿（未实施）
+> 状态：实施中 —— P1/P2 已完成（按 kind 启停、.gpk 导入、卸载、设置页卡片，2026-10-04）；P3 脚本宿主待实施
 > 日期：2026-10-04
 > 关联：`theme-framework.md`（主题框架，第一个消费者）、`code-highlight-framework.md`（代码高亮框架，第二个消费者）、`command-palette-v2.md`
 > 设计约束：**主题与代码高亮可以打包成一个包，也可以分开打包**；框架本体用 C# 开发，插件允许用脚本语言开发。
@@ -142,11 +142,11 @@ gitui.syntax.register({
 
 ## 七、分阶段计划
 
-| 阶段 | 内容 | 验收 |
-|---|---|---|
-| P1 | manifest schema + PackageStore 扫描/校验/启停 + 设置页卡片 | 放一个手工主题目录进用户目录，设置页可见可禁用 |
-| P2 | .gpk zip 容器 + 导入/卸载 + 内置包自举迁移（ThemeStyles 内置令牌迁入内置包） | 内置深浅主题以包形态存在，行为与今日一致 |
-| P3 | Jint 脚本宿主 + `gitui.syntax.register` + 超时/沙箱 | 一个 JS 高亮器包从安装到生效全流程 |
+| 阶段 | 内容 | 验收 | 状态 |
+|---|---|---|---|
+| P1 | manifest schema + 扫描/校验/按 kind 启停 + 设置页卡片 | 设置页可见包并可禁用（禁用即时回退） | ✅ 2026-10-04（扫描分散在 ThemeService/HighlighterRegistry，统一 PackageStore 为后续重构项） |
+| P2 | .gpk zip 容器 + 导入/卸载 + 内置包自举 | 内置包以同一格式随构建分发；.gpk 可导入可卸载 | ✅ 2026-10-04（导入按 kinds 分流：theme/syntax 均可导入） |
+| P3 | Jint 脚本宿主 + `gitui.syntax.register` + 超时/沙箱 | 一个 JS 高亮器包从安装到生效全流程 | ⬜ 待实施 |
 
 ## 八、风险
 

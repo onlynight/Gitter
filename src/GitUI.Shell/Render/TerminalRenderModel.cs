@@ -189,6 +189,51 @@ public sealed class TerminalPalette
     private static uint Rgba(byte r, byte g, byte b, byte a = 255)
         => ((uint)a << 24) | ((uint)r << 16) | ((uint)g << 8) | b;
 
+    /// <summary>
+    /// 主题包 terminal 段覆盖（theme-framework.md §三）：键 = background/foreground/cursor/
+    /// selection 或 "0".."15"，值 = #RRGGBB/#AARRGGBB。返回应用覆盖后的副本（不改静态单例）。
+    /// </summary>
+    public TerminalPalette WithOverrides(IReadOnlyDictionary<string, string>? overrides)
+    {
+        if (overrides is null || overrides.Count == 0) return this;
+
+        uint bg = BackgroundRgba, fg = ForegroundRgba, cur = CursorRgba, sel = SelectionRgba;
+        var indexed = (uint[])Indexed.Clone();
+
+        foreach (var (key, hex) in overrides)
+        {
+            string t = hex.StartsWith('#') ? hex[1..] : hex;
+            if (t.Length == 8) t = t[2..]; // 丢弃 alpha
+            uint v;
+            try { v = 0xFF000000 | (Convert.ToUInt32(t, 16) & 0xFFFFFF); }
+            catch { continue; // 无效颜色忽略
+            }
+
+            switch (key.ToLowerInvariant())
+            {
+                case "background": bg = v; break;
+                case "foreground": fg = v; break;
+                case "cursor": cur = v; break;
+                case "selection": sel = v; break;
+                default:
+                    if (int.TryParse(key, out var idx) && idx >= 0 && idx < 16)
+                    {
+                        indexed[idx] = v;
+                    }
+                    break;
+            }
+        }
+
+        return new TerminalPalette
+        {
+            BackgroundRgba = bg,
+            ForegroundRgba = fg,
+            CursorRgba = cur,
+            SelectionRgba = sel,
+            Indexed = indexed,
+        };
+    }
+
     public static TerminalPalette Dark { get; } = new()
     {
         BackgroundRgba = Rgba(12, 12, 12),

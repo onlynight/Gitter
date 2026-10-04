@@ -47,6 +47,12 @@ public sealed class ThemeDocument
 
     /// <summary>框架键覆盖：键 = WinUI 主题资源名，值 = 颜色。缺省由 §四.3 推导。</summary>
     public Dictionary<string, string> Framework { get; set; } = new();
+
+    /// <summary>diff 配色覆盖：键 = DiffColorKind 名（AddedBackground…），值 = 颜色。</summary>
+    public Dictionary<string, string> Diff { get; set; } = new();
+
+    /// <summary>终端配色覆盖：键 = background/foreground/cursor/selection/0..15，值 = 颜色。</summary>
+    public Dictionary<string, string> Terminal { get; set; } = new();
 }
 
 /// <summary>已装载的主题包（扫描结果）。</summary>

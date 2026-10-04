@@ -4,10 +4,16 @@ namespace GitUI.Diff.Highlighting;
 /// <remarks>样式键不含颜色——颜色由活动主题的 syntax 段提供（code-highlight-framework.md §三）。</remarks>
 public sealed record SyntaxSpan(int Start, int Length, string StyleKey);
 
-/// <summary>跨行状态占位。声明式引擎 P1 逐行无状态；脚本/C# 插件引擎可扩展（块注释、逐字字符串）。</summary>
-public sealed class LineState
+/// <summary>
+/// 跨行状态。声明式引擎逐行无状态（忽略 Payload）；
+/// 脚本/C# 插件引擎经 <see cref="Payload"/> 传递 opaque 状态（块注释、多行字符串）。
+/// </summary>
+public class LineState
 {
     public static readonly LineState None = new();
+
+    /// <summary>引擎自定义状态（对宿主不透明；声明式引擎忽略）。</summary>
+    public object? Payload { get; init; }
 }
 
 /// <summary>单行分词结果。</summary>

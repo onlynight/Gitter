@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using GitUI.Core.Extensions;
+using GitUI.Diff.Highlighting;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
@@ -40,6 +41,14 @@ public static class ThemeService
     public static IReadOnlyDictionary<string, string> ActiveSyntax { get; private set; } =
         new Dictionary<string, string>();
 
+    /// <summary>活动主题的 diff 配色覆盖（DiffColorKind 名 → hex；DiffCanvas 消费）。</summary>
+    public static IReadOnlyDictionary<string, string> ActiveDiff { get; private set; } =
+        new Dictionary<string, string>();
+
+    /// <summary>活动主题的终端配色覆盖（background/foreground/0..15 → hex；TerminalCanvas 消费）。</summary>
+    public static IReadOnlyDictionary<string, string> ActiveTerminal { get; private set; } =
+        new Dictionary<string, string>();
+
     /// <summary>每次应用完成后广播（宿主：RootGrid.RequestedTheme / 标题栏 / 页面 Rebind）。</summary>
     public static event Action<ThemePackageInfo>? Applied;
 
@@ -74,6 +83,8 @@ public static class ThemeService
         {
             // 完全没有可用主题包：保留 TokenRuntime 兜底表
             ActiveSyntax = new Dictionary<string, string>();
+            ActiveDiff = new Dictionary<string, string>();
+            ActiveTerminal = new Dictionary<string, string>();
             TokenRuntime.Load(fallbackBase, TokenRuntime.BuiltinDefaults(fallbackBase));
             Applied?.Invoke(info ?? new ThemePackageInfo(fallbackBase == ThemeBase.Light ? LightPackageId : DarkPackageId,
                 fallbackBase == ThemeBase.Light ? "亮色" : "深色", fallbackBase, true, "", new PackageManifest(), new ThemeDocument()));
@@ -84,6 +95,12 @@ public static class ThemeService
         var tokens = ResolveTokens(info);
         TokenRuntime.Load(info.BaseKind, tokens);
         ActiveSyntax = ResolveSyntax(info);
+        ActiveDiff = info.ThemeDoc!.Diff is null
+            ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(info.ThemeDoc.Diff);
+        ActiveTerminal = info.ThemeDoc.Terminal is null
+            ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(info.ThemeDoc.Terminal);
         InjectFramework(info.ThemeDoc);
         Applied?.Invoke(info);
         return true;
@@ -143,11 +160,11 @@ public static class ThemeService
     }
 
     /// <summary>
-    /// 导入 .gpk 主题包（extension-package-framework.md §四 生命周期）：
-    /// 解压到临时目录 → 校验 manifest（kinds 含 theme）→ 落位用户包目录 → 重扫描。
-    /// 返回 (是否成功, 错误信息, 包 id)；成功后调用方设置 ThemePackageId 并保存。
+    /// 导入 .gpk 扩展包：按 kinds 分流——含 theme → 校验 theme/theme.json，安装后返回包 id
+    /// （调用方设为活动主题）；含 syntax → 校验 syntax/highlighters.json，安装后重扫描高亮器。
+    /// 返回 (是否成功, 状态文案, 主题包 id 或 null)；成功后调用方设置 ThemePackageId 并保存。
     /// </summary>
-    public static (bool Ok, string Error, string? PackageId) ImportGpk(string gpkPath)
+    public static (bool Ok, string Status, string? ThemePackageId) ImportGpk(string gpkPath)
     {
         string? temp = null;
         try
@@ -174,16 +191,24 @@ public static class ThemeService
                 return (false, "manifest 无效（缺少 id）", null);
             }
 
-            if (!manifest.Kinds.Contains("theme", StringComparer.OrdinalIgnoreCase))
+            var hasTheme = manifest.Kinds.Contains("theme", StringComparer.OrdinalIgnoreCase);
+            var hasSyntax = manifest.Kinds.Contains("syntax", StringComparer.OrdinalIgnoreCase);
+            if (!hasTheme && !hasSyntax)
             {
                 CleanupTemp(temp);
-                return (false, "该包不包含主题（kinds 未声明 theme）", null);
+                return (false, "该包未声明受支持的种类（kinds 需含 theme 或 syntax）", null);
             }
 
-            if (!File.Exists(Path.Combine(temp, "theme", "theme.json")))
+            if (hasTheme && !File.Exists(Path.Combine(temp, "theme", "theme.json")))
             {
                 CleanupTemp(temp);
                 return (false, "包内缺少 theme/theme.json", null);
+            }
+
+            if (hasSyntax && !File.Exists(Path.Combine(temp, "syntax", "highlighters.json")))
+            {
+                CleanupTemp(temp);
+                return (false, "包内缺少 syntax/highlighters.json", null);
             }
 
             Directory.CreateDirectory(UserPackagesRoot);
@@ -196,8 +221,16 @@ public static class ThemeService
             Directory.Move(temp, dest);
             temp = null;
             Scan();
-            var pkg = _packages.TryGetValue(manifest.Id, out var info) ? info : null;
-            return (pkg is not null, pkg is not null ? "" : "导入后校验失败（见日志）", pkg?.Id);
+            if (hasSyntax)
+            {
+                HighlighterRegistry.Rescan();
+            }
+
+            string? themeId = hasTheme ? manifest.Id : null;
+            var status = hasTheme
+                ? "已导入并应用主题包：" + manifest.Id
+                : "已导入语法高亮包：" + manifest.Id;
+            return (true, status, themeId);
         }
         catch (Exception ex)
         {

@@ -22,4 +22,8 @@
     <ProjectReference Include="..\GitUI.Core\GitUI.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Jint" Version="4.16.4" />
+  </ItemGroup>
+
 </Project>
