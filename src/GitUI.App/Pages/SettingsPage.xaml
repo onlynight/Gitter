@@ -9,11 +9,20 @@
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
                     <TextBlock Text="主题" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Text="基座" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <controls:Button x:Name="ThemeSystemBtn" Content="跟随系统" Padding="12,6" CornerRadius="6" Click="Theme_Click"/>
                         <controls:Button x:Name="ThemeLightBtn" Content="浅色" Padding="12,6" CornerRadius="6" Click="Theme_Click"/>
                         <controls:Button x:Name="ThemeDarkBtn" Content="深色" Padding="12,6" CornerRadius="6" Click="Theme_Click"/>
                     </StackPanel>
+                    <TextBlock Text="主题包" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel x:Name="ThemePackageList" Spacing="2"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <controls:Button x:Name="ThemeFollowBaseBtn" Content="跟随基座（内置）" Padding="12,6" CornerRadius="6" Click="ThemeFollowBase_Click"/>
+                        <controls:Button x:Name="ImportThemeBtn" Content="导入主题包 .gpk…" Padding="12,6" CornerRadius="6" Click="ImportTheme_Click"/>
+                    </StackPanel>
+                    <TextBlock x:Name="ThemeStatusText" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" Visibility="Collapsed"/>
                 </StackPanel>
             </Border>
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">

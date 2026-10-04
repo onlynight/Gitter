@@ -6,6 +6,10 @@
     <application:Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <!-- WinUI 官方要求：框架级主题资源（TextFillColor*/Card* 等）经 XamlControlsResources
+                     提供；缺失时 app XAML 里的 {ThemeResource} 解析不到（settings 页启动即炸） -->
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <!-- 主题令牌层（覆盖 XamlControlsResources 的同名键：合并序后者优先） -->
                 <ResourceDictionary Source="ms-appx:///Themes/ThemeStyles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>

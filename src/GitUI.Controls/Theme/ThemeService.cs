@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
@@ -24,6 +25,10 @@ public static class ThemeService
     private static readonly Dictionary<string, ThemePackageInfo> _packages = new(StringComparer.OrdinalIgnoreCase);
     private static ResourceDictionary? _injectedFramework;
 
+    /// <summary>用户主题包根目录（导入的 .gpk 解包到这里）。</summary>
+    public static string UserPackagesRoot => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitUI", UserRelativeDir);
+
     /// <summary>已扫描的主题包（内置 + 用户，含被禁用的）。</summary>
     public static IReadOnlyList<ThemePackageInfo> Packages => _packages.Values.ToList().AsReadOnly();
 
@@ -41,9 +46,7 @@ public static class ThemeService
         var builtinRoot = Path.Combine(AppContext.BaseDirectory, BuiltinRelativeDir);
         ScanDirectory(builtinRoot, isBuiltin: true);
 
-        var userRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GitUI", UserRelativeDir);
-        ScanDirectory(userRoot, isBuiltin: false);
+        ScanDirectory(UserPackagesRoot, isBuiltin: false);
     }
 
     /// <summary>解析并应用主题包；找不到时回退到指定基座的内置主题。返回是否应用成功。</summary>
@@ -91,6 +94,86 @@ public static class ThemeService
 
     public static string DefaultPackageId(ThemeBase baseKind) =>
         baseKind == ThemeBase.Light ? LightPackageId : DarkPackageId;
+
+    /// <summary>
+    /// 导入 .gpk 主题包（extension-package-framework.md §四 生命周期）：
+    /// 解压到临时目录 → 校验 manifest（kinds 含 theme）→ 落位用户包目录 → 重扫描。
+    /// 返回 (是否成功, 错误信息, 包 id)；成功后调用方设置 ThemePackageId 并保存。
+    /// </summary>
+    public static (bool Ok, string Error, string? PackageId) ImportGpk(string gpkPath)
+    {
+        string? temp = null;
+        try
+        {
+            if (!File.Exists(gpkPath))
+            {
+                return (false, "文件不存在：" + gpkPath, null);
+            }
+
+            temp = Path.Combine(Path.GetTempPath(), "gitui-pkg-" + Guid.NewGuid().ToString("N"));
+            ZipFile.ExtractToDirectory(gpkPath, temp, overwriteFiles: true);
+
+            var manifestPath = Path.Combine(temp, "manifest.json");
+            if (!File.Exists(manifestPath))
+            {
+                CleanupTemp(temp);
+                return (false, "包内缺少 manifest.json", null);
+            }
+
+            var manifest = ThemePackageJson.ParseManifest(File.ReadAllText(manifestPath));
+            if (manifest is null || string.IsNullOrWhiteSpace(manifest.Id))
+            {
+                CleanupTemp(temp);
+                return (false, "manifest 无效（缺少 id）", null);
+            }
+
+            if (!manifest.Kinds.Contains("theme", StringComparer.OrdinalIgnoreCase))
+            {
+                CleanupTemp(temp);
+                return (false, "该包不包含主题（kinds 未声明 theme）", null);
+            }
+
+            if (!File.Exists(Path.Combine(temp, "theme", "theme.json")))
+            {
+                CleanupTemp(temp);
+                return (false, "包内缺少 theme/theme.json", null);
+            }
+
+            Directory.CreateDirectory(UserPackagesRoot);
+            var dest = Path.Combine(UserPackagesRoot, manifest.Id);
+            if (Directory.Exists(dest))
+            {
+                Directory.Delete(dest, recursive: true); // 同 id 覆盖安装（升级）
+            }
+
+            Directory.Move(temp, dest);
+            temp = null;
+            Scan();
+            var pkg = _packages.TryGetValue(manifest.Id, out var info) ? info : null;
+            return (pkg is not null, pkg is not null ? "" : "导入后校验失败（见日志）", pkg?.Id);
+        }
+        catch (Exception ex)
+        {
+            if (temp is not null)
+            {
+                CleanupTemp(temp);
+            }
+
+            return (false, "导入失败：" + ex.Message, null);
+        }
+    }
+
+    private static void CleanupTemp(string dir)
+    {
+        try
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+        catch
+        {
+            // 临时目录清理失败可忽略（系统临时目录会回收）
+        }
+    }
 
     // ---- 内部 ----
 

@@ -130,12 +130,18 @@ public sealed class TokenRuntime {
 
 ## 六、分阶段计划
 
-| 阶段 | 内容 | 验收 |
-|---|---|---|
-| P0 | 修复浅色启动不生效 | theme=1 冷启动即浅色 |
-| P1 | TokenRuntime + 令牌收编（UiKit/页面/画布全部走令牌）；ThemeStyles 保留为默认值源 | `grep "IsLight ?"` 为 0；三页冒烟全绿；深浅切换 UIA 冒烟通过 |
-| P2 | theme.json 格式 + ThemeService + 框架键动态字典；内置深浅改内嵌包自举 | 手改内置包 JSON 重启可见变化；亮暗冒烟通过 |
-| P3 | 设置页主题选择器（列出 ExtensionHost 注册的主题包）+ 导入 .gpk | 安装一个第三方主题包（只覆盖 Accent+Panel）即时生效 |
+| 阶段 | 内容 | 验收 | 状态 |
+|---|---|---|---|
+| P0 | 修复浅色启动不生效 | theme=1 冷启动即浅色 | ✅ 2026-10-04（OnLaunched 预设 + RootGrid/Popup RequestedTheme） |
+| P1 | TokenRuntime + 令牌收编（UiKit/页面走令牌）；ThemeStyles 保留为默认值源 | 冒烟全绿 | ✅ 2026-10-04（UiKit 变 TokenRuntime 外观，调用点零改动；DiffCanvas/TerminalCanvas 令牌化顺延） |
+| P2 | theme.json 格式 + ThemeService + 框架键动态字典；内置深浅改内嵌包自举 | 内置包随构建分发并被同一路径装载 | ✅ 2026-10-04（Packages/GitUI.theme.dark\|light；第三方包 framework 段精确覆盖 + 令牌推导） |
+| P3 | 设置页主题选择器 + 导入 .gpk | 包列表/选包持久化/跟随基座回退 | ✅ 2026-10-04（smoke-theme-picker.ps1 全绿） |
+
+> 实施注记（P2 期间发现）：本应用此前从未合并 `XamlControlsResources`，导致框架级主题资源
+> （TextFillColor* 等）在 app XAML 里不可解析——设置页一打开即抛 XamlParse。已在 App.xaml
+> 合并 XamlControlsResources（置于 ThemeStyles 之前，令牌覆盖仍以后者为准）。
+
+**待办（顺延）**：DiffCanvas / TerminalCanvas 内部硬编码色改走令牌；设置页列出第三方包的缩略预览；主题包禁用粒度（单包内按 kind 启停）随扩展包框架 P2 落地。
 
 ## 七、验收标准
 

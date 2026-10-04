@@ -627,7 +627,7 @@ public sealed partial class MainWindow : Window
             "changes" => _changesPage ??= new ChangesPage(_settings, _repoService, _repoContext, ShowPage),
             "branches" => _branchesPage ??= new BranchesPage(_repoService, _repoContext, ShowPage),
             "bash" => _terminalPage,
-            "settings" => new SettingsPage(_settings, ExportSettingsAsync, ImportSettingsAsync),
+            "settings" => new SettingsPage(_settings, ExportSettingsAsync, ImportSettingsAsync, ImportThemePackageAsync),
             _ => _logPage ??= new LogPage(_settings, _repoService, _repoContext, ShowPage),
         };
 
@@ -1368,6 +1368,34 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>从 JSON 文件导入设置（损坏文件保持现状，不崩）。</summary>
+    /// <summary>
+    /// 导入 .gpk 主题包（设置页"导入主题包"入口）：文件选择器（需窗口句柄）→
+    /// ThemeService.ImportGpk 校验解压 → 写 ThemePackageId 并持久化（Changed → ApplyTheme）。
+    /// 返回给设置页显示的状态文案；null = 用户取消选择。
+    /// </summary>
+    private async System.Threading.Tasks.Task<string?> ImportThemePackageAsync()
+    {
+        var picker = new Windows.Storage.Pickers.FileOpenPicker
+        {
+            SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
+        };
+        picker.FileTypeFilter.Add(".gpk");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return null;
+
+        var (ok, error, packageId) = ThemeService.ImportGpk(file.Path);
+        if (!ok)
+        {
+            return error;
+        }
+
+        _settings.Update(s => s.ThemePackageId = packageId);
+        _settings.Save();
+        return "已导入并应用主题包：" + packageId;
+    }
+
     private async System.Threading.Tasks.Task ImportSettingsAsync()
     {
         try
