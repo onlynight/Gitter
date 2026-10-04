@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "gitui.theme.light",
+  "name": "亮色",
+  "version": "1.0.0",
+  "authors": ["GitUI"],
+  "description": "Gitter IDE 亮色基座主题",
+  "kinds": ["theme"],
+  "theme": { "base": "light" }
+}

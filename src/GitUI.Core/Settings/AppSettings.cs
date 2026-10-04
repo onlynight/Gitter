@@ -9,6 +9,9 @@ public sealed class AppSettings
 {
     public ThemePreference Theme { get; set; } = ThemePreference.System;
 
+    /// <summary>主题包 id（theme-framework.md）；null/空 = 按基座使用内置深/浅主题包。</summary>
+    public string? ThemePackageId { get; set; }
+
     /// <summary>最近打开的仓库路径，最多 5 个，最新在前。已由 Projects 取代写入，仅作旧配置迁移来源。</summary>
     public List<string> RecentRepos { get; set; } = new();
 

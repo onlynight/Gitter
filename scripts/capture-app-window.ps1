@@ -57,8 +57,16 @@ public static class Win32Cap {
 
     $bmp = New-Object System.Drawing.Bitmap($w, $h)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
-    Write-Output "CopyFromScreen done"
+    try {
+        $g.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+        Write-Output "CopyFromScreen done"
+    } catch {
+        # 屏幕锁定/无桌面时回退 PrintWindow（锁定下可能为黑帧，仅供窗口存在性验证）
+        $hdc = $g.GetHdc()
+        [Win32Cap]::PrintWindow($hWnd, $hdc, 2) | Out-Null
+        $g.ReleaseHdc($hdc)
+        Write-Output "PrintWindow fallback used"
+    }
     $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
     $g.Dispose(); $bmp.Dispose()
     Write-Output "Saved: $Out"

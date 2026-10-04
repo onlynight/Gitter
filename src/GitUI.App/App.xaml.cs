@@ -71,7 +71,32 @@ public partial class App : Application
         Settings.Load();
         MigrateRecentReposToProjects();
 
+        // P0（theme-framework.md）：主题在创建首窗前预设到 Application 级。
+        // 此前仅设置页切换路径有效——settings theme=Light 冷启动仍渲染系统深色。
+        // System 时不设（跟随系统）；其余在首窗创建前一次性设定，运行时切换由
+        // MainWindow 的 RootGrid.RequestedTheme 承担。
+        ApplyApplicationTheme(Settings.Current.Theme);
+
         OpenNewWindow();
+    }
+
+    /// <summary>Application 级主题预设（仅可在首窗创建前调用；失败降级为跟随系统）。</summary>
+    private static void ApplyApplicationTheme(ThemePreference preference)
+    {
+        if (preference == ThemePreference.System)
+        {
+            return;
+        }
+
+        try
+        {
+            Current.RequestedTheme = preference == ThemePreference.Light
+                ? ApplicationTheme.Light
+                : ApplicationTheme.Dark;
+        }        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("app theme preset: " + ex);
+        }
     }
 
     /// <summary>

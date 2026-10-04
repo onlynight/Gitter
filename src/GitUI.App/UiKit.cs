@@ -1,3 +1,4 @@
+using GitUI.Controls.Theme;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -7,9 +8,10 @@ using Windows.UI;
 namespace GitUI.App;
 
 /// <summary>
-/// "Gitter IDE" 主题共享令牌与控件工厂（v3，与 Themes/ThemeStyles.xaml 令牌一致）。
-/// 分层实色：base（内容底）→ panel（侧边栏/工具条/状态栏）→ hover/selected；
-/// 深色为第一主题，浅色按同结构映射。控件默认样式由 ThemeStyles.xaml 的隐式样式提供。
+/// "Gitter IDE" 主题外观（UiKit）：语义令牌的 C# 取色入口。
+/// 颜色值不在本类维护——全部经 <see cref="TokenRuntime"/> 来自活动主题包
+/// （内置深/浅包见 Packages/；值与 docs/theme-framework.md 令牌表一致）。
+/// 控件工厂沿用：ToolButton（幽灵）/ PrimaryButton（强调色填充）/ IconButton / MonoText。
 /// </summary>
 public static class Ui
 {
@@ -21,38 +23,38 @@ public static class Ui
 
     public static readonly FontFamily Mono = new("Cascadia Mono, Consolas");
 
-    public static bool IsLight => Application.Current?.RequestedTheme != ApplicationTheme.Dark;
+    public static bool IsLight => TokenRuntime.CurrentBase == ThemeBase.Light;
 
     // ---- 分层 ----
-    public static SolidColorBrush Base => C(IsLight ? 0xFFFAFAFB : 0xFF1E1F22);
-    public static SolidColorBrush Panel => C(IsLight ? 0xFFF7F8FA : 0xFF2B2D30);
-    public static SolidColorBrush Hover => C(IsLight ? 0xFFEBECF0 : 0xFF393B40);
-    public static SolidColorBrush Selected => C(IsLight ? 0xFFE0E2E8 : 0xFF43454A);
-    public static SolidColorBrush Border => C(IsLight ? 0xFFE4E5E8 : 0xFF2E3033);
-    public static SolidColorBrush BorderStrong => C(IsLight ? 0xFFD5D7DB : 0xFF43454A);
+    public static SolidColorBrush Base => TokenRuntime.Brush(TokenKey.Base);
+    public static SolidColorBrush Panel => TokenRuntime.Brush(TokenKey.Panel);
+    public static SolidColorBrush Hover => TokenRuntime.Brush(TokenKey.Hover);
+    public static SolidColorBrush Selected => TokenRuntime.Brush(TokenKey.Selected);
+    public static SolidColorBrush Border => TokenRuntime.Brush(TokenKey.Border);
+    public static SolidColorBrush BorderStrong => TokenRuntime.Brush(TokenKey.BorderStrong);
 
     // ---- 强调色 ----
-    public static SolidColorBrush Accent => C(IsLight ? 0xFF2B6BE4 : 0xFF3574F0);
-    public static SolidColorBrush AccentHover => C(IsLight ? 0xFF3D7AEA : 0xFF4682F2);
-    public static SolidColorBrush AccentPressed => C(IsLight ? 0xFF2359C7 : 0xFF2B62C9);
-    public static SolidColorBrush AccentSoft => C(IsLight ? 0x1F2B6BE4 : 0x333574F0);
+    public static SolidColorBrush Accent => TokenRuntime.Brush(TokenKey.Accent);
+    public static SolidColorBrush AccentHover => TokenRuntime.Brush(TokenKey.AccentHover);
+    public static SolidColorBrush AccentPressed => TokenRuntime.Brush(TokenKey.AccentPressed);
+    public static SolidColorBrush AccentSoft => TokenRuntime.Brush(TokenKey.AccentSoft);
 
     // ---- 文字 ----
-    public static SolidColorBrush Text => C(IsLight ? 0xFF1F2328 : 0xFFDFE1E5);
-    public static SolidColorBrush Text2 => C(IsLight ? 0xFF5C6167 : 0xFF9DA0A8);
-    public static SolidColorBrush Text3 => C(IsLight ? 0xFF9DA0A8 : 0xFF6F737A);
+    public static SolidColorBrush Text => TokenRuntime.Brush(TokenKey.Text);
+    public static SolidColorBrush Text2 => TokenRuntime.Brush(TokenKey.Text2);
+    public static SolidColorBrush Text3 => TokenRuntime.Brush(TokenKey.Text3);
 
     // ---- 语义 ----
-    public static SolidColorBrush Green => C(IsLight ? 0xFF1A7F37 : 0xFF6FBF73);
-    public static SolidColorBrush Red => C(IsLight ? 0xFFCF222E : 0xFFF75464);
-    public static SolidColorBrush Amber => C(IsLight ? 0xFF96671E : 0xFFC8A35F);
+    public static SolidColorBrush Green => TokenRuntime.Brush(TokenKey.Green);
+    public static SolidColorBrush Red => TokenRuntime.Brush(TokenKey.Red);
+    public static SolidColorBrush Amber => TokenRuntime.Brush(TokenKey.Amber);
 
     // ---- 徽标/chip ----
-    public static SolidColorBrush ChipBlueBg => C(IsLight ? 0x1A2B6BE4 : 0x334C7DD4);
-    public static SolidColorBrush ChipBlueFg => C(IsLight ? 0xFF1F5EDD : 0xFF8FB8E8);
-    public static SolidColorBrush ChipPurpleBg => C(IsLight ? 0x1A6B1EA0 : 0x36B080FF);
-    public static SolidColorBrush ChipPurpleFg => C(IsLight ? 0xFF7A3FC9 : 0xFFC9A2FF);
-    public static SolidColorBrush OnAccent => C(0xFFFFFFFF);
+    public static SolidColorBrush ChipBlueBg => TokenRuntime.Brush(TokenKey.ChipBlueBg);
+    public static SolidColorBrush ChipBlueFg => TokenRuntime.Brush(TokenKey.ChipBlueFg);
+    public static SolidColorBrush ChipPurpleBg => TokenRuntime.Brush(TokenKey.ChipPurpleBg);
+    public static SolidColorBrush ChipPurpleFg => TokenRuntime.Brush(TokenKey.ChipPurpleFg);
+    public static SolidColorBrush OnAccent => TokenRuntime.Brush(TokenKey.OnAccent);
 
     public static SolidColorBrush C(long argb) => new(Color.FromArgb(
         (byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb));
@@ -77,7 +79,7 @@ public static class Ui
         return btn;
     }
 
-    /// <summary>主按钮：全站唯一强调色填充（提交等主要动作）。</summary>
+    /// <summary>主按钮：全站唯一强调色填充（提交等主要动作）。悬停/离场换 AccentHover/Accent。</summary>
     public static Button PrimaryButton(string text, string? automationName = null)
     {
         var btn = ToolButton(text, automationName);

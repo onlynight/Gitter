@@ -1,4 +1,5 @@
 using GitUI.App.Pages;
+using GitUI.Controls.Theme;
 using GitUI.Core.Services;
 using GitUI.Core.Settings;
 using GitUI.Git;
@@ -90,6 +91,18 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         _settings = settings;
+
+        // P0（theme-framework.md §四）：先于 UI 构建装载主题包——语义令牌 + 框架键覆盖 +
+        // 基座解析，UI 首帧即用正确主题；运行时切换由 ApplyTheme 更新 RootGrid.RequestedTheme。
+        var fallbackBase = _settings.Current.Theme switch
+        {
+            ThemePreference.Light => ThemeBase.Light,
+            ThemePreference.Dark => ThemeBase.Dark,
+            _ => Application.Current?.RequestedTheme == ApplicationTheme.Light ? ThemeBase.Light : ThemeBase.Dark,
+        };
+        ThemeService.Apply(
+            string.IsNullOrWhiteSpace(_settings.Current.ThemePackageId) ? null : _settings.Current.ThemePackageId,
+            fallbackBase);
 
         // 启用 ExtendsContentIntoTitleBar：让 Mica 背景延伸到窗口顶部 48px
         // 覆盖整个标题栏区域。系统只在右上角绘制 min/max/close，其余区域
@@ -214,6 +227,7 @@ public sealed partial class MainWindow : Window
         // z-order（Row 0）：TitleBarStrip 底层 → appTitle → collapseBtn 顶层，
         // 保证汉堡按钮可点击、不被拖拽热区遮挡。
         _rootGrid = new Grid { Background = Ui.Base };
+        ApplyRootTheme(_rootGrid);
         _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TitleBarHeight) });
         _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _sidebarColumn = new ColumnDefinition { Width = new GridLength(_sidebarWidth) };
@@ -457,27 +471,29 @@ public sealed partial class MainWindow : Window
     /// <summary>按 ThemePreference 应用主题并同步标题栏配色。</summary>
     public void ApplyTheme(ThemePreference preference)
     {
-        var theme = preference switch
+        // 运行时切换走主题服务（令牌中枢 + 框架键覆盖随包/基座重载）；
+        // 元素级 RequestedTheme 承担视觉基座——不再依赖 Application 级 setter（首窗后无效）。
+        var fallbackBase = preference switch
         {
-            ThemePreference.Light => ApplicationTheme.Light,
-            ThemePreference.Dark => ApplicationTheme.Dark,
-            _ => Application.Current?.RequestedTheme ?? ApplicationTheme.Light,
+            ThemePreference.Light => ThemeBase.Light,
+            ThemePreference.Dark => ThemeBase.Dark,
+            _ => Application.Current?.RequestedTheme == ApplicationTheme.Light ? ThemeBase.Light : ThemeBase.Dark,
         };
+        ThemeService.Apply(
+            string.IsNullOrWhiteSpace(_settings.Current.ThemePackageId) ? null : _settings.Current.ThemePackageId,
+            fallbackBase);
 
-        try
+        ApplyRootTheme(RootGrid);
+        ApplyRootTheme(_rootGrid);
+        if (_paletteBorder is not null)
         {
-            if (Application.Current is null) return;
-            Application.Current.RequestedTheme = theme;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine("theme: " + ex);
+            ApplyRootTheme(_paletteBorder);
         }
 
         var titleBar = this.AppWindow?.TitleBar;
         if (titleBar == null) return;
 
-        var isLight = Application.Current?.RequestedTheme == ApplicationTheme.Light;
+        var isLight = TokenRuntime.CurrentBase == ThemeBase.Light;
         var text = isLight ? Color.FromArgb(0xF2, 0x1C, 0x1B, 0x1F) : Color.FromArgb(0xFF, 0xFA, 0xFA, 0xFB);
         var hover = isLight ? Color.FromArgb(0x14, 0, 0, 0) : Color.FromArgb(0x20, 0xFF, 0xFF, 0xFF);
         var pressed = isLight ? Color.FromArgb(0x24, 0, 0, 0) : Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF);
@@ -497,6 +513,14 @@ public sealed partial class MainWindow : Window
         titleBar.ButtonPressedForegroundColor = text;
 
         RefreshNavVisuals();
+    }
+
+    /// <summary>把活动主题基座落到元素子树（P0：运行时切换的实际载体）。</summary>
+    private void ApplyRootTheme(FrameworkElement element)
+    {
+        element.RequestedTheme = TokenRuntime.CurrentBase == ThemeBase.Light
+            ? ElementTheme.Light
+            : ElementTheme.Dark;
     }
 
     private Button BuildNavItem(string glyph, string label, string key)
@@ -734,6 +758,7 @@ public sealed partial class MainWindow : Window
         // 每次打开时刷新面板配色（跟随主题切换）；行内画刷在 FilterPalette 重建时取当前主题
         _paletteBorder!.Background = Ui.Panel;
         _paletteBorder.BorderBrush = Ui.BorderStrong;
+        ApplyRootTheme(_paletteBorder); // Popup 子树不在 RootGrid 下，需显式基座
 
         // 顶部居中（VSCode 式）
         if (Content.XamlRoot is { } root)
