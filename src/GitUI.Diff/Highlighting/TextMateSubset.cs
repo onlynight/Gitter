@@ -44,9 +44,6 @@ public static class TextMateSubset
 
     private const int MaxIncludeDepth = 32;
 
-    /// <summary>TEMP-DIAG：最近一次 Load 的规则统计（验证后移除）。</summary>
-    public static string LastDiagnostics { get; private set; } = "";
-
     /// <summary>从 tmLanguage JSON 构建声明式高亮器；无 fileTypes 或无可用规则返回 null。</summary>
     public static DeclarativeHighlighter? Load(string json, string fallbackId)
     {
@@ -84,8 +81,6 @@ public static class TextMateSubset
 
         var id = !string.IsNullOrWhiteSpace(doc.Name) ? doc.Name : fallbackId;
         CompilePatterns(doc.Patterns, doc.Repository, rules, blocks, visited, depth: 0);
-        LastDiagnostics = $"rules={rules.Count} blocks={blocks.Count} topPatterns={doc.Patterns?.Count.ToString() ?? "null"} fileTypes={doc.FileTypes?.Count.ToString() ?? "null"}";
-        LastDiagnostics = $"rules={rules.Count} blocks={blocks.Count} topPatterns={doc.Patterns?.Count.ToString() ?? "null"}";
 
         return DeclarativeHighlighter.Create(
             id: id,

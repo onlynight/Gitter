@@ -57,7 +57,17 @@ public static class TokenRuntime
     {
         CurrentBase = baseKind;
         _colors = colors;
-        _brushCache = new Dictionary<TokenKey, SolidColorBrush>();
+
+        // 就地变更已缓存画刷的颜色（而非替换实例）：
+        // 页面构建时持有的画刷引用自动跟随新主题重绘，无需逐元素重建
+        foreach (var (key, brush) in _brushCache)
+        {
+            if (_colors.TryGetValue(key, out var c))
+            {
+                brush.Color = c;
+            }
+        }
+
         ThemeChanged?.Invoke();
     }
 
