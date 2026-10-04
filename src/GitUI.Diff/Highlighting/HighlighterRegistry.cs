@@ -158,6 +158,26 @@ public static class HighlighterRegistry
                     }
                 }
 
+                // C# 强类型插件（P4c）：syntax/plugins/*.dll 经可收集 ALC 装载
+                var pluginsDir = Path.Combine(dir, "syntax", "plugins");
+                if (Directory.Exists(pluginsDir))
+                {
+                    foreach (var dll in Directory.EnumerateFiles(pluginsDir, "*.dll"))
+                    {
+                        try
+                        {
+                            foreach (var h in AssemblyHighlighterLoader.Load(dll))
+                            {
+                                Register(h);
+                            }
+                        }
+                        catch
+                        {
+                            // 插件故障 → 跳过（不影响其它扩展）
+                        }
+                    }
+                }
+
                 // 脚本高亮器（entryPoints.script → init.js 经 gitui.syntax.register 注册）
                 if (manifestDoc.RootElement.TryGetProperty("entryPoints", out var entryPoints)
                     && entryPoints.TryGetProperty("script", out var scriptEl)

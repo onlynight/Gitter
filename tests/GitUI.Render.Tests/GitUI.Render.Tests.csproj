@@ -21,6 +21,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GitUI.Core\GitUI.Core.csproj" />
     <ProjectReference Include="..\..\src\GitUI.Diff\GitUI.Diff.csproj" />
+    <!-- ALC 插件契约测试夹具：随解决方案构建，dll 复制到测试输出（仅运行期装载，不进编译引用） -->
+    <ProjectReference Include="..\TestPlugins\GitUI.TestHighlighterPlugin\GitUI.TestHighlighterPlugin.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
