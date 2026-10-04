@@ -144,4 +144,62 @@ public class HighlightingTests
         Assert.Contains(frame.Commands, c => c is FillRectCommand f && f.Color == DiffColorKind.DeletedWordBackground);
         Assert.Contains(frame.Commands.OfType<TextCommand>(), t => t.Text.Contains("alpha"));
     }
+    // ---- VSCode 合包（theme + syntax 双种类，extension-package-framework.md §3.2）----
+
+    private static string VsCodePackagePath() => Path.Combine(AppContext.BaseDirectory,
+        "..", "..", "..", "..", "..", "src", "GitUI.App", "Packages", "VsCodeDark");
+
+    [Fact]
+    public void VsCodePackage_ManifestHasCombinedKinds_AndThemeInheritsDark()
+    {
+        var dir = VsCodePackagePath();
+        if (!Directory.Exists(dir)) return; // 发布布局跳过
+
+        var manifest = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "manifest.json"))).RootElement;
+        var kinds = manifest.GetProperty("kinds").EnumerateArray().Select(k => k.GetString()).ToList();
+        Assert.Contains("theme", kinds);   // 合包：同一包内既有主题又有高亮
+        Assert.Contains("syntax", kinds);
+
+        var theme = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "theme", "theme.json"))).RootElement;
+        Assert.Equal("gitui.theme.dark", theme.GetProperty("inherits").GetString()); // 稀疏覆盖：继承内置深色基座
+        Assert.Equal("#569CD6", theme.GetProperty("syntax").GetProperty("keyword").GetString());
+    }
+
+    [Fact]
+    public void VsCodeCSharp_Grammar_EnhancedRules()
+    {
+        var path = Path.Combine(VsCodePackagePath(), "syntax", "highlighters.json");
+        if (!File.Exists(path)) return;
+
+        var h = DeclarativeHighlighter.LoadAll(File.ReadAllText(path))
+            .Single(x => x.Id == "vscode.csharp");
+
+        // 预处理指令整行 keyword
+        var r1 = h.TokenizeLine("#if DEBUG", LineState.None);
+        Assert.Contains(r1.Spans, s => s.StyleKey == "keyword" && s.Start == 0);
+
+        // 逐字字符串（含 "" 转义）：@"a""b" 从 8 起
+        var r2 = h.TokenizeLine("var p = @\"a\"\"b\";", LineState.None);
+        Assert.Contains(r2.Spans, s => s.StyleKey == "string" && s.Start == 8);
+
+        // 内置类型=keyword、数字分隔符 1_000、函数调用 Main(
+        var r3 = h.TokenizeLine("int n = 1_000; Main(n);", LineState.None);
+        Assert.Contains(r3.Spans, s => s.StyleKey == "keyword" && s.Start == 0 && s.Length == 3);
+        Assert.Contains(r3.Spans, s => s.StyleKey == "number" && s.Start == 8 && s.Length == 5);
+        Assert.Contains(r3.Spans, s => s.StyleKey == "function" && s.Start == 15 && s.Length == 4);
+    }
+
+    [Fact]
+    public void Registry_PluginOverridesBuiltinByExtension()
+    {
+        var path = Path.Combine(VsCodePackagePath(), "syntax", "highlighters.json");
+        if (!File.Exists(path)) return;
+
+        var plugin = DeclarativeHighlighter.LoadAll(File.ReadAllText(path))
+            .Single(x => x.Id == "vscode.csharp");
+        HighlighterRegistry.Register(plugin);
+
+        // 后注册的插件覆盖内置同扩展名高亮器（extension-package-framework.md §四）
+        Assert.Equal("vscode.csharp", HighlighterRegistry.Resolve("Program.cs").Id);
+    }
 }
