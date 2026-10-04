@@ -623,22 +623,25 @@ public sealed partial class MainWindow : Window
         }
 
         _currentKey = key;
-        // S0e：Bash 页签首次显示时启动 ConPTY 会话（Lazy）
-        if (key == "bash") _terminalPage?.OnShown();
 
-        _terminalPage ??= new TerminalPage(_settings, _repoService, _repoContext);
+        _terminalPage ??= new TerminalPage(_settings, _repoService, _repoContext, CloseCommandPalette);
         UIElement page = key switch
         {
             "projects" => _projectsPage ??= new Pages.ProjectsPage(_settings, _repoService, _repoContext, ShowPage, () => Hwnd),
             "changes" => _changesPage ??= new ChangesPage(_settings, _repoService, _repoContext, ShowPage),
             "branches" => _branchesPage ??= new BranchesPage(_repoService, _repoContext, ShowPage),
-            "bash" => _terminalPage ??= new Pages.TerminalPage(_settings, _repoService, _repoContext, CloseCommandPalette),
+            "bash" => _terminalPage,
             "settings" => new SettingsPage(_settings, ExportSettingsAsync, ImportSettingsAsync, ImportThemePackageAsync),
             _ => _logPage ??= new LogPage(_settings, _repoService, _repoContext, ShowPage),
         };
 
         _pageHost.Children.Clear();
         _pageHost.Children.Add(page);
+
+        // S0e：Bash 页签首次显示时启动 ConPTY 会话（Lazy）。
+        // 必须在页面创建并进树之后调用：首显时 OnShown 才能真正执行
+        //（此前写在创建前，_terminalPage 为 null 导致首进终端页会话不启动、画布不聚焦）
+        if (key == "bash") _terminalPage.OnShown();
 
         RefreshNavVisuals();
     }

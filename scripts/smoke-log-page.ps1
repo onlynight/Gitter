@@ -101,7 +101,7 @@ try {
     if ($null -eq $searchBox) { Write-Output 'FAIL: 搜索框未找到'; exit 1 }
     ($searchBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue("author:nonexistent-xyz")
     Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '搜索')
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 5
     $status = Status-Text $main
     Write-Output ("OK: author:nonexistent-xyz → " + $status)
     if ($status -notmatch '已加载 0 / 共 0') { Write-Output 'FAIL: 不存在作者应得 0 条'; exit 1 }
@@ -110,7 +110,7 @@ try {
     # ---- 5. 搜索：真实作者 → >0 条 ----
     ($searchBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue("author:$Author")
     Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '搜索')
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 5
     $status = Status-Text $main
     Write-Output ("OK: author:$Author → " + $status)
     if ($status -match '共 0') { Write-Output "FAIL: 真实作者过滤结果为 0"; exit 1 }
@@ -118,7 +118,7 @@ try {
     # 清空搜索恢复全量
     ($searchBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue("")
     Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '搜索')
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 5
 
     # ---- 6. 分组折叠：点击第一个组头 → 提交行减少 ----
     $headerBtn = $null
@@ -145,7 +145,7 @@ try {
     }
     if ($null -eq $commitBtn) { Write-Output 'FAIL: 提交行按钮未找到'; exit 1 }
     Invoke-Button $commitBtn
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 5
 
     # 变更文件项：ListViewItem，Name = "文件 <path>"（Name 属性是精确匹配，前缀过滤需枚举）
     $fileCount = 0
