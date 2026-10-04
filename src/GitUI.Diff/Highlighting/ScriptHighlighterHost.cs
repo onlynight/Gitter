@@ -75,6 +75,9 @@ internal sealed class JintSyntaxHighlighter : ISyntaxHighlighter
     public string Language => _language;
     public IReadOnlyList<string> Extensions => _extensions;
 
+    /// <summary>脚本引擎自行管理状态（P4a 顺序约束不适用——脚本按格独立调用，已知限制）。</summary>
+    public bool RequiresSequentialState => false;
+
     public LineHighlightResult TokenizeLine(string line, LineState? state)
     {
         try

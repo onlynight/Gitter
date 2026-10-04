@@ -32,6 +32,9 @@ public interface ISyntaxHighlighter
 
     IReadOnlyList<string> Extensions { get; }
 
+    /// <summary>是否存在跨行块规则（消费方须按行序顺序分词，见 P4a）。</summary>
+    bool RequiresSequentialState { get; }
+
     LineHighlightResult TokenizeLine(string line, LineState? state);
 }
 
@@ -43,6 +46,7 @@ public sealed class NullHighlighter : ISyntaxHighlighter
     public string Id => "null";
     public string Language => "";
     public IReadOnlyList<string> Extensions { get; } = Array.Empty<string>();
+    public bool RequiresSequentialState => false;
 
     public LineHighlightResult TokenizeLine(string line, LineState? state) =>
         new(Array.Empty<SyntaxSpan>(), state);

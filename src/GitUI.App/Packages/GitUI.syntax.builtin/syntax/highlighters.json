@@ -10,6 +10,11 @@
       "rules": [
         {
           "style": "comment",
+          "blockStart": "/\\*",
+          "blockEnd": "\\*/"
+        },
+        {
+          "style": "comment",
           "pattern": "//.*$"
         },
         {

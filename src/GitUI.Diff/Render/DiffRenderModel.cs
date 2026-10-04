@@ -129,28 +129,52 @@ public sealed class DiffRenderModel
     {
         if (highlighter is null or NullHighlighter) return;
 
+        if (highlighter.RequiresSequentialState)
+        {
+            // P4a：跨行块状态须按文件行序传递——左列（旧文件）与右列（新文件）各一遍全量顺序分词，
+            // 结果缓存在格上，后续调用零开销
+            var leftState = LineState.None;
+            foreach (var row in Rows)
+            {
+                leftState = TokenizeInto(row.Left, highlighter, leftState);
+            }
+
+            var rightState = LineState.None;
+            foreach (var row in Rows)
+            {
+                rightState = TokenizeInto(row.Right, highlighter, rightState);
+            }
+
+            return;
+        }
+
         foreach (var row in Rows)
         {
             if (row.Index < firstRow || row.Index > lastRowInclusive) continue;
-            TryTokenize(row.Left, highlighter);
-            TryTokenize(row.Right, highlighter);
+            TokenizeInto(row.Left, highlighter, LineState.None);
+            TokenizeInto(row.Right, highlighter, LineState.None);
         }
     }
 
-    private static void TryTokenize(DiffCell? cell, ISyntaxHighlighter highlighter)
+    private static LineState TokenizeInto(DiffCell? cell, ISyntaxHighlighter highlighter, LineState state)
     {
-        if (cell is null || cell.SyntaxTokensResolved) return;
+        if (cell is null || cell.SyntaxTokensResolved) return state;
         cell.SyntaxTokensResolved = true;
-        if (cell.Kind is DiffRowKind.Filler or DiffRowKind.HunkHeader or DiffRowKind.NoNewlineMarker) return;
-        if (cell.Text.Length == 0) return;
+        if (cell.Kind is DiffRowKind.Filler or DiffRowKind.HunkHeader or DiffRowKind.NoNewlineMarker || cell.Text.Length == 0)
+        {
+            return state;
+        }
 
         try
         {
-            cell.SyntaxTokens = highlighter.TokenizeLine(cell.Text, LineState.None).Spans;
+            var r = highlighter.TokenizeLine(cell.Text, state);
+            cell.SyntaxTokens = r.Spans;
+            return r.NextState ?? state;
         }
         catch
         {
             cell.SyntaxTokens = Array.Empty<SyntaxSpan>(); // 高亮器故障 → 整行降级 plain
+            return state;
         }
     }
 
