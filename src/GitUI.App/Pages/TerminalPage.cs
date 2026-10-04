@@ -30,6 +30,9 @@ public sealed class TerminalPage : UserControl
 
     private ITerminalSession? _session;
     private bool _sessionRequested;
+
+    /// <summary>会话重启代际：每次重启自增，使在途的异步启动流程失效（P0 修复：双会话竞争崩溃）。</summary>
+    private int _restartGeneration;
     private string? _bashPath;
     private int _cols = 80;
     private int _rows = 24;
@@ -181,7 +184,7 @@ public sealed class TerminalPage : UserControl
     {
         if (_shown) return;
         _shown = true;
-        _ = EnsureSessionStartedAsync();
+        EnsureSessionStarted();
         _canvas.Focus(FocusState.Programmatic);
     }
 
@@ -191,13 +194,14 @@ public sealed class TerminalPage : UserControl
     {
         if (_sessionRequested) return;
         _sessionRequested = true;
-        _ = EnsureSessionStartedAsync();
+        var generation = ++_restartGeneration;
+        _ = EnsureSessionStartedAsync(generation);
     }
 
-    private async Task EnsureSessionStartedAsync()
+    private async Task EnsureSessionStartedAsync(int generation)
     {
-        if (_sessionRequested) return;
-        _sessionRequested = true;
+        // 代际不符 = 已被更新的重启流程取代（RestartSession 会复位 _sessionRequested）
+        if (generation != _restartGeneration) return;
 
         // 0. shell 解析（P1：PowerShell/CMD 系统内置零依赖，bash 可选）
         var shellKind = CurrentShellKind();
@@ -235,6 +239,13 @@ public sealed class TerminalPage : UserControl
             backend = conpty ? "ConPTY" : "winpty";
             return conpty;
         });
+
+        // 探测期间用户又切了 shell → 本轮启动作废（新重启流程已接管）
+        if (generation != _restartGeneration)
+        {
+            return;
+        }
+
         _backend = backend;
 
         if (healthy)
@@ -242,18 +253,18 @@ public sealed class TerminalPage : UserControl
             // 2. ConPTY 后端
             _sessionState = "启动中";
             UpdateStatus();
-            StartConptySession(commandLine, cwd);
+            StartConptySession(commandLine, cwd, generation);
         }
         else
         {
             // 3. winpty 后端（P2）：ConPTY 不可用时仍提供完整终端
             _sessionState = "启动中";
             UpdateStatus();
-            StartWinPtySession(commandLine, cwd);
+            StartWinPtySession(commandLine, cwd, generation);
         }
     }
 
-    private void StartConptySession(string commandLine, string? cwd)
+    private void StartConptySession(string commandLine, string? cwd, int generation)
     {
         try
         {
@@ -264,6 +275,12 @@ public sealed class TerminalPage : UserControl
                 initialRows: _rows);
             WireSession(session);
             session.Start();
+            if (generation != _restartGeneration)
+            {
+                session.Dispose(); // 启动期间用户又切了 shell → 本次产物作废
+                return;
+            }
+
             _session = session;
             _sessionState = "运行中";
         }
@@ -275,7 +292,7 @@ public sealed class TerminalPage : UserControl
         UpdateStatus();
     }
 
-    private void StartWinPtySession(string commandLine, string? cwd)
+    private void StartWinPtySession(string commandLine, string? cwd, int generation)
     {
         try
         {
@@ -283,6 +300,12 @@ public sealed class TerminalPage : UserControl
             var session = new WinPtySession(commandLine, cwd, _cols, _rows);
             WireSession(session);
             session.Start();
+            if (generation != _restartGeneration)
+            {
+                session.Dispose(); // 启动期间用户又切了 shell → 本次产物作废
+                return;
+            }
+
             _session = session;
             _sessionState = "运行中";
         }
@@ -298,11 +321,13 @@ public sealed class TerminalPage : UserControl
     {
         session.OutputReady += bytes => DispatcherQueue.TryEnqueue(() =>
         {
+            if (!ReferenceEquals(_session, session)) return; // 旧会话尾部输出不进当前解析器
             _parser.Feed(bytes.Span);
             _canvas.NotifyOutput();
         });
         session.Exited += code => DispatcherQueue.TryEnqueue(() =>
         {
+            if (!ReferenceEquals(_session, session)) return;
             _sessionState = $"已退出 (code {code})";
             UpdateStatus();
         });
@@ -311,11 +336,25 @@ public sealed class TerminalPage : UserControl
     /// <summary>重启 shell（shell 切换 / ⋯ 菜单 / 会话退出后）。</summary>
     private void RestartSession()
     {
-        _session?.Dispose();
+        var old = _session;
         _session = null;
         _sessionRequested = false;
+        _restartGeneration++; // 使在途的异步启动流程失效
         _buffer.HardReset();
         _canvas.NotifyOutput();
+
+        if (old is not null)
+        {
+            // 会话销毁包含最长 10s 的线程 Join（ConPTY 关闭后 shell 退出慢），
+            // 移出 UI 线程执行——避免切 shell 时界面冻结
+            var oldSession = old;
+            _ = Task.Run(() =>
+            {
+                try { oldSession.Dispose(); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("pty dispose: " + ex); }
+            });
+        }
+
         EnsureSessionStarted();
     }
 
