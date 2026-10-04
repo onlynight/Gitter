@@ -238,7 +238,7 @@ public sealed class TerminalPalette
     {
         BackgroundRgba = Rgba(12, 12, 12),
         ForegroundRgba = Rgba(204, 204, 204),
-        CursorRgba = Rgba(220, 220, 220, 160),
+        CursorRgba = Rgba(174, 175, 173, 255),
         SelectionRgba = Rgba(70, 120, 200, 110),
         Indexed = new uint[]
         {
@@ -253,7 +253,7 @@ public sealed class TerminalPalette
     {
         BackgroundRgba = Rgba(250, 250, 250),
         ForegroundRgba = Rgba(30, 30, 30),
-        CursorRgba = Rgba(30, 30, 30, 160),
+        CursorRgba = Rgba(43, 107, 228, 255),
         SelectionRgba = Rgba(70, 120, 200, 110),
         Indexed = new uint[]
         {

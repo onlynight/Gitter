@@ -328,6 +328,17 @@ public sealed class TerminalPage : UserControl
         {
             if (!ReferenceEquals(_session, session)) return; // 旧会话尾部输出不进当前解析器
 
+            // TEMP-DIAG：记录 winpty 输出流（光标偏移定位用，验证后移除）
+            try
+            {
+                var sb2 = new System.Text.StringBuilder();
+                foreach (var b2 in bytes.Span) sb2.Append(b2.ToString("x2"));
+                var txt2 = System.Text.Encoding.UTF8.GetString(bytes.Span).Replace(((char)27).ToString(), "<ESC>");
+                System.IO.File.AppendAllText(@"D:\Code\Gitter\diag-feed.log",
+                    "hex=" + sb2.ToString() + " txt=" + txt2 + Environment.NewLine);
+            }
+            catch { }
+
             _parser.Feed(bytes.Span);
             _canvas.NotifyOutput();
         });
