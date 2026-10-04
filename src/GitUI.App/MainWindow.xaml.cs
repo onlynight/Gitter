@@ -616,6 +616,12 @@ public sealed partial class MainWindow : Window
 
     private void ShowPage(string key)
     {
+        // 页签切换时关闭命令面板：防止面板残留抢占键盘输入（终端页尤其致命）
+        if (_commandPalette is { IsOpen: true })
+        {
+            _commandPalette.IsOpen = false;
+        }
+
         _currentKey = key;
         // S0e：Bash 页签首次显示时启动 ConPTY 会话（Lazy）
         if (key == "bash") _terminalPage?.OnShown();
@@ -626,7 +632,7 @@ public sealed partial class MainWindow : Window
             "projects" => _projectsPage ??= new Pages.ProjectsPage(_settings, _repoService, _repoContext, ShowPage, () => Hwnd),
             "changes" => _changesPage ??= new ChangesPage(_settings, _repoService, _repoContext, ShowPage),
             "branches" => _branchesPage ??= new BranchesPage(_repoService, _repoContext, ShowPage),
-            "bash" => _terminalPage,
+            "bash" => _terminalPage ??= new Pages.TerminalPage(_settings, _repoService, _repoContext, CloseCommandPalette),
             "settings" => new SettingsPage(_settings, ExportSettingsAsync, ImportSettingsAsync, ImportThemePackageAsync),
             _ => _logPage ??= new LogPage(_settings, _repoService, _repoContext, ShowPage),
         };
@@ -744,6 +750,15 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>打开命令面板（Ctrl+P / Ctrl+Shift+P / 标题栏 chip）。<paramref name="prefill"/> 非空时预填输入框（">" = 命令模式标记）。</summary>
+    /// <summary>关闭命令面板（终端页获得焦点前调用，防止键入被面板输入框截获）。</summary>
+    public void CloseCommandPalette()
+    {
+        if (_commandPalette is { IsOpen: true })
+        {
+            _commandPalette.IsOpen = false;
+        }
+    }
+
     private void OpenCommandPalette(string prefill = "")
     {
         _commands = BuildCommands();

@@ -24,6 +24,7 @@ public sealed class TerminalPage : UserControl
     private readonly ISettingsStore _settings;
     private readonly IRepositoryService _repoService;
     private readonly RepositoryContext _context;
+    private readonly Action? _closeCommandPalette;
     private readonly TerminalCanvas _canvas;
     private readonly TerminalParser _parser;
     private readonly TerminalBuffer _buffer;
@@ -44,8 +45,10 @@ public sealed class TerminalPage : UserControl
     private readonly ToggleMenuFlyoutItem _followRepoItem;
     private bool _shown;
 
-    public TerminalPage(ISettingsStore settings, IRepositoryService repoService, RepositoryContext context)
+    public TerminalPage(ISettingsStore settings, IRepositoryService repoService, RepositoryContext context,
+        Action? closeCommandPalette = null)
     {
+        _closeCommandPalette = closeCommandPalette;
         _settings = settings;
         _repoService = repoService;
         _context = context;
@@ -184,9 +187,11 @@ public sealed class TerminalPage : UserControl
     {
         if (_shown) return;
         _shown = true;
+        _closeCommandPalette?.Invoke(); // 终端页独占键盘：命令面板残留会截获全部键入
         EnsureSessionStarted();
         _canvas.Focus(FocusState.Programmatic);
     }
+
 
     // ---- 会话生命周期（分层后端：ConPTY → winpty）----
 
