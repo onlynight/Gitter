@@ -63,7 +63,18 @@ public sealed record ThemePackageInfo(
     bool IsBuiltin,
     string RootPath,
     PackageManifest Manifest,
-    ThemeDocument? ThemeDoc);
+    ThemeDocument? ThemeDoc)
+{
+    /// <summary>包内 preview.png 的绝对路径（无则 null；设置页缩略预览用）。</summary>
+    public string? PreviewPath
+    {
+        get
+        {
+            var p = Path.Combine(RootPath, "preview.png");
+            return File.Exists(p) ? p : null;
+        }
+    }
+}
 
 public static class ThemePackageJson
 {

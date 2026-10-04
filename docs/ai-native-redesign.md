@@ -1,6 +1,6 @@
 # Gitter 核心功能重设计：AI 编程时代的 Git 验收台
 
-> 状态：设计提案 v1（2026-10-04），**仅设计方案，未动任何代码**
+> 状态：设计提案 v1.1（2026-10-04），**仅设计方案，未动任何代码**；v1.1 新增 §十二 Agent Harness 扩展框架（`harness` kind + 四级传输 + 预留接口），原 §7.4 反向桥被其吸收
 > 定位输入：Gitter 是代码管理工具（git 代码管理器），辅助代码编写，**不是普通 IDE**
 > 前置阅读：docs/design.md（总设计定稿）、docs/known-issues.md（技术债台账）、docs/extension-package-framework.md（.gpk 框架）
 
@@ -200,10 +200,10 @@
 - 联动表现：状态栏"agent 工作中"指示 + 任务卡活动徽标 + 变更页红点（watcher 事件驱动）；
 - 审查提示：agent 输出出现"任务完成"类信号时，变更页横幅提示"agent 已完成，查看会话 diff"（点击直达 §3.1 视图）。
 
-### 7.4 反向桥（v2，扩展形态）
+### 7.4 反向桥（升级为 Agent Harness 框架）
 
-- .gpk 新 kind `agent-bridge`：把"退回重做"的反馈 prompt 直投给指定 agent 的外部接口；
-- Gitter 核心只定义反馈消息格式（hunk 定位 + 问题 + 约束），各 agent 的对接由扩展包实现——核心不内置任何特定厂商。
+- 单向的反馈投递已升级为完整的双向 agent 接入框架，见 **§十二 Agent Harness 扩展框架**；
+- "退回重做"（§3.4）的反馈直投由 harness 的 `FeedbackChannel` 能力承载；Gitter 核心仍不内置任何特定厂商。
 
 ---
 
@@ -240,7 +240,7 @@ IAiGateway
 |---|---|
 | `policy` | 安全网/风险信号规则（声明式 JSON + 可选 JS） |
 | `ai` | provider 适配（走 CliBridge 语义）、prompt 模板、解释/批注风格 |
-| `agent-bridge` | 反馈直投各 agent 的适配器 |
+| `harness` | 编程 agent 运行时适配（DeepSeek harness、Claude Code、Codex 等），详见 §十二 |
 
 `PackageRegistryState.DisabledKinds` 已按 kind 设计（"包id:种类"条目），天然兼容，设置页卡片无需改模型。
 
@@ -269,6 +269,7 @@ IAiGateway
 | **P4 会话历史** | 会话卡聚合 + trailer 规范 + 过滤语法 + session squash | LogViewModel/LogFilterParser、LogPage、ChangesViewModel | P0 |
 | **P5 Agent 桥** | MCP server + agent 活动感知 + 反馈闭环（review.submit_feedback） | GitUI.Shell（TerminalParser 钩子）、新宿主进程/管道层 | P2/P4 |
 
+- **H 系列（Agent Harness，§十二）**：H0 接口冻结 + `cli-pty` 形态（随 P3 任务卡落地）→ H1 `cli-json` 事件流（随 P5）→ H2 `acp` 全双工（权限卡 + 反馈直投）→ H3 harness 包生态；
 - 每阶段都有**非 AI 兜底形态**（P1 规则建议、P2 纯规则风险信号、P4 时间窗启发识别），AI 不可用不阻塞发布；
 - 测试风格延续仓库现有守卫：规则引擎/会话识别纯函数化进 Core 测试（黄金用例 + 参数化拓扑），gateway mock，MCP 协议层单测，DiffCanvas 覆盖层走既有 headless 软件光栅化渲染测试。
 
@@ -284,4 +285,157 @@ IAiGateway
 | 高亮框架 | 风险规则按语言识别（调试输出模式）复用扩展名→highlighter 路由与语言元数据 |
 | 终端 | 多实例已支持（纯 UI 编排）；活动识别挂 TerminalParser 输出流；MCP 反馈闭环的提示经终端 tab 徽标呈现 |
 | 多窗口机制 | 任务卡双击开新窗口查看对应 worktree，机制现成 |
+| .gpk（harness kind） | `harness` kind 复用扩展包校验/启停/用户包目录全套机制；manifest 新增 `harness` 段（传输形态/能力集/身份署名/权限边界），探测-启动-事件-停止生命周期见 §十二 |
 | 危险操作确认 | worktree 清理/会话 squash 复用 `BranchDeleteImpact` 影响面 + "将丢弃 N 个提交"确认交互范式 |
+
+---
+
+## 十二、Agent Harness 扩展框架（编程 agent 的接入层）
+
+### 12.1 概念与目标
+
+**Harness = 编程 agent 的运行时封装**。Claude Code、Codex CLI、DeepSeek agent 这类编程 agent 各有各的 CLI 与协议，Gitter 不内置其中任何一家，而是定义统一的 harness 契约，让它们以 .gpk 扩展包形式接入任务工作台（§六）：
+
+- **用户视角**："新建任务 → 选一个 agent → 派活 → 审查"，agent 品牌只是任务卡上的一个可插拔选项；
+- **agent 视角**：获得 worktree 隔离、checkpoint 视觉化、审查反馈回注、权限请求 UI——Gitter 成为 agent 的宿主（harness 的本义）；
+- **生态视角**：`com.deepseek.harness`、`com.anthropic.claude-code` 等包由厂商或社区发布，核心零绑定（延续 §九 边界：不内置特定厂商）。
+
+### 12.2 四级传输形态（兼容性渐进）
+
+| Transport | 形态 | Gitter 获得的信号 | 典型对象 |
+|---|---|---|---|
+| `cli-pty` | agent CLI 跑在 Gitter 内嵌终端（ConPTY，既有能力） | 终端回显 + 输出模式状态推断（§7.3） | 任意 CLI agent，零适配 |
+| `cli-json` | 子进程管道驱动非交互/流式 JSON 输出（`-p --json` 类模式） | 真实事件流：阶段、checkpoint 提交、完成信号 | 支持流式 JSON 输出的 agent CLI |
+| `acp` | Agent Client Protocol（stdio JSON-RPC 全双工，开放标准） | 全双工：权限回调、反馈直投、追加指令 | ACP 兼容 agent |
+| `mcp` | 经 MCP 工具接口互操作 | 与 §7.2 互补：Gitter 既是 MCP server（暴露 git 能力），也可作 client 调用 agent 暴露的工具 | 暴露工具接口的 agent |
+
+- 上级形态自动包含下级能力；manifest 按实际支持声明 `capabilities`，Gitter 按 capability **降级渲染 UI**（无 `structured-events` 就显示终端 + 推断状态徽标；无 `permission-prompts` 就引导用户看终端）；
+- 终端永远是逃生舱：任何形态下任务卡都保留"打开原始终端"入口（cli-pty 形态下终端即本体）。
+
+### 12.3 manifest 扩展（kind: harness）
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "com.deepseek.harness",
+  "name": "DeepSeek Agent Harness",
+  "kinds": ["harness"],
+  "engines": { "gitui": ">=1.0" },
+  "harness": {
+    "transport": "cli-json",
+    "detect":   { "command": "deepseek-agent", "args": ["--version"], "versionPattern": "\\d+\\.\\d+" },
+    "spawn":    { "command": "deepseek-agent", "args": ["--workdir", "{worktree}", "--prompt-stdin"],
+                  "resumeArgs": ["--resume", "{sessionId}"] },
+    "capabilities": ["structured-events", "checkpoints", "session-diff", "feedback-channel", "permission-prompts"],
+    "identity": { "assistedBy": "deepseek-agent", "authorEmailPattern": ".*@deepseek\\.harness$" },
+    "permissions": { "gitWrite": ["stage", "commit"], "outsideWorktree": false, "network": "model-endpoint" }
+  }
+}
+```
+
+- `detect`：安装时/启动时探测本机 CLI 是否可用（未探测到 → 任务卡选项置灰并提示安装方式）；
+- `spawn`：`{worktree}` 由 Gitter 注入任务 worktree 路径，任务描述经 stdin 传入（避免命令行长度/转义问题）；
+- `identity`：对接 §5.2 会话规范——harness 打的 checkpoint 提交自动携带 `Assisted-by:` 与 `Gitter-Session:` trailer，Log 会话卡识别获得最可信来源；
+- `permissions`：声明式权限边界（见 §12.6），首次启用时向用户展示并确认。
+
+### 12.4 预留接口（GitUI.Core/Agents，签名以实施为准）
+
+```csharp
+namespace GitUI.Core.Agents;
+
+// —— 能力协商：UI 按位降级 ——
+[Flags]
+public enum HarnessCapability
+{
+    None = 0,
+    StructuredEvents  = 1 << 0,   // 结构化事件流（cli-json 及以上）
+    Checkpoints       = 1 << 1,   // agent 主动打 checkpoint 提交（事件反哺 §5 会话卡）
+    SessionDiff       = 1 << 2,   // 提供会话级变更摘要（§3.1 会话基线数据源之一）
+    FeedbackChannel   = 1 << 3,   // 可接收审查反馈（§3.4 退回重做直投）
+    PermissionPrompts = 1 << 4,   // 权限请求回调（§12.6）
+    Resume            = 1 << 5,   // 支持会话恢复（Gitter 重启后 reattach）
+    PromptSubmission  = 1 << 6,   // 可向运行中会话追加指令
+}
+
+public enum HarnessTransport { CliPty, CliJson, Acp, Mcp }
+
+// —— 一个扩展包注册一个 IAgentHarness（类型级，无状态）——
+public interface IAgentHarness
+{
+    HarnessDescriptor Descriptor { get; }
+    IAsyncEnumerable<HarnessInstall> DetectAsync(CancellationToken ct);      // 探测本机可用性
+    Task<IAgentSession> StartSessionAsync(AgentStartOptions options, CancellationToken ct);
+}
+
+public sealed record HarnessDescriptor(
+    string Id, string DisplayName,
+    HarnessTransport Transport,
+    IReadOnlySet<HarnessCapability> Capabilities,
+    HarnessIdentity Identity);                                               // trailer 署名等（§5.2）
+
+// —— 一次运行的会话实例（绑定 worktree，有状态）——
+public interface IAgentSession : IAsyncDisposable
+{
+    string SessionId { get; }
+    HarnessDescriptor Harness { get; }
+    string WorktreePath { get; }
+    AgentSessionState State { get; }   // Starting/Working/AwaitingPermission/Idle/Completed/Failed/Stopped
+    event EventHandler<AgentSessionEventArgs> Event;
+    Task SubmitPromptAsync(string prompt, CancellationToken ct);             // 派任务 / 追加指令
+    Task SubmitFeedbackAsync(IReadOnlyList<ReviewFeedback> feedback, CancellationToken ct);  // §3.4
+    Task<AgentStopResult> StopAsync(bool kill, CancellationToken ct);        // kill=false 请求优雅收尾
+}
+
+// —— 事件模型（cli-pty 形态退化为输出推断事件；cli-json/acp 为真实事件）——
+public abstract record AgentSessionEvent;
+public record AgentStatusEvent(AgentPhase Phase, string? Summary) : AgentSessionEvent;      // 推理/改码/跑测试…
+public record AgentOutputEvent(string Text, AgentStreamKind Kind) : AgentSessionEvent;      // 终端回显
+public record AgentCheckpointEvent(string CommitSha, string Summary) : AgentSessionEvent;   // → §5 会话时间线
+public record AgentPermissionEvent(PermissionRequest Request,
+    TaskCompletionSource<PermissionDecision> Reply) : AgentSessionEvent;                    // → 任务卡内联授权卡
+public record AgentQuestionEvent(string Question, IReadOnlyList<string> Options,
+    TaskCompletionSource<int> Reply) : AgentSessionEvent;                                   // agent 选择题
+public record AgentCompletedEvent(AgentOutcome Outcome, string? Summary) : AgentSessionEvent; // → §7.3 审查提示
+
+// —— 审查反馈载荷（§3.4 退回重做的直投载体，核心只定格式，投递由 harness 实现）——
+public sealed record ReviewFeedback(
+    string FilePath, int? OldStart, int? NewStart,
+    string Issue, string Constraint);
+```
+
+- **Gitter 核心只依赖上述接口与事件**；`cli-json`/`acp`/`mcp` 的协议细节在各 harness 包或内置 transport 适配器内消化；
+- 接口落点 GitUI.Core（纯模型，无 UI 依赖），编排宿主见 §12.6——延续仓库分层守卫（DependencyCheckTests）风格。
+
+### 12.5 会话 ↔ 任务卡 ↔ worktree 三元组
+
+- **一个任务卡 = 一个 worktree + 一个 harness 会话 + 一个会话基线**（§3.1）：新建任务流程变为"选 harness（列出探测到的可用项）→ 自动建 worktree → spawn → 输入任务描述"；
+- `AgentCheckpointEvent` 实时推进会话时间线（§5.1 会话卡数据源）；`AgentCompletedEvent` 触发"agent 已完成，查看会话 diff"审查提示（§7.3）；
+- harness 不在场时任务卡照常工作（手动开终端派活），harness 是增强而非前置依赖。
+
+### 12.6 安全模型
+
+| 层 | 机制 |
+|---|---|
+| 进程边界 | harness 进程由独立 **agent-host 子进程**编排（崩溃隔离、孤儿回收；Gitter 退出时可配置终止或保留 agent 会话） |
+| worktree 隔离 | `outsideWorktree: false` 时 spawn cwd 强制定位任务 worktree；Gitter 侧 git 操作校验路径归属 |
+| git 写白名单 | manifest 声明 + 用户确认；默认仅 `stage`/`commit`（checkpoint 语义）；branch/merge/push 等在任务卡上逐次显式授权 |
+| 经 Gitter MCP 的写操作 | 与 §7.2 共用同一确认通道（原则 1.2-2：无人工确认不落盘） |
+| 权限请求 UI | `AgentPermissionEvent` → 任务卡内联授权卡（不抢焦点弹窗），会话进入 `AwaitingPermission` 徽标态 |
+| 启停粒度 | 复用 DisabledKinds 按 kind 启停：停用 harness 包即从任务卡选项移除，运行中会话提示收尾 |
+
+### 12.7 与既有章节的衔接
+
+- **吸收 §7.4 反向桥**：`ReviewFeedback` + `FeedbackChannel` 能力即原"反馈直投"；`agent-bridge` kind 不再单设；
+- **§3.4 退回重做**：v1 剪贴板 → H2 起经 `SubmitFeedbackAsync` 直投运行中会话；
+- **§5.2 会话识别**：harness 在场时 `AgentCheckpointEvent` + trailer 为最可信来源；不在场时退化为 trailer/时间窗启发；
+- **§7.3 活动感知**：`cli-pty` 形态即其现状；高级形态下活动徽标直接来自 `AgentStatusEvent`，模式识别退居兜底；
+- **§7.2 MCP**：方向互补——MCP server 面向"agent 用 Gitter 的 git 能力"，harness 面向"Gitter 宿主 agent 的运行"；`mcp` transport 复用同一管道层。
+
+### 12.8 H 系列落地阶段（并入 §十 路线）
+
+| 阶段 | 交付 | 依赖 |
+|---|---|---|
+| **H0**（随 P3） | 接口冻结（GitUI.Core/Agents）+ `cli-pty`：任务卡拉起任意 CLI agent 于 worktree 终端，状态靠 §7.3 推断 | P3 任务卡 + 多终端 tab |
+| **H1**（随 P5） | `cli-json` 事件流解析：checkpoint 事件驱动会话卡、完成信号触发审查提示 | P4 会话历史 |
+| **H2** | `acp` 全双工：权限请求内联卡、`ReviewFeedback` 直投（§3.4 v2 落地）、prompt 追加 | H1 |
+| **H3** | harness 包生态：.gpk 分发与检测向导、per-project 默认 harness、agent-host 加固、多 harness 并存管理 | H2 |

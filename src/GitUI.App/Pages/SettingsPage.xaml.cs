@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.UI;
 
 namespace GitUI.App.Pages;
@@ -139,9 +140,27 @@ public sealed partial class SettingsPage : UserControl
         {
             var isSelected = pkg.Id == s.ThemePackageId;
             var origin = pkg.IsBuiltin ? "内置" : "自定义";
+            var rowContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            if (pkg.PreviewPath is not null)
+            {
+                rowContent.Children.Add(new Image
+                {
+                    Source = new BitmapImage(new Uri(pkg.PreviewPath)),
+                    Width = 56,
+                    Height = 30,
+                    Stretch = Stretch.UniformToFill,
+                });
+            }
+
+            rowContent.Children.Add(new TextBlock
+            {
+                Text = $"{pkg.Name}（{(pkg.BaseKind == ThemeBase.Light ? "亮色" : "深色")} · {origin}）",
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+
             var row = new Button
             {
-                Content = $"{pkg.Name}（{(pkg.BaseKind == ThemeBase.Light ? "亮色" : "深色")} · {origin}）",
+                Content = rowContent,
                 Padding = new Thickness(10, 5, 10, 6),
                 CornerRadius = new CornerRadius(4),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
