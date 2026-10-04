@@ -83,6 +83,12 @@ try {
   $allNames = @()
   foreach ($b in $btns) { $allNames += $b.Current.Name }
   Write-Output ('ALL BUTTONS: ' + ($allNames -join ' | '))
+  $extToggles = $main.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+    (New-Object System.Windows.Automation.PropertyCondition(
+      [System.Windows.Automation.AutomationElement]::NameProperty,
+      '启用 深色 主题')))
+  if ($extToggles.Count -lt 1) { Write-Output 'FAIL: 扩展卡片启停未找到'; return }
+  Write-Output 'OK: 扩展卡片启停存在（启用 深色 主题）'
   if ($pkgNames.Count -lt 2) { Write-Output 'FAIL: 主题包数量不足 2'; return }
 
   # 选择亮色包

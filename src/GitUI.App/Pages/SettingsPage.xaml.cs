@@ -1,5 +1,6 @@
 using System;
 using GitUI.Controls.Theme;
+using GitUI.Core.Extensions;
 using GitUI.Core.Settings;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
@@ -156,6 +157,133 @@ public sealed partial class SettingsPage : UserControl
 
         var followSelected = string.IsNullOrWhiteSpace(s.ThemePackageId);
         ThemeFollowBaseBtn.FontWeight = followSelected ? selected : normal;
+
+        PopulateExtensions();
+    }
+
+    // ---- 扩展卡片（extension-package-framework.md P1/P2：列表 / 按 kind 启停 / 卸载）----
+
+    private void PopulateExtensions()
+    {
+        if (ExtensionPackageList == null) return;
+
+        ExtensionPackageList.Children.Clear();
+        var s = _settings.Current;
+
+        foreach (var pkg in ThemeService.Packages.OrderBy(p => p.IsBuiltin ? 0 : 1).ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var row = new Grid { ColumnSpacing = 8 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var origin = pkg.IsBuiltin ? "内置" : "自定义";
+            var kindsText = string.Join("/", pkg.Manifest.Kinds.Select(k => k == "theme" ? "主题" : k == "syntax" ? "语法" : k));
+            var name = new TextBlock
+            {
+                Text = $"{pkg.Name} · {origin} · v{pkg.Manifest.Version} · {kindsText}",
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            Grid.SetColumn(name, 0);
+            row.Children.Add(name);
+
+            var kindsHost = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            foreach (var kind in pkg.Manifest.Kinds)
+            {
+                var kindCn = kind == "theme" ? "主题" : kind == "syntax" ? "语法" : kind;
+                var enabled = GitUI.Core.Extensions.PackageRegistryState.IsEnabled(pkg.Id, kind);
+                var cb = new CheckBox
+                {
+                    Content = kindCn,
+                    IsChecked = enabled,
+                    MinWidth = 0,
+                    Padding = new Thickness(0),
+                    FontSize = 11,
+                    Tag = pkg.Id + ":" + kind,
+                };
+                AutomationProperties.SetName(cb, $"启用 {pkg.Name} {kindCn}");
+                cb.Checked += PackageKindToggle_Changed;
+                cb.Unchecked += PackageKindToggle_Changed;
+                kindsHost.Children.Add(cb);
+            }
+
+            Grid.SetColumn(kindsHost, 1);
+            row.Children.Add(kindsHost);
+
+            if (!pkg.IsBuiltin)
+            {
+                var uninstallBtn = new Button
+                {
+                    Content = "卸载",
+                    FontSize = 11,
+                    Padding = new Thickness(8, 2, 8, 3),
+                    CornerRadius = new CornerRadius(4),
+                    Tag = pkg.Id,
+                };
+                AutomationProperties.SetName(uninstallBtn, $"卸载 {pkg.Name}");
+                uninstallBtn.Click += UninstallPackage_Click;
+                Grid.SetColumn(uninstallBtn, 2);
+                row.Children.Add(uninstallBtn);
+            }
+
+            ExtensionPackageList.Children.Add(row);
+        }
+    }
+
+    /// <summary>kind 启停：更新共享注册状态 + 持久化；主题即时经 settings.Changed 重载，语法即时重扫描。</summary>
+    private void PackageKindToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox cb || cb.Tag is not string entry) return;
+
+        GitUI.Core.Extensions.PackageRegistryState.SetEnabled(
+            entry[..entry.LastIndexOf(':')], entry[(entry.LastIndexOf(':') + 1)..], cb.IsChecked == true);
+
+        _settings.Update(s => s.DisabledPackageKinds =
+            GitUI.Core.Extensions.PackageRegistryState.DisabledKinds.ToList());
+        _settings.Save();
+
+        if (entry.EndsWith(":syntax", StringComparison.OrdinalIgnoreCase))
+        {
+            GitUI.Diff.Highlighting.HighlighterRegistry.Rescan();
+        }
+
+        ShowExtensionStatus($"已{(cb.IsChecked == true ? "启用" : "禁用")}：{entry.Replace(':', '·')}");
+    }
+
+    /// <summary>卸载用户扩展包（含其全部种类）：主题立即回退内置，语法回退 plain。</summary>
+    private void UninstallPackage_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string id) return;
+
+        var wasActiveTheme = _settings.Current.ThemePackageId == id;
+        var ok = ThemeService.UninstallPackage(id);
+        if (!ok)
+        {
+            ShowExtensionStatus("卸载失败（内置包或目录不可删）");
+            return;
+        }
+
+        GitUI.Diff.Highlighting.HighlighterRegistry.Rescan();
+
+        _settings.Update(s =>
+        {
+            s.DisabledPackageKinds = GitUI.Core.Extensions.PackageRegistryState.DisabledKinds
+                .Where(entry => !entry.StartsWith(id + ":", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (wasActiveTheme)
+            {
+                s.ThemePackageId = null; // 活动主题被卸载 → 回退内置跟随基座
+            }
+        });
+        _settings.Save();
+        ShowExtensionStatus($"已卸载：{id}");
+    }
+
+    private void ShowExtensionStatus(string message)
+    {
+        ExtensionStatusText.Text = message;
+        ExtensionStatusText.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>选中主题包的高亮底色（跟随令牌，暗亮自适配）。</summary>

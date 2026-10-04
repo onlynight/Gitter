@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GitUI.Core.Extensions;
 
 namespace GitUI.Diff.Highlighting;
 
@@ -14,6 +15,9 @@ public static class HighlighterRegistry
         new(StringComparer.OrdinalIgnoreCase);
     private static readonly List<ISyntaxHighlighter> _all = new();
     private static bool _scanned;
+
+    /// <summary>注册表内容变化（Rescan/卸载后触发；DiffCanvas 据此重解析当前高亮器）。</summary>
+    public static event Action? Changed;
 
     public static IReadOnlyList<ISyntaxHighlighter> All
     {
@@ -72,6 +76,7 @@ public static class HighlighterRegistry
         }
 
         EnsureScanned();
+        Changed?.Invoke();
     }
 
     private static void EnsureScanned()
@@ -119,6 +124,12 @@ public static class HighlighterRegistry
                         string.Equals(k.GetString(), "syntax", StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
+                }
+
+                if (!manifestDoc.RootElement.TryGetProperty("id", out var idEl)
+                    || !PackageRegistryState.IsEnabled(idEl.GetString() ?? "", "syntax"))
+                {
+                    continue; // 该包的 syntax 种类被用户禁用
                 }
 
                 foreach (var h in DeclarativeHighlighter.LoadAll(File.ReadAllText(grammarPath)))

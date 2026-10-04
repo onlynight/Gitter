@@ -70,6 +70,7 @@ public partial class App : Application
         // 加载设置；失败时使用默认值，不阻断启动
         Settings.Load();
         MigrateRecentReposToProjects();
+        GitUI.Core.Extensions.PackageRegistryState.LoadFrom(Settings.Current.DisabledPackageKinds);
 
         // P0（theme-framework.md）：主题在创建首窗前预设到 Application 级。
         // 此前仅设置页切换路径有效——settings theme=Light 冷启动仍渲染系统深色。

@@ -12,6 +12,9 @@ public sealed class AppSettings
     /// <summary>主题包 id（theme-framework.md）；null/空 = 按基座使用内置深/浅主题包。</summary>
     public string? ThemePackageId { get; set; }
 
+    /// <summary>被禁用的扩展包种类清单，条目 = "包id:种类"（extension-package-framework.md §四 启停）。</summary>
+    public List<string> DisabledPackageKinds { get; set; } = new();
+
     /// <summary>最近打开的仓库路径，最多 5 个，最新在前。已由 Projects 取代写入，仅作旧配置迁移来源。</summary>
     public List<string> RecentRepos { get; set; } = new();
 

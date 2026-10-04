@@ -27,6 +27,17 @@
             </Border>
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
+                    <TextBlock Text="扩展" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Text="按种类启用/禁用扩展包（主题 / 语法高亮）；卸载仅对自定义包可用。" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel x:Name="ExtensionPackageList" Spacing="2"/>
+                    <TextBlock x:Name="ExtensionStatusText" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" Visibility="Collapsed"/>
+                </StackPanel>
+            </Border>
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
+                <StackPanel Spacing="8">
                     <TextBlock Text="Diff 模式" FontSize="13" FontWeight="SemiBold"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <controls:Button x:Name="DiffSideBySideBtn" Content="并排" Padding="12,6" CornerRadius="6" Click="DiffMode_Click"/>

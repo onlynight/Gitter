@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using GitUI.Core.Extensions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
@@ -35,6 +36,10 @@ public static class ThemeService
     /// <summary>当前活动主题包。</summary>
     public static ThemePackageInfo? Active { get; private set; }
 
+    /// <summary>活动主题的语法配色（styleKey → hex，含继承合并；代码高亮框架消费）。</summary>
+    public static IReadOnlyDictionary<string, string> ActiveSyntax { get; private set; } =
+        new Dictionary<string, string>();
+
     /// <summary>每次应用完成后广播（宿主：RootGrid.RequestedTheme / 标题栏 / 页面 Rebind）。</summary>
     public static event Action<ThemePackageInfo>? Applied;
 
@@ -57,19 +62,28 @@ public static class ThemeService
             Scan();
         }
 
-        var info = packageId is not null && _packages.TryGetValue(packageId, out var p) ? p : null;
+        ThemePackageInfo? info = null;
+        if (packageId is not null && _packages.TryGetValue(packageId, out var p)
+            && PackageRegistryState.IsEnabled(packageId, "theme"))
+        {
+            info = p; // 包存在且未被禁用
+        }
         info ??= _packages.TryGetValue(DefaultPackageId(fallbackBase), out var builtin) ? builtin : null;
         info ??= _packages.Values.FirstOrDefault(x => x.BaseKind == fallbackBase);
         if (info?.ThemeDoc is null)
         {
             // 完全没有可用主题包：保留 TokenRuntime 兜底表
+            ActiveSyntax = new Dictionary<string, string>();
             TokenRuntime.Load(fallbackBase, TokenRuntime.BuiltinDefaults(fallbackBase));
+            Applied?.Invoke(info ?? new ThemePackageInfo(fallbackBase == ThemeBase.Light ? LightPackageId : DarkPackageId,
+                fallbackBase == ThemeBase.Light ? "亮色" : "深色", fallbackBase, true, "", new PackageManifest(), new ThemeDocument()));
             return false;
         }
 
         Active = info;
         var tokens = ResolveTokens(info);
         TokenRuntime.Load(info.BaseKind, tokens);
+        ActiveSyntax = ResolveSyntax(info);
         InjectFramework(info.ThemeDoc);
         Applied?.Invoke(info);
         return true;
@@ -94,6 +108,39 @@ public static class ThemeService
 
     public static string DefaultPackageId(ThemeBase baseKind) =>
         baseKind == ThemeBase.Light ? LightPackageId : DarkPackageId;
+
+    /// <summary>
+    /// 卸载用户主题包：删除用户目录下的包目录并重扫描。
+    /// 内置包不可卸载（返回 false）；若卸载的是活动包，调用方负责重新 Apply（会自动回退内置）。
+    /// </summary>
+    public static bool UninstallPackage(string packageId)
+    {
+        if (!_packages.TryGetValue(packageId, out var pkg) || pkg.IsBuiltin)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (Directory.Exists(pkg.RootPath))
+            {
+                Directory.Delete(pkg.RootPath, recursive: true);
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        _packages.Remove(packageId);
+        if (Active?.Id == packageId)
+        {
+            Active = null;
+        }
+
+        Scan();
+        return true;
+    }
 
     /// <summary>
     /// 导入 .gpk 主题包（extension-package-framework.md §四 生命周期）：
@@ -196,11 +243,19 @@ public static class ThemeService
                 }
 
                 var manifest = ThemePackageJson.ParseManifest(File.ReadAllText(manifestPath));
-                var themeDoc = ThemePackageJson.ParseTheme(File.ReadAllText(themePath));
-                if (manifest is null || themeDoc is null
-                    || !manifest.Kinds.Contains("theme", StringComparer.OrdinalIgnoreCase))
+                if (manifest is null || string.IsNullOrWhiteSpace(manifest.Id)
+                    || !manifest.Kinds.Contains("theme", StringComparer.OrdinalIgnoreCase)
+                    || !PackageRegistryState.IsEnabled(manifest.Id, "theme"))
                 {
-                    continue;
+                    continue; // 非主题种类包 / 已被用户禁用
+                }
+
+                var themeDoc = File.Exists(themePath)
+                    ? ThemePackageJson.ParseTheme(File.ReadAllText(themePath))
+                    : null;
+                if (themeDoc is null)
+                {
+                    continue; // kinds 声明了 theme 但缺少 theme.json → 视为损坏，不注册
                 }
 
                 var baseKind = manifest.Theme?.Base == "light" || themeDoc.Base == "light"
@@ -213,6 +268,29 @@ public static class ThemeService
                 // 单个包损坏不阻断扫描（extension-package-framework.md §四 故障隔离）
             }
         }
+    }
+
+    /// <summary>语法配色继承合并：inherits 主题 syntax → 自身 syntax。</summary>
+    private static IReadOnlyDictionary<string, string> ResolveSyntax(ThemePackageInfo info)
+    {
+        var doc = info.ThemeDoc!;
+        var syntax = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (doc.Inherits is not null && _packages.TryGetValue(doc.Inherits, out var baseTheme)
+            && baseTheme.ThemeDoc is not null)
+        {
+            foreach (var (key, hex) in baseTheme.ThemeDoc.Syntax)
+            {
+                syntax[key] = hex;
+            }
+        }
+
+        foreach (var (key, hex) in doc.Syntax)
+        {
+            syntax[key] = hex;
+        }
+
+        return syntax;
     }
 
     /// <summary>继承合并：基座缺省表 → inherits 主题覆盖 → 自身覆盖。</summary>

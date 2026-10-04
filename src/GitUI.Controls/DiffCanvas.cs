@@ -129,6 +129,12 @@ public sealed class DiffCanvas : Grid
             _syntaxStyles = BuildSyntaxStyles();
             _canvas.Invalidate();
         };
+        HighlighterRegistry.Changed += () =>
+        {
+            // 扩展包启停/导入/卸载 → 重解析当前源文件的高亮器
+            _highlighter = _sourcePath is null ? null : HighlighterRegistry.Resolve(_sourcePath);
+            _canvas.Invalidate();
+        };
 
         BuildAccelerators();
         _palette = ResolvePalette();
