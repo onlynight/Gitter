@@ -137,6 +137,27 @@ public static class HighlighterRegistry
                     Register(h);
                 }
 
+                // TextMate 兼容子集（P4b）：syntax/*.tmLanguage.json
+                var syntaxDir = Path.Combine(dir, "syntax");
+                if (Directory.Exists(syntaxDir))
+                {
+                    foreach (var tml in Directory.EnumerateFiles(syntaxDir, "*.tmLanguage.json"))
+                    {
+                        try
+                        {
+                            var h = TextMateSubset.Load(File.ReadAllText(tml), Path.GetFileNameWithoutExtension(tml));
+                            if (h is not null)
+                            {
+                                Register(h);
+                            }
+                        }
+                        catch
+                        {
+                            // 单文件损坏不阻断扫描
+                        }
+                    }
+                }
+
                 // 脚本高亮器（entryPoints.script → init.js 经 gitui.syntax.register 注册）
                 if (manifestDoc.RootElement.TryGetProperty("entryPoints", out var entryPoints)
                     && entryPoints.TryGetProperty("script", out var scriptEl)

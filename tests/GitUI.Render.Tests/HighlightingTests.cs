@@ -5,7 +5,7 @@ using GitUI.Diff.Render;
 
 namespace GitUI.Render.Tests;
 
-/// <summary>声明式高亮引擎 + 注册表 + 布局语法 run（code-highlight-framework.md P1）。</summary>
+/// <summary>声明式高亮引擎 + 注册表 + TextMate 子集 + 布局语法 run（P4a/P4b）。</summary>
 public class HighlightingTests
 {
     // 声明式语法（JSON）。用字符串拼接构造，避免测试源码里的引号嵌套问题。
@@ -72,10 +72,63 @@ public class HighlightingTests
         Assert.IsType<NullHighlighter>(HighlighterRegistry.Resolve("file.unknown"));
     }
 
-    [Fact]
-    public void BuiltinSyntaxPackage_GrammarLoadsAndCoversFiveLanguages()
+    // ---- P4a：跨行块注释 ----
+
+    private static string BlockGrammar = """
     {
-        // 内置语法包守卫：JSON 合法、正则全部可编译、覆盖五语言
+      "highlighters": [{
+        "id": "test.block", "language": "blk", "extensions": [".blk"],
+        "rules": [
+          { "style": "comment", "blockStart": "/\\*", "blockEnd": "\\*/" },
+          { "style": "keyword", "keywords": ["var"] }
+        ]
+      }]
+    }
+    """;
+
+    [Fact]
+    public void BlockComment_CarriesStateAcrossLines()
+    {
+        var h = LoadOne(BlockGrammar);
+        Assert.True(h.RequiresSequentialState);
+
+        var r1 = h.TokenizeLine("/* start", LineState.None);
+        Assert.Contains(r1.Spans, s => s.StyleKey == "comment" && s.Start == 0);
+
+        var r2 = h.TokenizeLine("mid * text", r1.NextState);
+        Assert.All(r2.Spans, s => Assert.Equal("comment", s.StyleKey)); // 块内整行皆注释
+
+        // 行内结束：*/ 之后的 keyword 恢复正常着色
+        var r3 = h.TokenizeLine("*/ var x", r2.NextState);
+        Assert.Contains(r3.Spans, s => s.StyleKey == "comment" && s.Start == 0 && s.Length == 2);
+        Assert.Contains(r3.Spans, s => s.StyleKey == "keyword" && s.Start == 3 && s.Length == 3);
+    }
+
+    [Fact]
+    public void EnsureSyntaxTokens_Sequential_JoinsBlockAcrossRows()
+    {
+        var stub = LoadOne(BlockGrammar);
+        HighlighterRegistry.Register(stub);
+
+        // 三行上下文：块注释跨行（左列=旧文件序）
+        var model = new DiffRenderModel(TestHunks.List(
+            TestHunks.H(1, 3, 1, 3, " /* a", " * b", " */ c")), sideBySide: false);
+
+        model.EnsureSyntaxTokens(0, model.Rows.Count - 1, HighlighterRegistry.Resolve("a.blk"));
+
+        // 左列三个内容格全部命中注释样式（状态跨行传递）
+        Assert.All(new[] { model.Rows[1].Left!, model.Rows[2].Left!, model.Rows[3].Left! },
+            cell => Assert.NotNull(cell.SyntaxTokens));
+        Assert.Equal("comment", model.Rows[1].Left!.SyntaxTokens!.Single().StyleKey);
+        Assert.Equal("comment", model.Rows[3].Left!.SyntaxTokens!.Single().StyleKey);
+    }
+
+    // ---- P4b：TextMate 兼容子集 ----
+
+    [Fact]
+    public void BuiltinSyntaxPackage_GrammarLoadsAndCoversLanguages()
+    {
+        // 内置语法包守卫：JSON 合法、正则全部可编译、语言覆盖
         var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..",
             "src", "GitUI.App", "Packages", "GitUI.syntax.builtin", "syntax", "highlighters.json");
         if (!File.Exists(path))
@@ -93,9 +146,39 @@ public class HighlightingTests
     }
 
     [Fact]
+    public void BuiltinSyntaxPackage_PythonTmLanguageLoads()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..",
+            "src", "GitUI.App", "Packages", "GitUI.syntax.builtin", "syntax", "python.tmLanguage.json");
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        var h = TextMateSubset.Load(File.ReadAllText(path), "python");
+        Assert.NotNull(h);
+        Assert.Contains(".py", h.Extensions);
+        var r = h.TokenizeLine("def foo():", LineState.None);
+        Assert.Contains(r.Spans, s => s.StyleKey == "keyword" && s.Start == 0 && s.Length == 3);
+        Assert.Contains(r.Spans, s => s.StyleKey == "function" && s.Start == 4 && s.Length == 3);
+
+        // scope 映射：include 展开的注释、constant.numeric → number
+        var r2 = h.TokenizeLine("# 注释", LineState.None);
+        Assert.Contains(r2.Spans, s => s.StyleKey == "comment");
+        var r3 = h.TokenizeLine("n = 42", LineState.None);
+        Assert.Contains(r3.Spans, s => s.StyleKey == "number" && s.Start == 4 && s.Length == 2);
+
+        // begin/end → 跨行块规则（三引号字符串）
+        Assert.True(h.RequiresSequentialState);
+        var r4 = h.TokenizeLine("'''doc'''", LineState.None);
+        Assert.All(r4.Spans, s => Assert.Equal("string", s.StyleKey));
+    }
+
+    // ---- 布局：语法 run ----
+
+    [Fact]
     public void Layout_EmitsTextRunCommand_ForSyntaxTokens()
     {
-        // 桩高亮器：整行 "alpha" → keyword
         var stub = LoadOne(Grammar("test.layout", "\".layoutlang\"",
             "{\"style\": \"keyword\", \"pattern\": \"alpha\"}"));
         HighlighterRegistry.Register(stub);
@@ -144,7 +227,8 @@ public class HighlightingTests
         Assert.Contains(frame.Commands, c => c is FillRectCommand f && f.Color == DiffColorKind.DeletedWordBackground);
         Assert.Contains(frame.Commands.OfType<TextCommand>(), t => t.Text.Contains("alpha"));
     }
-    // ---- VSCode 合包（theme + syntax 双种类，extension-package-framework.md §3.2）----
+
+    // ---- VSCode 合包（theme + syntax 双种类）----
 
     private static string VsCodePackagePath() => Path.Combine(AppContext.BaseDirectory,
         "..", "..", "..", "..", "..", "src", "GitUI.App", "Packages", "VsCodeDark");
@@ -201,57 +285,5 @@ public class HighlightingTests
 
         // 后注册的插件覆盖内置同扩展名高亮器（extension-package-framework.md §四）
         Assert.Equal("vscode.csharp", HighlighterRegistry.Resolve("Program.cs").Id);
-    }
-
-    // ---- P4a：跨行块注释 ----
-
-    private static string BlockGrammar = """
-    {
-      "highlighters": [{
-        "id": "test.block", "language": "blk", "extensions": [".blk"],
-        "rules": [
-          { "style": "comment", "blockStart": "/\\*", "blockEnd": "\\*/" },
-          { "style": "keyword", "keywords": ["var"] }
-        ]
-      }]
-    }
-    """;
-
-    [Fact]
-    public void BlockComment_CarriesStateAcrossLines()
-    {
-        var h = LoadOne(BlockGrammar);
-        Assert.True(h.RequiresSequentialState);
-
-        var r1 = h.TokenizeLine("/* start", LineState.None);
-        Assert.Contains(r1.Spans, s => s.StyleKey == "comment" && s.Start == 0);
-
-        var r2 = h.TokenizeLine("mid * text", r1.NextState);
-        Assert.Contains(r2.Spans, s => s.StyleKey == "comment" && s.Start == 0);
-        Assert.All(r2.Spans, s => Assert.Equal("comment", s.StyleKey)); // 块内整行皆注释
-
-        // 行内结束：*/ 之后的 keyword 恢复正常着色
-        var r3 = h.TokenizeLine("*/ var x", r2.NextState);
-        Assert.Contains(r3.Spans, s => s.StyleKey == "comment" && s.Start == 0 && s.Length == 2);
-        Assert.Contains(r3.Spans, s => s.StyleKey == "keyword" && s.Start == 3 && s.Length == 3);
-    }
-
-    [Fact]
-    public void EnsureSyntaxTokens_Sequential_JoinsBlockAcrossRows()
-    {
-        var stub = LoadOne(BlockGrammar);
-        HighlighterRegistry.Register(stub);
-
-        // 三行上下文：块注释跨行（左列=旧文件序）
-        var model = new DiffRenderModel(TestHunks.List(
-            TestHunks.H(1, 3, 1, 3, " /* a", " * b", " */ c")), sideBySide: false);
-
-        model.EnsureSyntaxTokens(0, model.Rows.Count - 1, HighlighterRegistry.Resolve("a.blk"));
-
-        // 左列三个内容格全部命中注释样式（状态跨行传递）
-        Assert.All(new[] { model.Rows[1].Left!, model.Rows[2].Left!, model.Rows[3].Left! },
-            cell => Assert.NotNull(cell.SyntaxTokens));
-        Assert.Equal("comment", model.Rows[1].Left!.SyntaxTokens!.Single().StyleKey);
-        Assert.Equal("comment", model.Rows[3].Left!.SyntaxTokens!.Single().StyleKey);
     }
 }

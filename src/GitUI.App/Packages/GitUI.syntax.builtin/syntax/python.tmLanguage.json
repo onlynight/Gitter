@@ -1,0 +1,49 @@
+{
+  "name": "Python",
+  "fileTypes": [
+    "py",
+    "pyw"
+  ],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#triple-strings"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "match": "\\b(?:def|class|if|elif|else|for|while|import|from|as|return|pass|break|continue|lambda|with|in|is|not|and|or|None|True|False|try|except|finally|raise|global|nonlocal|yield|assert|del|async|await)\\b",
+      "name": "keyword.control.python"
+    },
+    {
+      "match": "\\b\\d+(?:\\.\\d+)?\\b",
+      "name": "constant.numeric.python"
+    },
+    {
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+      "name": "entity.name.type.python"
+    },
+    {
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()",
+      "name": "entity.name.function.python"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.python"
+    },
+    "strings": {
+      "match": "(?:[fFrRbBuU]{0,2})\"(?:\\\\.|[^\"\\\\])*\"",
+      "name": "string.quoted.double.python"
+    },
+    "triple-strings": {
+      "begin": "(?:[fFrRbBuU]{0,2})('''|\"\"\")",
+      "end": "(?:'''|\"\"\")",
+      "name": "string.quoted.triple.python"
+    }
+  }
+}

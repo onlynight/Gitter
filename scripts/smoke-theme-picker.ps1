@@ -83,11 +83,18 @@ try {
   $allNames = @()
   foreach ($b in $btns) { $allNames += $b.Current.Name }
   Write-Output ('ALL BUTTONS: ' + ($allNames -join ' | '))
-  $extToggles = $main.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-    (New-Object System.Windows.Automation.PropertyCondition(
-      [System.Windows.Automation.AutomationElement]::NameProperty,
-      '启用 深色 主题')))
-  if ($extToggles.Count -lt 1) {
+  # 扩展卡片启停轮询（列表经 DispatcherQueue 延迟填充，且 UIA 快照偶发滞后）
+  $extFound = $false
+  for ($i = 1; $i -le 8; $i++) {
+    Start-Sleep -Seconds 1
+    $main = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
+    $extToggles = $main.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+      (New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::NameProperty,
+        '启用 深色 主题')))
+    if ($extToggles.Count -ge 1) { $extFound = $true; break }
+  }
+  if (-not $extFound) {
     $main = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
     $all = $main.FindAll([System.Windows.Automation.TreeScope]::Descendants,
       (New-Object System.Windows.Automation.PropertyCondition(

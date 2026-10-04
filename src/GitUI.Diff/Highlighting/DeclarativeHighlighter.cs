@@ -31,6 +31,16 @@ public sealed class DeclarativeHighlighter : ISyntaxHighlighter
     /// <summary>存在跨行块规则 → 消费方须按行序分词（P4a）。</summary>
     public bool RequiresSequentialState => _blockRules.Count > 0;
 
+    /// <summary>工厂入口（TextMate 子集 / 测试用）：直接以已编译规则构建。</summary>
+    public static DeclarativeHighlighter Create(
+        string id, string language, IReadOnlyList<string> extensions,
+        List<(string Style, Regex Pattern)> rules, List<BlockRule> blockRules)
+    {
+        var h = new DeclarativeHighlighter(id, language, extensions, rules);
+        h._blockRules.AddRange(blockRules);
+        return h;
+    }
+
     public LineHighlightResult TokenizeLine(string line, LineState? state)
     {
         if (_blockRules.Count > 0)
@@ -79,7 +89,8 @@ public sealed class DeclarativeHighlighter : ISyntaxHighlighter
         return new LineHighlightResult(spans, state);
     }
 
-    private readonly record struct BlockRule(string Style, Regex Start, Regex End);
+    /// <summary>跨行块规则（P4a）。</summary>
+    public sealed record BlockRule(string Style, Regex Start, Regex End);
 
     /// <summary>跨行块状态：每个块规则一位（int 掩码，支持 ≤32 条块规则）。</summary>
     public sealed class BlockMaskState : LineState

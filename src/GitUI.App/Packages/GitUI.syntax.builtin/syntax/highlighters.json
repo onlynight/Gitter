@@ -19,11 +19,11 @@
         },
         {
           "style": "string",
-          "pattern": "\\\"(?:\\.|[^\\\"\\])*\\\""
+          "pattern": "\"(?:\\\\.|[^\"\\\\])*\""
         },
         {
           "style": "string",
-          "pattern": "'(?:\\.|[^'\\])'"
+          "pattern": "'(?:\\\\.|[^'\\\\])'"
         },
         {
           "style": "keyword",
@@ -33,7 +33,6 @@
             "async",
             "await",
             "base",
-            "bool",
             "break",
             "byte",
             "case",
@@ -112,12 +111,32 @@
             "volatile",
             "when",
             "where",
-            "while"
+            "while",
+            "bool",
+            "byte",
+            "char",
+            "decimal",
+            "double",
+            "dynamic",
+            "float",
+            "int",
+            "long",
+            "nint",
+            "nuint",
+            "object",
+            "sbyte",
+            "short",
+            "string",
+            "uint",
+            "ulong",
+            "ushort",
+            "void",
+            "var"
           ]
         },
         {
           "style": "number",
-          "pattern": "\\b0x[0-9A-Fa-f]+\\b|\\b\\d+(?:\\.\\d+)?[fFdDmMuUlL]*\\b"
+          "pattern": "\\b(?:0[xX][0-9A-Fa-f_]+|\\d[\\d_]*(?:\\.[\\d_]+)?(?:[eE][+-]?\\d+)?)[fFdDmMuUlL]*\\b"
         },
         {
           "style": "type",
@@ -135,7 +154,7 @@
       "rules": [
         {
           "style": "string",
-          "pattern": "\\\"(?:\\.|[^\\\"\\])*\\\""
+          "pattern": "\"(?:\\\\.|[^\"\\\\])*\""
         },
         {
           "style": "keyword",
