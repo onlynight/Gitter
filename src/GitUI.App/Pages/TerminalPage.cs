@@ -190,6 +190,40 @@ public sealed class TerminalPage : UserControl
         _closeCommandPalette?.Invoke(); // 终端页独占键盘：命令面板残留会截获全部键入
         EnsureSessionStarted();
         _canvas.Focus(FocusState.Programmatic);
+
+        // 诊断钩子（diag-term-typing.ps1）：GITTER_TERM_AUTOTYPE=文本 时经 WriteRaw
+        // 进暂存队列、会话启动后回放——SendKeys 被环境策略拒绝时的键入链路复现路径；
+        // GITTER_TERM_SNAPSHOT=路径 时 15s 后用 RenderTargetBitmap 进程内截取画布 PNG
+        var autoType = Environment.GetEnvironmentVariable("GITTER_TERM_AUTOTYPE");
+        if (!string.IsNullOrEmpty(autoType)) WriteRaw(Encoding.UTF8.GetBytes(autoType));
+        var snapshot = Environment.GetEnvironmentVariable("GITTER_TERM_SNAPSHOT");
+        if (!string.IsNullOrEmpty(snapshot)) _ = SnapshotCanvasAsync(snapshot);
+    }
+
+    private async Task SnapshotCanvasAsync(string path)
+    {
+        try
+        {
+            await Task.Delay(15000); // 等会话启动 + 回显渲染（ConPTY 探测可达 ~7s）
+            var rtb = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
+            await rtb.RenderAsync(_canvas);
+            var pixels = await rtb.GetPixelsAsync();
+            var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+            var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(
+                Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
+            encoder.SetPixelData(
+                Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                Windows.Graphics.Imaging.BitmapAlphaMode.Ignore,
+                (uint)rtb.PixelWidth, (uint)rtb.PixelHeight, 96, 96,
+                System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.ToArray(pixels));
+            await encoder.FlushAsync();
+            using var fs = System.IO.File.Create(path);
+            await stream.AsStreamForRead().CopyToAsync(fs);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("term snapshot: " + ex.Message);
+        }
     }
 
 
@@ -288,6 +322,7 @@ public sealed class TerminalPage : UserControl
 
             _session = session;
             _sessionState = "运行中";
+            FlushPendingInput();
         }
         catch (Exception ex)
         {
@@ -313,6 +348,7 @@ public sealed class TerminalPage : UserControl
 
             _session = session;
             _sessionState = "运行中";
+            FlushPendingInput();
         }
         catch (Exception ex)
         {
@@ -382,13 +418,39 @@ public sealed class TerminalPage : UserControl
 
     private void WriteRaw(ReadOnlyMemory<byte> bytes)
     {
+        var session = _session;
+        if (session is null)
+        {
+            // 会话未就绪（ConPTY 环境探测可达数秒）：暂存键入，会话启动后按序回放。
+            // 此前直接静默丢弃 —— 页签打开后立刻键入的字符全部丢失（键入不回显的根因）。
+            lock (_pendingInput)
+            {
+                if (_pendingInput.Count < 128) _pendingInput.Enqueue(bytes.ToArray());
+            }
+            return;
+        }
         try
         {
-            _session?.Write(bytes.Span);
+            session.Write(bytes.Span);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine("pty write: " + ex);
+        }
+    }
+
+    private readonly Queue<byte[]> _pendingInput = new();
+
+    /// <summary>会话就绪后回放启动期间暂存的键入（保持顺序；上限 128 块防积压）。</summary>
+    private void FlushPendingInput()
+    {
+        lock (_pendingInput)
+        {
+            while (_pendingInput.Count > 0 && _session is not null)
+            {
+                try { _session.Write(_pendingInput.Dequeue()); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("pty replay: " + ex); break; }
+            }
         }
     }
 

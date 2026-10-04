@@ -87,6 +87,54 @@ public sealed class TerminalResizeTests
     }
 
     [Fact]
+    public void Shrink_SkipsBlankLines_NoScrollbackPollution()
+    {
+        // 首帧 80×24 → 实际视口缩容：会话未启动 buffer 全空，被淘汰行全是空网格行，
+        // 不得进 scrollback（此前空行入队 → 提示符被顶到视口中部、跟随逻辑不回底）
+        var b = new TerminalBuffer(80, 24);
+        b.Resize(60, 17);
+        Assert.Equal(0, b.ScrollbackCount);
+        Assert.Equal((0, 0), b.Cursor);
+
+        // 内容在淘汰窗口之下：上方空行丢弃，内容原位保留，同样不进 scrollback
+        var b2 = new TerminalBuffer(20, 6);
+        var p2 = new TerminalParser(b2);
+        p2.Feed(Encoding.UTF8.GetBytes("\r\n\r\n\r\nhello"));
+        b2.Resize(20, 3);
+        Assert.Equal(0, b2.ScrollbackCount);
+        Assert.Equal("hello", Line(b2, 0));
+    }
+
+    [Fact]
+    public void Shrink_KeepsContentRows_DropsBlankRows()
+    {
+        // 混合内容：非空行照常入 scrollback，夹在其中的空行丢弃
+        var b = new TerminalBuffer(20, 6);
+        var p = new TerminalParser(b);
+        p.Feed(Encoding.UTF8.GetBytes("top\r\n\r\nmid\r\n\r\n\r\nbottom"));
+
+        b.Resize(20, 3);
+
+        // 淘汰窗口 = 顶部 3 行（top/空/mid）：top、mid 入 scrollback，空行丢弃
+        Assert.Equal(2, b.ScrollbackCount);
+        Assert.Equal("top", SbLine(b, 0));
+        Assert.Equal("mid", SbLine(b, 1));
+        // 屏幕保留底部 3 行（空/空/bottom）
+        Assert.Equal("bottom", Line(b, 2));
+    }
+
+    private static string SbLine(TerminalBuffer b, int index)
+    {
+        var line = b.GetScrollbackLine(index)!;
+        var sb = new StringBuilder();
+        foreach (var cell in line)
+        {
+            if (cell.Char != TerminalCell.WideContinuation) sb.Append(cell.Char);
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    [Fact]
     public void Resize_DoesNotThrow_ForAnySize()
     {
         var b = new TerminalBuffer(80, 24);

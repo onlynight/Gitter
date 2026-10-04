@@ -223,27 +223,70 @@ public sealed class TerminalCanvas : Grid
 
     private CanvasTextFormat TextFormat => _textFormat ??= new CanvasTextFormat
     {
-        FontFamily = "Cascadia Mono, Consolas, Segoe UI Mono",
+        // DirectWrite 只接受单一族名：XAML 风格逗号回退串整体按无效名处理 →
+        // 静默回退默认比例字体（Segoe UI），文本自然步进 ≠ 网格步进，
+        // 长 run 逐字符累计漂移（提示符与光标块之间出现数格空隙的根因）。
+        // 运行时解析出实际安装的等宽族，保证字形步进 = 字宽度量 = 网格格距。
+        FontFamily = ResolveMonoFamily(),
         FontSize = (float)14,
         FontWeight = new Windows.UI.Text.FontWeight(400),
     };
+
+    private static string? _monoFamily;
+
+    /// <summary>
+    /// 解析一个实际可用且等宽的字体族（结果缓存）。
+    /// DirectWrite 的 FontFamily 只接受单一族名：XAML 风格逗号回退串整体按无效名处理 →
+    /// 静默回退默认比例字体（Segoe UI），文本自然步进 ≠ 网格步进，长 run 逐字符累计漂移。
+    /// 探针法：等宽族中 'i' 串与 'W' 串布局宽度相等；族名无效回退比例字体时两者不等，
+    /// 据此逐候选验证（比枚举字体族名更本质——直接检验渲染出来的步进性质）。
+    /// </summary>
+    private static string ResolveMonoFamily()
+    {
+        if (_monoFamily is not null) return _monoFamily;
+        var resolved = "Consolas"; // Windows 系统自带等宽，保底
+        try
+        {
+            var device = Microsoft.Graphics.Canvas.CanvasDevice.GetSharedDevice();
+            foreach (var candidate in new[] { "Cascadia Mono", "Cascadia Code", "Consolas", "Courier New" })
+            {
+                using var fmt = new CanvasTextFormat { FontFamily = candidate, FontSize = 14 };
+                using var narrow = new CanvasTextLayout(device, new string('i', 16), fmt, 0, 0);
+                using var wide = new CanvasTextLayout(device, new string('W', 16), fmt, 0, 0);
+                if (Math.Abs(narrow.LayoutBounds.Width - wide.LayoutBounds.Width) < 0.01)
+                {
+                    resolved = candidate;
+                    break;
+                }
+            }
+        }
+        catch { /* 设备不可用：Consolas 保底 */ }
+        _monoFamily = resolved;
+        return resolved;
+    }
 
     /// <summary>实测字符宽/行高（CanvasTextLayout，DIP 坐标；DPI 档位变化才重算）。</summary>
     private void EnsureMetrics(CanvasControl sender)
     {
         var dpiKey = (int)Math.Round(sender.DpiScale * 100);
         if (_metricsDpiKey == dpiKey) return;
-        _metricsDpiKey = dpiKey;
-
-        using var layout = new CanvasTextLayout(sender, new string('X', 32), TextFormat, 0, 0);
-        var w = layout.LayoutBounds.Width / 32;
-        if (w > 1) _charWidth = w;
-        var lineMetrics = layout.LineMetrics;
-        if (lineMetrics.Length > 0)
+        try
         {
-            var h = lineMetrics[0].Height;
-            if (h > 4) _lineHeight = h;
+            // 请求宽度给足（4096）：约束宽 0 会被 DWrite 按"逐字符换行"排版，
+            // LayoutBounds.Width 退化为单字符宽 —— 此前度量恒错，网格永远用默认 9×19 步进
+            using var layout = new CanvasTextLayout(sender, new string('X', 32), TextFormat, 4096f, 256f);
+            var w = layout.LayoutBounds.Width / 32;
+            if (w > 1 && w < 50) _charWidth = w;
+            var lineMetrics = layout.LineMetrics;
+            if (lineMetrics.Length > 0)
+            {
+                var h = lineMetrics[0].Height;
+                if (h > 4) _lineHeight = h;
+            }
+            // 成功后才缓存档位：首帧设备未就绪抛异常时，下一帧重试
+            _metricsDpiKey = dpiKey;
         }
+        catch { /* 设备未就绪：沿用上次度量，下一帧重试 */ }
     }
 
     private static Windows.UI.Color ToColor(uint rgba) => Windows.UI.Color.FromArgb(

@@ -458,13 +458,15 @@ public sealed class TerminalBuffer
             if (isPrimary && !_usingAlt && rows < oldRows)
             {
                 // 主屏缩小：顶部 (oldRows - rows) 行移入 scrollback，保住底部内容；
+                // 空行直接丢弃不进 scrollback（首帧 80×24 → 实际视口缩容时全是空网格行，
+                // 入队会把提示符"顶"到视口中部且跟随逻辑不回底——历史里的空行纯噪音）；
                 // 行数组整体入队（内容零拷贝），复制底部行到新网格
                 // （此前的实现先换新网格再按旧行数索引 —— IndexOutOfRangeException，
                 //   XAML UnhandledException × N，crash.log 抓出）
                 var evict = oldRows - rows;
                 for (var r = 0; r < evict; r++)
                 {
-                    PushScrollback(gridRef[r]);
+                    if (!IsBlankLine(gridRef[r])) PushScrollback(gridRef[r]);
                 }
                 var copyCols = Math.Min(columns, oldCols);
                 for (var r = 0; r < rows; r++)
@@ -515,6 +517,15 @@ public sealed class TerminalBuffer
     {
         var line = grid[row];
         for (var c = 0; c < columns; c++) line[c] = cell;
+    }
+
+    private static bool IsBlankLine(TerminalCell[] line)
+    {
+        foreach (var cell in line)
+        {
+            if (cell.Char != BlankChar || cell.AttrIndex != 0) return false;
+        }
+        return true;
     }
 
     private TerminalCell[] CopyRows(TerminalCell[] src, int row, int srcCols, TerminalCell[] copy)

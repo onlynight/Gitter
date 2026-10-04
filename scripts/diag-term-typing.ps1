@@ -16,6 +16,7 @@ public static class CapTT {
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint f);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
@@ -41,18 +42,25 @@ function Invoke-Button($root, $name) {
 }
 
 function Snap($out) {
-  $h = [IntPtr]$p.MainWindowHandle
-  $r = New-Object CapTT+RECT
-  [CapTT]::GetWindowRect($h, [ref]$r) | Out-Null
-  $w = $r.Right - $r.Left; $hh = $r.Bottom - $r.Top
-  $bmp = New-Object System.Drawing.Bitmap($w, $hh)
-  $g = [System.Drawing.Graphics]::FromImage($bmp)
-  $dc = $g.GetHdc()
-  [CapTT]::PrintWindow($h, $dc, 2) | Out-Null
-  $g.ReleaseHdc($dc)
-  $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
-  $g.Dispose(); $bmp.Dispose()
-  Write-Output ("saved " + $out)
+  try {
+    $h = [IntPtr]$p.MainWindowHandle
+    [CapTT]::ShowWindow($h, 9) | Out-Null   # SW_RESTORE：最小化窗口 PrintWindow 抓全黑
+    [CapTT]::SetForegroundWindow($h) | Out-Null
+    Start-Sleep -Milliseconds 600
+    $r = New-Object CapTT+RECT
+    [CapTT]::GetWindowRect($h, [ref]$r) | Out-Null
+    $w = $r.Right - $r.Left; $hh = $r.Bottom - $r.Top
+    $bmp = New-Object System.Drawing.Bitmap($w, $hh)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    # PrintWindow 对 WinUI3 合成窗口可能返回全黑；无交互桌面访问时 CopyFromScreen 也抛异常
+    # ——两种都失败不影响验证：应用内 GITTER_TERM_SNAPSHOT 会用 RenderTargetBitmap 自截图
+    $g.CopyFromScreen($r.Left, $r.Top, 0, 0, (New-Object System.Drawing.Size($w, $hh)))
+    $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+    $g.Dispose(); $bmp.Dispose()
+    Write-Output ("saved " + $out)
+  } catch {
+    Write-Output ("desktop capture unavailable: " + $_.Exception.Message)
+  }
 }
 
 try {
@@ -72,16 +80,11 @@ try {
   Invoke-Button $main '转到终端' | Out-Null
   Start-Sleep -Seconds 4
 
-  # 聚焦终端并键入（ConPTY 回显）
+  # 聚焦终端并键入：本机 SendKeys 可能被 UIPI/策略拒绝（Win32Exception 拒绝访问），
+  # 改用应用内诊断钩子 GITTER_TERM_AUTOTYPE（字节经 WriteRaw → 暂存队列 → 会话回放）
   [CapTT]::SetForegroundWindow([IntPtr]$p.MainWindowHandle) | Out-Null
-  Start-Sleep -Seconds 1
-  [System.Windows.Forms.SendKeys]::SendWait('ls')
-  Start-Sleep -Seconds 3
+  Start-Sleep -Seconds 12
   Snap('D:\Code\Gitter\diag-term-typed.png')
-
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  Start-Sleep -Seconds 2
-  Snap('D:\Code\Gitter\diag-term-executed.png')
   Write-Output 'REPRO DONE'
 }
 finally {
