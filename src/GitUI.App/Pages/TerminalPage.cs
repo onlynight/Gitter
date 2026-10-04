@@ -327,6 +327,7 @@ public sealed class TerminalPage : UserControl
         session.OutputReady += bytes => DispatcherQueue.TryEnqueue(() =>
         {
             if (!ReferenceEquals(_session, session)) return; // 旧会话尾部输出不进当前解析器
+
             _parser.Feed(bytes.Span);
             _canvas.NotifyOutput();
         });
