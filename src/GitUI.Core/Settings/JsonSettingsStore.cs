@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GitUI.Core.Models;
 
 namespace GitUI.Core.Settings;
 
@@ -160,7 +161,69 @@ public sealed class JsonSettingsStore : ISettingsStore
         }
         s.RecentRepos = list;
 
+        // 命令面板最近命令：去空、按标题去重、超 8 删尾（命令面板 v2）
+        if (s.RecentCommands is null)
+        {
+            s.RecentCommands = new List<string>();
+        }
+        var seenCmds = new HashSet<string>(StringComparer.Ordinal);
+        var recentCmds = new List<string>(8);
+        foreach (var cmd in s.RecentCommands)
+        {
+            if (string.IsNullOrWhiteSpace(cmd)) continue;
+            if (seenCmds.Add(cmd) && recentCmds.Count < 8)
+            {
+                recentCmds.Add(cmd);
+            }
+        }
+        s.RecentCommands = recentCmds;
+
+        NormalizeProjects(s);
+
         return s;
+    }
+
+    /// <summary>项目列表上限（用户显式管理，软上限防配置文件失控）。</summary>
+    internal const int MaxProjects = 50;
+
+    /// <summary>
+    /// 项目列表归一化：丢弃空路径、trim、按路径去重（Windows 大小写不敏感）、
+    /// 空显示名补文件夹名；CurrentProjectPath 必须仍存在于列表中，否则清空。
+    /// </summary>
+    private static void NormalizeProjects(AppSettings s)
+    {
+        if (s.Projects is null)
+        {
+            s.Projects = new List<ProjectEntry>();
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var projects = new List<ProjectEntry>(s.Projects.Count);
+        foreach (var p in s.Projects)
+        {
+            if (p is null) continue;
+            var path = p.Path?.Trim() ?? string.Empty;
+            if (path.Length == 0 || !seen.Add(path)) continue;
+
+            p.Path = path;
+            if (string.IsNullOrWhiteSpace(p.Name))
+            {
+                p.Name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            }
+            if (p.AddedAt == default)
+            {
+                p.AddedAt = DateTimeOffset.Now;
+            }
+            projects.Add(p);
+            if (projects.Count >= MaxProjects) break;
+        }
+        s.Projects = projects;
+
+        // CurrentProjectPath 对齐到列表项的规范大小写；不在列表中则清空
+        var current = s.CurrentProjectPath?.Trim();
+        s.CurrentProjectPath = current is null
+            ? null
+            : projects.FirstOrDefault(p => string.Equals(p.Path, current, StringComparison.OrdinalIgnoreCase))?.Path;
     }
 
     /// <summary>把 double 归一化：非有限值取默认，越界则夹到 [min, max]。</summary>

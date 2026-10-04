@@ -74,6 +74,10 @@ public sealed class TerminalCanvas : Grid
         _canvas.Draw += OnDraw;
         _canvas.SizeChanged += (_, _) =>
         {
+            // 先实测字宽再算列数：此前用默认 _charWidth(9) 推列数并发给 PTY，
+            // 而渲染用实测字宽（约 8.4）——整条会话的换行列与可视网格错位，
+            // 输入到行尾会提前换行（输入与提示符不对齐的根因之一）
+            try { EnsureMetrics(_canvas); } catch { /* 设备未就绪：沿用上次度量 */ }
             UpdateScrollRange();
             ViewportSizeChanged?.Invoke(Columns, Rows);
             _canvas.Invalidate();
@@ -347,32 +351,15 @@ public sealed class TerminalCanvas : Grid
             return;
         }
 
-        var app = Buffer.ApplicationCursorKeys;
-        byte[]? seq = e.Key switch
-        {
-            VirtualKey.Up => app ? [0x1b, (byte)'O', (byte)'A'] : [0x1b, (byte)'[', (byte)'A'],
-            VirtualKey.Down => app ? [0x1b, (byte)'O', (byte)'B'] : [0x1b, (byte)'[', (byte)'B'],
-            VirtualKey.Right => app ? [0x1b, (byte)'O', (byte)'C'] : [0x1b, (byte)'[', (byte)'C'],
-            VirtualKey.Left => app ? [0x1b, (byte)'O', (byte)'D'] : [0x1b, (byte)'[', (byte)'D'],
-            VirtualKey.Home => app ? [0x1b, (byte)'O', (byte)'H'] : [0x1b, (byte)'[', (byte)'H'],
-            VirtualKey.End => app ? [0x1b, (byte)'O', (byte)'F'] : [0x1b, (byte)'[', (byte)'F'],
-            VirtualKey.Enter => [0x0d],
-            VirtualKey.Back => [0x7f],
-            VirtualKey.Tab => [0x09],
-            VirtualKey.Escape => [0x1b],
-            _ => null,
-        };
+        // 修饰键（含 CapsLock/NumLock 锁定位）+ 扫描码 → 编码器按真实键盘状态解码
+        var mods = new TerminalInputEncoder.Modifiers(
+            Ctrl: control,
+            Shift: shift,
+            Alt: Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down),
+            CapsLock: Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread((VirtualKey)0x14).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Locked),
+            NumLock: Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread((VirtualKey)0x90).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Locked));
 
-        if (seq is null && control)
-        {
-            // Ctrl+字母 → 控制字符（Ctrl+C=0x03 中断等）
-            var k = (int)e.Key;
-            if (k >= (int)VirtualKey.A && k <= (int)VirtualKey.Z)
-            {
-                seq = [(byte)(k - (int)VirtualKey.A + 1)];
-            }
-        }
-
+        var seq = TerminalInputEncoder.EncodeSpecial((int)e.Key, Buffer.ApplicationCursorKeys, mods);
         if (seq is not null)
         {
             KeyPressed?.Invoke(seq);
@@ -380,24 +367,20 @@ public sealed class TerminalCanvas : Grid
             return;
         }
 
-        // 可打印字符：Key 枚举落在数字/字母区（中文 IME 输入由宿主 TextBox 旁路，v1 不支持直接上屏）
+        // 可打印字符：ToUnicode 按当前键盘状态解码（Shift 区分大小写、OEM 键按布局出真实符号；
+        // 中文 IME 输入由宿主 TextBox 旁路，v1 不支持直接上屏）
         var key = (int)e.Key;
         var printable =
             (key >= (int)VirtualKey.Space && key <= (int)VirtualKey.Divide) // Space..0-9..A-Z.. OEM 区
             || key == (int)VirtualKey.Decimal;
         if (printable)
         {
-            char ch = e.Key switch
+            var text = TerminalInputEncoder.EncodePrintable(key, e.KeyStatus.ScanCode, mods);
+            if (text is not null)
             {
-                VirtualKey.Space => ' ',
-                VirtualKey.Number0 => '0', VirtualKey.Number1 => '1', VirtualKey.Number2 => '2',
-                VirtualKey.Number3 => '3', VirtualKey.Number4 => '4', VirtualKey.Number5 => '5',
-                VirtualKey.Number6 => '6', VirtualKey.Number7 => '7', VirtualKey.Number8 => '8',
-                VirtualKey.Number9 => '9',
-                _ => (char)key, // A..Z 及 OEM 已是大写/符号，Shift 状态由宿主场景容忍
-            };
-            KeyPressed?.Invoke(Encoding.UTF8.GetBytes(ch.ToString()));
-            e.Handled = true;
+                KeyPressed?.Invoke(Encoding.UTF8.GetBytes(text));
+                e.Handled = true;
+            }
         }
     }
 

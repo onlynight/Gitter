@@ -46,6 +46,7 @@ try {
     )
 
     $pages = @(
+        @{ key = 'projects'; label = '项目' },
         @{ key = 'Log';      label = 'Log' },
         @{ key = 'changes';  label = '变更' },
         @{ key = 'branches'; label = '分支' },

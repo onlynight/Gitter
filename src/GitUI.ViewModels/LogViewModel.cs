@@ -131,6 +131,31 @@ public sealed class LogViewModel
         return LoadAsync(reset: true);
     }
 
+    /// <summary>
+    /// 关闭仓库（项目页移除当前项目时调用）：清空全部状态回"未打开仓库"。
+    /// 与 <see cref="OpenRepositoryAsync"/> 并发的窗口极窄（均为 UI 线程触发），
+    /// 即使一次在途加载晚到重开，下次任意操作也会被最新 WorkDir 校正。
+    /// </summary>
+    public void CloseRepository()
+    {
+        WorkDir = null;
+        Branch = null;
+        Query = string.Empty;
+        Branches = Array.Empty<BranchRef>();
+        _items = new List<CommitNode>();
+        _totalCount = 0;
+        _hasMore = false;
+        _error = null;
+        _compareBase = null;
+        _selected = null;
+        _selectedFiles = Array.Empty<DiffResult>();
+        _selectedError = null;
+        _collapsedDays.Clear();
+        RebuildRows();
+        SelectionChanged?.Invoke();
+        StructureChanged?.Invoke();
+    }
+
     /// <summary>应用搜索文本（design.md §8-S4"搜索过滤"）。未打开仓库时忽略。</summary>
     public Task SetQueryAsync(string query)
     {

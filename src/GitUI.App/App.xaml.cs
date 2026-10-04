@@ -69,8 +69,37 @@ public partial class App : Application
     {
         // 加载设置；失败时使用默认值，不阻断启动
         Settings.Load();
+        MigrateRecentReposToProjects();
 
         OpenNewWindow();
+    }
+
+    /// <summary>
+    /// 一次性迁移：旧版本只有 RecentRepos（最近仓库，上限 5），项目页上线后把它
+    /// 导入为初始项目列表。仅在项目列表为空且存在旧数据时执行一次，不删除旧字段。
+    /// </summary>
+    private static void MigrateRecentReposToProjects()
+    {
+        var s = Settings.Current;
+        if (s.Projects.Count > 0 || s.RecentRepos.Count == 0) return;
+
+        Settings.Update(s2 =>
+        {
+            foreach (var repo in s2.RecentRepos)
+            {
+                s2.Projects.Add(new GitUI.Core.Models.ProjectEntry
+                {
+                    Path = repo,
+                    AddedAt = DateTimeOffset.Now,
+                });
+            }
+            // 最新仓库顺带成为当前项目，保持与旧版"自动可用"体验一致
+            if (s2.RecentRepos.Count > 0)
+            {
+                s2.CurrentProjectPath = s2.RecentRepos[0];
+            }
+        });
+        Settings.Save();
     }
 
     /// <summary>打开新主窗口（S7 多窗口：每仓库一窗口，design.md §6.7）。</summary>

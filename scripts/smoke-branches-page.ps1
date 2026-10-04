@@ -30,6 +30,17 @@ Invoke-Git $repo @('add', '.')
 Invoke-Git $repo @('commit', '-q', '-m', 'feat-1')
 Invoke-Git $repo @('checkout', '-q', 'main')
 
+# ---- 预写 settings.json：项目页模式下由启动恢复自动打开仓库（替代旧"仓库路径"输入框）----
+$settingsDir = Split-Path -Parent $settingsPath
+New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
+$escapedRepo = $repo.Replace('\', '\\')
+@"
+{
+  "projects": [ { "path": "$escapedRepo" } ],
+  "currentProjectPath": "$escapedRepo"
+}
+"@ | Set-Content -Path $settingsPath -Encoding UTF8
+
 $p = $null
 try {
     $p = Start-Process -FilePath $exe -PassThru
@@ -65,19 +76,14 @@ try {
     # 等待 UIA 树就绪（冷启动/首启可能超过固定 sleep；sidebar 任一按钮出现即可）
     $deadline = (Get-Date).AddSeconds(15)
     while ((Get-Date) -lt $deadline) {
-        $probe = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) 'Git Bash'
+        $probe = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '终端'
         if ($null -ne $probe) { break }
         Start-Sleep -Milliseconds 500
     }
 
-    # ---- 1. 分支页签 + 打开仓库 ----
+    # ---- 1. 分支页签（项目页模式下仓库由启动恢复自动打开）----
     Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '分支')
-    Start-Sleep -Seconds 2
-    $repoBox = Find-ByName $main ([System.Windows.Automation.ControlType]::Edit) '仓库路径'
-    if ($null -eq $repoBox) { Write-Output 'FAIL: 仓库路径输入框未找到'; exit 1 }
-    ($repoBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue($repo)
-    Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '打开仓库')
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 4
 
     $branchRow = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '分支 feature'
     if ($null -eq $branchRow) { Write-Output 'FAIL: feature 分支行未找到'; exit 1 }

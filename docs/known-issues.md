@@ -103,6 +103,11 @@
 
 1. **WinUI 兼容性黑名单**：InfoBar fail-fast（已绕过，§11.15）；ConPTY 损坏（§11.10，软跳过）；MicaBackdrop 需 try/catch 兜底（§11.1）。桌面会话上可能均不复现——**S7 发布前需在干净 Windows 11 环境复测这三项**。
 2. **Windows 事件日志**中留有 InfoBar 时代的 WER 崩溃记录（GitUI.App.exe，0xc000027b），属已修复问题，可忽略。
+3. **IFileOpenDialog 在本机必现 AccessViolation，已绕过（2026-10-04）**。
+   - **现象**：项目页「添加项目」弹目录选择对话框即卡死闪退（0xc0000005）。
+   - **定位**：事件日志 AV 栈指向 `IFileOpenDialog.SetOptions` → 内部 **SHCORE.dll**。独立 .NET 8 / .NET Framework 4.8 控制台程序直接 CoCreateInstance(CLSID_FileOpenDialog) 后 SetOptions 同样崩（comdlg32 10.0.26100.8875，微软签名完好；本 build 的合法实现者就是 comdlg32——shell32 的 DllGetClassObject 对该 CLSID 返回 0x80040111），**属系统组件缺陷：本机任何应用走现代文件对话框都会崩**。AV 无法在 .NET 进程内安全恢复，不能做探测式降级。
+   - **处置**：`Platform/FolderPicker.cs` 改用 **SHBrowseForFolder + BIF_NEWDIALOGSTYLE**（完全不同的实现路径，实测正常；带路径编辑框、可调大小）。系统修复后可改回 IFileOpenDialog（vtable 版实现见 git 历史）。
+   - **headless 冒烟注意**（smoke-projects-add.ps1）：① UIA Invoke 点击"会打开模态对话框的按钮"会同步阻塞到模态退出——须放后台 runspace；② 非交互桌面（fg=0，锁定/断开的 RDP）上真实鼠标/前台切换不可用；③ 对话框交互走纯 Win32（FindWindowEx "#32770" + WM_SETTEXT + WM_COMMAND IDOK），UIA 桌面级枚举在此环境会超时。
 
 ## 处置优先级建议（S7 输入）
 

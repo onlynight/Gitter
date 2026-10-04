@@ -151,6 +151,30 @@ public sealed class ChangesViewModel
 
     // ---- 打开 / 刷新 ----
 
+    /// <summary>
+    /// 关闭仓库（项目页移除当前项目时调用）：清空全部状态回"未打开仓库"。
+    /// 与在途加载并发的窗口极窄（均为 UI 线程触发），晚到结果会被下次操作校正。
+    /// </summary>
+    public void CloseRepository()
+    {
+        _workDir = null;
+        _changes = new List<WorktreeFileStatus>();
+        _staged = new List<WorktreeFileStatus>();
+        _unversioned = new List<WorktreeFileStatus>();
+        _conflicts = new List<WorktreeFileStatus>();
+        _checkedOverrides.Clear();
+        _partiallyStaged.Clear();
+        _selected = null;
+        _selectedDiff = null;
+        _error = null;
+        ErrorDetail = null;
+        _transient = null;
+        _lastOutcome = null;
+        _lastPushedMessage = null;
+        StructureChanged?.Invoke();
+        SelectionChanged?.Invoke();
+    }
+
     public async Task OpenRepositoryAsync(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);

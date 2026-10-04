@@ -624,16 +624,17 @@ UI 线程 (DispatcherQueue)
 
 ## 四、界面布局设计
 
-### 4.1 窗口主布局（2026-10-03 更新：Git Bash 为导航页签）
+### 4.1 窗口主布局（2026-10-03 更新：Git Bash 为导航页签；2026-10-04 更新：新增「项目」页，为导航首项与仓库路径唯一入口）
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ TitleBar: [仓库名·分支▾] 搜索框(⌘K)                      [⋯]        │
 ├────────┬─────────────────────────────────────────────────────────────┤
 │ NavView│  主内容区（按页签切换，占满剩余宽度）                       │
-│ ┌─────┐│ ┌─ Log / Changes / Branches / Git Bash / Settings ───────┐ │
-│ │ Log ││ │                                                         │ │
-│ │ 变更││ │   （选中 Git Bash 页签时：工具条 + 终端 + 状态条）      │ │
+│ ┌─────┐│ ┌─ 项目 / Log / Changes / Branches / Git Bash / Settings ─┐ │
+│ │ 项目││ │                                                         │ │
+│ │ Log ││ │   （选中 Git Bash 页签时：工具条 + 终端 + 状态条）      │ │
+│ │ 变更││ │                                                         │ │
 │ │ 分支││ │                                                         │ │
 │ │Bash ││ │                                                         │ │
 │ │ 设置││ │                                                         │ │
@@ -643,6 +644,7 @@ UI 线程 (DispatcherQueue)
 
 - **可停靠多面板**：主区支持左右分屏（左 Log / 右 Diff），实现方式为自定义 `Grid` + 拖拽 `GridSplitter`，v1 不做完整 DockingManager。
 - **Git Bash 页签**：与 Log/Changes/Branches/Settings 同级的导航项，选中时占据主内容区（§4.7.2）；`Ctrl+J` 切换该页签。
+- **项目页签**（2026-10-04）：导航首项，项目列表 + 目录选择对话框，取代各页手填仓库路径（§4.8）。
 - 所有窗口支持 Win11 的 Mica 背景与自定义 title bar，实现细节见 §4.1.1。
 
 ### 4.1.1 窗口背景与标题栏（WinUI 3 Mica 实现）
@@ -925,7 +927,7 @@ git 2.47.1   bash 5.2   bash@128×30   main*   ✓ Running
 
 | 输入源 | 处理 |
 |---|---|
-| 键盘 `Key` | 转 Unicode codepoint → UTF-8 字节 → 写入 PTY |
+| 键盘 `Key` | **ToUnicode 按当前键盘状态（Shift/CapsLock/NumLock/布局）解码真实字符** → UTF-8 → 写入 PTY（`TerminalInputEncoder`，2026-10-04 修复：原先 VirtualKey 直接转 char 导致字母恒大写、OEM 键出怪字符） |
 | 方向键 / 功能键 | 手写转义序列：`\x1b[A` 上、`\x1b[C` 右、`\x1b[5~` PgUp、`\x1b[1;5~` Ctrl+PgUp |
 | 粘贴 | `TextBox.Paste` 事件 → UTF-8 编码 → 写入 PTY |
 | 鼠标点击 | 仅聚焦，v1 不做鼠标坐标写入（ConPTY 鼠标协议有兼容性问题） |
@@ -1073,6 +1075,30 @@ public static class BashLocator
 | 输入焦点错乱（面板与主内容区互抢） | 中 | `GotFocus`/`LostFocus` 显式管理，键盘输入仅在面板聚焦时转发 | S3b |
 | 大输出拖垮内存（`tail -f /var/log`） | 中 | scrollback 上限 10000 行，超出自动丢弃最旧；toast 提示 | S3b |
 
+### 4.8 项目页（项目列表 + 目录选择对话框，2026-10-04）
+
+仓库路径的唯一入口，取代 v0 各页工具条手填"仓库路径"的模式。**项目 = 用户显式加入列表的本地文件夹**（允许非 Git 目录，加入时弹确认；可先加目录后 init 仓库）。
+
+**数据模型**（`GitUI.Core`）：
+
+- `ProjectEntry { Path（唯一标识，归一化）, Name（默认取文件夹名）, AddedAt, LastOpenedAt }`
+- `AppSettings.Projects`（最新添加在前，上限 50）+ `AppSettings.CurrentProjectPath`（启动恢复；Normalize 强制其必须仍在列表中）；`RecentRepos` 停止写入，仅作一次性迁移来源（`App.OnLaunched` → 首个最近仓库成为当前项目）
+
+**页面**（`GitUI.App/Pages/ProjectsPage.cs`，纯代码构建）：
+
+| 区域 | 内容 |
+|---|---|
+| 工具条 | 左「项目 (N)」标题；右上角「+ 添加项目」 |
+| 列表 | `ItemsRepeater`：项目名（当前项目加粗）+ 完整路径；当前项目 = 3px 强调条 + 选中背景 |
+| 状态条 | `共 N 个项目 · 双击设为当前项目 · 当前：X`；一次性消息 5s 消退 |
+| 空态 | 「还没有项目」+ 添加按钮 |
+
+**交互约定**：单击 = 仅高亮候选；**双击 / 已高亮再次单击 / Enter = 设为当前项目**（`RepositoryContext.Set` → 全窗口路径跟随 → 自动跳转 Log 页）；右键菜单 = 设为当前 / 在资源管理器中打开 / 移除项目（移除当前项目需确认，确认后各页回"未选择项目"空态，仅移出列表不删磁盘文件）。
+
+**目录选择对话框**（`Platform/FolderPicker.cs`）：非打包应用（`WindowsPackageType=None`）下 `Windows.Storage.Pickers` 无可用 FolderPicker。**不用 IFileOpenDialog**——本机（comdlg32 10.0.26100.8875）该对话框 SetOptions 在 SHCORE.dll 内必现 AccessViolation（known-issues §5.3，系统组件缺陷，任何应用均崩且无法进程内恢复），采用 **SHBrowseForFolder + BIF_NEWDIALOGSTYLE**（BFFM_SETSELECTION 回调实现初始目录定位）；待系统修复后可切回。
+
+**联动**：Log/Changes/Branches 三页工具条的路径输入区替换为只读当前项目显示 + 「切换项目」按钮；`OnContextChanged` 置空时调 VM 新增的 `CloseRepository()` 回空态；页面构造时追上创建前已设置的上下文（启动恢复时页面尚未创建）。终端 `FollowRepoIfNeeded` 自动 cd，无需改动。快捷键 `Ctrl+1..6`（项目=1），`Ctrl+Tab` 循环顺序同步。
+
 ---
 
 ## 五、数据流与状态管理
@@ -1080,7 +1106,8 @@ public static class BashLocator
 ### 5.1 状态分层
 
 ```
-SettingsStore        ← 全局设置（主题、默认编辑器、diff 模式、终端配置），JSON 持久化
+SettingsStore        ← 全局设置（主题、默认编辑器、diff 模式、终端配置、项目列表 Projects /
+                       当前项目 CurrentProjectPath），JSON 持久化（§4.8）
 RepoSession          ← 仓库级状态，每开一个仓库一个实例
  ├─ IndexState       ← git status 结果，监听文件变化刷新
  ├─ LogState         ← rev-list 分页缓存 + 过滤条件
@@ -1112,7 +1139,7 @@ TerminalSession      ← 终端会话，App 级单例（Lazy 初始化，与窗�
 
 ## 六、关键交互细节（易用性设计）
 
-1. **首次启动引导**：3 步 —— 选择仓库目录（记住最近 5 个）→ 信任证书（提示是否使用系统凭据管理器）→ 选择默认外部编辑器
+1. **首次启动引导**：进入「项目」页 → 添加项目（系统目录选择对话框，项目列表持久化）→ 选择默认外部编辑器；启动时自动恢复上次当前项目（2026-10-04 起，原"选择仓库目录（记住最近 5 个）"由项目列表取代）
 2. **快捷键**（保持肌肉记忆迁移）：
    - `Ctrl+Enter` 提交（焦点在任何位置都有效）
    - `Ctrl+Shift+P` 命令面板
@@ -1120,7 +1147,7 @@ TerminalSession      ← 终端会话，App 级单例（Lazy 初始化，与窗�
    - `Ctrl+D` 当前文件 diff
    - `Ctrl+Tab` 循环切换页签
    - `F5` 刷新所有
-   - `Ctrl+1..4` 直达页签
+   - `Ctrl+1..6` 直达页签（2026-10-04 起：项目=1 / Log=2 / 变更=3 / 分支=4 / Bash=5 / 设置=6）
    - `Ctrl+J` 切换 Git Bash 面板显示/隐藏
    - `Ctrl+Shift+J` 切换"面板跟随当前仓库目录"模式
 3. **右键菜单分层**：常用 6 个直接列出，其余进 "⋯ 更多"，避免一次展开 20 项
@@ -1384,3 +1411,4 @@ S0 ──┬── S1 ──┬── S4 ──┬── S5 ── S6 ── S7
 | Git Bash 面板位置 | ~~窗口最右侧一栏~~ **左侧导航页签（与 Log/Changes/Branches/Settings 同级），见 §11.12**（2026-10-02 原决策：最右一栏；2026-10-03 经用户确认变更） | 2026-10-03 |
 | 终端承载层 | 新增 `GitUI.Shell` 项目，不引用 libgit2sharp | 2026-10-02 |
 | 终端与 GUI 联动方向 | v1 只做 GUI → 面板（Log/Changes/Branches 右键写入命令）；面板输出 → IndexState 回写留 v2 | 2026-10-02 |
+| 仓库路径入口 | **新增「项目」页（导航首项）：项目列表 + 目录选择对话框，双击设为当前项目；移除各页手填路径输入框**，见 §4.8（旧 RecentRepos 一次性迁移为项目列表） | 2026-10-04 |

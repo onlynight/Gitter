@@ -122,6 +122,21 @@ public sealed class BranchesViewModel
 
     public Task RefreshAsync() => WorkDir is null ? Task.CompletedTask : RunExclusive(LoadCoreAsync);
 
+    /// <summary>
+    /// 关闭仓库（项目页移除当前项目时调用）：清空全部状态回"未打开仓库"。
+    /// 与在途加载并发的窗口极窄（均为 UI 线程触发），晚到结果会被下次操作校正。
+    /// </summary>
+    public void CloseRepository()
+    {
+        _workDir = null;
+        _rows = new List<BranchRow>();
+        _selected = null;
+        _error = null;
+        ErrorDetail = null;
+        _transient = null;
+        StructureChanged?.Invoke();
+    }
+
     /// <summary>选中分支（供操作按钮定位）。远程分支只读。</summary>
     public void Select(BranchItemRow row)
     {

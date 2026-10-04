@@ -29,6 +29,17 @@ $modified = $base.Replace('line2', 'LINE2').Replace('line12', 'LINE12')
 [System.IO.File]::WriteAllText((Join-Path $repo 'f.txt'), $modified + "`n")
 [System.IO.File]::WriteAllText((Join-Path $repo 'new.txt'), "untracked`n")
 
+# ---- 预写 settings.json：项目页模式下由启动恢复自动打开仓库（替代旧"仓库路径"输入框）----
+$settingsDir = Split-Path -Parent $settingsPath
+New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
+$escapedRepo = $repo.Replace('\', '\\')
+@"
+{
+  "projects": [ { "path": "$escapedRepo" } ],
+  "currentProjectPath": "$escapedRepo"
+}
+"@ | Set-Content -Path $settingsPath -Encoding UTF8
+
 $p = $null
 try {
     $p = Start-Process -FilePath $exe -PassThru
@@ -68,13 +79,7 @@ try {
     Invoke-Button $changesBtn
     Start-Sleep -Seconds 2
 
-    # ---- 2. 打开仓库 ----
-    $repoBox = Find-ByName $main ([System.Windows.Automation.ControlType]::Edit) '仓库路径'
-    if ($null -eq $repoBox) { Write-Output 'FAIL: 仓库路径输入框未找到'; exit 1 }
-    ($repoBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue($repo)
-    Invoke-Button (Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '打开仓库')
-    Start-Sleep -Seconds 3
-
+    # ---- 2. 启动恢复后变更页数据已在（项目页模式，无需输入仓库路径）----
     $status = Status-Text $main
     Write-Output ("OK: 打开后状态 = " + $status)
     if ($status -notmatch '1 项变更') { Write-Output 'FAIL: 应有 1 项变更'; exit 1 }

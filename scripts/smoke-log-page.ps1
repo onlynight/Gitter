@@ -9,6 +9,17 @@ param(
 $settingsPath = Join-Path $env:APPDATA 'GitUI\settings.json'
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
 
+# ---- 预写 settings.json：项目页模式下由启动恢复自动打开仓库（替代旧"仓库路径"输入框）----
+$settingsDir = Split-Path -Parent $settingsPath
+New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
+$escapedRepo = $RepoPath.Replace('\', '\\')
+@"
+{
+  "projects": [ { "path": "$escapedRepo" } ],
+  "currentProjectPath": "$escapedRepo"
+}
+"@ | Set-Content -Path $settingsPath -Encoding UTF8
+
 $p = Start-Process -FilePath $exe -PassThru
 Start-Sleep -Seconds 8
 
@@ -67,20 +78,11 @@ function Status-Text($scopeRoot) {
 }
 
 try {
-    # ---- 1. 默认 Log 页：仓库路径输入 + 打开 ----
-    $repoBox = Find-ByName $main ([System.Windows.Automation.ControlType]::Edit) '仓库路径'
-    if ($null -eq $repoBox) { Write-Output 'FAIL: 仓库路径输入框未找到'; exit 1 }
-    ($repoBox.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue($RepoPath)
-
-    $openBtn = Find-ByName $main ([System.Windows.Automation.ControlType]::Button) '打开仓库'
-    if ($null -eq $openBtn) { Write-Output 'FAIL: 打开仓库按钮未找到'; exit 1 }
-    Invoke-Button $openBtn
-    Start-Sleep -Seconds 4
-
-    # ---- 2. 首屏条目数（状态条 "已加载 N / 共 M"）----
+    # ---- 1. 启动恢复：当前项目自动加载（项目页模式，无需输入仓库路径）----
+    Start-Sleep -Seconds 2
     $status = Status-Text $main
-    Write-Output ("OK: 打开后状态 = " + $status)
-    if ($status -notmatch '已加载 (\d+) / 共 (\d+)') { Write-Output 'FAIL: 状态条无条目计数'; exit 1 }
+    Write-Output ("OK: 启动恢复后状态 = " + $status)
+    if ($status -notmatch '已加载 (\d+) / 共 (\d+)') { Write-Output 'FAIL: 启动后状态条无条目计数'; exit 1 }
     $loaded = [int]$Matches[1]; $total = [int]$Matches[2]
     if ($loaded -lt 1 -or $loaded -gt 50) { Write-Output "FAIL: 首屏条目数异常 ($loaded)"; exit 1 }
     if ($total -lt 1) { Write-Output "FAIL: 总提交数为 0"; exit 1 }

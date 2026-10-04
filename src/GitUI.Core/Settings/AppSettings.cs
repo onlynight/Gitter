@@ -1,3 +1,5 @@
+using GitUI.Core.Models;
+
 namespace GitUI.Core.Settings;
 
 /// <summary>
@@ -7,8 +9,14 @@ public sealed class AppSettings
 {
     public ThemePreference Theme { get; set; } = ThemePreference.System;
 
-    /// <summary>最近打开的仓库路径，最多 5 个，最新在前。</summary>
+    /// <summary>最近打开的仓库路径，最多 5 个，最新在前。已由 Projects 取代写入，仅作旧配置迁移来源。</summary>
     public List<string> RecentRepos { get; set; } = new();
+
+    /// <summary>用户显式管理的项目列表（最新添加在前），项目页数据源。</summary>
+    public List<ProjectEntry> Projects { get; set; } = new();
+
+    /// <summary>当前项目路径（须存在于 Projects 中，Normalize 强制）；null 表示未选择项目。启动时自动恢复。</summary>
+    public string? CurrentProjectPath { get; set; }
 
     /// <summary>外部编辑器可执行文件路径，null 表示使用系统默认。</summary>
     public string? ExternalEditor { get; set; }
@@ -33,6 +41,9 @@ public sealed class AppSettings
 
     /// <summary>终端 shell：powershell（默认，系统内置）/ cmd（系统内置）/ bash（需 Git for Windows）。</summary>
     public string TerminalShell { get; set; } = TerminalShellKind.PowerShell;
+
+    /// <summary>命令面板最近执行的命令（命令标题作 key），最多 8 条，最新在前。空查询时置顶显示。</summary>
+    public List<string> RecentCommands { get; set; } = new();
 
     /// <summary>归一化终端 shell 值（未知值回退 PowerShell）。</summary>
     public void NormalizeTerminalShell()

@@ -104,6 +104,22 @@ public static class TerminalRenderModel
                     rects.Add(new TermFillRect(c, r, 1, bg));
                 }
 
+                // 宽字符（占两格）：独立成单字 run——若并入相邻 run，DrawText 会按字体
+                // 自然步进排版，CJK 字形宽度 ≠ 两格宽，导致其后字符漂离网格
+                // （输入与提示符不对齐的根因之二，提示符/路径含中文时必现）
+                var isWide = c + 1 < line.Length && line[c + 1].Char == TerminalCell.WideContinuation;
+                if (isWide)
+                {
+                    Flush(c);
+                    if (bg != bgDefault)
+                    {
+                        rects.Add(new TermFillRect(c, r, 2, bg));
+                    }
+                    runs.Add(new TermTextRun(c, r, cell.Char.ToString(),
+                        new TermRunStyle(fg, bg, attr.Bold, attr.Italic, attr.Underline)));
+                    continue; // 下一轮循环跳过续格
+                }
+
                 if (runStart < 0)
                 {
                     runStart = c;

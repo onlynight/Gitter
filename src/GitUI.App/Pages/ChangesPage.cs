@@ -29,8 +29,7 @@ public sealed class ChangesPage : UserControl
     private readonly RepositoryContext _context;
     private readonly ChangesViewModel _vm;
 
-    private readonly TextBox _repoBox;
-    private readonly ComboBox _recentBox;
+    private readonly TextBlock _projectLabel;
     private readonly TextBlock _status;
     private readonly TextBlock _banner;
     private readonly ItemsRepeater _repeater;
@@ -52,39 +51,31 @@ public sealed class ChangesPage : UserControl
     private readonly Button _openEditorBtn;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _transientTimer;
 
-    private bool _suppressRecent;
     private bool _scrollToTopPending;
     private Button? _selectedRowButton;
 
-    public ChangesPage(ISettingsStore settings, IRepositoryService repoService, RepositoryContext context)
+    /// <param name="navigate">跳转到指定页签（切换项目按钮用）；null 时按钮禁用。</param>
+    public ChangesPage(ISettingsStore settings, IRepositoryService repoService, RepositoryContext context, Action<string>? navigate = null)
     {
         _settings = settings;
         _repoService = repoService;
         _context = context;
         _vm = new ChangesViewModel(repoService);
 
-        // ---- 工具条 ----
-        _repoBox = new TextBox { MinWidth = 220, PlaceholderText = @"D:\path\to\repo" };
-        AutomationProperties.SetName(_repoBox, "仓库路径");
-        _repoBox.KeyDown += (_, e) =>
+        // ---- 工具条（仓库路径唯一入口在「项目」页；此处只读展示当前项目）----
+        _projectLabel = new TextBlock
         {
-            if (e.Key == VirtualKey.Enter) { _ = OpenRepoAsync(); e.Handled = true; }
+            Text = "未选择项目",
+            FontFamily = Ui.Mono,
+            FontSize = 11,
+            Foreground = Ui.Text2,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 340,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         };
-
-        _recentBox = new ComboBox { MinWidth = 100, PlaceholderText = "最近" };
-        AutomationProperties.SetName(_recentBox, "最近仓库");
-        _recentBox.SelectionChanged += (_, _) =>
-        {
-            if (!_suppressRecent && _recentBox.SelectedItem is string s && s.Length > 0)
-            {
-                _repoBox.Text = s;
-                _ = OpenRepoAsync();
-            }
-        };
-        PopulateRecents();
-
-        var openBtn = BuildToolButton("打开仓库");
-        openBtn.Click += (_, _) => _ = OpenRepoAsync();
+        var switchBtn = BuildToolButton("切换项目");
+        switchBtn.Click += (_, _) => navigate?.Invoke("projects");
+        if (navigate is null) switchBtn.IsEnabled = false;
 
         var refreshBtn = BuildToolButton("\uE72C", "刷新");
         refreshBtn.Click += (_, _) => { _scrollToTopPending = true; _ = _vm.RefreshAsync(); };
@@ -96,9 +87,8 @@ public sealed class ChangesPage : UserControl
             Margin = new Thickness(10, 6, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        toolbar.Children.Add(_repoBox);
-        toolbar.Children.Add(_recentBox);
-        toolbar.Children.Add(openBtn);
+        toolbar.Children.Add(_projectLabel);
+        toolbar.Children.Add(switchBtn);
         toolbar.Children.Add(refreshBtn);
 
         // 注意：不用 InfoBar——本机（WinAppSDK 2.5 / RDP 会话）上 InfoBar 进视觉树即触发
@@ -256,7 +246,8 @@ public sealed class ChangesPage : UserControl
             Margin = new Thickness(8, 0, 0, 0),
         };
 
-        _commitBtn = BuildToolButton("提交");
+        _commitBtn = Ui.PrimaryButton("提交");
+        _commitBtn.MinWidth = 84;
         _commitBtn.Click += (_, _) => _ = CommitAsync(push: false);
 
         _commitPushBtn = BuildToolButton("提交并推送");
@@ -290,8 +281,8 @@ public sealed class ChangesPage : UserControl
 
         _status = new TextBlock
         {
-            FontSize = 11.5,
-            Opacity = 0.72,
+            FontSize = 11,
+            Foreground = Ui.Text2,
             Margin = new Thickness(14, 0, 14, 0),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -335,68 +326,42 @@ public sealed class ChangesPage : UserControl
         };
 
         Rebind();
+
+        // 追上创建前已设置的当前项目（启动恢复 / 其他页先行切换）
+        if (_context.WorkDir is not null)
+        {
+            OnContextChanged();
+        }
     }
 
-    // ---- 主题色 ----
-
-    private static bool IsLight => Application.Current?.RequestedTheme != ApplicationTheme.Dark;
+    // ---- 主题色（令牌来自 Ui，"Gitter IDE" v3）----
 
     private static readonly SolidColorBrush ClearBrush = new(Microsoft.UI.Colors.Transparent);
 
-    private static SolidColorBrush RowSelectedBrush =>
-        IsLight ? Make(0x24, 0x1C, 0x1B, 0x1F) : Make(0x38, 0xFF, 0xFF, 0xFF);
+    private static SolidColorBrush RowSelectedBrush => Ui.AccentSoft;
 
-    private static SolidColorBrush SectionBrush =>
-        IsLight ? Make(0x14, 0x1C, 0x1B, 0x1F) : Make(0x1C, 0xFF, 0xFF, 0xFF);
+    private static SolidColorBrush SectionBrush => Ui.Hover;
 
-    private static SolidColorBrush DividerBrush =>
-        IsLight ? Make(0x22, 0x1C, 0x1B, 0x1F) : Make(0x22, 0xFF, 0xFF, 0xFF);
-
-    private static SolidColorBrush Make(byte a, byte r, byte g, byte b) => new(Color.FromArgb(a, r, g, b));
+    private static SolidColorBrush DividerBrush => Ui.Border;
 
     // ---- 行为 ----
 
     private static Button BuildToolButton(string text, string? automationName = null)
-    {
-        var btn = new Button
-        {
-            Content = text,
-            Background = ClearBrush,
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 4, 10, 4),
-            CornerRadius = new CornerRadius(6),
-            FontSize = 12.5,
-        };
-        AutomationProperties.SetName(btn, automationName ?? text);
-        return btn;
-    }
+        => Ui.ToolButton(text, automationName);
 
-    private async Task OpenRepoAsync()
-    {
-        var path = _repoBox.Text.Trim();
-        if (path.Length == 0) return;
-        _scrollToTopPending = true;
-        await _vm.OpenRepositoryAsync(path);
-        if (_vm.IsRepoOpen) _context.Set(_vm.WorkDir);
-    }
-
+    /// <summary>项目页切换/移除项目后变更页跟随。置空时回"未选择项目"空态。</summary>
     private void OnContextChanged()
     {
         var workDir = _context.WorkDir;
-        if (workDir is null || workDir == _vm.WorkDir) return;
-        _repoBox.Text = workDir;
+        _projectLabel.Text = workDir ?? "未选择项目";
+        if (workDir is null)
+        {
+            if (_vm.IsRepoOpen) _vm.CloseRepository();
+            return;
+        }
+        if (workDir == _vm.WorkDir) return;
         _scrollToTopPending = true;
         _ = _vm.OpenRepositoryAsync(workDir);
-    }
-
-    private void PopulateRecents()
-    {
-        _suppressRecent = true;
-        _recentBox.Items.Clear();
-        foreach (var p in _settings.Current.RecentRepos)
-            _recentBox.Items.Add(p);
-        _recentBox.SelectedIndex = -1;
-        _suppressRecent = false;
     }
 
     private void CopyErrorDetail()
@@ -463,6 +428,33 @@ public sealed class ChangesPage : UserControl
     /// <summary>F5 / 命令面板刷新入口（S7）。</summary>
     public Task RefreshAsync() => _vm.RefreshAsync();
 
+    // ---- 命令面板入口（v2）：MainWindow 经页面缓存对象调用；未开仓库时由 MainWindow 置灰 ----
+
+    /// <summary>仓库是否已打开（提交/暂存类命令的置灰依据）。</summary>
+    public bool IsRepoOpen => _vm.IsRepoOpen;
+
+    /// <summary>提交当前勾选文件（可选推送）。消息为空时 VM 显示"提交消息不能为空"横幅。</summary>
+    public void CommitFromPalette(bool push)
+    {
+        if (!_vm.IsRepoOpen) return;
+        _ = CommitAsync(push);
+    }
+
+    /// <summary>全部暂存：勾选 Changes + Unversioned 两层（与组头"全部暂存 +"同语义，跨层批量）。</summary>
+    public void StageAllFromPalette()
+    {
+        if (!_vm.IsRepoOpen) return;
+        _vm.SetAllChecked(StatusCategory.Changes, true);
+        _vm.SetAllChecked(StatusCategory.Unversioned, true);
+    }
+
+    /// <summary>全部撤销暂存：取消 Staged 层勾选（组头"全部撤销 −"同语义）。</summary>
+    public void UnstageAllFromPalette()
+    {
+        if (!_vm.IsRepoOpen) return;
+        _vm.SetAllChecked(StatusCategory.Staged, false);
+    }
+
     private void OnListScrollChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
         // 变更列表通常不长，无分页；占位以保持与 LogPage 一致的结构
@@ -482,8 +474,9 @@ public sealed class ChangesPage : UserControl
         var title = new TextBlock
         {
             Text = h.Title,
-            FontSize = 12.5,
+            FontSize = 11.5,
             FontWeight = new Windows.UI.Text.FontWeight(600),
+            Foreground = Ui.Text,
             VerticalAlignment = VerticalAlignment.Center,
         };
         var host = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
@@ -491,8 +484,9 @@ public sealed class ChangesPage : UserControl
         foreach (var (label, action) in h.Actions)
         {
             var b = BuildToolButton(label);
-            b.Padding = new Thickness(6, 1, 6, 1);
-            b.FontSize = 11.5;
+            b.Padding = new Thickness(6, 1, 6, 2);
+            b.FontSize = 11;
+            b.MinHeight = 22;
             b.Click += (_, _) => action();
             host.Children.Add(b);
         }
@@ -501,9 +495,9 @@ public sealed class ChangesPage : UserControl
         {
             Child = host,
             Background = SectionBrush,
-            Padding = new Thickness(10, 5, 10, 5),
-            CornerRadius = new CornerRadius(6),
-            Margin = new Thickness(8, 6, 8, 2),
+            Padding = new Thickness(9, 4, 9, 4),
+            CornerRadius = new CornerRadius(Ui.CornerRadius),
+            Margin = new Thickness(4, 4, 4, 1),
         };
         AutomationProperties.SetName(border, h.AutomationName);
         return border;
@@ -529,17 +523,19 @@ public sealed class ChangesPage : UserControl
         var statusLetter = new TextBlock
         {
             Text = f.StatusLabel,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = 12,
+            FontFamily = Ui.Mono,
+            FontSize = 11.5,
             FontWeight = new Windows.UI.Text.FontWeight(600),
+            Foreground = StatusBrush(f.StatusLabel),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 6, 0),
+            Margin = new Thickness(0, 0, 8, 0),
         };
 
         var path = new TextBlock
         {
             Text = entry.Path,
-            FontSize = 12.5,
+            FontSize = 12,
+            Foreground = Ui.Text,
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
@@ -547,9 +543,9 @@ public sealed class ChangesPage : UserControl
         var stats = new TextBlock
         {
             Text = f.StatsLabel,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush(Microsoft.UI.Colors.Gray),
+            FontFamily = Ui.Mono,
+            FontSize = 10.5,
+            Foreground = Ui.Text3,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 0, 0),
         };
@@ -572,13 +568,14 @@ public sealed class ChangesPage : UserControl
         var rowBtn = new Button
         {
             Content = row,
-            Padding = new Thickness(10, 3, 8, 3),
-            Margin = new Thickness(8, 1, 8, 1),
-            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(8, 2, 8, 3),
+            Margin = new Thickness(4, 0, 4, 0),
+            CornerRadius = new CornerRadius(Ui.CornerRadius),
             Background = entry.Path == _vm.Selected?.Path ? RowSelectedBrush : ClearBrush,
             BorderThickness = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            MinHeight = 26,
         };
         if (entry.Path == _vm.Selected?.Path) _selectedRowButton = rowBtn;
         AutomationProperties.SetName(rowBtn, f.RowAutomationName);
@@ -685,6 +682,15 @@ public sealed class ChangesPage : UserControl
             ? string.Empty
             : $"+{added} −{deleted}";
 
+    /// <summary>状态字母语义色：M/S 蓝、A 绿、D 红、U 琥珀、C 红。</summary>
+    private static SolidColorBrush StatusBrush(string label) => label switch
+    {
+        "A" => Ui.Green,
+        "D" or "C" => Ui.Red,
+        "U" => Ui.Amber,
+        _ => Ui.ChipBlueFg,
+    };
+
     private void UpdateSelection()
     {
         var view = _vm.SelectedDiff;
@@ -726,12 +732,10 @@ public sealed class ChangesPage : UserControl
 
     private void UpdateRecentMessages()
     {
-        _suppressRecent = true;
         _recentMsgBox.Items.Clear();
         foreach (var m in _vm.RecentMessages(20))
             _recentMsgBox.Items.Add(m);
         _recentMsgBox.SelectedIndex = -1;
-        _suppressRecent = false;
         _prefixBox.ItemsSource = _vm.PrefixSuggestions();
         _prefixBox.SelectedIndex = -1;
     }

@@ -23,13 +23,11 @@ namespace GitUI.App.Pages;
 /// </summary>
 public sealed class BranchesPage : UserControl
 {
-    private readonly ISettingsStore _settings;
     private readonly IRepositoryService _repoService;
     private readonly RepositoryContext _context;
     private readonly BranchesViewModel _vm;
 
-    private readonly TextBox _repoBox;
-    private readonly ComboBox _recentBox;
+    private readonly TextBlock _projectLabel;
     private readonly TextBlock _status;
     private readonly TextBlock _banner;
     private readonly Button _copyErrBtn;
@@ -45,37 +43,26 @@ public sealed class BranchesPage : UserControl
     private readonly Button _rebaseBtn;
     private readonly Button _ffBtn;
 
-    private bool _suppressRecent;
-
-    public BranchesPage(ISettingsStore settings, IRepositoryService repoService, RepositoryContext context)
+    /// <param name="navigate">跳转到指定页签（切换项目按钮用）；null 时按钮禁用。</param>
+    public BranchesPage(IRepositoryService repoService, RepositoryContext context, Action<string>? navigate = null)
     {
-        _settings = settings;
         _repoService = repoService;
         _context = context;
         _vm = new BranchesViewModel(repoService);
 
-        // ---- 工具条 ----
-        _repoBox = new TextBox { MinWidth = 220, PlaceholderText = @"D:\path\to\repo" };
-        AutomationProperties.SetName(_repoBox, "仓库路径");
-        _repoBox.KeyDown += (_, e) =>
+        // ---- 工具条（仓库路径唯一入口在「项目」页；此处只读展示当前项目）----
+        _projectLabel = new TextBlock
         {
-            if (e.Key == VirtualKey.Enter) { _ = OpenRepoAsync(); e.Handled = true; }
+            Text = "未选择项目",
+            FontSize = 12,
+            Opacity = 0.8,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 340,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         };
-
-        _recentBox = new ComboBox { MinWidth = 100, PlaceholderText = "最近" };
-        AutomationProperties.SetName(_recentBox, "最近仓库");
-        _recentBox.SelectionChanged += (_, _) =>
-        {
-            if (!_suppressRecent && _recentBox.SelectedItem is string s && s.Length > 0)
-            {
-                _repoBox.Text = s;
-                _ = OpenRepoAsync();
-            }
-        };
-        PopulateRecents();
-
-        var openBtn = BuildToolButton("打开仓库");
-        openBtn.Click += (_, _) => _ = OpenRepoAsync();
+        var switchBtn = BuildToolButton("切换项目");
+        switchBtn.Click += (_, _) => navigate?.Invoke("projects");
+        if (navigate is null) switchBtn.IsEnabled = false;
 
         var refreshBtn = BuildToolButton("\uE72C", "刷新");
         refreshBtn.Click += (_, _) => _ = _vm.RefreshAsync();
@@ -95,9 +82,8 @@ public sealed class BranchesPage : UserControl
             Margin = new Thickness(10, 6, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        toolbar.Children.Add(_repoBox);
-        toolbar.Children.Add(_recentBox);
-        toolbar.Children.Add(openBtn);
+        toolbar.Children.Add(_projectLabel);
+        toolbar.Children.Add(switchBtn);
         toolbar.Children.Add(refreshBtn);
         toolbar.Children.Add(Spacer());
         toolbar.Children.Add(pullBtn);
@@ -209,26 +195,25 @@ public sealed class BranchesPage : UserControl
         };
 
         Rebind();
+
+        // 追上创建前已设置的当前项目（启动恢复 / 其他页先行切换）
+        if (_context.WorkDir is not null)
+        {
+            OnContextChanged();
+        }
     }
 
     // ---- 主题色 / 构建 ----
 
-    private static bool IsLight => Application.Current?.RequestedTheme != ApplicationTheme.Dark;
-
     private static readonly SolidColorBrush ClearBrush = new(Microsoft.UI.Colors.Transparent);
 
-    private static SolidColorBrush RowSelectedBrush =>
-        IsLight ? Make(0x40, 0x1C, 0x1B, 0x1F) : Make(0x55, 0xFF, 0xFF, 0xFF);
+    private static SolidColorBrush RowSelectedBrush => Ui.AccentSoft;
 
-    private static SolidColorBrush AccentBrush =>
-        Make(0xFF, 0x00, 0x78, 0xD7); // 系统强调蓝
+    private static SolidColorBrush AccentBrush => Ui.Accent;
 
-    private static SolidColorBrush SectionBrush =>
-        IsLight ? Make(0x14, 0x1C, 0x1B, 0x1F) : Make(0x1C, 0xFF, 0xFF, 0xFF);
+    private static SolidColorBrush SectionBrush => Ui.Hover;
 
-    private static SolidColorBrush HeadBrush => Make(0xFF, 0x00, 0x78, 0xD4);
-
-    private static SolidColorBrush Make(byte a, byte r, byte g, byte b) => new(Color.FromArgb(a, r, g, b));
+    private static SolidColorBrush HeadBrush => Ui.Accent;
 
     private static FrameworkElement Spacer() => new TextBlock { Text = "  ", Width = 8 };
 
@@ -239,8 +224,8 @@ public sealed class BranchesPage : UserControl
             Content = text,
             Background = ClearBrush,
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 4, 10, 4),
-            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 3, 10, 4),
+            CornerRadius = new CornerRadius(Ui.CornerRadius),
             FontSize = 12.5,
         };
         AutomationProperties.SetName(btn, automationName ?? text);
@@ -270,36 +255,66 @@ public sealed class BranchesPage : UserControl
     /// <summary>F5 / 命令面板刷新入口（S7）。</summary>
     public Task RefreshAsync() => _vm.RefreshAsync();
 
-    private async Task OpenRepoAsync()
+    // ---- 命令面板入口（v2）：MainWindow 经页面缓存对象调用；未开仓库/无选中时由 MainWindow 置灰 ----
+
+    /// <summary>仓库是否已打开（提交/同步类命令的置灰依据）。</summary>
+    public bool IsRepoOpen => _vm.IsRepoOpen;
+
+    /// <summary>是否有选中的本地分支（分支操作类命令的置灰依据；HEAD 分支算选中）。</summary>
+    public bool HasSelectedLocalBranch => _vm.Selected is { } b && !b.IsRemote;
+
+    public void PullFromPalette(bool rebase) => _ = _vm.PullAsync(rebase);
+
+    public void PushFromPalette() => _ = _vm.PushAsync();
+
+    public void CheckoutSelectedFromPalette()
     {
-        var path = _repoBox.Text.Trim();
-        if (path.Length == 0) return;
-        await _vm.OpenRepositoryAsync(path);
-        if (_vm.IsRepoOpen) _context.Set(_vm.WorkDir);
+        if (Sel() is { } b && !b.IsRemote && !b.IsHead) _ = _vm.CheckoutAsync(b.Name);
     }
 
+    public void MergeSelectedFromPalette()
+    {
+        if (Sel() is { } b && !b.IsRemote && !b.IsHead) _ = _vm.MergeAsync(b.Name, noFastForward: false, message: null);
+    }
+
+    public void RebaseSelectedFromPalette()
+    {
+        if (Sel() is { } b && !b.IsRemote && !b.IsHead) _ = _vm.RebaseAsync(b.Name);
+    }
+
+    public void FastForwardSelectedFromPalette()
+    {
+        if (Sel() is { } b && !b.IsRemote && !b.IsHead) _ = _vm.FastForwardAsync(b.Name);
+    }
+
+    public Task CreateBranchFromPaletteAsync() => ShowCreateDialogAsync();
+
+    public Task RenameBranchFromPaletteAsync() => ShowRenameDialogAsync();
+
+    public Task DeleteBranchFromPaletteAsync() => ShowDeleteDialogAsync();
+
+    /// <summary>项目页切换/移除项目后分支页跟随。置空时回"未选择项目"空态。</summary>
     private void OnContextChanged()
     {
         var workDir = _context.WorkDir;
-        if (workDir is null || workDir == _vm.WorkDir) return;
-        _repoBox.Text = workDir;
+        _projectLabel.Text = workDir ?? "未选择项目";
+        if (workDir is null)
+        {
+            if (_vm.IsRepoOpen) _vm.CloseRepository();
+            return;
+        }
+        if (workDir == _vm.WorkDir) return;
         _ = _vm.OpenRepositoryAsync(workDir);
-    }
-
-    private void PopulateRecents()
-    {
-        _suppressRecent = true;
-        _recentBox.Items.Clear();
-        foreach (var p in _settings.Current.RecentRepos)
-            _recentBox.Items.Add(p);
-        _recentBox.SelectedIndex = -1;
-        _suppressRecent = false;
     }
 
     // ---- 对话框（创建 / 重命名 / 删除确认）----
 
+    /// <summary>对话框宿主：命令面板先跳转本页再弹框，页面刚入树时自身 XamlRoot 可能尚未传播，回退到 Content 的。</summary>
+    private Microsoft.UI.Xaml.XamlRoot? DialogXamlRoot => XamlRoot ?? Content.XamlRoot;
+
     private async Task ShowCreateDialogAsync()
     {
+        if (DialogXamlRoot is null) return;
         var input = new TextBox { PlaceholderText = "新分支名" };
         AutomationProperties.SetName(input, "新分支名");
         var from = new TextBox { PlaceholderText = "起点（留空 = HEAD）" };
@@ -315,7 +330,7 @@ public sealed class BranchesPage : UserControl
             Content = panel,
             PrimaryButtonText = "确认创建",
             CloseButtonText = "取消",
-            XamlRoot = XamlRoot,
+            XamlRoot = DialogXamlRoot,
         };
         var result = await dialog.ShowAsync();
         if (result != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(input.Text)) return;
@@ -325,6 +340,7 @@ public sealed class BranchesPage : UserControl
 
     private async Task ShowRenameDialogAsync()
     {
+        if (DialogXamlRoot is null) return;
         if (Sel() is not { } b || b.IsRemote) return;
         var input = new TextBox { PlaceholderText = "新名称", Text = b.Name };
         AutomationProperties.SetName(input, "新名称");
@@ -334,7 +350,7 @@ public sealed class BranchesPage : UserControl
             Content = input,
             PrimaryButtonText = "确认重命名",
             CloseButtonText = "取消",
-            XamlRoot = XamlRoot,
+            XamlRoot = DialogXamlRoot,
         };
         var result = await dialog.ShowAsync();
         if (result != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(input.Text)) return;
@@ -347,6 +363,7 @@ public sealed class BranchesPage : UserControl
     /// </summary>
     private async Task ShowDeleteDialogAsync()
     {
+        if (DialogXamlRoot is null) return;
         if (Sel() is not { } b || b.IsRemote) return;
 
         var preview = await _vm.RequestDeletePreview(b.Name);
@@ -372,7 +389,7 @@ public sealed class BranchesPage : UserControl
             PrimaryButtonText = "确认删除",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot,
+            XamlRoot = DialogXamlRoot,
         };
         var result = await dialog.ShowAsync();
         if (result != ContentDialogResult.Primary) return;
@@ -401,7 +418,7 @@ public sealed class BranchesPage : UserControl
             },
             Background = SectionBrush,
             Padding = new Thickness(10, 5, 10, 5),
-            CornerRadius = new CornerRadius(6),
+            CornerRadius = new CornerRadius(Ui.CornerRadius),
             Margin = new Thickness(8, 6, 8, 2),
         };
         AutomationProperties.SetName(border, g.IsRemote ? "远程分支组" : "本地分支组");
@@ -467,7 +484,7 @@ public sealed class BranchesPage : UserControl
             Content = rowHost,
             Padding = new Thickness(4, 4, 12, 4),
             Margin = new Thickness(8, 1, 8, 1),
-            CornerRadius = new CornerRadius(6),
+            CornerRadius = new CornerRadius(Ui.CornerRadius),
             Background = isSelected ? RowSelectedBrush : ClearBrush,
             BorderThickness = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Stretch,

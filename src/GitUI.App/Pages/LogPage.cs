@@ -24,12 +24,10 @@ namespace GitUI.App.Pages;
 /// </summary>
 public sealed class LogPage : UserControl
 {
-    private readonly ISettingsStore _settings;
     private readonly RepositoryContext _context;
     private readonly LogViewModel _vm;
 
-    private readonly TextBox _repoBox;
-    private readonly ComboBox _recentBox;
+    private readonly TextBlock _projectLabel;
     private readonly ComboBox _branchBox;
     private readonly TextBox _searchBox;
     private readonly TextBlock _status;
@@ -51,34 +49,26 @@ public sealed class LogPage : UserControl
     private Button? _selectedRowButton;
     private string? _selectedSha;
 
-    public LogPage(ISettingsStore settings, IRepositoryService repo, RepositoryContext context)
+    /// <param name="navigate">跳转到指定页签（切换项目按钮用）；null 时按钮禁用。</param>
+    public LogPage(ISettingsStore settings, IRepositoryService repo, RepositoryContext context, Action<string>? navigate = null)
     {
-        _settings = settings;
         _context = context;
         _vm = new LogViewModel(repo);
 
-        // ---- 工具条 ----
-        _repoBox = new TextBox { MinWidth = 200, PlaceholderText = @"D:\path\to\repo" };
-        AutomationProperties.SetName(_repoBox, "仓库路径");
-        _repoBox.KeyDown += (_, e) =>
+        // ---- 工具条（仓库路径唯一入口在「项目」页；此处只读展示当前项目）----
+        _projectLabel = new TextBlock
         {
-            if (e.Key == VirtualKey.Enter) { _ = OpenRepoAsync(); e.Handled = true; }
+            Text = "未选择项目",
+            FontFamily = Ui.Mono,
+            FontSize = 11,
+            Foreground = Ui.Text2,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 340,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         };
-
-        _recentBox = new ComboBox { MinWidth = 110, PlaceholderText = "最近" };
-        AutomationProperties.SetName(_recentBox, "最近仓库");
-        _recentBox.SelectionChanged += (_, _) =>
-        {
-            if (_recentBox.SelectedItem is string path && path.Length > 0)
-            {
-                _repoBox.Text = path;
-                _ = OpenRepoAsync();
-            }
-        };
-        PopulateRecents();
-
-        var openBtn = BuildToolButton("打开仓库");
-        openBtn.Click += (_, _) => _ = OpenRepoAsync();
+        var switchBtn = BuildToolButton("切换项目");
+        switchBtn.Click += (_, _) => navigate?.Invoke("projects");
+        if (navigate is null) switchBtn.IsEnabled = false;
 
         _branchBox = new ComboBox { MinWidth = 130, PlaceholderText = "分支" };
         AutomationProperties.SetName(_branchBox, "分支选择");
@@ -114,9 +104,8 @@ public sealed class LogPage : UserControl
             Margin = new Thickness(10, 6, 10, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        toolbar.Children.Add(_repoBox);
-        toolbar.Children.Add(_recentBox);
-        toolbar.Children.Add(openBtn);
+        toolbar.Children.Add(_projectLabel);
+        toolbar.Children.Add(switchBtn);
         toolbar.Children.Add(_branchBox);
         toolbar.Children.Add(_searchBox);
         toolbar.Children.Add(searchBtn);
@@ -124,8 +113,8 @@ public sealed class LogPage : UserControl
 
         _status = new TextBlock
         {
-            FontSize = 11.5,
-            Opacity = 0.72,
+            FontSize = 11,
+            Foreground = Ui.Text2,
             Margin = new Thickness(14, 0, 14, 0),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -151,8 +140,8 @@ public sealed class LogPage : UserControl
 
         _emptyState = new TextBlock
         {
-            FontSize = 13,
-            Opacity = 0.6,
+            FontSize = 12,
+            Foreground = Ui.Text3,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
@@ -168,22 +157,24 @@ public sealed class LogPage : UserControl
         // ---- 右：提交详情 + 文件列表 + DiffCanvas ----
         _detailSubject = new TextBlock
         {
-            FontSize = 15,
+            FontSize = 13.5,
             FontWeight = new Windows.UI.Text.FontWeight(600),
+            Foreground = Ui.Text,
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(12, 8, 12, 2),
         };
         _detailMeta = new TextBlock
         {
-            FontSize = 11.5,
-            Opacity = 0.7,
+            FontFamily = Ui.Mono,
+            FontSize = 11,
+            Foreground = Ui.Text2,
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(12, 0, 12, 2),
         };
         _detailMessage = new TextBlock
         {
             FontSize = 11.5,
-            Opacity = 0.85,
+            Foreground = Ui.Text2,
             TextWrapping = TextWrapping.Wrap,
             MaxLines = 4,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -191,34 +182,24 @@ public sealed class LogPage : UserControl
             Visibility = Visibility.Collapsed,
         };
         // S7 通用 git diff：比较基准栏（任意两点比较，design.md §4.2 P1）
-        _pinCompareBtn = new Button
-        {
-            Content = "设为比较基准",
-            Padding = new Thickness(8, 2, 8, 2),
-            CornerRadius = new CornerRadius(6),
-            FontSize = 11.5,
-        };
-        AutomationProperties.SetName(_pinCompareBtn, "设为比较基准");
+        _pinCompareBtn = Ui.ToolButton("设为比较基准");
+        _pinCompareBtn.Padding = new Thickness(7, 2, 7, 3);
+        _pinCompareBtn.FontSize = 11;
         _pinCompareBtn.Click += (_, _) =>
         {
             if (_vm.Selected is not null) _vm.SetCompareBase(_vm.Selected);
         };
 
-        _clearCompareBtn = new Button
-        {
-            Content = "清除比较基准",
-            Padding = new Thickness(8, 2, 8, 2),
-            CornerRadius = new CornerRadius(6),
-            FontSize = 11.5,
-            Visibility = Visibility.Collapsed,
-        };
-        AutomationProperties.SetName(_clearCompareBtn, "清除比较基准");
+        _clearCompareBtn = Ui.ToolButton("清除比较基准");
+        _clearCompareBtn.Padding = new Thickness(7, 2, 7, 3);
+        _clearCompareBtn.FontSize = 11;
+        _clearCompareBtn.Visibility = Visibility.Collapsed;
         _clearCompareBtn.Click += (_, _) => _vm.SetCompareBase(null);
 
         _compareIndicator = new TextBlock
         {
             FontSize = 11,
-            Opacity = 0.7,
+            Foreground = Ui.Text3,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -242,6 +223,8 @@ public sealed class LogPage : UserControl
             Height = 170,
             Margin = new Thickness(8, 2, 8, 4),
             SelectionMode = ListViewSelectionMode.Single,
+            FontFamily = Ui.Mono,
+            FontSize = 11.5,
         };
         AutomationProperties.SetName(_fileList, "文件列表");
         _fileList.SelectionChanged += File_Selected;
@@ -300,56 +283,34 @@ public sealed class LogPage : UserControl
         ActualThemeChanged += (_, _) => Rebind();
 
         Rebind();
+
+        // 追上创建前已设置的当前项目（启动恢复 / 其他页先行切换）
+        if (_context.WorkDir is not null)
+        {
+            OnContextChanged();
+        }
     }
 
     private const string HeadItem = "(HEAD)";
 
-    // ---- 主题色 ----
-
-    private static bool IsLight => Application.Current?.RequestedTheme != ApplicationTheme.Dark;
+    // ---- 主题色（令牌来自 Ui，"Gitter IDE" v3）----
 
     private static readonly SolidColorBrush ClearBrush = new(Color.FromArgb(0, 0, 0, 0));
 
-    private static SolidColorBrush RowSelectedBrush =>
-        IsLight ? Make(0x24, 0x1C, 0x1B, 0x1F) : Make(0x38, 0xFF, 0xFF, 0xFF);
+    private static SolidColorBrush RowSelectedBrush => Ui.AccentSoft;
 
-    private static SolidColorBrush LineBrush =>
-        IsLight ? Make(0x2E, 0x1C, 0x1B, 0x1F) : Make(0x3C, 0xFF, 0xFF, 0xFF);
+    private static SolidColorBrush LineBrush => Ui.Border;
 
-    private static SolidColorBrush DotBrush =>
-        IsLight ? Make(0xC0, 0x50, 0x50, 0x50) : Make(0xC8, 0xD8, 0xD8, 0xD8);
+    private static SolidColorBrush DotBrush => Ui.Text3;
 
-    private static SolidColorBrush MergeDotBrush => Make(0xFF, 0xE7, 0x6F, 0x00);
+    private static SolidColorBrush MergeDotBrush => Ui.Amber;
 
-    private static SolidColorBrush BadgeBrush =>
-        IsLight ? Make(0x22, 0x00, 0x60, 0xC0) : Make(0x36, 0x60, 0xB8, 0xFF);
-
-    private static SolidColorBrush TagBrush =>
-        IsLight ? Make(0x22, 0x6A, 0x1E, 0xA0) : Make(0x36, 0xB0, 0x80, 0xFF);
-
-    private static SolidColorBrush DividerBrush =>
-        IsLight ? Make(0x22, 0x1C, 0x1B, 0x1F) : Make(0x22, 0xFF, 0xFF, 0xFF);
-
-    private static SolidColorBrush MutedBrush =>
-        IsLight ? Make(0x99, 0x1C, 0x1B, 0x1F) : Make(0x9E, 0xE8, 0xE8, 0xE8);
-
-    private static SolidColorBrush Make(byte a, byte r, byte g, byte b) => new(Color.FromArgb(a, r, g, b));
+    private static SolidColorBrush DividerBrush => Ui.Border;
 
     // ---- 构建 ----
 
     private static Button BuildToolButton(string text, string? automationName = null)
-    {
-        var btn = new Button
-        {
-            Content = text,
-            Background = ClearBrush,
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 4, 10, 4),
-            CornerRadius = new CornerRadius(6),
-        };
-        AutomationProperties.SetName(btn, automationName ?? text);
-        return btn;
-    }
+        => Ui.ToolButton(text, automationName);
 
     private UIElement BuildRow(object data) => data switch
     {
@@ -363,22 +324,25 @@ public sealed class LogPage : UserControl
         var chevron = new FontIcon
         {
             Glyph = h.IsCollapsed ? "\uE76B" : "\uE70D",
-            FontSize = 10,
+            FontSize = 9,
+            Foreground = Ui.Text3,
             VerticalAlignment = VerticalAlignment.Center,
         };
         var title = new TextBlock
         {
             Text = h.Title,
-            FontSize = 12,
+            FontSize = 11,
             FontWeight = new Windows.UI.Text.FontWeight(600),
+            Foreground = Ui.Text2,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(6, 0, 0, 0),
         };
         var count = new TextBlock
         {
             Text = $"{h.CommitCount} 个提交",
-            FontSize = 11,
-            Opacity = 0.6,
+            FontFamily = Ui.Mono,
+            FontSize = 10.5,
+            Foreground = Ui.Text3,
             VerticalAlignment = VerticalAlignment.Center,
         };
 
@@ -396,12 +360,12 @@ public sealed class LogPage : UserControl
         var btn = new Button
         {
             Content = content,
-            Height = 30,
-            Margin = new Thickness(8, 6, 8, 2),
-            Padding = new Thickness(10, 2, 10, 2),
+            Height = 24,
+            Margin = new Thickness(4, 4, 4, 2),
+            Padding = new Thickness(8, 1, 8, 2),
             Background = ClearBrush,
             BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(6),
+            CornerRadius = new CornerRadius(Ui.CornerRadius),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
@@ -420,7 +384,7 @@ public sealed class LogPage : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Stretch,
         };
-        var dotSize = r.Commit.IsMerge ? 12.0 : 9.0;
+        var dotSize = r.Commit.IsMerge ? 11.0 : 8.0;
         var dot = new Ellipse
         {
             Width = dotSize,
@@ -429,77 +393,65 @@ public sealed class LogPage : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        var timeline = new Grid { Width = 26 };
+        var timeline = new Grid { Width = 18 };
         timeline.Children.Add(line);
         timeline.Children.Add(dot);
 
-        var sha = new TextBlock
-        {
-            Text = r.Commit.ShortSha,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = 11.5,
-            Foreground = MutedBrush,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0),
-        };
+        // IDE 单行密度：SHA(等宽) · 徽标 · 提交消息 · 右侧作者·时间
+        var sha = Ui.MonoText(r.Commit.ShortSha, 11, Ui.Text3);
+        sha.VerticalAlignment = VerticalAlignment.Center;
+        sha.Margin = new Thickness(0, 0, 8, 0);
 
         var subject = new TextBlock
         {
             Text = r.Commit.Subject,
-            FontSize = 13,
+            FontSize = 12.5,
+            Foreground = Ui.Text,
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
 
-        var titleRow = new Grid();
-        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(sha, 0);
-        titleRow.Children.Add(sha);
-        var badgeHost = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        foreach (var badge in r.Badges)
-            badgeHost.Children.Add(BuildBadge(badge));
-        Grid.SetColumn(badgeHost, 1);
-        titleRow.Children.Add(badgeHost);
-        Grid.SetColumn(subject, 2);
-        titleRow.Children.Add(subject);
-
         var meta = new TextBlock
         {
             Text = r.MetaText,
-            FontSize = 11,
-            Foreground = MutedBrush,
-            Margin = new Thickness(0, 2, 0, 0),
+            FontSize = 10.5,
+            Foreground = Ui.Text3,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
 
-        var body = new Grid { Margin = new Thickness(2, 0, 0, 0) };
-        body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Grid.SetRow(titleRow, 0);
-        body.Children.Add(titleRow);
-        Grid.SetRow(meta, 1);
-        body.Children.Add(meta);
+        var badgeHost = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var badge in r.Badges)
+            badgeHost.Children.Add(BuildBadge(badge));
 
         var content = new Grid();
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(timeline, 0);
         content.Children.Add(timeline);
-        Grid.SetColumn(body, 1);
-        content.Children.Add(body);
+        Grid.SetColumn(sha, 1);
+        content.Children.Add(sha);
+        Grid.SetColumn(badgeHost, 2);
+        content.Children.Add(badgeHost);
+        Grid.SetColumn(subject, 3);
+        content.Children.Add(subject);
+        Grid.SetColumn(meta, 4);
+        content.Children.Add(meta);
 
         var isSelected = r.Commit.Sha == _selectedSha;
         var btn = new Button
         {
             Content = content,
-            MinHeight = 48,
-            Margin = new Thickness(8, 1, 8, 1),
-            Padding = new Thickness(4, 6, 8, 6),
+            MinHeight = 30,
+            Margin = new Thickness(4, 0, 4, 0),
+            Padding = new Thickness(4, 3, 8, 3),
             Background = isSelected ? RowSelectedBrush : ClearBrush,
             BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(6),
+            CornerRadius = new CornerRadius(Ui.CornerRadius),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
@@ -513,14 +465,15 @@ public sealed class LogPage : UserControl
     {
         return new Border
         {
-            Background = badge.IsTag ? TagBrush : BadgeBrush,
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(5, 1, 5, 1),
+            Background = badge.IsTag ? Ui.ChipPurpleBg : Ui.ChipBlueBg,
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(5, 0, 5, 1),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
                 Text = badge.Text,
-                FontSize = 10.5,
+                FontSize = 10,
+                Foreground = badge.IsTag ? Ui.ChipPurpleFg : Ui.ChipBlueFg,
                 VerticalAlignment = VerticalAlignment.Center,
             },
         };
@@ -537,29 +490,17 @@ public sealed class LogPage : UserControl
         _ = _vm.SetQueryAsync(_searchBox.Text);
     }
 
-    private async Task OpenRepoAsync()
-    {
-        var path = _repoBox.Text.Trim();
-        if (path.Length == 0) return;
-        _scrollToTopPending = true;
-        await _vm.OpenRepositoryAsync(path);
-        if (_vm.IsRepoOpen)
-        {
-            _context.Set(_vm.WorkDir);
-            var list = _settings.Current.RecentRepos.Where(p => p != path).ToList();
-            list.Insert(0, path);
-            _settings.Update(s => s.RecentRepos = list.Take(5).ToList());
-            _settings.Save();
-            PopulateRecents();
-        }
-    }
-
-    /// <summary>其他页签打开仓库后 Log 页跟随（known-issues 1.3；自身打开会先更新 WorkDir，不会回环）。</summary>
+    /// <summary>项目页切换/移除项目后 Log 页跟随（known-issues 1.3）。置空时回"未选择项目"空态。</summary>
     private void OnContextChanged()
     {
         var workDir = _context.WorkDir;
-        if (workDir is null || workDir == _vm.WorkDir) return;
-        _repoBox.Text = workDir;
+        _projectLabel.Text = workDir ?? "未选择项目";
+        if (workDir is null)
+        {
+            if (_vm.IsRepoOpen) _vm.CloseRepository();
+            return;
+        }
+        if (workDir == _vm.WorkDir) return;
         _scrollToTopPending = true;
         _ = _vm.OpenRepositoryAsync(workDir);
     }
@@ -576,16 +517,6 @@ public sealed class LogPage : UserControl
         await _vm.RefreshBranchesAsync();
         _branchRepoKey = null; // 强制 UpdateBranchCombo 重建
         UpdateBranchCombo();
-    }
-
-    private void PopulateRecents()
-    {
-        _suppressBranchEvent = true;
-        _recentBox.Items.Clear();
-        foreach (var p in _settings.Current.RecentRepos)
-            _recentBox.Items.Add(p);
-        _recentBox.SelectedIndex = -1;
-        _suppressBranchEvent = false;
     }
 
     private void SelectCommit(LogCommitRow r, Button rowBtn)
@@ -720,7 +651,7 @@ public sealed class LogPage : UserControl
         {
             text = _vm.Error is not null
                 ? "打开仓库失败：" + _vm.Error
-                : "在上方输入仓库路径开始浏览提交历史";
+                : "未选择项目：在左侧「项目」页添加并双击选择（Ctrl+1）";
         }
         else if (!_vm.IsLoading && _vm.Groups.Count == 0)
         {
