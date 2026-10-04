@@ -705,6 +705,7 @@ public sealed class ChangesPage : UserControl
         }
 
         _fileHeader.Text = selected.Path;
+        _canvas.SourcePath = selected.Path; // 语法高亮按扩展名解析（code-highlight-framework P1）
         _openEditorBtn.IsEnabled = true;
         // 冲突文件下"暂存文件"即"标记已解决"（git add 移除冲突条目），换标签提示语义
         var isConflict = selected.IsConflict;

@@ -1,4 +1,5 @@
 using GitUI.Core.Models;
+using GitUI.Diff.Highlighting;
 using GitUI.Core.Services;
 
 namespace GitUI.Diff.Render;
@@ -117,6 +118,39 @@ public sealed class DiffRenderModel
             var segments = _wordDiff.ComputeWordDiff(pair.OldCell.Text, pair.NewCell.Text);
             pair.OldCell.Words = segments;
             pair.NewCell.Words = segments;
+        }
+    }
+
+    /// <summary>
+    /// 为 [firstRow, lastRowInclusive] 内的内容格计算语法片段（code-highlight-framework.md §五）。
+    /// 已解析的格跳过；无高亮器（null）时只标记已解析。只对可视区 + overscan 调用。
+    /// </summary>
+    public void EnsureSyntaxTokens(int firstRow, int lastRowInclusive, ISyntaxHighlighter? highlighter)
+    {
+        if (highlighter is null or NullHighlighter) return;
+
+        foreach (var row in Rows)
+        {
+            if (row.Index < firstRow || row.Index > lastRowInclusive) continue;
+            TryTokenize(row.Left, highlighter);
+            TryTokenize(row.Right, highlighter);
+        }
+    }
+
+    private static void TryTokenize(DiffCell? cell, ISyntaxHighlighter highlighter)
+    {
+        if (cell is null || cell.SyntaxTokensResolved) return;
+        cell.SyntaxTokensResolved = true;
+        if (cell.Kind is DiffRowKind.Filler or DiffRowKind.HunkHeader or DiffRowKind.NoNewlineMarker) return;
+        if (cell.Text.Length == 0) return;
+
+        try
+        {
+            cell.SyntaxTokens = highlighter.TokenizeLine(cell.Text, LineState.None).Spans;
+        }
+        catch
+        {
+            cell.SyntaxTokens = Array.Empty<SyntaxSpan>(); // 高亮器故障 → 整行降级 plain
         }
     }
 

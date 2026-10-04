@@ -1,4 +1,6 @@
 using GitUI.Core.Models;
+using GitUI.Controls.Theme;
+using GitUI.Diff.Highlighting;
 using GitUI.Core.Settings;
 using GitUI.Diff.Render;
 using Microsoft.Graphics.Canvas.Text;
@@ -36,6 +38,11 @@ public sealed class DiffCanvas : Grid
     private DiffPalette _palette = DiffPalette.Dark;
     private string? _message;
     private int _currentBlock = -1;
+
+    // 语法着色（code-highlight-framework.md P1）
+    private string? _sourcePath;
+    private ISyntaxHighlighter? _highlighter;
+    private SyntaxStyleSet _syntaxStyles;
 
     private CanvasTextFormat? _textFormat;
     private CanvasTextFormat? _messageFormat;
@@ -110,10 +117,22 @@ public sealed class DiffCanvas : Grid
         KeyDown += OnKeyDown;
         // WinUI 3 投影没有可重写的 OnPointerWheelChanged，用事件订阅
         PointerWheelChanged += OnWheelChanged;
-        ActualThemeChanged += (_, _) => { _palette = ResolvePalette(); _canvas.Invalidate(); };
+        ActualThemeChanged += (_, _) =>
+        {
+            _palette = ResolvePalette();
+            _syntaxStyles = BuildSyntaxStyles();
+            _canvas.Invalidate();
+        };
+        ThemeService.Applied += _ =>
+        {
+            // 主题包切换（含暗↔亮与第三方包）→ 语法配色随主题重载
+            _syntaxStyles = BuildSyntaxStyles();
+            _canvas.Invalidate();
+        };
 
         BuildAccelerators();
         _palette = ResolvePalette();
+        _syntaxStyles = BuildSyntaxStyles();
         AutomationProperties.SetName(this, "Diff 视图");
     }
 
@@ -128,6 +147,22 @@ public sealed class DiffCanvas : Grid
             if (_mode == value) return;
             _mode = value;
             if (_hunks is not null) RebuildModel(resetScroll: false);
+        }
+    }
+
+    /// <summary>
+    /// 源文件路径：按扩展名解析语法高亮器（code-highlight-framework.md P1）。
+    /// Load 前设置；null/无匹配语言 → 不着色。
+    /// </summary>
+    public string? SourcePath
+    {
+        get => _sourcePath;
+        set
+        {
+            if (_sourcePath == value) return;
+            _sourcePath = value;
+            _highlighter = value is null ? null : HighlighterRegistry.Resolve(value);
+            _canvas.Invalidate();
         }
     }
 
@@ -344,6 +379,14 @@ public sealed class DiffCanvas : Grid
     private DiffPalette ResolvePalette() =>
         ActualTheme == ElementTheme.Light ? DiffPalette.Light : DiffPalette.Dark;
 
+    /// <summary>活动主题语法配色 → 样式集（ThemeService.ActiveSyntax 覆盖内置缺省）。</summary>
+    private SyntaxStyleSet BuildSyntaxStyles()
+    {
+        var set = new SyntaxStyleSet(ActualTheme == ElementTheme.Light);
+        set.ApplyOverrides(ThemeService.ActiveSyntax);
+        return set;
+    }
+
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         EnsureTextFormat();
@@ -374,8 +417,10 @@ public sealed class DiffCanvas : Grid
 
         var (_, from, last) = DiffLayoutEngine.VisibleRange(_model.Rows.Count, _metrics, viewport);
         _model.EnsureWordDiff(from, last);
+        _model.EnsureSyntaxTokens(from, last, _highlighter);
 
-        var frame = DiffLayoutEngine.Layout(_model, sideBySide: _mode == DiffViewMode.SideBySide, _metrics, viewport);
+        var frame = DiffLayoutEngine.Layout(_model, sideBySide: _mode == DiffViewMode.SideBySide, _metrics, viewport,
+            _syntaxStyles);
         foreach (var cmd in frame.Commands)
         {
             switch (cmd)

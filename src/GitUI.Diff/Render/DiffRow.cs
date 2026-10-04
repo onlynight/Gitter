@@ -1,4 +1,5 @@
 using GitUI.Core.Models;
+using GitUI.Diff.Highlighting;
 
 namespace GitUI.Diff.Render;
 
@@ -34,6 +35,16 @@ public sealed class DiffCell
     /// 未参与配对的行（纯增/删、段长不齐的余量行）保持 null，无行内高亮。
     /// </summary>
     public IReadOnlyList<WordSegment>? Words { get; internal set; }
+
+    /// <summary>
+    /// 语法着色片段（相对 <see cref="Text"/> 的行内区间，code-highlight-framework.md §五）。
+    /// 渲染优先级高于 <see cref="Words"/>：非空时本格按语法 run 着色（字级高亮底保留，
+    /// 由布局层按列交集绘制）。惰性填充；null = 未计算或语言无高亮器。
+    /// </summary>
+    public IReadOnlyList<SyntaxSpan>? SyntaxTokens { get; internal set; }
+
+    /// <summary>语法片段是否已尝试计算（供惰性逻辑区分"无高亮器"与"尚未算"）。</summary>
+    public bool SyntaxTokensResolved { get; internal set; }
 
     public bool IsChange => Kind is DiffRowKind.Added or DiffRowKind.Deleted;
 }

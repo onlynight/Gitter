@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "gitui.syntax.builtin",
+  "name": "内置语法高亮",
+  "version": "1.0.0",
+  "authors": ["GitUI"],
+  "description": "C# / JSON / PowerShell / Markdown / XML 声明式语法高亮",
+  "kinds": ["syntax"],
+  "syntax": { "languages": ["csharp", "json", "powershell", "markdown", "xml"] }
+}

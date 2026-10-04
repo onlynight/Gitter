@@ -106,12 +106,23 @@ public record SyntaxToken(int Start, int Length, string StyleKey);
 
 ## 六、分阶段计划
 
-| 阶段 | 内容 | 验收 |
-|---|---|---|
-| P1 | 契约 + 内置声明式引擎 + 5 语言规则 + DiffCanvas run 绘制 + 缓存/异步 | 打开 .cs/.ps1 提交的 diff：关键字/字符串/注释着色正确；增删背景不冲突；diff 冒烟全绿 |
-| P2 | 主题 syntax 段接入（深浅两套语法配色随主题切换） | 切换亮暗主题语法配色跟随；第三方主题包覆盖 syntax 生效 |
-| P3 | Jint 脚本高亮器（.gpk syntax kind）+ 设置页管理 | 安装一个 JS 高亮器包，小众语言 diff 着色 |
-| P4（预留） | C# ALC 强类型插件契约启用；跨行 state 全量（块注释跨 diff 行）；正则升级为 TextMate 兼容子集 | — |
+| 阶段 | 内容 | 验收 | 状态 |
+|---|---|---|---|
+| P1 | 契约 + 内置声明式引擎 + 5 语言规则 + DiffCanvas run 绘制 + 缓存 | .cs/.ps1 diff 关键字/字符串/注释着色正确；增删背景与字级高亮不冲突；全部冒烟与单测通过 | ✅ 2026-10-04（可见区惰性分词 + 格级缓存；异步分词暂未需要——声明式引擎每行 ≤0.1ms，实测无感知） |
+| P2 | 主题 syntax 段接入（深浅两套语法配色随主题切换） | 切换亮暗主题语法配色跟随；第三方主题包覆盖 syntax 生效 | ✅ 2026-10-04（ThemeService.ActiveSyntax 随主题包应用重载，SyntaxStyleSet 深浅缺省 + 包覆盖） |
+| P3 | Jint 脚本高亮器（.gpk syntax kind）+ 设置页管理 | 安装一个 JS 高亮器包，小众语言 diff 着色 | 待实施（内置语法包已按 .gpk kind 形态存在：Packages/GitUI.syntax.builtin） |
+| P4（预留） | C# ALC 强类型插件契约启用；跨行 state 全量（块注释跨 diff 行）；正则升级为 TextMate 兼容子集 | — | 待实施 |
+
+> 实施注记（P1/P2）：
+> 1. 高亮框架位于 **GitUI.Diff/Highlighting/**（纯程序集，DependencyCheckTests 纯度守卫继续通过）；
+>    契约 = `ISyntaxHighlighter.TokenizeLine(line, state)`，产出语义样式键（无颜色）。
+> 2. 布局集成：`DiffCell.SyntaxTokens`（比照 Words 惰性填充）+ 新命令 `TextRunCommand`（显式颜色）；
+>    字级差异高亮底以列交集保留（EmitSyntaxRuns 先画底、后画语法 run）。
+> 3. 着色范围 = 可视区 + overscan（EnsureSyntaxTokens(from, last)），格级缓存随 DiffRenderModel 生命周期。
+> 4. 内置语法包 `Packages/GitUI.syntax.builtin`（C#/JSON/PowerShell/Markdown/XML 声明式规则），
+>    HighlighterRegistry 扫描内置 + 用户包目录，同扩展名用户包覆盖内置。
+> 5. 单测：`tests/GitUI.Render.Tests/HighlightingTests.cs`（分词正确性/词边界/坏正则降级/注册表/
+>    内置包守卫/布局 TextRunCommand/字级高亮共存）。
 
 ## 七、验收标准
 

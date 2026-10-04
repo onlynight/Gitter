@@ -607,6 +607,7 @@ public sealed class LogPage : UserControl
 
     private void LoadFile(DiffResult f)
     {
+        _canvas.SourcePath = f.IsBinary ? null : f.Path; // 语法高亮按扩展名解析（code-highlight-framework P1）
         if (f.IsBinary) _canvas.Clear("二进制文件已修改，无法比较");
         else if (f.Hunks.Count == 0) _canvas.Clear("无差异");
         else _canvas.Load(f.Hunks, f.OldEndsWithNewline, f.NewEndsWithNewline);
