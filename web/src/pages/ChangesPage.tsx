@@ -44,7 +44,7 @@ export function ChangesPage() {
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [transient, setTransient] = useState<string | null>(null);
-  const [selected, setSelected] = useState<{ path: string; staged: boolean; isNew: boolean } | null>(null);
+  const [selected, setSelected] = useState<{ path: string; staged: boolean; isNew: boolean; isConflict: boolean } | null>(null);
   const [diff, setDiff] = useState<DiffDTO | null>(null);
   const [preview, setPreview] = useState<PreviewDTO | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -110,7 +110,7 @@ export function ChangesPage() {
     }
   };
 
-  const loadDiff = useCallback(async (sel: { path: string; staged: boolean; isNew: boolean }) => {
+  const loadDiff = useCallback(async (sel: { path: string; staged: boolean; isNew: boolean; isConflict?: boolean }) => {
     setPreview(null);
     setSelectedHunks(new Set());
     // 图片等可预览二进制：直接出内容，不请求 diff
@@ -134,7 +134,7 @@ export function ChangesPage() {
   }, []);
 
   const select = (f: FileStatusDTO, stagedView: boolean) => {
-    const sel = { path: f.path, staged: stagedView, isNew: f.category === "unversioned" };
+    const sel = { path: f.path, staged: stagedView, isNew: f.category === "unversioned", isConflict: f.isConflict };
     setSelected(sel);
     void loadDiff(sel);
   };
@@ -476,6 +476,11 @@ export function ChangesPage() {
               <button className="tool-btn" onClick={() => void call("shell.openPath", { path: selected.path, editor: true })}>
                 {t("Changes_OpenInEditor")}
               </button>
+            </div>
+          )}
+          {selected?.isConflict && (
+            <div className="banner">
+              <span className="banner-text">{t("Changes_ConflictCompareHint")}</span>
             </div>
           )}
           <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>

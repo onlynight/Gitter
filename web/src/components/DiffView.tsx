@@ -172,6 +172,16 @@ export function DiffView(props: {
     </div>
   );
 
+  // 无内容差异：纯重命名 / 属性（mode）变更等，头部之外没有可渲染的行
+  if (diff.hunks.length === 0 && !diff.isBinary) {
+    return (
+      <div className="diff">
+        {header}
+        <div className="empty-state">{t("Diff_NoContentChange")}</div>
+      </div>
+    );
+  }
+
   let rowOffset = 0;
   const body = diff.hunks.map((h, hi) => {
     const rows = assembled.rowsPerHunk[hi];

@@ -112,7 +112,16 @@ export async function worktreeFileDiff(
     throw new GitError(["diff", "--no-index", path_], r);
   }
   const patch = await git(workDir, ["diff", "--no-color", staged ? "--cached" : "", "--", path_].filter(Boolean));
-  const files = parseUnifiedDiff(patch);
+  let files = parseUnifiedDiff(patch);
+  // 未合并路径（冲突）：git diff 输出 combined diff（diff --cc），解析器不支持 → 空结果。
+  // 改展示 ours(:2) vs theirs(:3) 的标准 unified diff，给用户决定取舍依据。
+  if (files.length === 0 && !staged) {
+    const unmerged = await tryGit(workDir, ["ls-files", "-u", "--", path_]);
+    if (unmerged.stdout.trim()) {
+      const sides = await tryGit(workDir, ["diff", "--no-color", `:2:${path_}`, `:3:${path_}`]);
+      files = parseUnifiedDiff(sides.stdout);
+    }
+  }
   return files[0] ?? empty;
 }
 
