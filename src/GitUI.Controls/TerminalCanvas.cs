@@ -25,9 +25,10 @@ namespace GitUI.Controls;
 public sealed class TerminalCanvas : Grid
 {
     private const double WheelRowsPerNotch = 3;
+    private const double ScrollbarGutter = 14;  // 自绘滚动条槽宽（DIP，含左右留白）
+    private const double ThumbMinHeight = 28;   // thumb 最小高度：10k 行 scrollback 时按比例仅 ~2px，必须托底
 
     private readonly CanvasControl _canvas;
-    private readonly ScrollBar _vScroll;
     private TerminalBuffer? _buffer;
     private TerminalPalette _palette = TerminalPalette.Dark;
     private double _charWidth = 9;
@@ -37,6 +38,14 @@ public sealed class TerminalCanvas : Grid
     private bool _cursorOn;
     private bool _hasFocus;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _blinkTimer;
+
+    // 自绘滚动条状态（替代 WinUI ScrollBar：其 thumb 高度按 LargeChange/(Maximum+LargeChange)
+    // 比例计算，10k scrollback 时仅 ~2px 且轨道透明 —— 视觉上等于没有滚动条；
+    // 且 ScrollBar 列透明会让下层页面透出 —— 右缘"残影"的来源）
+    private double _scrollValue;      // 0..ScrollbackCount
+    private int _lastScrollbackCount; // 上次输出时的 scrollback 行数（贴底跟随的判定基准）
+    private bool _dragThumb;
+    private double _dragGrabOffset;   // 按点相对 thumb 顶部的偏移
 
     // 选区（绝对行坐标）
     private bool _selecting;
@@ -50,7 +59,7 @@ public sealed class TerminalCanvas : Grid
         set
         {
             _buffer = value;
-            UpdateScrollRange();
+            _lastScrollbackCount = value?.ScrollbackCount ?? 0;
             _canvas.Invalidate();
         }
     }
@@ -66,11 +75,6 @@ public sealed class TerminalCanvas : Grid
 
     public TerminalCanvas()
     {
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
-        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-
         _canvas = new CanvasControl();
         _canvas.Draw += OnDraw;
         _canvas.SizeChanged += (_, _) =>
@@ -79,28 +83,13 @@ public sealed class TerminalCanvas : Grid
             // 而渲染用实测字宽（约 8.4）——整条会话的换行列与可视网格错位，
             // 输入到行尾会提前换行（输入与提示符不对齐的根因之一）
             try { EnsureMetrics(_canvas); } catch { /* 设备未就绪：沿用上次度量 */ }
-            UpdateScrollRange();
             ViewportSizeChanged?.Invoke(Columns, Rows);
             _canvas.Invalidate();
         };
         _canvas.PointerPressed += OnPointerPressed;
         _canvas.PointerMoved += OnPointerMoved;
         _canvas.PointerReleased += OnPointerReleased;
-        Grid.SetRow(_canvas, 0);
-        Grid.SetColumn(_canvas, 0);
         Children.Add(_canvas);
-
-        _vScroll = new ScrollBar
-        {
-            Orientation = Orientation.Vertical,
-            SmallChange = 1,
-            Minimum = 0,
-            Maximum = 0,
-        };
-        _vScroll.Scroll += (_, _) => _canvas.Invalidate();
-        Grid.SetRow(_vScroll, 0);
-        Grid.SetColumn(_vScroll, 1);
-        Children.Add(_vScroll);
 
         IsTabStop = true;
         UseSystemFocusVisuals = false;
@@ -126,12 +115,12 @@ public sealed class TerminalCanvas : Grid
             : TerminalPalette.Dark).WithOverrides(ThemeService.ActiveTerminal);
     }
 
-    /// <summary>可视列数（由像素宽与实测字宽推出）。</summary>
+    /// <summary>可视列数（内容区像素宽 ÷ 实测字宽；右侧自绘滚动条槽不计入）。</summary>
     public int Columns
     {
         get
         {
-            var w = _canvas.ActualWidth;
+            var w = _canvas.ActualWidth - ScrollbarGutter;
             return w <= 0 ? 80 : Math.Max(2, (int)(w / _charWidth));
         }
     }
@@ -149,34 +138,29 @@ public sealed class TerminalCanvas : Grid
     /// <summary>scrollback 视窗滚动（绝对行号，画布内部）。</summary>
     private int FirstRow => Buffer is null
         ? 0
-        : Math.Clamp((int)_vScroll.Value, 0, Buffer.ScrollbackCount);
+        : Math.Clamp((int)Math.Round(_scrollValue), 0, Buffer.ScrollbackCount);
 
     /// <summary>让视窗贴底（新输出到达时宿主调用）。</summary>
     public void ScrollToBottom()
     {
         if (Buffer is null) return;
-        _vScroll.Value = Buffer.ScrollbackCount;
+        _scrollValue = Buffer.ScrollbackCount;
         _canvas.Invalidate();
     }
 
     public void NotifyOutput()
     {
-        UpdateScrollRange();
-        // 用户停在底部附近则跟随；否则保持位置（查看历史不被打断）
-        if (Buffer is not null && _vScroll.Value >= Buffer.ScrollbackCount - 1)
+        if (Buffer is not null)
         {
-            _vScroll.Value = Buffer.ScrollbackCount;
+            // 贴底跟随以"上一次输出时"的 scrollback 为基准：一次输出 chunk 常含多行
+            // （8KB 读缓冲 ≈ 上百行），若与增长后的 sb 比较会误判"用户在看历史"而停止跟随
+            if (_scrollValue >= Math.Max(0, _lastScrollbackCount - 1))
+            {
+                _scrollValue = Buffer.ScrollbackCount;
+            }
+            _lastScrollbackCount = Buffer.ScrollbackCount;
         }
         _canvas.Invalidate();
-    }
-
-    private void UpdateScrollRange()
-    {
-        if (Buffer is null) { _vScroll.Maximum = 0; return; }
-        _vScroll.Maximum = Buffer.ScrollbackCount;
-        _vScroll.LargeChange = Math.Max(1, Rows);
-        _vScroll.SmallChange = 1;
-        _vScroll.Value = Math.Min(_vScroll.Value, Buffer.ScrollbackCount);
     }
 
     // ---- 绘制 ----
@@ -219,6 +203,37 @@ public sealed class TerminalCanvas : Grid
                 ToColor(run.Style.FgRgba),
                 TextFormat);
         }
+
+        DrawScrollbar(session);
+    }
+
+    /// <summary>自绘滚动条（scrollback > 0 时）：可见 thumb（带最小高度）+ 淡轨道。</summary>
+    private void DrawScrollbar(Microsoft.Graphics.Canvas.CanvasDrawingSession session)
+    {
+        if (Buffer is null || Buffer.ScrollbackCount <= 0) return;
+        var trackH = _canvas.ActualHeight - 4;
+        if (trackH <= 0 || _canvas.ActualWidth <= ScrollbarGutter) return;
+
+        var trackX = _canvas.ActualWidth - ScrollbarGutter + 2;
+        session.FillRectangle((float)trackX, 2f, (float)(ScrollbarGutter - 4), (float)trackH,
+            ToColor(TerminalRenderModel.Rgba(128, 128, 128, 26)));
+        var thumb = ThumbRect();
+        session.FillRectangle((float)thumb.X, (float)thumb.Y, (float)thumb.Width, (float)thumb.Height,
+            ToColor(TerminalRenderModel.Rgba(128, 128, 128, 140)));
+    }
+
+    /// <summary>当前 thumb 矩形（画布 DIP 坐标；scrollback 为 0 时返回 Empty）。</summary>
+    private Windows.Foundation.Rect ThumbRect()
+    {
+        var sb = Buffer?.ScrollbackCount ?? 0;
+        var trackH = _canvas.ActualHeight - 4;
+        if (sb <= 0 || trackH <= ThumbMinHeight) return default;
+
+        var frac = (double)Math.Max(1, Rows) / (sb + Math.Max(1, Rows));
+        var thumbH = Math.Max(ThumbMinHeight, trackH * frac);
+        var y = 2 + (trackH - thumbH) * Math.Clamp(_scrollValue / sb, 0, 1);
+        return new Windows.Foundation.Rect(
+            _canvas.ActualWidth - ScrollbarGutter + 3, y, ScrollbarGutter - 6, thumbH);
     }
 
     private CanvasTextFormat TextFormat => _textFormat ??= new CanvasTextFormat
@@ -298,15 +313,43 @@ public sealed class TerminalCanvas : Grid
     {
         Focus(FocusState.Pointer);
         var point = e.GetCurrentPoint(_canvas).Position;
+
+        // 滚动条槽交互优先于选区
+        if (point.X >= _canvas.ActualWidth - ScrollbarGutter)
+        {
+            var thumb = ThumbRect();
+            if (thumb.Height > 0 && point.Y >= thumb.Y && point.Y <= thumb.Y + thumb.Height)
+            {
+                _dragThumb = true;
+                _dragGrabOffset = point.Y - thumb.Y;
+                _canvas.CapturePointer(e.Pointer);
+            }
+            else if (Buffer is { ScrollbackCount: > 0 })
+            {
+                // 轨道点击：向点击方向翻一页
+                var page = Math.Max(1, Rows - 2);
+                WheelBy(point.Y < thumb.Y ? page : -page);
+            }
+            e.Handled = true;
+            return;
+        }
+
+        var cell = CellAt(point);
         _selecting = true;
-        _selStart = CellAt(point);
-        _selEnd = _selStart;
+        _selStart = cell;
+        _selEnd = cell;
         _canvas.Invalidate();
         e.Handled = true;
     }
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_dragThumb)
+        {
+            DragThumbTo(e.GetCurrentPoint(_canvas).Position.Y);
+            e.Handled = true;
+            return;
+        }
         if (!_selecting) return;
         _selEnd = CellAt(e.GetCurrentPoint(_canvas).Position);
         _canvas.Invalidate();
@@ -315,12 +358,33 @@ public sealed class TerminalCanvas : Grid
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_dragThumb)
+        {
+            _dragThumb = false;
+            _canvas.ReleasePointerCapture(e.Pointer);
+            e.Handled = true;
+            return;
+        }
         if (!_selecting) return;
         _selecting = false;
         _selEnd = CellAt(e.GetCurrentPoint(_canvas).Position);
         SelectionChanged?.Invoke(SelectedText());
         _canvas.Invalidate();
         e.Handled = true;
+    }
+
+    /// <summary>拖动 thumb：按 thumb 顶对齐位置映射滚动值。</summary>
+    private void DragThumbTo(double y)
+    {
+        if (Buffer is null || Buffer.ScrollbackCount <= 0) return;
+        var thumb = ThumbRect();
+        if (thumb.Height <= 0) return;
+        var trackTop = 2;
+        var trackH = _canvas.ActualHeight - 4;
+        var maxThumbY = trackTop + (trackH - thumb.Height);
+        var t = (Math.Clamp(y - _dragGrabOffset, trackTop, maxThumbY) - trackTop) / (trackH - thumb.Height);
+        _scrollValue = Math.Clamp(t * Buffer.ScrollbackCount, 0, Buffer.ScrollbackCount);
+        _canvas.Invalidate();
     }
 
     /// <summary>像素点 → 绝对行格坐标。</summary>
@@ -458,11 +522,11 @@ public sealed class TerminalCanvas : Grid
         e.Handled = true;
     }
 
-    /// <summary>滚轮滚动 N 格：改 Value 并显式重绘（WinUI 的 ScrollBar.Scroll 只在用户
-    /// 拖拽滑块时触发，程序改 Value 不触发 —— 不显式重绘就要等下一次闪烁绘制，≤500ms）。</summary>
+    /// <summary>滚轮滚动 N 格：改滚动值并显式重绘（程序化滚动没有 ScrollBar.Scroll 事件可依赖）。</summary>
     private void WheelBy(int notches)
     {
-        _vScroll.Value -= notches;
+        if (Buffer is null) return;
+        _scrollValue = Math.Clamp(_scrollValue - notches, 0, Buffer.ScrollbackCount);
         _canvas.Invalidate();
     }
 }

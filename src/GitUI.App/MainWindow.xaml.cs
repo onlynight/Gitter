@@ -137,21 +137,23 @@ public sealed partial class MainWindow : Window
         }
 
         // ---- 侧边栏（项目页为仓库路径唯一入口，置于首位）----
-        var items = new (string Glyph, string Label, string Key)[]
+        // 图标按 design-mockups 的内联 SVG 生成（PathIcon 16×16 viewBox → 14×14）；
+        // FontItem 仅保留与设计稿形状一致的 Segoe 字形（项目=文件夹、终端=控制台、设置=齿轮）
+        var items = new (string? Glyph, string? SvgPath, string Label, string Key)[]
         {
-            ("\uE8B7", "项目", "projects"),
-            ("\uE789", "Log", "log"),
-            ("\uE7E8", "变更", "changes"),
-            ("\uE713", "分支", "branches"),
-            ("\uE756", "终端", "bash"),
-            ("\uE713", "设置", "settings"),
+            ("\uE8B7", null, "项目", "projects"),
+            (null, "M2 3h12v1.5H2V3zm0 4.25h8.5v1.5H2v-1.5zM2 11.5h12V13H2v-1.5z", "Log", "log"),
+            (null, "M2 4.25 5 8l-3 3.75V4.25zM6 3h1.5v10H6V3zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3z", "变更", "changes"),
+            (null, "M13.1 3.9a2.3 2.3 0 0 0-3.25 3.25l-.1.1a2.3 2.3 0 0 1-3.25 0L5.4 6.2a2.3 2.3 0 1 0-1.06 1.06l1.1 1.05a3.8 3.8 0 0 0 2.31 1.09v1.2a2.3 2.3 0 1 0 1.5 0V9.4a3.8 3.8 0 0 0 2.31-1.09l.1-.1a2.3 2.3 0 1 0 1.44-4.31z", "分支", "branches"),
+            ("\uE756", null, "终端", "bash"),
+            ("\uE713", null, "设置", "settings"),
         };
 
         var buttons = new List<Button>();
         var navStack = new StackPanel { Spacing = 1 };
-        foreach (var (glyph, label, key) in items)
+        foreach (var (glyph, svgPath, label, key) in items)
         {
-            var btn = BuildNavItem(glyph, label, key);
+            var btn = BuildNavItem(glyph, svgPath, label, key);
             buttons.Add(btn);
             navStack.Children.Add(btn);
         }
@@ -523,7 +525,7 @@ public sealed partial class MainWindow : Window
             : ElementTheme.Dark;
     }
 
-    private Button BuildNavItem(string glyph, string label, string key)
+    private Button BuildNavItem(string? glyph, string? svgPath, string label, string key)
     {
         // row = Grid，2 列：Col 0 (icon, Width=20), Col 1 (label, Auto)。
         // 最左是 2px 选中指示条（RefreshOne 按选中态切换可见性）。
@@ -547,17 +549,32 @@ public sealed partial class MainWindow : Window
         };
         row.Children.Add(indicator);
 
-        var icon = new FontIcon
-        {
-            Glyph = glyph,
-            FontSize = 14,
-            Width = 20,
-            Height = 20,
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0),
-            Tag = "icon",
-        };
+        // 图标：SVG path 用 Shapes.Path 渲染（design-mockups 16×16 viewBox → 14×14，
+        // Fill 用 TokenRuntime 画刷随主题切换）。
+        // 注意不能用 PathIcon：本运行时（WinAppSDK 2.5.1）其类型元数据存在但激活
+        // failfast（CLASS_E_CLASSNOTAVAILABLE，0xc000027b 不可捕获，事件日志实证）。
+        Microsoft.UI.Xaml.FrameworkElement icon = svgPath is not null && ParseSvgPath(svgPath) is { } geometry
+            ? new Microsoft.UI.Xaml.Shapes.Path
+            {
+                Data = geometry,
+                Width = 16,
+                Height = 16,
+                Fill = Ui.Text,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Tag = "icon",
+            }
+            : new FontIcon
+            {
+                Glyph = svgPath is not null ? "\uE7C3" : glyph, // SVG 解析失败的兜底字形
+                FontSize = 14,
+                Width = 20,
+                Height = 20,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0),
+                Tag = "icon",
+            };
         Grid.SetColumn(icon, 0);
         row.Children.Add(icon);
 
@@ -594,6 +611,62 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetName(btn, label);
 
         return btn;
+    }
+
+    /// <summary>
+    /// design-mockups 的内联 SVG path（16×16 viewBox）→ Geometry（Shapes.Path 用）。
+    /// 用 SvgPathParser 解析 + 原生 PathFigure 构建——不能用 XamlReader.Load 创建的
+    /// Geometry 渲染（断连上下文对象进可视树渲染即 XAML failfast，0xc000027b），
+    /// 也不能用 PathIcon（本运行时激活即 failfast，CLASS_E_CLASSNOTAVAILABLE）。
+    /// 解析失败返回 null（调用方回退 FontIcon 字形）。
+    /// </summary>
+    private static Microsoft.UI.Xaml.Media.Geometry? ParseSvgPath(string path)
+    {
+        try
+        {
+            var data = GitUI.Shell.SvgPathParser.Parse(path);
+            var pg = new Microsoft.UI.Xaml.Media.PathGeometry
+            {
+                FillRule = Microsoft.UI.Xaml.Media.FillRule.Nonzero,
+            };
+            foreach (var sp in data.SubPaths)
+            {
+                var fig = new Microsoft.UI.Xaml.Media.PathFigure
+                {
+                    StartPoint = new Windows.Foundation.Point(sp.StartX, sp.StartY),
+                    IsClosed = sp.IsClosed,
+                };
+                foreach (var seg in sp.Segments)
+                {
+                    if (seg.IsArc)
+                    {
+                        fig.Segments.Add(new Microsoft.UI.Xaml.Media.ArcSegment
+                        {
+                            Point = new Windows.Foundation.Point(seg.EndX, seg.EndY),
+                            Size = new Windows.Foundation.Size(seg.RadiusX, seg.RadiusY),
+                            RotationAngle = seg.Rotation,
+                            IsLargeArc = seg.LargeArc,
+                            SweepDirection = seg.Sweep
+                                ? Microsoft.UI.Xaml.Media.SweepDirection.Clockwise
+                                : Microsoft.UI.Xaml.Media.SweepDirection.Counterclockwise,
+                        });
+                    }
+                    else
+                    {
+                        fig.Segments.Add(new Microsoft.UI.Xaml.Media.LineSegment
+                        {
+                            Point = new Windows.Foundation.Point(seg.EndX, seg.EndY),
+                        });
+                    }
+                }
+                pg.Figures.Add(fig);
+            }
+            return pg;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void NavItem_Click(object sender, RoutedEventArgs e)
