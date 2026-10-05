@@ -47,6 +47,7 @@ export class SettingsStore {
       mcpEnabled: true,
       logSplitterFraction: null,
       changesSplitterFraction: null,
+      packages: {},
     };
   }
 
@@ -68,7 +69,7 @@ export class SettingsStore {
       "watchWorktree", "autoFetch", "autoFetchIntervalMinutes", "recentCommands",
       "aiProvider", "aiEndpoint", "aiModel", "aiCliCommand", "aiPrivacy", "aiAppendTrailer",
       "aiApiKeyProtected", "safetyNet", "mcpEnabled",
-      "logSplitterFraction", "changesSplitterFraction",
+      "logSplitterFraction", "changesSplitterFraction", "packages",
     ];
     for (const key of allowed) {
       if (patch[key] !== undefined) {

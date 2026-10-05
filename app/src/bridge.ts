@@ -12,6 +12,10 @@ import { ThemeService } from "./services/themes";
 import { TerminalManager } from "./services/terminal";
 import { HighlightService } from "./services/highlight";
 import { McpPipeHost, pendingApprovals } from "./services/mcp";
+import { PackageStore, type PackageLedgerEntry } from "./services/extensions/store";
+import { CommandRegistry } from "./services/extensions/commands";
+import { importGpkFile, uninstallPackageDir } from "./services/extensions/gpk";
+import { buildRawTheme } from "./services/extensions/grammar";
 import * as gitconfig from "./services/gitconfig";
 import * as preview from "./services/preview";
 import * as aiSvc from "./services/ai";
@@ -25,6 +29,14 @@ export interface SharedServices {
   i18n: I18nService;
   themes: ThemeService;
   highlight: HighlightService;
+  /** 扩展宿主内核（extension-system-v2.md §六） */
+  pkgStore: PackageStore;
+  commands: CommandRegistry;
+  /** TextMate 语法服务（降级链第一级；null 安全：WASM 缺失时自动回退声明式） */
+  grammar: import("./services/extensions/grammar").GrammarService;
+  /** 用户扩展包根（.gpk 导入目标 / 卸载边界校验），由 main 注入 */
+  userPackagesRoot: string;
+  userThemesRoot: string;
   /** 新窗口创建（命令面板"新窗口"用；由 main 注入，避免循环 require）。 */
   createWindow: (repoPath?: string) => void;
 }
@@ -394,17 +406,74 @@ export class Bridge {
       return this.squashSession(wd, args.topSha, args.bottomParentSha, args.message);
     });
 
-    // ---- 语法高亮 ----
-    R("highlight.file", (args: { path: string; text: string }) => {
-      const h = this.shared.highlight.forFile(args.path);
-      const theme = this.shared.themes.resolve(
+    // ---- 语法高亮（降级链：TextMate → 声明式 → plain，extension-system-v2.md §七）----
+    R("highlight.file", async (args: { path: string; text: string }) => {
+      const themeState = this.shared.themes.resolve(
         this.shared.settings.current.themePackageId,
         this.shared.settings.current.theme === "light" ? "light" : "dark",
       );
-      if (!h) return { language: null, lines: [], syntaxColors: theme.syntax };
+      const syntaxColors = themeState.syntax;
+      // 第一级：TextMate（tokenizeLine2 → TokenRun.color 直接下发）
+      const built = buildRawTheme(themeState);
+      const tm = await this.shared.grammar.highlight(args.path, args.text, built);
+      if (tm) return { language: tm.language, lines: tm.lines, syntaxColors };
+      // 第二级：内置声明式引擎（highlighters.json）
+      const h = this.shared.highlight.forFile(args.path);
+      if (!h) return { language: null, lines: [], syntaxColors };
       const lines = args.text.split("\n");
       const { lines: runs } = this.shared.highlight.highlightLines(h, lines);
-      return { language: h.language, lines: runs, syntaxColors: theme.syntax };
+      return { language: h.language, lines: runs, syntaxColors };
+    });
+
+    // ---- 扩展包（extension-system-v2.md §五/§六）----
+    R("extensions.list", () => this.shared.pkgStore.list());
+    R("extensions.setEnabled", (args: { id: string; enabled: boolean }) => {
+      this.patchLedger(args.id, { enabled: !!args.enabled });
+      this.refreshExtensions();
+      return this.shared.pkgStore.list();
+    });
+    R("extensions.setKindEnabled", (args: { id: string; kind: string; enabled: boolean }) => {
+      const cur = this.shared.settings.current.packages?.[args.id] ?? {};
+      const kinds = { ...(cur.kinds ?? {}), [args.kind]: !!args.enabled };
+      this.patchLedger(args.id, { kinds });
+      this.refreshExtensions();
+      return this.shared.pkgStore.list();
+    });
+    R("extensions.importGpk", async () => {
+      const r = await dialog.showOpenDialog(this.win, {
+        title: "导入扩展包",
+        filters: [{ name: "Gitter 扩展包", extensions: ["gpk"] }],
+        properties: ["openFile"],
+      });
+      if (r.canceled || !r.filePaths[0]) return null;
+      const result = importGpkFile(r.filePaths[0], this.shared.userPackagesRoot);
+      this.refreshExtensions();
+      return result;
+    });
+    R("extensions.uninstall", (args: { id: string }) => {
+      const rec = this.shared.pkgStore.find(args.id);
+      const all = this.shared.pkgStore.scanAll().find((e) => e.manifest?.id === args.id);
+      if (!rec || !all) throw new BridgeError("扩展包不存在", args.id);
+      if (!fs.existsSync(all.dir)) throw new BridgeError("扩展包目录不可达", all.dir);
+      const userRoots = [this.shared.userPackagesRoot, this.shared.userThemesRoot];
+      if (!userRoots.some((root) => all.dir.startsWith(root))) {
+        throw new BridgeError("内置包只能禁用，不能卸载", args.id);
+      }
+      uninstallPackageDir(all.dir);
+      this.refreshExtensions();
+      return this.shared.pkgStore.list();
+    });
+    R("extensions.setConfig", (args: { id: string; key: string; value: unknown }) => {
+      const cur = this.shared.settings.current.packages?.[args.id] ?? {};
+      this.patchLedger(args.id, { config: { ...(cur.config ?? {}), [args.key]: args.value } });
+      return {};
+    });
+
+    // ---- 命令注册表（extension-system-v2.md §九）----
+    R("commands.list", () => this.shared.commands.list());
+    R("commands.exec", async (args: { id: string }) => {
+      await this.shared.commands.execute(args.id, (action, execArgs) => this.execHostAction(action, execArgs));
+      return {};
     });
 
     // ---- MCP 宿主 ----
@@ -473,8 +542,7 @@ export class Bridge {
   }
 
   /** 组装 AI 配置（密钥 safeStorage 解密，只在内存，不回传渲染层明文）。 */
-  private aiConfig(): aiSvc.AiConfig {
-    const s = this.shared.settings.current;
+  private aiConfig(): aiSvc.AiConfig {    const s = this.shared.settings.current;
     let apiKey: string | null = null;
     if (s.aiApiKeyProtected && safeStorage.isEncryptionAvailable()) {
       try {
@@ -543,5 +611,44 @@ export class Bridge {
       },
     });
     this.mcpHost.start();
+  }
+
+  /** 扩展启停账本补丁（settings.packages[id]），白名单式合并。 */
+  private patchLedger(id: string, patch: Partial<PackageLedgerEntry>): void {
+    const cur = { ...(this.shared.settings.current.packages ?? {}) };
+    cur[id] = { ...(cur[id] ?? {}), ...patch };
+    this.shared.settings.update({ packages: cur });
+  }
+
+  /** 包集合变化后重建派生注册表（包命令 / 用户语法）。 */
+  private refreshExtensions(): void {
+    this.shared.commands.registerPackageCommands(this.shared.pkgStore);
+    this.shared.grammar.reset();
+  }
+
+  /** L1 受限命令的宿主动作执行体（白名单见 commands.ts HOST_ACTIONS）。 */
+  private async execHostAction(action: string, rawArgs: unknown): Promise<void> {
+    const a = (rawArgs ?? {}) as Record<string, unknown>;
+    if (action === "terminal.run") {
+      if (typeof a.command !== "string" || !a.command.trim()) {
+        throw new BridgeError("terminal.run 需要 command 参数");
+      }
+      const session = this.terminals.ensure({
+        cols: 120,
+        rows: 30,
+        cwd: this.repo,
+        shellKind: this.shared.settings.current.terminalShell,
+      });
+      this.terminals.write(session.id, Buffer.from(a.command + "\r", "utf8").toString("base64"));
+      return;
+    }
+    if (action === "shell.openPath") {
+      if (typeof a.path !== "string" || !a.path.trim()) {
+        throw new BridgeError("shell.openPath 需要 path 参数");
+      }
+      await shell.openPath(a.path);
+      return;
+    }
+    throw new BridgeError(`不允许的宿主动作：${action}`);
   }
 }

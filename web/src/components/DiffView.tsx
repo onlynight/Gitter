@@ -55,13 +55,16 @@ interface CodeContent {
   emph?: { text: string; emph: boolean }[];
 }
 
-function renderCode(text: string, runs: { start: number; end: number; style: string }[] | undefined, colors: Record<string, string>, emph?: { text: string; emph: boolean }[]) {
+/** 语法 run：TextMate 路径带解析后的 color；声明式路径缺省按 style 查主题 syntax 表。 */
+type SyntaxRun = { start: number; end: number; style: string; color?: string };
+
+function renderCode(text: string, runs: SyntaxRun[] | undefined, colors: Record<string, string>, emph?: { text: string; emph: boolean }[]) {
   // 语法 runs 优先；无 runs 时用字级强调；都没有 = 纯文本
   if (runs && runs.length > 0) {
-    const styled = runs.some((r) => r.style !== "plain");
+    const styled = runs.some((r) => r.style !== "plain" || r.color);
     if (styled) {
       return runs.map((r, i) => {
-        const color = colors[r.style];
+        const color = r.color ?? colors[r.style];
         return color ? (
           <span key={i} style={{ color }}>{text.slice(r.start, r.end)}</span>
         ) : (
@@ -107,7 +110,7 @@ export function DiffView(props: {
   const { diff } = props;
   const app = useApp();
   const syntaxColors = app.theme?.syntax ?? {};
-  const [syntaxLines, setSyntaxLines] = useState<{ left?: { start: number; end: number; style: string }[][]; right?: { start: number; end: number; style: string }[][] }>({});
+  const [syntaxLines, setSyntaxLines] = useState<{ left?: SyntaxRun[][]; right?: SyntaxRun[][] }>({});
 
   // 并排模式收集左/右行文本 → 两次桥调用取语法 runs（inline 模式行序不同构，v1 纯文本）
   const assembled = useMemo(() => {
@@ -131,11 +134,11 @@ export function DiffView(props: {
     (async () => {
       try {
         const [r, r2] = await Promise.all([
-          call<{ lines: { start: number; end: number; style: string }[][] }>("highlight.file", {
+          call<{ lines: SyntaxRun[][] }>("highlight.file", {
             path: diff.path,
             text: assembled.left.join("\n"),
           }),
-          call<{ lines: { start: number; end: number; style: string }[][] }>("highlight.file", {
+          call<{ lines: SyntaxRun[][] }>("highlight.file", {
             path: diff.path,
             text: assembled.right.join("\n"),
           }),
@@ -148,7 +151,8 @@ export function DiffView(props: {
     return () => {
       cancelled = true;
     };
-  }, [assembled, props.inline, props.rich, diff.path]);
+    // app.theme 进依赖：TextMate 颜色在主进程按活动主题解析，切主题需重拉
+  }, [assembled, props.inline, props.rich, diff.path, app.theme]);
 
   if (diff.isBinary) {
     return (

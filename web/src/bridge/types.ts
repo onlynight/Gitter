@@ -132,6 +132,7 @@ export interface ThemeStateDTO {
   diff: Record<string, string>;
   terminal: Record<string, string>;
   syntax: Record<string, string>;
+  tokenColors?: TokenColorDTO[];
 }
 
 export interface SettingsDTO {
@@ -163,6 +164,44 @@ export interface SettingsDTO {
   mcpEnabled: boolean;
   logSplitterFraction: number | null;
   changesSplitterFraction: number | null;
+  packages: Record<string, PackageLedgerDTO>;
+}
+
+export interface PackageLedgerDTO {
+  enabled?: boolean;
+  kinds?: Record<string, boolean>;
+  config?: Record<string, unknown>;
+}
+
+export interface ExtensionPackageDTO {
+  id: string;
+  name: string;
+  version: string;
+  description: string | null;
+  isBuiltIn: boolean;
+  kinds: string[];
+  state: "active" | "disabled" | "error";
+  reason: string | null;
+  kindStates: Record<string, boolean>;
+  configuration: { key: string; type: "string" | "boolean" | "number"; default: string | boolean | number; title: string | null }[];
+}
+
+export interface CommandDTO {
+  id: string;
+  titleKey?: string;
+  title?: string;
+  categoryKey?: string;
+  category?: string;
+  keyHint?: string;
+  when?: "repoOpen";
+  action?: string;
+  args?: unknown;
+  packageId?: string;
+}
+
+export interface TokenColorDTO {
+  scope: string | string[];
+  settings: { foreground?: string; fontStyle?: string };
 }
 
 export interface I18nDTO {

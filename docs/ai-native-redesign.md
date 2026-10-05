@@ -1,6 +1,6 @@
 # Gitter 核心功能重设计：AI 编程时代的 Git 验收台
 
-> 状态：设计 v1.2（2026-10-05）——v1.1 新增 §十二 Agent Harness 扩展框架（`harness` kind + 四级传输 + 预留接口），原 §7.4 反向桥被其吸收；v1.2 按 docs/agent-harness-codex.md 扩展 §12.3/§12.4（含 §12.9 宿主托管 checkpoint 与会话账本）。**P0–P5 主路线与顺延项已全部实现**（2026-10-05：P0/P1 见 §十三；P2–P5 见 §十四；顺延项见 §十五），harness H 系列接口已冻结、生态待建
+> 状态：设计 v1.2（2026-10-05）——v1.1 新增 §十二 Agent Harness 扩展框架（`harness` kind + 四级传输 + 预留接口），原 §7.4 反向桥被其吸收；v1.2 按 docs/agent-harness-codex.md 扩展 §12.3/§12.4（含 §12.9 宿主托管 checkpoint 与会话账本）。**P0–P5 主路线与顺延项已全部实现**（2026-10-05：P0/P1 见 §十三；P2–P5 见 §十四；顺延项见 §十五），harness H 系列接口已冻结、生态待建；**v1.3（2026-10-05）：随插件系统 v2（docs/extension-system-v2.md）与 Web 栈演进，agent 宿主框架（§十二/H 系列）的权威设计重排至 docs/agent-harness-codex.md v2.0**——C# 冻结接口（src/GitUI.Core/Agents/AgentHarness.cs）为形状基准，Web 栈落点 app/src/services/agents（TS/zod），包形态并入 schema v2 `contributes.harnesses`（L1 声明式）
 > 定位输入：Gitter 是代码管理工具（git 代码管理器），辅助代码编写，**不是普通 IDE**
 > 前置阅读：docs/design.md（总设计定稿）、docs/known-issues.md（技术债台账）、docs/extension-package-framework.md（.gpk 框架）
 
@@ -363,7 +363,7 @@ IAiGateway
 - `promptTemplates`（v1.2）：preamble / feedback 等模板，`{worktree}`/`{taskId}`/`{feedback}` 占位符由宿主注入；
 - `events`（v1.2）：**声明式事件映射**——协议帧 → `AgentSessionEvent` 的规则表。`when` 用极小 JSONPath 子集（属性路径 + `==` + `&&` + 字面量），纯函数求值器进 Core（黄金用例测试），**刻意不用 Jint**（规则是数据不是脚本，可审计、可快照测试）。未匹配帧按 `unmatched` 策略落 `AgentLogEvent`，永不丢弃——协议漂移由 harness 包升级映射表吸收，不动 Gitter 代码；`externalId` 声明外部会话号字段（resume 键，落 §12.9 账本）。
 
-### 12.4 预留接口（GitUI.Core/Agents，签名以实施为准）
+### 12.4 预留接口（v1.3 起权威落点 app/src/services/agents，TS/zod；本节形状栈无关，签名以实施为准）
 
 ```csharp
 namespace GitUI.Core.Agents;
@@ -541,6 +541,7 @@ public interface IHostCheckpointService
 - 宿主侧服务（`IAgentCatalog` / `IAgentSessionManager` / `IAgentTaskStore` / `IHostCheckpointService`）Core 只定契约，实现在 App 层；
 - 接口落点 GitUI.Core（纯模型，无 UI 依赖），编排宿主见 §12.6——延续仓库分层守卫（DependencyCheckTests）风格；
 - **v1.2 变更摘要**（详析见 docs/agent-harness-codex.md §四）：补全 `AgentStartOptions` / `PermissionRequest` / `PermissionDecision` / `AgentSessionEventArgs` / `AgentPhase` 等被引用未定义的记录；新增 `AgentSessionMetaEvent` / `AgentFileChangeEvent` / `AgentTurnCompletedEvent` / `AgentLogEvent` 四类事件；`HarnessCapability` 增 `FileWatch`；`HarnessDescriptor` 增 `FallbackTransport` / `SubmissionMode` / `VersionPattern`；新增传输适配器契约与宿主侧服务接口。原七位能力位与事件骨架不变。
+- **v1.3 重排（2026-10-05，随插件系统 v2 与 Web 栈）**：本节 C# 形状按「record→interface、Flags 枚举→字符串字面量联合（与 manifest 直转）、TaskCompletionSource→宿主侧 deferred」平移为 TS 判别联合（已冻结的 AgentHarness.cs 为对应实现）；harness 包从自定义 kind 改为 `contributes.harnesses`（信任级 L1 声明式，PackageStore `packages[id].kinds` 账本启停）；"统一确认队列"并入 safety.ts 人审门（操作目录确认策略为其策略输入）；MCP 双向统一 @modelcontextprotocol/sdk；agent-host 子进程化取消（Electron 主进程 + Job Object 即隔离边界）；与 agentLoop（extension-system-v2 §十五）的关系界定及"内置循环包装为 harness"决策门见 agent-harness-codex.md v2.0 §五。
 
 ### 12.5 会话 ↔ 任务卡 ↔ worktree 三元组
 

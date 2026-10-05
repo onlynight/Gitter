@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { call } from "../bridge/client";
-import type { SettingsDTO, ThemePackageDTO } from "../bridge/types";
-import { setState, t, updateSettings, useApp } from "../state/store";
+import type { ExtensionPackageDTO, SettingsDTO, ThemePackageDTO } from "../bridge/types";
+import { setState, t, updateSettings, useApp, reapplyTheme } from "../state/store";
 
 interface RemoteDTO {
   name: string;
@@ -30,11 +30,52 @@ export function SettingsPage() {
   const [remotes, setRemotes] = useState<RemoteDTO[]>([]);
   const [newRemote, setNewRemote] = useState({ name: "", url: "" });
   const [cfgError, setCfgError] = useState<string | null>(null);
+  const [exts, setExts] = useState<ExtensionPackageDTO[]>([]);
+  const [extError, setExtError] = useState<string | null>(null);
 
   useEffect(() => {
     void call<ThemePackageDTO[]>("themes.list").then(setThemes);
     void call<string | null>("app.gitVersion").then((v) => setGitVersion(v ?? t("Settings_GitNotFound")));
+    void call<ExtensionPackageDTO[]>("extensions.list").then(setExts);
   }, []);
+
+  /** 扩展操作后的统一刷新：主题 kind 变化需重应用主题（禁用活动主题 → 回退内置）。 */
+  const refreshExts = async (list: ExtensionPackageDTO[]) => {
+    setExts(list);
+    if (list.some((p) => p.kinds.includes("theme"))) {
+      const fresh = await call<SettingsDTO>("settings.get");
+      setState({ settings: fresh });
+      await reapplyTheme(fresh);
+    }
+  };
+
+  const importGpk = async () => {
+    setExtError(null);
+    try {
+      const r = await call<ExtensionPackageDTO[] | null>("extensions.importGpk");
+      if (r) await refreshExts(r);
+    } catch (e) {
+      setExtError((e as Error).message);
+    }
+  };
+
+  const setPkgEnabled = async (p: ExtensionPackageDTO, enabled: boolean) => {
+    setExtError(null);
+    try {
+      await refreshExts(await call<ExtensionPackageDTO[]>("extensions.setEnabled", { id: p.id, enabled }));
+    } catch (e) {
+      setExtError((e as Error).message);
+    }
+  };
+
+  const uninstallPkg = async (p: ExtensionPackageDTO) => {
+    setExtError(null);
+    try {
+      await refreshExts(await call<ExtensionPackageDTO[]>("extensions.uninstall", { id: p.id }));
+    } catch (e) {
+      setExtError((e as Error).message);
+    }
+  };
 
   // Git 配置：双层级读取（有效值 = 仓库覆盖全局）；未开仓库时仓库层级不可用
   useEffect(() => {
@@ -426,6 +467,76 @@ export function SettingsPage() {
           <label>{t("Settings_McpEnabled")}</label>
           <input type="checkbox" checked={s.mcpEnabled} onChange={(e) => void patch({ mcpEnabled: e.target.checked })} />
           <span className="hint">{t("Settings_McpHint")}</span>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h4>{t("Settings_ExtensionsSection")}</h4>
+        {extError && (
+          <div className="banner error" style={{ marginBottom: 8 }}>
+            <span className="banner-text">{extError}</span>
+            <button className="tool-btn" onClick={() => setExtError(null)}>✕</button>
+          </div>
+        )}
+        <div className="settings-row" style={{ alignItems: "flex-start" }}>
+          <label style={{ paddingTop: 4 }}>{t("Settings_ExtensionsSection")}</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+            <div>
+              <button className="tool-btn" onClick={() => void importGpk()}>{t("Extensions_Import")}</button>
+            </div>
+            {exts.length === 0 && <span className="hint">{t("Extensions_Empty")}</span>}
+            {exts.map((p) => {
+              const cfgValues = (s.packages?.[p.id]?.config ?? {}) as Record<string, unknown>;
+              return (
+                <div key={p.id} style={{ display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      type="checkbox"
+                      checked={p.state === "active"}
+                      disabled={p.state === "error"}
+                      title={p.state === "disabled" && p.reason ? p.reason : undefined}
+                      onChange={(e) => void setPkgEnabled(p, e.target.checked)}
+                    />
+                    <span>{p.name} <span className="hint">v{p.version}</span></span>
+                    {p.isBuiltIn && <span className="hint">{t("Extensions_BuiltIn")}</span>}
+                    {p.kinds.map((k) => <span key={k} className="hint">{k}</span>)}
+                    {p.state !== "active" && (
+                      <span className="hint" style={{ color: "var(--c-red)" }}>
+                        {p.state === "error" ? `${t("Extensions_Error")}: ${p.reason ?? ""}` : t("Extensions_Disabled") + (p.reason ? ` — ${p.reason}` : "")}
+                      </span>
+                    )}
+                    <span style={{ flex: 1 }} />
+                    {!p.isBuiltIn && p.state !== "error" && (
+                      <button className="tool-btn" onClick={() => void uninstallPkg(p)}>{t("Extensions_Uninstall")}</button>
+                    )}
+                  </div>
+                  {p.state === "active" && p.kindStates.configuration && p.configuration.map((item) => (
+                    <div key={item.key} style={{ display: "flex", gap: 8, alignItems: "center", paddingLeft: 24 }}>
+                      <span className="hint" style={{ width: 140 }}>{item.title ?? item.key}</span>
+                      {item.type === "boolean" ? (
+                        <input
+                          type="checkbox"
+                          checked={typeof cfgValues[item.key] === "boolean" ? (cfgValues[item.key] as boolean) : !!item.default}
+                          onChange={(e) => void call("extensions.setConfig", { id: p.id, key: item.key, value: e.target.checked })}
+                        />
+                      ) : (
+                        <input
+                          className="input"
+                          style={{ width: 200 }}
+                          type={item.type === "number" ? "number" : "text"}
+                          value={cfgValues[item.key] !== undefined ? String(cfgValues[item.key]) : String(item.default)}
+                          onChange={(e) => {
+                            const v = item.type === "number" ? Number(e.target.value) : e.target.value;
+                            void call("extensions.setConfig", { id: p.id, key: item.key, value: v });
+                          }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 

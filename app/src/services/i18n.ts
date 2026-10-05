@@ -51,5 +51,7 @@ export function resourcePaths(appRoot: string) {
     stringsTsv: path.join(appRoot, "resources", "Strings.tsv"),
     themesRoot: path.join(appRoot, "resources", "themes"),
     syntaxRulesPath: path.join(appRoot, "resources", "syntax", "highlighters.json"),
+    /** v2 内置扩展包根（extension-system-v2.md §五；目录可不存在，扫描容错） */
+    packagesRoot: path.join(appRoot, "resources", "packages"),
   };
 }

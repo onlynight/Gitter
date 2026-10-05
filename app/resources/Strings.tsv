@@ -710,3 +710,13 @@ Log.ResetDesc_mixed	Keep all changes, unstage them	保留所有改动，但取�
 Log.ResetDesc_hard	Discard all changes	丢弃所有改动
 Log.ResetHardWarning	Hard reset discards ALL uncommitted changes (including staged). This cannot be undone.	硬重置将丢弃所有未提交改动（含暂存区），不可恢复。
 Log.ResetConfirm	Reset	重置
+Settings_ExtensionsSection	Extensions	扩展
+Extensions_Import	Import .gpk…	导入 .gpk…
+Extensions_Uninstall	Uninstall	卸载
+Extensions_BuiltIn	Built-in	内置
+Extensions_Empty	No extension packages yet.	暂无扩展包。
+Extensions_Enabled	Enabled	启用
+Extensions_Disabled	Disabled	已禁用
+Extensions_Error	Error	错误
+Extensions_Config	Configuration	配置
+Extensions_Imported	Imported	已导入

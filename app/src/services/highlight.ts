@@ -26,6 +26,8 @@ export interface TokenRun {
   start: number;
   end: number;
   style: string;
+  /** 解析后的前景色（TextMate 路径直接下发；声明式路径缺省 = 渲染层按 style 查主题 syntax 表） */
+  color?: string;
 }
 
 interface CompiledBlock {

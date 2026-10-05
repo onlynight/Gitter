@@ -5,6 +5,9 @@ import { SettingsStore } from "./services/settings";
 import { I18nService, resourcePaths } from "./services/i18n";
 import { ThemeService } from "./services/themes";
 import { HighlightService } from "./services/highlight";
+import { PackageStore } from "./services/extensions/store";
+import { CommandRegistry, BUILTIN_COMMANDS } from "./services/extensions/commands";
+import { GrammarService } from "./services/extensions/grammar";
 
 const bridges = new Map<number, Bridge>();
 let shared: SharedServices;
@@ -88,8 +91,20 @@ app.whenReady().then(() => {
   const res = resourcePaths(process.env.GITTER_RESOURCES ?? app.getAppPath());
   const settings = new SettingsStore(userData);
   const i18n = new I18nService(res.stringsTsv);
-  const themes = new ThemeService(res.themesRoot, path.join(userData, "themes"));
+  // 扩展宿主内核（extension-system-v2.md §六）：用户根优先遮蔽内置根；
+  // 内置根含 v1 主题包目录（resources/themes，兼容装载）与 v2 包根（resources/packages）
+  const pkgStore = new PackageStore(
+    [res.themesRoot, res.packagesRoot],
+    [path.join(userData, "packages"), path.join(userData, "themes")],
+    app.getVersion(),
+    () => settings.current.packages ?? {},
+  );
+  const themes = new ThemeService(pkgStore);
   const highlightSvc = new HighlightService(res.syntaxRulesPath);
+  const commands = new CommandRegistry(BUILTIN_COMMANDS);
+  commands.registerPackageCommands(pkgStore);
+  const grammarSvc = new GrammarService(pkgStore, grammarDataRoot(), onigWasmPath());
+  grammarSvc.registerUserGrammars();
   if (Object.keys(i18n.get("en").strings).length === 0) {
     console.warn("[gitter] i18n 字典为空，检查资源路径:", res.stringsTsv);
   }
@@ -99,6 +114,11 @@ app.whenReady().then(() => {
     i18n,
     themes,
     highlight: highlightSvc,
+    pkgStore,
+    commands,
+    grammar: grammarSvc,
+    userPackagesRoot: path.join(userData, "packages"),
+    userThemesRoot: path.join(userData, "themes"),
     createWindow: (repoPath?: string) => createWindow(repoPath),
   };
 
@@ -114,6 +134,23 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   app.quit();
 });
+
+/** tm-grammars 数据根（内置 260 语言语法；npm 数据包缺失时 TextMate 路径自动关闭，回退声明式）。 */
+function grammarDataRoot(): string {
+  try {
+    return path.dirname(require.resolve("tm-grammars/grammars/typescript.json"));
+  } catch {
+    return "";
+  }
+}
+
+function onigWasmPath(): string {
+  try {
+    return require.resolve("vscode-oniguruma/release/onig.wasm");
+  } catch {
+    return "";
+  }
+}
 
 // 单实例：再次启动 → 聚焦已有窗口（带仓库路径则开新窗，对齐 WinUI 行为）
 if (!app.requestSingleInstanceLock()) {

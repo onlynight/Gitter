@@ -132,6 +132,12 @@ export interface ThemePackageDTO {
   isBuiltIn: boolean;
 }
 
+/** TextMate 主题贡献（VS Code 主题 JSON 的 tokenColors 形状，extension-system-v2.md §八）。 */
+export interface TokenColorDTO {
+  scope: string | string[];
+  settings: { foreground?: string; fontStyle?: string };
+}
+
 export interface ThemeStateDTO {
   base: "dark" | "light";
   activeId: string | null;
@@ -139,6 +145,8 @@ export interface ThemeStateDTO {
   diff: Record<string, string>;
   terminal: Record<string, string>;
   syntax: Record<string, string>; // 高亮 style → 颜色
+  /** TextMate tokenColors（主题包提供；缺省 = 主进程由 syntax 语义键映射兜底） */
+  tokenColors?: TokenColorDTO[];
 }
 
 export interface SettingsDTO {
@@ -174,6 +182,47 @@ export interface SettingsDTO {
   /** 页面分割条位置（比例）持久化 */
   logSplitterFraction: number | null;
   changesSplitterFraction: number | null;
+  /** 扩展包账本（extension-system-v2.md §五）：启停/按 kind 启停/包配置 */
+  packages: Record<string, PackageLedgerDTO>;
+}
+
+/** settings.packages[id]：启停账本（缺省 = 全部启用）。 */
+export interface PackageLedgerDTO {
+  enabled?: boolean;
+  kinds?: Record<string, boolean>;
+  config?: Record<string, unknown>;
+}
+
+/** 扩展包列表项（extensions.list RPC）。 */
+export interface ExtensionPackageDTO {
+  id: string;
+  name: string;
+  version: string;
+  description: string | null;
+  isBuiltIn: boolean;
+  /** 由 contributes 推导：theme / grammar / commands / configuration */
+  kinds: string[];
+  state: "active" | "disabled" | "error";
+  /** error / engines 不满足的原因（设置页展示） */
+  reason: string | null;
+  kindStates: Record<string, boolean>;
+  /** contributes.configuration 的 schema（设置页自动渲染，值存 packages[id].config） */
+  configuration: { key: string; type: "string" | "boolean" | "number"; default: string | boolean | number; title: string | null }[];
+}
+
+/** 命令注册表条目（commands.list RPC）：内置命令带 *Key（i18n 键），包命令带 title/packageId。 */
+export interface CommandDTO {
+  id: string;
+  titleKey?: string;
+  title?: string;
+  categoryKey?: string;
+  category?: string;
+  keyHint?: string;
+  when?: "repoOpen";
+  /** L1 受限命令的宿主动作（仅包命令有） */
+  action?: string;
+  args?: unknown;
+  packageId?: string;
 }
 
 export interface I18nDTO {

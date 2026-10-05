@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
+import type { CommandDTO } from "../bridge/types";
 import { navigate, routeCommand, t, updateSettings, useApp, type PageKey } from "../state/store";
 
 interface Command {
@@ -11,46 +12,69 @@ interface Command {
   run: () => void;
 }
 
-/** 命令面板 v2（docs/command-palette-v2.md 语义的 web 版）：Ctrl+Shift+P 全量 / Ctrl+P 预填 ">"。 */
+/** 内置命令执行体（extension-system-v2.md §九：元数据在宿主 CommandReg，执行体留在渲染层）。 */
+function builtinRunner(id: string, repoPath: string | null): (() => void) | null {
+  const route = (cmd: string) => () => routeCommand(cmd);
+  switch (id) {
+    case "repo.refresh": return () => window.dispatchEvent(new CustomEvent("gitter:refresh"));
+    case "repo.newWindow": return () => void call("app.newWindow", { path: repoPath });
+    case "commit": return route("changes.commit");
+    case "commit.push": return route("changes.commitPush");
+    case "changes.stageAll": return route("changes.stageAll");
+    case "changes.unstageAll": return route("changes.unstageAll");
+    case "branches.create": return route("branches.create");
+    case "branches.checkout": return route("branches.checkout");
+    case "branches.pull": return route("branches.pull");
+    case "branches.pullRebase": return route("branches.pullRebase");
+    case "branches.push": return route("branches.push");
+    case "view.diffSide": return () => void updateSettings({ diffMode: "sideBySide" });
+    case "view.diffInline": return () => void updateSettings({ diffMode: "inline" });
+    case "view.themeSystem": return () => void updateSettings({ theme: "system" });
+    case "view.themeLight": return () => void updateSettings({ theme: "light" });
+    case "view.themeDark": return () => void updateSettings({ theme: "dark" });
+    default: return null;
+  }
+}
+
+/** 命令面板 v2（docs/command-palette-v2.md 语义的 web 版）：Ctrl+Shift+P 全量 / Ctrl+P 预填 ">"。
+ * 数据源 = 宿主 CommandReg（commands.list），扩展包命令经 commands.exec 白名单执行。 */
 export function CommandPalette({ onClose, prefill }: { onClose: () => void; prefill?: string }) {
   const { repo, settings } = useApp();
   const [query, setQuery] = useState(prefill ?? "");
   const [selected, setSelected] = useState(-1); // 相对 items 的索引
   const listRef = useRef<HTMLDivElement>(null);
+  const [remote, setRemote] = useState<CommandDTO[]>([]);
 
   const repoOpen = !!repo;
 
-  const commands: Command[] = useMemo(() => {
-    const nav = (key: PageKey, title: string, hint: string): Command => ({
-      id: `goto.${key}`, category: t("Cat_Nav"), title, keyHint: hint, enabled: true,
-      run: () => navigate(key),
+  useEffect(() => {
+    let cancelled = false;
+    void call<CommandDTO[]>("commands.list").then((cmds) => {
+      if (!cancelled) setRemote(cmds);
     });
-    return [
-      nav("projects", t("Cmd_GotoProjects"), "Ctrl+1"),
-      nav("log", t("Cmd_GotoLog"), "Ctrl+2"),
-      nav("changes", t("Cmd_GotoChanges"), "Ctrl+3"),
-      nav("branches", t("Cmd_GotoBranches"), "Ctrl+4"),
-      nav("tasks", t("Cmd_GotoTasks"), "Ctrl+5"),
-      nav("bash", t("Cmd_GotoTerminal"), "Ctrl+6"),
-      nav("settings", t("Cmd_GotoSettings"), "Ctrl+7"),
-      { id: "repo.refresh", category: t("Cat_Repo"), title: t("Cmd_RefreshPage"), keyHint: "F5", enabled: true, run: () => window.dispatchEvent(new CustomEvent("gitter:refresh")) },
-      { id: "repo.newWindow", category: t("Cat_Repo"), title: t("Cmd_NewWindow"), enabled: true, run: () => call("app.newWindow", { path: repo?.workDir }) },
-      { id: "commit", category: t("Cat_Commit"), title: t("Cmd_Commit"), keyHint: "Ctrl+Enter", enabled: repoOpen, run: () => routeCommand("changes.commit") },
-      { id: "commit.push", category: t("Cat_Commit"), title: t("Cmd_CommitPush"), enabled: repoOpen, run: () => routeCommand("changes.commitPush") },
-      { id: "changes.stageAll", category: t("Cat_Commit"), title: t("Cmd_StageAll"), enabled: repoOpen, run: () => routeCommand("changes.stageAll") },
-      { id: "changes.unstageAll", category: t("Cat_Commit"), title: t("Cmd_UnstageAll"), enabled: repoOpen, run: () => routeCommand("changes.unstageAll") },
-      { id: "branches.create", category: t("Cat_Branch"), title: t("Cmd_CreateBranch"), keyHint: "Ctrl+Shift+N", enabled: repoOpen, run: () => routeCommand("branches.create") },
-      { id: "branches.checkout", category: t("Cat_Branch"), title: t("Cmd_CheckoutBranch"), enabled: repoOpen, run: () => routeCommand("branches.checkout") },
-      { id: "branches.pull", category: t("Cat_Sync"), title: t("Cmd_Pull"), enabled: repoOpen, run: () => routeCommand("branches.pull") },
-      { id: "branches.pullRebase", category: t("Cat_Sync"), title: t("Cmd_PullRebase"), enabled: repoOpen, run: () => routeCommand("branches.pullRebase") },
-      { id: "branches.push", category: t("Cat_Sync"), title: t("Cmd_Push"), enabled: repoOpen, run: () => routeCommand("branches.push") },
-      { id: "view.diffSide", category: t("Cat_View"), title: t("Cmd_DiffSideBySide"), enabled: true, run: () => void updateSettings({ diffMode: "sideBySide" }) },
-      { id: "view.diffInline", category: t("Cat_View"), title: t("Cmd_DiffInline"), enabled: true, run: () => void updateSettings({ diffMode: "inline" }) },
-      { id: "view.themeSystem", category: t("Cat_View"), title: t("Cmd_ThemeSystem"), enabled: true, run: () => void updateSettings({ theme: "system" }) },
-      { id: "view.themeLight", category: t("Cat_View"), title: t("Cmd_ThemeLight"), enabled: true, run: () => void updateSettings({ theme: "light" }) },
-      { id: "view.themeDark", category: t("Cat_View"), title: t("Cmd_ThemeDark"), enabled: true, run: () => void updateSettings({ theme: "dark" }) },
-    ];
-  }, [repo, repoOpen]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const commands: Command[] = useMemo(
+    () =>
+      remote.map((c) => {
+        const id = c.id;
+        const title = (c.titleKey ? t(c.titleKey) : c.title) ?? id;
+        const category = (c.categoryKey ? t(c.categoryKey) : c.category) ?? "";
+        const run =
+          id.startsWith("goto.")
+            ? () => navigate(id.slice(5) as PageKey)
+            : builtinRunner(id, repo?.workDir ?? null) ??
+              (() => {
+                void call("commands.exec", { id }).catch((e) => console.warn("命令执行失败:", (e as Error).message));
+              });
+        return { id, category, title, keyHint: c.keyHint, enabled: c.when !== "repoOpen" || repoOpen, run };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [remote, repoOpen, repo?.workDir],
+  );
 
   // 过滤（子串不区分大小写；">" 前缀仅为命令模式标记，v1 与默认同义）
   const filtered = useMemo(() => {

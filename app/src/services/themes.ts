@@ -1,13 +1,15 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { ThemePackageDTO, ThemeStateDTO } from "../shared/types";
+import type { ThemePackageDTO, ThemeStateDTO, TokenColorDTO } from "../shared/types";
+import type { PackageStore } from "./extensions/store";
 
 /**
- * 主题服务（theme-framework.md 数据格式兼容）：
- * 内置包 = app/resources/themes/<id>/（manifest.json + theme/theme.json，自旧栈 Packages/ 复制）；
- * 用户包 = userData/themes/<id>/ 同构目录（.gpk 归档导入延后，对等账本见迁移文档）。
- * 主题文档：{id,name,base,inherits,tokens,diff,terminal,syntax,framework}，令牌名与
- * TokenKey 枚举一致；合并顺序 = 继承链自底向上覆盖。
+ * 主题服务（theme-framework.md 数据格式兼容；v2 起扫描/校验/启停收编到 PackageStore，
+ * extension-system-v2.md §六/§八）：
+ * 内置包 = app/resources/themes|packages/<id>/（manifest.json + 主题文档）；
+ * 用户包 = userData/themes|packages/<id>/ 同构目录。
+ * 主题文档：{id,name,base,inherits,tokens,diff,terminal,syntax,tokenColors?,framework}，
+ * 令牌名与 TokenKey 枚举一致；合并顺序 = 继承链自底向上覆盖；tokenColors 为整段替换（VS Code 语义）。
  */
 interface ThemeDoc {
   id: string;
@@ -18,7 +20,7 @@ interface ThemeDoc {
   diff?: Record<string, string>;
   terminal?: Record<string, string>;
   syntax?: Record<string, string>;
-  framework?: Record<string, string>;
+  tokenColors?: TokenColorDTO[];
 }
 
 /** 内置基座缺省令牌（与 TokenRuntime.BuiltinDefaults 一致，装载失败时兜底）。 */
@@ -48,63 +50,34 @@ const BUILTIN_SYNTAX: Record<string, string> = {
 };
 
 export class ThemeService {
-  private packages = new Map<string, { info: ThemePackageDTO; dir: string }>();
+  constructor(private readonly store: PackageStore) {}
 
-  constructor(
-    private readonly builtinRoot: string,
-    private readonly userRoot: string,
-  ) {}
-
-  scan() {
-    this.packages.clear();
-    for (const [root, isBuiltIn] of [[this.builtinRoot, true], [this.userRoot, false]] as const) {
-      let ids: string[] = [];
-      try {
-        ids = fs.readdirSync(root).filter((d) => {
-          try {
-            return fs.statSync(path.join(root, d)).isDirectory() && fs.existsSync(path.join(root, d, "manifest.json"));
-          } catch {
-            return false;
-          }
-        });
-      } catch {
-        continue;
-      }
-      for (const id of ids) {
-        try {
-          const dir = path.join(root, id);
-          const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
-          const kinds: string[] = manifest.kinds ?? [];
-          if (!kinds.includes("theme")) continue;
-          this.packages.set(manifest.id, {
-            info: { id: manifest.id, name: manifest.name ?? manifest.id, base: manifest.theme?.base === "light" ? "light" : "dark", isBuiltIn },
-            dir,
-          });
-        } catch {
-          // 坏包跳过
-        }
-      }
-    }
-  }
-
+  /** 主题 kind 处于 active 的包（禁用的包不出现在设置页下拉）。 */
   list(): ThemePackageDTO[] {
-    this.scan();
-    return [...this.packages.values()].map((p) => p.info).sort((a, b) => a.name.localeCompare(b.name));
+    const out: ThemePackageDTO[] = [];
+    for (const p of this.store.list()) {
+      if (p.state !== "active" || !p.kindStates.theme) continue;
+      const rec = this.store.find(p.id);
+      if (!rec) continue;
+      const base = rec.manifest.contributes.themes[0]?.base;
+      out.push({ id: p.id, name: p.name, base: base ?? "dark", isBuiltIn: p.isBuiltIn });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /** 解析并合并主题（继承链），tokens 以调用方传入的基座缺省兜底。 */
+  /** 解析并合并主题（继承链），tokens 以调用方传入的基座缺省兜底。主题被禁用/找不到 → 内置兜底。 */
   resolve(packageId: string | null, fallbackBase: "dark" | "light"): ThemeStateDTO {
-    this.scan();
     const chain: ThemeDoc[] = [];
     const seen = new Set<string>();
-    let cur = packageId ? this.packages.get(packageId) : undefined;
+    let cur = packageId && this.store.kindEnabled(packageId, "theme") ? this.store.find(packageId) : undefined;
     while (cur) {
-      if (seen.has(cur.info.id)) break;
-      seen.add(cur.info.id);
+      if (seen.has(cur.manifest.id)) break;
+      seen.add(cur.manifest.id);
+      const rel = cur.manifest.contributes.themes[0]?.path ?? "theme/theme.json";
       try {
-        const doc: ThemeDoc = JSON.parse(fs.readFileSync(path.join(cur.dir, "theme", "theme.json"), "utf8"));
+        const doc: ThemeDoc = JSON.parse(fs.readFileSync(path.join(cur.dir, rel), "utf8"));
         chain.unshift(doc);
-        cur = doc.inherits ? this.packages.get(doc.inherits) : undefined;
+        cur = doc.inherits && this.store.kindEnabled(doc.inherits, "theme") ? this.store.find(doc.inherits) : undefined;
       } catch {
         break;
       }
@@ -114,19 +87,15 @@ export class ThemeService {
     let diff: Record<string, string> = {};
     let terminal: Record<string, string> = {};
     let syntax: Record<string, string> = { ...BUILTIN_SYNTAX };
+    let tokenColors: TokenColorDTO[] | undefined;
     for (const doc of chain) {
       Object.assign(tokens, doc.tokens ?? {});
       diff = { ...diff, ...(doc.diff ?? {}) };
       terminal = { ...terminal, ...(doc.terminal ?? {}) };
       syntax = { ...syntax, ...(doc.syntax ?? {}) };
+      // VS Code 语义：tokenColors 整段替换（取继承链上最后一个非空段）
+      if (doc.tokenColors?.length) tokenColors = doc.tokenColors;
     }
-    return {
-      base,
-      activeId: chain.length > 0 ? chain[chain.length - 1].id : null,
-      tokens,
-      diff,
-      terminal,
-      syntax,
-    };
+    return { base, activeId: chain.length > 0 ? chain[chain.length - 1].id : null, tokens, diff, terminal, syntax, tokenColors };
   }
 }

@@ -1,9 +1,9 @@
 # 插件系统 v2 方案（成熟开源组件组合，非自造框架）
 
-> 状态：设计稿 v1（未实施）
+> 状态：实施中 —— P1/P2/P3 已实施（2026-10-05：PackageStore/主题/语法/命令全链路，主进程无头冒烟 31 项全绿 + 真实资源装配验证；P4/P4.5/P5 待实施）
 > 日期：2026-10-05
 > 背景：WinUI3→Web 迁移后，v1 扩展框架（extension-package-framework.md）只剩主题目录扫描；高亮退化为内置 5 语言死 JSON；生命周期/脚本宿主/命令扩展全部缺位。
-> 关联：`extension-package-framework.md`（v1，数据格式延续）、`code-highlight-framework.md`（声明式引擎降级为回退层）、`theme-framework.md`（theme.json 格式兼容）、`winui3-to-web-migration.md`（§12.3 语法终局决策门，本方案即该门的裁决）
+> 关联：`extension-package-framework.md`（v1，数据格式延续）、`code-highlight-framework.md`（声明式引擎降级为回退层）、`theme-framework.md`（theme.json 格式兼容）、`winui3-to-web-migration.md`（§12.3 语法终局决策门，本方案即该门的裁决）、`agent-harness-codex.md`（agent 宿主框架，v2.0 已按本方案重排：`contributes.harnesses` / L3 解析通道 / safety.ts 同门 / 与 §十五 agentLoop 的关系界定）
 > 设计哲学：**每一层用现成的成熟开源件，Gitter 只写领域胶水**；数据包先行，代码插件最后；信任分级，进程内只放受信代码。
 
 ---
