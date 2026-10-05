@@ -176,8 +176,7 @@ async function main() {
   // Git 配置读写 + 层级 + remote（合成仓库，不碰真实用户配置）
   const cfgRepo = fs.mkdtempSync(path.join(os.tmpdir(), "gitter-cfg-"));
   await tryGit(cfgRepo, ["init"]);
-  const gc = await import("./services/gitconfig");
-  await gc.setConfig(cfgRepo, "user.name", "测试者", "repo");
+  const gc = await import("./services/gitconfig");  await gc.setConfig(cfgRepo, "user.name", "测试者", "repo");
   await gc.setConfig(cfgRepo, "push.autoSetupRemote", "true", "repo");
   const localMap = await gc.listConfig(cfgRepo, "repo");
   check("gitconfig 写读（repo）", localMap["user.name"] === "测试者" && localMap["push.autosetupremote"] === "true");
@@ -194,6 +193,20 @@ async function main() {
     up = { message: (e as Error).message, result: { stderr: (e as { result?: { stderr?: string } }).result?.stderr ?? "" } };
   }
   check("pushSetUpstream：无远程 → NO_REMOTE", /NO_REMOTE/.test(up.message + up.result.stderr));
+
+  // 回归（用户报告：新增文件 diff 全报错）——--no-index 退出码 1 = 有差异 = 正常
+  const { worktreeFileDiff } = await import("./services/gitstatus");
+  const nfDir = fs.mkdtempSync(path.join(os.tmpdir(), "gitter-nf-"));
+  fs.writeFileSync(path.join(nfDir, "new.txt"), "line1\nline2\n");
+  const nfText = await worktreeFileDiff(nfDir, "new.txt", false, true);
+  check("新增文件 diff：文本全绿新增", nfText.isNew && nfText.hunks.length === 1 && nfText.addedLines === 2, `+${nfText.addedLines}`);
+  fs.writeFileSync(path.join(nfDir, "blob.bin"), Buffer.from([0x00, 0x01, 0x02, 0x03]));
+  const nfBin = await worktreeFileDiff(nfDir, "blob.bin", false, true);
+  check("新增文件 diff：二进制识别", nfBin.isBinary && nfBin.hunks.length === 0);
+  fs.writeFileSync(path.join(nfDir, "empty.txt"), "");
+  const nfEmpty = await worktreeFileDiff(nfDir, "empty.txt", false, true);
+  check("新增文件 diff：空文件零差异", nfEmpty.hunks.length === 0 && nfEmpty.addedLines === 0);
+  fs.rmSync(nfDir, { recursive: true, force: true });
   fs.rmSync(cfgRepo, { recursive: true, force: true });
 
   console.log(failures === 0 ? "\n全部通过 ✅" : `\n${failures} 项失败 ❌`);

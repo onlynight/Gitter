@@ -111,14 +111,14 @@ export function ChangesPage() {
   };
 
   const loadDiff = useCallback(async (sel: { path: string; staged: boolean; isNew: boolean }) => {
-    // 图片等可预览二进制：直接出内容，不请求 diff
     setPreview(null);
+    setSelectedHunks(new Set());
+    // 图片等可预览二进制：直接出内容，不请求 diff
     if (previewable(sel.path)) {
       try {
         const p = await call<PreviewDTO>("file.preview", { path: sel.path, staged: sel.staged });
         setPreview(p);
         setDiff(null);
-        setSelectedHunks(new Set());
         return;
       } catch {
         // 读取失败（文件消失等）→ 回退 diff 路径
@@ -127,7 +127,6 @@ export function ChangesPage() {
     try {
       const d = await call<DiffDTO>("changes.diffFile", { path: sel.path, staged: sel.staged, isNewFile: sel.isNew });
       setDiff(d);
-      setSelectedHunks(new Set());
     } catch (e) {
       setDiff(null);
       setError((e as Error).message);

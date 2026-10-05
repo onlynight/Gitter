@@ -88,26 +88,32 @@ export async function unstageFiles(workDir: string, paths: string[]): Promise<vo
   await git(workDir, ["reset", "HEAD", "--", ...paths]);
 }
 
-/** 工作区（或 index）文件 diff。untracked 走 --no-index。 */
+/** 工作区（或 index）文件 diff。
+ * 未跟踪新文件走 `git diff --no-index -- /dev/null <path>`——其退出码语义特殊：
+ * 0 = 无差异（空文件），1 = 有差异（正常情况，stdout 即补丁），其余才是真错误。
+ * 之前把退出码 1 当失败，导致新增文件详情全部报错。 */
 export async function worktreeFileDiff(
   workDir: string,
   path_: string,
   staged: boolean,
   isNewFile: boolean,
 ): Promise<DiffDTO> {
-  let patch: string;
+  const empty: DiffDTO = {
+    path: path_, oldPath: path_, isBinary: false, isNew: isNewFile, isDeleted: false, isRenamed: false,
+    hunks: [], addedLines: 0, deletedLines: 0, oldEndsWithNewline: true, newEndsWithNewline: true,
+  };
   if (!staged && isNewFile) {
-    patch = await git(workDir, ["diff", "--no-color", "--no-index", "--", "/dev/null", path_]);
-  } else {
-    patch = await git(workDir, ["diff", "--no-color", staged ? "--cached" : "", "--", path_].filter(Boolean));
-  }
-  const files = parseUnifiedDiff(patch);
-  return (
-    files[0] ?? {
-      path: path_, oldPath: path_, isBinary: false, isNew: isNewFile, isDeleted: false, isRenamed: false,
-      hunks: [], addedLines: 0, deletedLines: 0, oldEndsWithNewline: true, newEndsWithNewline: true,
+    const r = await tryGit(workDir, ["diff", "--no-color", "--no-index", "--", "/dev/null", path_]);
+    if (r.code === 0) return empty; // 空文件：无差异
+    if (r.code === 1) {
+      const files = parseUnifiedDiff(r.stdout);
+      return files[0] ?? empty;
     }
-  );
+    throw new GitError(["diff", "--no-index", path_], r);
+  }
+  const patch = await git(workDir, ["diff", "--no-color", staged ? "--cached" : "", "--", path_].filter(Boolean));
+  const files = parseUnifiedDiff(patch);
+  return files[0] ?? empty;
 }
 
 /**
