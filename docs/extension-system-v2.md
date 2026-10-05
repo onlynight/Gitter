@@ -25,8 +25,8 @@
 |---|---|---|---|
 | L0 纯数据 | JSON（主题/语法规则） | 解析即用，坏包跳过 | theme、grammar |
 | L1 声明式贡献 | manifest contributes 段 | 宿主代为执行，插件无代码 | commands(受限)、configuration |
-| L2 受信代码 | npm/本地 JS 模块 | **主进程内** activate/dispose | commands(完整)、ai-provider（第一方/审核过的包） |
-| L3 隔离代码 | 任意 JS | **utilityProcess 子进程** + RPC | 第三方 code 插件 |
+| L2 受信代码 | npm/本地 JS 模块 | **主进程内** activate/dispose | commands(完整)、ai-provider、agentLoop 内置实现（第一方/审核过的包） |
+| L3 隔离代码 | 任意 JS | **utilityProcess 子进程** + RPC | 第三方 code 插件、第三方 agentLoop |
 | 外部进程 | MCP server | 独立进程，stdio/HTTP | mcp-server（本质是配置引用，不装载代码） |
 
 原则：L0/L1 不需要任何插件框架；L2 的宿主契约小到不值得引框架（见 §六）；L3 才是真正需要"沙箱+RPC"工程量的地方，放在最后。
@@ -169,6 +169,7 @@ DiffView ──bridge──▶ GrammarSvc
 | P2 | vscode-textmate + oniguruma + tm-grammars/tm-themes 内置 + 降级链 + TokenRun.color | .rs/.go/.py diff 正确着色（含跨行块）；声明式回退路径可用；可见区分词无感知卡顿 | P1 |
 | P3 | CommandReg 自举改造 + L1 受限命令 + configuration→设置页自动渲染 | 命令面板/快捷键数据源合一；装一个纯 manifest 命令包即可出现在面板 | P1 |
 | P4 | MCP SDK client + 外部 server 管理 + ai provider 接缝注册表 | 接入任一公开 MCP server 其工具可被 AI 会话调用；人审门不回归 | — |
+| P4.5 | 内置 AgentLoop（Vercel AI SDK，L2 自举）+ agentLoop 贡献 kind（详见 §十五） | git 任务型 agent（提交消息/审查/冲突助手）多步工具循环跑通；工具执行全经 safety.ts 人审门 | P4 |
 | P5 | utilityProcess 插件宿主 + comlink RPC + 权限清单 | 第三方 demo 插件子进程内跑通注册命令，杀进程宿主无感 | P3 |
 
 P1–P3 主线，P4 可并行，P5 按需。
@@ -194,3 +195,30 @@ P1–P3 主线，P4 可并行，P5 按需。
 | 声明式高亮为主，脚本/C# 插件为高亮扩展路径 | TextMate 语法为主，声明式引擎降为回退 |
 | 无行为扩展点 | L1 受限命令 + L2 完整命令 + 配置 schema |
 | MCP 固定工具集 | 标准 SDK 双向，生态接入 |
+
+## 十五、Agent 主循环开放（P4.5，2026-10-05 增补）
+
+> 问题：若要像 DeepSeek Harness 那样把 agent 主循环开放为可扩展点，用什么框架、放在哪一层。
+
+**现状**：Gitter 尚无 agent 主循环——ai.ts 是一次性补全网关（complete → string），mcp.ts 是对外工具面（给外部 agent 当工具箱），两者都不构成"宿主自己的循环"。本节为绿地设计，非改造。
+
+**安全不变量（先于选型确定）**：**决策权可下放，执行权不下放。** 循环进程/循环插件只负责"决定下一步调哪个工具"；工具执行、模型调用代理、人审门全部留在宿主侧。第三方循环拿到的只有工具结果，碰不到执行器——刷屏审批、绕过人审在架构上不可行（宿主可对审批请求限流）。
+
+**选型**：
+
+| 候选 | 结论 |
+|---|---|
+| **Vercel AI SDK**（ai npm 包，MIT） | ✅ 主选：TS 生态事实标准的工具循环（多步 tool-calling、stopWhen、流式）；provider 无关——@ai-sdk/openai-compatible 直接覆盖现有 OpenAI 兼容传输（含 DeepSeek/Ollama），`cli` 桥传输包成自定义 LanguageModelV1 provider；工具定义原生 zod（与本方案 manifest 校验同件）；内置 MCP client。同时收编 ai.ts 三个手写传输为 provider 注册 |
+| LangGraph.js | 备选：需要检查点/暂停恢复/多会话时间旅行时切换。git 任务型 agent 时程短，前期是过度设计 |
+| OpenAI Agents SDK (JS) | 放弃：OpenAI 中心化，与 provider 接缝目标冲突 |
+| Cordis | 不解决本问题：Cordis 是生命周期内核不是循环；dsh 的 loop 插件同样是手写循环逻辑挂在 Cordis 上。我们的 host.ts 契约承担同等挂载职责 |
+| 直接复用 dsh | 放弃：它是完整 agent 运行时非可嵌入循环库，且进程内全信任模型与 Gitter GUI 风险模型不符 |
+
+**层级归属**：
+
+- **内置默认循环 = L2**（主进程内，Vercel AI SDK 实现），经 host.ts 以 `ctx.registerAgentLoop(id, impl)` 注册，与内置命令/内置 provider 同一自举模式。第一方循环示例：提交消息生成、代码审查、冲突解决助手
+- **循环外围全开放**：模型 = provider 接缝（P4）、工具 = MCP/本地（经人审门）、技能与提示词 = L0/L1 数据包
+- **第三方替换循环本身 = 仅 L3**（依赖 P5 PackageHost）：循环决策跑在 utilityProcess，经 comlink 请求"宿主代理执行"（模型调用 + 工具执行），权限清单限定可用工具与模型档位
+- **host.ts 契约增补一个动词**：`ctx.registerAgentLoop`——不改变"activate/dispose 两动词"的极简性评价，这是第三种注册与 registerCommand 同形
+
+**与 dsh 路线的差异声明**：dsh"一切皆插件、loop 也是插件"成立的前提是它本身即 agent 运行时且接受进程内全信任。Gitter 的 agent 是功能而非产品本体，GUI 用户安装第三方插件的信任模型不同，故取"**开放外围、圈住内核**"折中：外围（模型/工具/技能/循环选择）全部可插拔，循环执行权永不离开宿主。若 agentLoop 生态长大，将自然命中 Cordis 触发信号（服务依赖图 + 每仓库 fork 实例），届时按 §六既定路径换内核，AgentLoop 接缝不受影响。
