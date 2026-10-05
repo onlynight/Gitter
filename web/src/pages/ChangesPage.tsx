@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
 import { Banner, Modal, useContextMenu } from "../components/Dialogs";
 import { DiffView } from "../components/DiffView";
+import { SplitPane } from "../components/SplitPane";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
 import { refreshCurrent, t, useApp } from "../state/store";
 
@@ -296,7 +297,7 @@ export function ChangesPage() {
         </div>
       )}
 
-      <div className="split split-v" style={{ ["--split-a" as string]: "minmax(260px, 1fr)", ["--split-b" as string]: "1.6fr" }}>
+      <SplitPane settingKey="changesSplitterFraction" initial={0.38} a={
         <div className="split-pane" style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, overflow: "auto" }}>
             {state && (
@@ -343,10 +344,7 @@ export function ChangesPage() {
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="splitter" />
-
+        </div>} b={
         <div className="split-pane" style={{ display: "flex", flexDirection: "column" }}>
           {selected && (
             <div className="toolbar" style={{ borderBottom: "none" }}>
@@ -422,8 +420,7 @@ export function ChangesPage() {
               <div className="empty-state">{t("Changes_SelectFileHint")}</div>
             )}
           </div>
-        </div>
-      </div>
+        </div>} />
 
       {explainText && (
         <Modal title={explainText.title} confirmText={t("Common_Close")} onClose={() => setExplainText(null)} onConfirm={() => setExplainText(null)}>

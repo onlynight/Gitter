@@ -142,7 +142,7 @@ body {
 .split { display: grid; min-height: 0; min-width: 0; flex: 1; }
 .split-v { grid-template-columns: var(--split-a, 1fr) 4px var(--split-b, 1fr); }
 .split-h { grid-template-rows: var(--split-a, 1fr) 4px var(--split-b, 1fr); }
-.splitter { background: transparent; cursor: col-resize; }
+.splitter { background: transparent; cursor: col-resize; touch-action: none; }
 .split-h > .splitter { cursor: row-resize; }
 .splitter:hover, .splitter.dragging { background: var(--c-accent); }
 .split-pane { overflow: auto; min-width: 0; min-height: 0; }

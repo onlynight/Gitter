@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { call } from "../bridge/client";
 import { Banner, useContextMenu } from "../components/Dialogs";
 import { DiffView } from "../components/DiffView";
+import { SplitPane } from "../components/SplitPane";
 import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge/types";
 import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
 import { refreshCurrent, t, useApp } from "../state/store";
@@ -248,7 +249,7 @@ export function LogPage() {
         />
       )}
 
-      <div className="split split-v" style={{ ["--split-a" as string]: "minmax(280px, 1fr)", ["--split-b" as string]: "1.4fr" }}>
+      <SplitPane settingKey="logSplitterFraction" initial={0.42} a={
         <div className="split-pane" ref={listRef}>
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
             {virtualizer.getVirtualItems().map((vi) => {
@@ -338,10 +339,7 @@ export function LogPage() {
             })}
           </div>
           {hasMore && !loading && <div className="spinner">{t("Log_LoadMoreHint")}</div>}
-        </div>
-
-        <div className="splitter" />
-
+        </div>} b={
         <div className="split-pane" style={{ display: "flex", flexDirection: "column" }}>
           {detail ? (
             <>
@@ -385,8 +383,7 @@ export function LogPage() {
           ) : (
             <div className="empty-state">{detailError ?? t("Log_SelectCommitHint")}</div>
           )}
-        </div>
-      </div>
+        </div>} />
       {menuElement}
     </>
   );
