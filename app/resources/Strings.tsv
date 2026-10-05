@@ -692,3 +692,6 @@ Settings.GitRemoteUrl	URL	URL
 Settings.GitAddRemote	Add	添加
 Settings.GitInheritGlobal	inherit global: {0}	继承全局：{0}
 Settings.Unset	(unset)	（未设置）
+Changes.PreviewWorktree	Preview: working tree	预览：工作区版本
+Changes.PreviewStaged	Preview: staged version	预览：暂存版本
+Changes.PreviewTooLarge	File too large to preview (> 8 MB)	文件过大，无法预览（> 8 MB）

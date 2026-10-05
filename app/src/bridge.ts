@@ -13,6 +13,7 @@ import { TerminalManager } from "./services/terminal";
 import { HighlightService } from "./services/highlight";
 import { McpPipeHost, pendingApprovals } from "./services/mcp";
 import * as gitconfig from "./services/gitconfig";
+import * as preview from "./services/preview";
 import * as aiSvc from "./services/ai";
 import * as safety from "./services/safety";
 import { groupSessions, squashMessage } from "./services/sessions";
@@ -443,6 +444,10 @@ export class Bridge {
       gitconfig.removeRemote(this.needRepo(), args.name);
       return {};
     });
+
+    // ---- 非代码文件预览（图片等二进制直接出内容，不走 diff）----
+    R("file.preview", (args: { path: string; staged?: boolean; maxBytes?: number }) =>
+      preview.readPreview(this.needRepo(), args.path, !!args.staged, args.maxBytes));
 
     // ---- 推送自助修复（noUpstream 错误的动作）----
     R("changes.pushSetUpstream", async () => {

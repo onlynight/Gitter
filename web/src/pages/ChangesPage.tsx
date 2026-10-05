@@ -8,6 +8,21 @@ import { refreshCurrent, openSettings, t, useApp } from "../state/store";
 
 const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
 
+// 可直接预览的文件扩展名（与 app/src/services/preview.ts 的 MIME 表保持同步）
+const PREVIEW_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".ico", ".svg"]);
+
+function previewable(p: string): boolean {
+  const dot = p.lastIndexOf(".");
+  return dot >= 0 && PREVIEW_EXTS.has(p.slice(dot).toLowerCase());
+}
+
+interface PreviewDTO {
+  mime: string;
+  base64: string;
+  fromIndex: boolean;
+  tooLarge?: boolean;
+}
+
 interface SafetyFindingDTO {
   ruleId: string;
   severity: "warning" | "blocked";
@@ -31,6 +46,7 @@ export function ChangesPage() {
   const [transient, setTransient] = useState<string | null>(null);
   const [selected, setSelected] = useState<{ path: string; staged: boolean; isNew: boolean } | null>(null);
   const [diff, setDiff] = useState<DiffDTO | null>(null);
+  const [preview, setPreview] = useState<PreviewDTO | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [selectedHunks, setSelectedHunks] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState("");
@@ -95,6 +111,19 @@ export function ChangesPage() {
   };
 
   const loadDiff = useCallback(async (sel: { path: string; staged: boolean; isNew: boolean }) => {
+    // 图片等可预览二进制：直接出内容，不请求 diff
+    setPreview(null);
+    if (previewable(sel.path)) {
+      try {
+        const p = await call<PreviewDTO>("file.preview", { path: sel.path, staged: sel.staged });
+        setPreview(p);
+        setDiff(null);
+        setSelectedHunks(new Set());
+        return;
+      } catch {
+        // 读取失败（文件消失等）→ 回退 diff 路径
+      }
+    }
     try {
       const d = await call<DiffDTO>("changes.diffFile", { path: sel.path, staged: sel.staged, isNewFile: sel.isNew });
       setDiff(d);
@@ -451,7 +480,27 @@ export function ChangesPage() {
             </div>
           )}
           <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
-            {selected && diff ? (
+            {selected && preview ? (
+              <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+                <div className="diff-file-header">
+                  <span className="path">{selected.path}</span>
+                  <span style={{ marginLeft: "auto", color: "var(--c-text3)", fontSize: 11 }}>
+                    {preview.fromIndex ? t("Changes_PreviewStaged") : t("Changes_PreviewWorktree")}
+                  </span>
+                </div>
+                <div style={{ flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, minHeight: 0 }}>
+                  {preview.tooLarge ? (
+                    <div className="empty-state">{t("Changes_PreviewTooLarge")}</div>
+                  ) : (
+                    <img
+                      src={`data:${preview.mime};base64,${preview.base64}`}
+                      style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                      alt={selected.path}
+                    />
+                  )}
+                </div>
+              </div>
+            ) : selected && diff ? (
               <DiffView
                 diff={diff}
                 inline={app.settings?.diffMode === "inline"}
