@@ -1,4 +1,4 @@
-import { git, tryGit, GitError } from "./gitexec";
+import { git, tryGit, tryGitStream, GitError, type GitResult } from "./gitexec";
 import { parseUnifiedDiff } from "./gitlog";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../shared/types";
 
@@ -185,20 +185,20 @@ export interface CommitResult {
   pushError: string | null;
 }
 
-/** 提交（路径已由调用方暂存/撤销暂存完毕）。push=true 时提交成功后推送。 */
-export async function commit(workDir: string, message: string, push: boolean): Promise<CommitResult> {
+/** 提交（路径已由调用方暂存/撤销暂存完毕）。alsoPush=true 时提交成功后推送。 */
+export async function commit(workDir: string, message: string, alsoPush: boolean, onProgress?: SyncProgress): Promise<CommitResult> {
   await git(workDir, ["commit", "-m", message]);
   const sha = (await git(workDir, ["rev-parse", "HEAD"])).trim();
   let pushError: string | null = null;
-  if (push) {
-    const r = await tryGit(workDir, ["push"]);
+  if (alsoPush) {
+    const r = await push(workDir, onProgress);
     if (r.code !== 0) pushError = classifyPushError(r.stderr + r.stdout);
   }
   return { sha, pushError };
 }
 
-export async function retryPush(workDir: string): Promise<string | null> {
-  const r = await tryGit(workDir, ["push"]);
+export async function retryPush(workDir: string, onProgress?: SyncProgress): Promise<string | null> {
+  const r = await push(workDir, onProgress);
   return r.code === 0 ? null : classifyPushError(r.stderr + r.stdout);
 }
 
@@ -215,6 +215,29 @@ export async function pull(workDir: string, rebase: boolean): Promise<void> {
   await git(workDir, rebase ? ["pull", "--rebase"] : ["pull"]);
 }
 
-export async function fetchAll(workDir: string): Promise<void> {
-  await git(workDir, ["fetch", "--all", "--quiet"]);
+/** 同步操作进度回调：text = git 进度行，percent = 解析出的百分比（无则 null）。 */
+export type SyncProgress = (text: string, percent: number | null) => void;
+
+/** 从 git 进度行提取百分比：如 "Receiving objects:  50% (3/6)"。 */
+function parsePercent(line: string): number | null {
+  const m = /:\s+(\d{1,3})%\s*\(/.exec(line);
+  return m ? Math.min(100, parseInt(m[1], 10)) : null;
+}
+
+/** 网络同步类操作统一走 --progress + stderr 流式分行（TTY 之外默认不输出进度）。 */
+async function syncOp(workDir: string, args: string[], onProgress?: SyncProgress): Promise<GitResult> {
+  if (!onProgress) return tryGit(workDir, args);
+  return tryGitStream(workDir, args, (line: string) => onProgress(line.replace(/^remote:\s*/, ""), parsePercent(line)));
+}
+
+export async function push(workDir: string, onProgress?: SyncProgress): Promise<GitResult> {
+  return syncOp(workDir, ["push", "--progress"], onProgress);
+}
+
+export async function pullWithProgress(workDir: string, rebase: boolean, onProgress?: SyncProgress): Promise<GitResult> {
+  return syncOp(workDir, ["pull", "--progress", ...(rebase ? ["--rebase"] : [])], onProgress);
+}
+
+export async function fetchAll(workDir: string, onProgress?: SyncProgress): Promise<GitResult> {
+  return syncOp(workDir, ["fetch", "--all", "--progress"], onProgress);
 }

@@ -1,4 +1,5 @@
 import { git, tryGit, GitError } from "./gitexec";
+import { pullWithProgress, push as pushRaw, type SyncProgress } from "./gitstatus";
 import type { BranchesStateDTO, DeletePreviewDTO } from "../shared/types";
 
 /** 分支列表（含 tip 主题，一次 for-each-ref 取回——对齐 GetBranchTipSubjects）。 */
@@ -87,12 +88,12 @@ export async function fastForward(workDir: string, branch: string): Promise<void
   if (r.code !== 0) throw new GitError(["merge", "--ff-only", branch], r);
 }
 
-export async function pull(workDir: string, rebase: boolean): Promise<void> {
-  const r = await tryGit(workDir, rebase ? ["pull", "--rebase"] : ["pull"]);
+export async function pull(workDir: string, rebase: boolean, onProgress?: SyncProgress): Promise<void> {
+  const r = await pullWithProgress(workDir, rebase, onProgress);
   if (r.code !== 0) throw new GitError(["pull"], r);
 }
 
-export async function push(workDir: string): Promise<void> {
-  const r = await tryGit(workDir, ["push"]);
+export async function push(workDir: string, onProgress?: SyncProgress): Promise<void> {
+  const r = await pushRaw(workDir, onProgress);
   if (r.code !== 0) throw new GitError(["push"], r);
 }

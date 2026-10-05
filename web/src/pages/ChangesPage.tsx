@@ -3,6 +3,7 @@ import { call } from "../bridge/client";
 import { Banner, Modal, useContextMenu } from "../components/Dialogs";
 import { DiffView } from "../components/DiffView";
 import { SplitPane } from "../components/SplitPane";
+import { SyncBar, useSyncProgress } from "../components/SyncBar";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
 import { refreshCurrent, openSettings, t, useApp } from "../state/store";
 
@@ -59,6 +60,7 @@ export function ChangesPage() {
   const [pushErrorKind, setPushErrorKind] = useState<string | null>(null);
   const { showMenu, menuElement } = useContextMenu();
   const transientTimer = useRef<number | null>(null);
+  const [syncProgress, clearSyncProgress] = useSyncProgress();
 
   const reload = useCallback(async () => {
     if (!repo) return;
@@ -106,6 +108,7 @@ export function ChangesPage() {
       setError((e as Error).message);
       setErrorDetail((e as { detail?: string }).detail ?? null);
     } finally {
+      clearSyncProgress();
       setBusy(false);
     }
   };
@@ -186,6 +189,7 @@ export function ChangesPage() {
       setError(err.message);
       setErrorDetail(err.detail ?? null);
     } finally {
+      clearSyncProgress();
       setBusy(false);
     }
   };
@@ -199,6 +203,7 @@ export function ChangesPage() {
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      clearSyncProgress();
       setAiBusy(false);
     }
   };
@@ -212,6 +217,7 @@ export function ChangesPage() {
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      clearSyncProgress();
       setAiBusy(false);
     }
   };
@@ -234,6 +240,7 @@ export function ChangesPage() {
       setError((e as Error).message);
       setErrorDetail((e as { detail?: string }).detail ?? null);
     } finally {
+      clearSyncProgress();
       setBusy(false);
     }
   };
@@ -258,6 +265,7 @@ export function ChangesPage() {
       setError((e as Error).message);
       setErrorDetail((e as { detail?: string }).detail ?? null);
     } finally {
+      clearSyncProgress();
       setBusy(false);
     }
   };
@@ -361,6 +369,7 @@ export function ChangesPage() {
         />
       )}
       {transient && <Banner text={transient} onClose={() => setTransient(null)} />}
+      {busy && <SyncBar progress={syncProgress} />}
       {feedback && (
         <Banner
           text={t("Changes_AgentFeedback", feedback.note)}

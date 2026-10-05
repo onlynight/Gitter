@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { call } from "../bridge/client";
-import { Modal, useContextMenu, type CtxMenuItem } from "../components/Dialogs";import type { BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
+import { Modal, useContextMenu, type CtxMenuItem } from "../components/Dialogs";
+import { SyncBar, useSyncProgress } from "../components/SyncBar";
+import type { BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
 import { refreshCurrent, openSettings, t, useApp } from "../state/store";
 
 /** 推送无上游类错误的识别（git 2.37+ 提示语 + 旧版提示语都覆盖）。 */
@@ -25,6 +27,7 @@ export function BranchesPage() {
     | null
   >(null);
   const { showMenu, menuElement } = useContextMenu();
+  const [syncProgress, clearSyncProgress] = useSyncProgress();
 
   const reload = useCallback(async () => {
     if (!repo) return;
@@ -48,6 +51,7 @@ export function BranchesPage() {
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      clearSyncProgress();
       setBusy(false);
     }
   };
@@ -127,6 +131,7 @@ export function BranchesPage() {
         </div>
       )}
       {transient && <div className="banner"><span className="banner-text">{transient}</span><button className="tool-btn" onClick={() => setTransient(null)}>✕</button></div>}
+      {busy && <SyncBar progress={syncProgress} />}
 
       <div className="split-pane" style={{ flex: 1 }}>
         {state ? (

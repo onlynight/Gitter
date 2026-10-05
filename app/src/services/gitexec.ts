@@ -57,6 +57,51 @@ const BASE_ARGS = [
   "-c", "console.platform=off",
 ];
 
+/** 同 tryGit，但 stderr 按 \r/\n 流式分行回调（git 的进度条用 \r 原地重写）。 */
+export async function tryGitStream(
+  workDir: string,
+  args: string[],
+  onLine: (line: string) => void,
+): Promise<GitResult> {
+  const exe = await locateGit();
+  return new Promise((resolve) => {
+    const child = spawn(exe, [...BASE_ARGS, ...args], {
+      cwd: workDir || undefined,
+      windowsHide: true,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCMInteractive: "never" },
+    });
+    const outChunks: Buffer[] = [];
+    const errChunks: Buffer[] = [];
+    let errBuf = "";
+    const drainErr = () => {
+      // 进度行以 \r 分隔原地重写；按 \r\n、\r、\n 全部切开
+      errBuf += errChunks.map((b) => b.toString("utf8")).join("");
+      errChunks.length = 0;
+      const parts = errBuf.split(/\r\n|\r|\n/);
+      errBuf = parts.pop() ?? "";
+      for (const line of parts) {
+        const t = line.trim();
+        if (t) onLine(t);
+      }
+    };
+    child.stdout.on("data", (d: Buffer) => outChunks.push(d));
+    child.stderr.on("data", (d: Buffer) => {
+      errChunks.push(d);
+      drainErr();
+    });
+    child.on("error", (err) => resolve({ code: -1, stdout: "", stderr: String(err) }));
+    child.on("close", (code) => {
+      drainErr();
+      resolve({
+        code: code ?? -1,
+        stdout: Buffer.concat(outChunks).toString("utf8"),
+        stderr: errBuf,
+      });
+    });
+    child.stdin.end();
+  });
+}
+
 /** 运行 git（数组参数，不经 shell，无注入面）。失败抛 GitError。 */
 export async function git(workDir: string, args: string[], input?: string): Promise<string> {
   const r = await tryGit(workDir, args, input);

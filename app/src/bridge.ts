@@ -159,11 +159,11 @@ export class Bridge {
           );
         }
       }
-      return status.commit(wd, args.message, !!args.push);
+      return status.commit(wd, args.message, !!args.push, this.syncProgress());
     });
-    R("changes.push", () => status.retryPush(this.needRepo()));
-    R("changes.pull", (args: { rebase?: boolean }) => status.pull(this.needRepo(), !!args?.rebase));
-    R("changes.fetch", () => status.fetchAll(this.needRepo()));
+    R("changes.push", () => status.retryPush(this.needRepo(), this.syncProgress()));
+    R("changes.pull", (args: { rebase?: boolean }) => status.pullWithProgress(this.needRepo(), !!args?.rebase, this.syncProgress()).then(() => ({})));
+    R("changes.fetch", () => status.fetchAll(this.needRepo(), this.syncProgress()).then(() => ({})));
 
     // ---- 分支 ----
     R("branches.state", () => branches.getBranches(this.needRepo()));
@@ -179,8 +179,8 @@ export class Bridge {
       branches.mergeBranch(this.needRepo(), args.name, !!args.noFf, args.message ?? null));
     R("branches.rebase", (args: { name: string }) => branches.rebaseBranch(this.needRepo(), args.name));
     R("branches.ff", (args: { name: string }) => branches.fastForward(this.needRepo(), args.name));
-    R("branches.pull", (args: { rebase?: boolean }) => branches.pull(this.needRepo(), !!args?.rebase));
-    R("branches.push", () => branches.push(this.needRepo()));
+    R("branches.pull", (args: { rebase?: boolean }) => branches.pull(this.needRepo(), !!args?.rebase, this.syncProgress()));
+    R("branches.push", () => branches.push(this.needRepo(), this.syncProgress()));
 
     // ---- 任务（worktree）----
     R("tasks.list", () => worktrees.listWorktrees(this.needRepo()));
@@ -508,6 +508,19 @@ export class Bridge {
       this.shared.settings.current.themePackageId,
       this.shared.settings.current.theme === "light" ? "light" : "dark",
     ).syntax;
+  }
+
+  /** 同步进度事件（push/pull/fetch 的 --progress 行），100ms 节流防 IPC 风暴。 */
+  private syncProgress(): status.SyncProgress {
+    let last = 0;
+    return (text, percent) => {
+      const now = Date.now();
+      if (percent !== null && percent < 100 && now - last < 100) return;
+      last = now;
+      if (!this.win.isDestroyed()) {
+        this.win.webContents.send("evt", { method: "sync.progress", params: { text, percent } });
+      }
+    };
   }
 
   /** MCP 管道宿主随仓库启停（settings.mcpEnabled 门控）。 */
