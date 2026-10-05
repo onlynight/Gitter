@@ -4,7 +4,7 @@ import { Banner, Modal, useContextMenu } from "../components/Dialogs";
 import { DiffView } from "../components/DiffView";
 import { SplitPane } from "../components/SplitPane";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
-import { refreshCurrent, t, useApp } from "../state/store";
+import { refreshCurrent, openSettings, t, useApp } from "../state/store";
 
 const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
 
@@ -40,6 +40,7 @@ export function ChangesPage() {
   const [aiBusy, setAiBusy] = useState(false);
   const [explainText, setExplainText] = useState<{ title: string; text: string } | null>(null);
   const [createBranch, setCreateBranch] = useState<string | null>(null);
+  const [pushErrorKind, setPushErrorKind] = useState<string | null>(null);
   const { showMenu, menuElement } = useContextMenu();
   const transientTimer = useRef<number | null>(null);
 
@@ -187,6 +188,52 @@ export function ChangesPage() {
     }
   };
 
+  // 推送（失败分类进横幅；noUpstream 附带自助修复动作）
+  const doPush = async () => {
+    setBusy(true);
+    try {
+      const err = await call<string | null>("changes.push", {});
+      if (err) {
+        setPushErrorKind(err);
+        setError(t("Changes_PushFailed", err));
+        setErrorDetail(null);
+      } else {
+        setPushErrorKind(null);
+        showTransient(t("Changes_Pushed"));
+        await reload();
+      }
+    } catch (e) {
+      setError((e as Error).message);
+      setErrorDetail((e as { detail?: string }).detail ?? null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 一键设置上游并推送（noUpstream 错误的修复动作）
+  const doSetUpstreamPush = async () => {
+    setBusy(true);
+    try {
+      const r = await call<{ pushed: boolean; remote: string; branch: string; errorKind: string | null }>("changes.pushSetUpstream");
+      if (r.pushed) {
+        setPushErrorKind(null);
+        setError(null);
+        setErrorDetail(null);
+        showTransient(t("Changes_UpstreamPushed", r.remote, r.branch));
+        await reload();
+      } else {
+        setPushErrorKind(r.errorKind);
+        setError(t("Changes_PushFailed", r.errorKind ?? "other"));
+      }
+    } catch (e) {
+      setPushErrorKind(null);
+      setError((e as Error).message);
+      setErrorDetail((e as { detail?: string }).detail ?? null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // 命令面板路由（changes.commit / changes.commitPush / changes.stageAll / changes.unstageAll）
   useEffect(() => {
     const cmd = app.routedCommand;
@@ -259,7 +306,7 @@ export function ChangesPage() {
         <button className="tool-btn" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: true }); return t("Changes_PulledRebase"); })}>
           {t("Changes_PullRebase")}
         </button>
-        <button className="tool-btn" disabled={!repo || busy} onClick={() => void run(async () => { const err = await call<string | null>("changes.push", {}); if (err) throw Object.assign(new Error(t("Changes_PushFailed", err))); return t("Changes_Pushed"); })}>
+        <button className="tool-btn" disabled={!repo || busy} onClick={() => void doPush()}>
           {t("Changes_Push")}
         </button>
         <span className="grow" />
@@ -272,7 +319,17 @@ export function ChangesPage() {
           error
           detail={errorDetail ?? undefined}
           onCopyDetail={errorDetail ? () => navigator.clipboard.writeText(errorDetail) : undefined}
-          onClose={() => { setError(null); setErrorDetail(null); }}
+          onClose={() => { setError(null); setErrorDetail(null); setPushErrorKind(null); }}
+          actions={
+            pushErrorKind === "noUpstream"
+              ? [
+                  { label: t("Changes_SetUpstreamPush"), onClick: () => void doSetUpstreamPush() },
+                  { label: t("Common_GoToSettings"), onClick: () => openSettings("git") },
+                ]
+              : pushErrorKind === "noRemote" || errorDetail === "NO_REMOTE"
+                ? [{ label: t("Common_GoToSettings"), onClick: () => openSettings("git") }]
+                : undefined
+          }
         />
       )}
       {transient && <Banner text={transient} onClose={() => setTransient(null)} />}

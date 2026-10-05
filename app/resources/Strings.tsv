@@ -671,3 +671,24 @@ Settings_AboutSection	About	关于
 Settings_GitNotFound	git not found	未找到 git
 Settings_Dark	dark	深色
 Settings_Light	light	浅色
+Common.GoToSettings	Open Settings	去设置
+Changes.SetUpstreamPush	Set upstream & push	设置上游并推送
+Changes.UpstreamPushed	Upstream {0}/{1} set and pushed	已设置上游 {0}/{1} 并推送
+Settings.GitSection	Git Configuration	Git 配置
+Settings.GitScope	Write scope	写入层级
+Settings.GitRepoLevel	Repository	仓库
+Settings.GitGlobalLevel	Global	全局
+Settings.NoRepoHint	No repository open: repository scope unavailable	未打开仓库：仓库层级不可用
+Settings.GitUserName	User name (user.name)	用户名 (user.name)
+Settings.GitUserEmail	Email (user.email)	邮箱 (user.email)
+Settings.GitAutoSetupRemote	Auto setup upstream (push.autoSetupRemote)	推送自动设上游 (push.autoSetupRemote)
+Settings.GitAutoSetupRemoteHint	git 2.37+：首次 push 自动建立 upstream，免去"no upstream"报错	git 2.37+：首次 push 自动建立 upstream，免去"no upstream"报错
+Settings.GitPullRebase	Pull with rebase (pull.rebase)	拉取用变基 (pull.rebase)
+Settings.GitAutocrlf	Line endings (core.autocrlf)	换行符 (core.autocrlf)
+Settings.GitRemotes	Remotes	远程仓库
+Settings.GitNoRemotes	No remotes configured	未配置远程仓库
+Settings.GitRemoteName	Name	名称
+Settings.GitRemoteUrl	URL	URL
+Settings.GitAddRemote	Add	添加
+Settings.GitInheritGlobal	inherit global: {0}	继承全局：{0}
+Settings.Unset	(unset)	（未设置）

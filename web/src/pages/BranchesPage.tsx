@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { call } from "../bridge/client";
-import { Modal, useContextMenu, type CtxMenuItem } from "../components/Dialogs";
-import type { BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
-import { refreshCurrent, t, useApp } from "../state/store";
+import { Modal, useContextMenu, type CtxMenuItem } from "../components/Dialogs";import type { BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
+import { refreshCurrent, openSettings, t, useApp } from "../state/store";
+
+/** 推送无上游类错误的识别（git 2.37+ 提示语 + 旧版提示语都覆盖）。 */
+function isNoUpstreamError(msg: string | null): boolean {
+  if (!msg) return false;
+  return /push\.autoSetupRemote|set-upstream|no upstream|上游/i.test(msg);
+}
 
 export function BranchesPage() {
   const app = useApp();
@@ -112,8 +117,16 @@ export function BranchesPage() {
         <button className="tool-btn" disabled={busy} onClick={() => void run(async () => { await call("branches.push", {}); return t("Branches_Pushed"); })}>{t("Branches_Push")}</button>
       </div>
 
-      {error && <Banner2 text={error} onClose={() => setError(null)} />}
-      {transient && <Banner2 text={transient} onClose={() => setTransient(null)} />}
+      {error && (
+        <div className="banner error">
+          <span className="banner-text">{error}</span>
+          {isNoUpstreamError(error) && (
+            <button className="tool-btn" onClick={() => openSettings("git")}>{t("Common_GoToSettings")}</button>
+          )}
+          <button className="tool-btn" onClick={() => setError(null)}>✕</button>
+        </div>
+      )}
+      {transient && <div className="banner"><span className="banner-text">{transient}</span><button className="tool-btn" onClick={() => setTransient(null)}>✕</button></div>}
 
       <div className="split-pane" style={{ flex: 1 }}>
         {state ? (
@@ -199,6 +212,3 @@ export function BranchesPage() {
   );
 }
 
-function Banner2({ text, onClose }: { text: string; onClose: () => void }) {
-  return <div className="banner"><span className="banner-text">{text}</span><button className="tool-btn" onClick={onClose}>✕</button></div>;
-}

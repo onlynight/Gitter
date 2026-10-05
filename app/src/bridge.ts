@@ -12,6 +12,7 @@ import { ThemeService } from "./services/themes";
 import { TerminalManager } from "./services/terminal";
 import { HighlightService } from "./services/highlight";
 import { McpPipeHost, pendingApprovals } from "./services/mcp";
+import * as gitconfig from "./services/gitconfig";
 import * as aiSvc from "./services/ai";
 import * as safety from "./services/safety";
 import { groupSessions, squashMessage } from "./services/sessions";
@@ -421,6 +422,44 @@ export class Bridge {
       return {};
     });
     R("mcp.setPipeName", () => ({ pipeName: this.mcpHost?.name ?? null }));
+
+    // ---- Git 配置（设置页"Git 配置"区）----
+    // 全局层级不依赖已打开仓库（cwd 用用户主目录）；仓库层级必须先开仓库
+    const configWorkDir = (scope: gitconfig.ConfigScope) =>
+      this.repo ?? (scope === "global" ? process.env.USERPROFILE ?? "." : this.needRepo());
+    R("gitconfig.list", (args: { scope: gitconfig.ConfigScope }) => gitconfig.listConfig(configWorkDir(args.scope ?? "repo"), args.scope ?? "repo"));
+    R("gitconfig.set", (args: { key: string; value: string | null; scope: gitconfig.ConfigScope }) => {
+      if (!/^[a-z0-9.-]+$/i.test(args.key)) throw new BridgeError("非法配置键", args.key);
+      gitconfig.setConfig(configWorkDir(args.scope ?? "repo"), args.key.toLowerCase(), args.value, args.scope ?? "repo");
+      return {};
+    });
+    R("remote.list", () => gitconfig.listRemotes(this.needRepo()));
+    R("remote.add", (args: { name: string; url: string }) => {
+      if (!args.name.trim() || !args.url.trim()) throw new BridgeError("名称与 URL 均必填");
+      gitconfig.addRemote(this.needRepo(), args.name.trim(), args.url.trim());
+      return {};
+    });
+    R("remote.remove", (args: { name: string }) => {
+      gitconfig.removeRemote(this.needRepo(), args.name);
+      return {};
+    });
+
+    // ---- 推送自助修复（noUpstream 错误的动作）----
+    R("changes.pushSetUpstream", async () => {
+      try {
+        return await gitconfig.pushSetUpstream(this.needRepo());
+      } catch (e) {
+        const err = e as { message?: string; result?: { stderr?: string } };
+        const hint = err.result?.stderr ?? err.message ?? "";
+        if (hint.includes("NO_REMOTE")) {
+          throw new BridgeError("没有配置远程仓库——请在 设置 → Git 配置 中添加", "NO_REMOTE");
+        }
+        if (hint.includes("NO_BRANCH")) {
+          throw new BridgeError("当前处于游离 HEAD，没有可推送的分支", "NO_BRANCH");
+        }
+        throw e;
+      }
+    });
   }
 
   /** 组装 AI 配置（密钥 safeStorage 解密，只在内存，不回传渲染层明文）。 */

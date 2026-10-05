@@ -82,8 +82,15 @@ export function useContextMenu() {
   return { showMenu, menuElement: element };
 }
 
-/** 横幅（错误/transient），替代 InfoBar 与 TextBlock 横幅。 */
-export function Banner(props: { text: string; detail?: string; error?: boolean; onCopyDetail?: () => void; onClose?: () => void }) {
+/** 横幅（错误/transient），替代 InfoBar 与 TextBlock 横幅。可带动作按钮（如"设置上游并推送"）。 */
+export function Banner(props: {
+  text: string;
+  detail?: string;
+  error?: boolean;
+  onCopyDetail?: () => void;
+  onClose?: () => void;
+  actions?: { label: string; onClick: () => void }[];
+}) {
   return (
     <div className={"banner" + (props.error ? " error" : "")}>
       <span className="banner-text">{props.text}</span>
@@ -91,6 +98,9 @@ export function Banner(props: { text: string; detail?: string; error?: boolean; 
       {props.onCopyDetail && (
         <button className="tool-btn" onClick={props.onCopyDetail}>{t("Common_CopyDetails")}</button>
       )}
+      {props.actions?.map((a) => (
+        <button key={a.label} className="tool-btn" onClick={a.onClick}>{a.label}</button>
+      ))}
       {props.onClose && <button className="tool-btn" onClick={props.onClose}>✕</button>}
     </div>
   );

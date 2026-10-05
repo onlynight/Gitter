@@ -173,6 +173,27 @@ async function main() {
   check("agent 反馈清除", fb.readFeedback(tmpRepo) === null);
   fs.rmSync(tmpRepo, { recursive: true, force: true });
 
+  // Git 配置读写 + 层级 + remote（合成仓库，不碰真实用户配置）
+  const cfgRepo = fs.mkdtempSync(path.join(os.tmpdir(), "gitter-cfg-"));
+  await tryGit(cfgRepo, ["init"]);
+  const gc = await import("./services/gitconfig");
+  await gc.setConfig(cfgRepo, "user.name", "测试者", "repo");
+  await gc.setConfig(cfgRepo, "push.autoSetupRemote", "true", "repo");
+  const localMap = await gc.listConfig(cfgRepo, "repo");
+  check("gitconfig 写读（repo）", localMap["user.name"] === "测试者" && localMap["push.autosetupremote"] === "true");
+  check("gitconfig 有效值", (await gc.effectiveConfig(cfgRepo, "user.name")) === "测试者");
+  await gc.setConfig(cfgRepo, "push.autoSetupRemote", null, "repo");
+  check("gitconfig unset", (await gc.effectiveConfig(cfgRepo, "push.autoSetupRemote")) === null);
+  let up: { message: string; result: { stderr: string } };
+  try {
+    const r = await gc.pushSetUpstream(cfgRepo);
+    up = { message: "unexpectedly pushed", result: { stderr: JSON.stringify(r) } };
+  } catch (e) {
+    up = { message: (e as Error).message, result: { stderr: (e as { result?: { stderr?: string } }).result?.stderr ?? "" } };
+  }
+  check("pushSetUpstream：无远程 → NO_REMOTE", /NO_REMOTE/.test(up.message + up.result.stderr));
+  fs.rmSync(cfgRepo, { recursive: true, force: true });
+
   console.log(failures === 0 ? "\n全部通过 ✅" : `\n${failures} 项失败 ❌`);
   process.exit(failures === 0 ? 0 : 1);
 }

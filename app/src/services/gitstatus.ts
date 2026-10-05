@@ -187,8 +187,8 @@ export async function retryPush(workDir: string): Promise<string | null> {
   return r.code === 0 ? null : classifyPushError(r.stderr + r.stdout);
 }
 
-/** 推送失败粗分类（对齐 PushFailureKind 语义子集，v1：三分类）。 */
-function classifyPushError(stderr: string): string {
+/** 推送失败粗分类（对齐 PushFailureKind 语义子集，v1：四分类）。 */
+export function classifyPushError(stderr: string): string {
   const s = stderr.toLowerCase();
   if (s.includes("no upstream") || s.includes("set-upstream") || s.includes("has no upstream")) return "noUpstream";
   if (s.includes("rejected") || s.includes("fetch first") || s.includes("behind")) return "rejected";

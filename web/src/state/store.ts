@@ -18,6 +18,8 @@ export interface AppState {
   routedCommand: { id: string; ts: number } | null;
   /** F5 / 外部刷新信号 */
   refreshTick: number;
+  /** 设置页定位（如 "git"：从错误横幅跳转后滚动到对应区块） */
+  settingsFocus: string | null;
 }
 
 let state: AppState = {
@@ -30,6 +32,7 @@ let state: AppState = {
   maximized: false,
   routedCommand: null,
   refreshTick: 0,
+  settingsFocus: null,
 };
 
 const listeners = new Set<() => void>();
@@ -56,6 +59,11 @@ export function useApp(): AppState {
 export function navigate(page: PageKey) {
   if (state.page === page) return;
   setState({ page });
+}
+
+/** 跳到设置页并定位到某区块（如推送报 noUpstream → openSettings("git")）。 */
+export function openSettings(section?: string) {
+  setState({ page: "settings", settingsFocus: section ?? null });
 }
 
 /** F5 或手动刷新：tick 变化驱动当前页重载 */
