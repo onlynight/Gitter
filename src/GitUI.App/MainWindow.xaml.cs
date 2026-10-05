@@ -408,6 +408,10 @@ public sealed partial class MainWindow : Window
         // S7：窗口标题随当前仓库更新（多窗口时任务栏可区分，design.md §6.7）
         _repoContext.Changed += () => DispatcherQueue.TryEnqueue(UpdateWindowTitle);
 
+        // i18n 热切换（docs/i18n.md §四）：广播在发起窗口的 UI 线程触发，
+        // 本窗口（可能是另一窗口）经 DispatcherQueue 回投后重绘
+        LanguageService.Applied += _languageApplied;
+
         RefreshNavVisuals();
 
         // 启动恢复上次项目（settings.json currentProjectPath；目录已消失则忽略）。
@@ -596,6 +600,14 @@ public sealed partial class MainWindow : Window
         btn.Click += NavItem_Click;
         AutomationProperties.SetName(btn, label);
 
+        // 压掉默认 Button 模板的 PointerOver/Pressed 视觉状态：模板用 ThemeResource
+        // ButtonBackgroundPointerOver/Pressed 覆盖 Background 属性 —— 我们删掉 hover
+        // 订阅只去掉了自绘的 hover，模板内置的悬停加深与点击闪深仍在。
+        // 逐控件资源覆盖为透明；RefreshOne 会让它们始终跟随当前逻辑背景（选中项
+        // 悬停/按下时保持选中背景不消失）。
+        btn.Resources["ButtonBackgroundPointerOver"] = ClearBrush;
+        btn.Resources["ButtonBackgroundPressed"] = ClearBrush;
+
         return btn;
     }
 
@@ -673,6 +685,11 @@ public sealed partial class MainWindow : Window
 
         _currentKey = key;
 
+        // 选中态刷新先于页面切换：旧页签立即取消选中、新页签立即高亮，
+        // 不让视觉状态等页面构建（重页首切可达数百毫秒）——此前旧选中项
+        // "闪一下才取消"的感知来源
+        RefreshNavVisuals();
+
         _terminalPage ??= new TerminalPage(_settings, _repoService, _repoContext, CloseCommandPalette);
         UIElement page = key switch
         {
@@ -691,8 +708,6 @@ public sealed partial class MainWindow : Window
         // 必须在页面创建并进树之后调用：首显时 OnShown 才能真正执行
         //（此前写在创建前，_terminalPage 为 null 导致首进终端页会话不启动、画布不聚焦）
         if (key == "bash") _terminalPage.OnShown();
-
-        RefreshNavVisuals();
     }
 
     private void RefreshNavVisuals()
@@ -1494,8 +1509,12 @@ public sealed partial class MainWindow : Window
     {
         var isSelected = button.Tag as string == _currentKey;
 
-        // 无悬停高亮：背景只在选中时出现（PointerEntered/Exited 订阅已移除）
+        // 无悬停高亮：背景只在选中时出现（PointerEntered/Exited 订阅已移除）；
+        // 模板的 PointerOver/Pressed 画刷已由 BuildNavItem 的资源覆盖压平，
+        // 这里同步资源值 —— 悬停/按下时保持当前逻辑背景（选中项不闪不消失）
         button.Background = isSelected ? Ui.Selected : ClearBrush;
+        button.Resources["ButtonBackgroundPointerOver"] = button.Background;
+        button.Resources["ButtonBackgroundPressed"] = button.Background;
         button.Opacity = 1.0;
 
         // 选中态：图标染强调色（原 2px 竖条指示已移除）。row 子项顺序 = [icon, label]。
