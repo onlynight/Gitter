@@ -6,6 +6,10 @@ param(
 )
 
 $settingsPath = Join-Path $env:APPDATA 'GitUI\settings.json'
+# 测试设置守卫：备份用户 settings.json，finally 恢复（脚本重写会清掉用户项目/主题）
+$settingsBackup = Join-Path $env:APPDATA 'GitUI\settings.verify-backup'
+$hadUserSettings = Test-Path $settingsPath
+if ($hadUserSettings) { Copy-Item $settingsPath $settingsBackup -Force }
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
 
 $p = Start-Process -FilePath $Exe -PassThru
@@ -97,6 +101,9 @@ try {
     }
 }
 finally {
+  # 测试设置守卫：恢复用户 settings.json
+  if ($hadUserSettings -and (Test-Path $settingsBackup)) { Move-Item $settingsBackup $settingsPath -Force }
+  elseif (-not $hadUserSettings -and (Test-Path $settingsPath)) { Remove-Item $settingsPath -Force }
     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 }
 exit $exitCode

@@ -1,6 +1,10 @@
 ﻿# smoke-bash-nav.ps1 - App UI smoke: nav to Git Bash page via UIA
 $exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe'
 $settingsPath = Join-Path $env:APPDATA 'GitUI\settings.json'
+# 测试设置守卫：备份用户 settings.json，脚本尾部恢复（脚本重写会清掉用户项目/主题）
+$settingsBackup = Join-Path $env:APPDATA 'GitUI\settings.verify-backup'
+$hadUserSettings = Test-Path $settingsPath
+if ($hadUserSettings) { Copy-Item $settingsPath $settingsBackup -Force }
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
 
 $p = Start-Process -FilePath $exe -PassThru
@@ -35,4 +39,6 @@ if ($null -ne $edit) { Write-Output 'OK: input box visible' } else { Write-Outpu
 $p.Kill()
 Start-Sleep -Seconds 1
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
+# 测试设置守卫：恢复用户 settings.json
+if ($hadUserSettings -and (Test-Path $settingsBackup)) { Move-Item $settingsBackup $settingsPath -Force }
 Write-Output 'SMOKE PASS'

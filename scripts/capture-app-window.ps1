@@ -1,4 +1,4 @@
-# capture-app-window.ps1 - launch app and capture main window PNG (PrintWindow)
+﻿# capture-app-window.ps1 - launch app and capture main window PNG (PrintWindow)
 # Writes settings first so the Log page loads a repo (real toolbar visible).
 param(
     [string]$Exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe',
@@ -12,6 +12,10 @@ Start-Sleep -Seconds 1
 $dir = Join-Path $env:APPDATA 'GitUI'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $settingsPath = Join-Path $dir 'settings.json'
+# 测试设置守卫：备份用户 settings.json，finally 恢复（脚本重写会清掉用户项目/主题）
+$settingsBackup = Join-Path $env:APPDATA 'GitUI\settings.verify-backup'
+$hadUserSettings = Test-Path $settingsPath
+if ($hadUserSettings) { Copy-Item $settingsPath $settingsBackup -Force }
 if ($RepoPath -eq '') {
     Remove-Item $settingsPath -Force -ErrorAction SilentlyContinue
 } else {
@@ -72,6 +76,9 @@ public static class Win32Cap {
     Write-Output "Saved: $Out"
 }
 finally {
+  # 测试设置守卫：恢复用户 settings.json
+  if ($hadUserSettings -and (Test-Path $settingsBackup)) { Move-Item $settingsBackup $settingsPath -Force }
+  elseif (-not $hadUserSettings -and (Test-Path $settingsPath)) { Remove-Item $settingsPath -Force }
     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     Get-Process GitUI.App -ErrorAction SilentlyContinue | Stop-Process -Force
 }
