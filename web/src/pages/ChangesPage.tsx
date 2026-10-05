@@ -289,15 +289,35 @@ export function ChangesPage() {
     return <div className="empty-state"><div className="big">◇</div>{t("Common_NoProjectSelected")}</div>;
   }
 
-  const group = (title: string, files: FileStatusDTO[], stagedView: boolean, allowCheck: boolean) =>
-    files.length > 0 && (
+  const group = (title: string, files: FileStatusDTO[], stagedView: boolean, allowCheck: boolean) => {
+    if (files.length === 0) return null;
+    const eligible = files.filter((f) => !f.isConflict);
+    const allChecked = allowCheck && eligible.length > 0 && eligible.every((f) => checked.has(f.path));
+    const someChecked = eligible.some((f) => checked.has(f.path));
+    const toggleAll = () =>
+      setChecked((prev) => {
+        const next = new Set(prev);
+        for (const f of eligible) {
+          if (allChecked) next.delete(f.path);
+          else next.add(f.path);
+        }
+        return next;
+      });
+    return (
       <div>
         <div className="group-header">
+          {allowCheck && eligible.length > 0 && (
+            <input
+              type="checkbox"
+              checked={allChecked}
+              ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
+              onChange={toggleAll}
+              title={allChecked ? t("Changes_UncheckAll") : t("Changes_CheckAll")}
+            />
+          )}
           <span>{title}</span>
           <span style={{ color: "var(--c-text3)", fontWeight: 400 }}>{files.length}</span>
-          {allowCheck && (
-            <span className="grow" style={{ flex: 1 }} />
-          )}
+          <span className="grow" style={{ flex: 1 }} />
         </div>
         {files.map((f) => (
           <div
@@ -327,6 +347,7 @@ export function ChangesPage() {
         ))}
       </div>
     );
+  };
 
   const hasSelectedHunks = selectedHunks.size > 0 && diff && !diff.isBinary;
 

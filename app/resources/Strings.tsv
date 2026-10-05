@@ -697,3 +697,5 @@ Changes.PreviewStaged	Preview: staged version	预览：暂存版本
 Changes.PreviewTooLarge	File too large to preview (> 8 MB)	文件过大，无法预览（> 8 MB）
 Changes.ConflictCompareHint	Conflict file: showing current (ours) vs incoming (theirs) for decision-making	冲突文件：以下为 当前(ours) 与 传入(theirs) 的对比，供取舍参考
 Diff.NoContentChange	No content change (rename or attribute only)	无内容差异（仅重命名或属性变更）
+Changes.CheckAll	Select all in group	全选本组
+Changes.UncheckAll	Deselect all in group	取消全选本组
