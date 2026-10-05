@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
-import { navigate, routeCommand, t, useApp, type PageKey } from "../state/store";
+import { navigate, routeCommand, t, updateSettings, useApp, type PageKey } from "../state/store";
 
 interface Command {
   id: string;
@@ -44,11 +44,11 @@ export function CommandPalette({ onClose, prefill }: { onClose: () => void; pref
       { id: "branches.pull", category: t("Cat_Sync"), title: t("Cmd_Pull"), enabled: repoOpen, run: () => routeCommand("branches.pull") },
       { id: "branches.pullRebase", category: t("Cat_Sync"), title: t("Cmd_PullRebase"), enabled: repoOpen, run: () => routeCommand("branches.pullRebase") },
       { id: "branches.push", category: t("Cat_Sync"), title: t("Cmd_Push"), enabled: repoOpen, run: () => routeCommand("branches.push") },
-      { id: "view.diffSide", category: t("Cat_View"), title: t("Cmd_DiffSideBySide"), enabled: true, run: () => call("settings.set", { patch: { diffMode: "sideBySide" } }) },
-      { id: "view.diffInline", category: t("Cat_View"), title: t("Cmd_DiffInline"), enabled: true, run: () => call("settings.set", { patch: { diffMode: "inline" } }) },
-      { id: "view.themeSystem", category: t("Cat_View"), title: t("Cmd_ThemeSystem"), enabled: true, run: () => call("settings.set", { patch: { theme: "system" } }) },
-      { id: "view.themeLight", category: t("Cat_View"), title: t("Cmd_ThemeLight"), enabled: true, run: () => call("settings.set", { patch: { theme: "light" } }) },
-      { id: "view.themeDark", category: t("Cat_View"), title: t("Cmd_ThemeDark"), enabled: true, run: () => call("settings.set", { patch: { theme: "dark" } }) },
+      { id: "view.diffSide", category: t("Cat_View"), title: t("Cmd_DiffSideBySide"), enabled: true, run: () => void updateSettings({ diffMode: "sideBySide" }) },
+      { id: "view.diffInline", category: t("Cat_View"), title: t("Cmd_DiffInline"), enabled: true, run: () => void updateSettings({ diffMode: "inline" }) },
+      { id: "view.themeSystem", category: t("Cat_View"), title: t("Cmd_ThemeSystem"), enabled: true, run: () => void updateSettings({ theme: "system" }) },
+      { id: "view.themeLight", category: t("Cat_View"), title: t("Cmd_ThemeLight"), enabled: true, run: () => void updateSettings({ theme: "light" }) },
+      { id: "view.themeDark", category: t("Cat_View"), title: t("Cmd_ThemeDark"), enabled: true, run: () => void updateSettings({ theme: "dark" }) },
     ];
   }, [repo, repoOpen]);
 

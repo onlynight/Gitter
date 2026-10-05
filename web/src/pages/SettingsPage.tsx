@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { call } from "../bridge/client";
 import type { SettingsDTO, ThemePackageDTO } from "../bridge/types";
-import { reapplyLanguage, reapplyTheme, setState, t, useApp } from "../state/store";
+import { setState, t, updateSettings, useApp } from "../state/store";
 
 interface RemoteDTO {
   name: string;
@@ -61,10 +61,8 @@ export function SettingsPage() {
   if (!s) return null;
 
   const patch = async (p: Partial<SettingsDTO>) => {
-    const next = await call<SettingsDTO>("settings.set", { patch: p });
-    setState({ settings: next });
-    if (p.theme !== undefined || p.themePackageId !== undefined) await reapplyTheme(next);
-    if (p.language !== undefined) await reapplyLanguage(next);
+    // 统一走 updateSettings（持久化 + store 回写 + 主题/语言/差异模式重应用）
+    await updateSettings(p);
   };
 
   // ---- Git 配置区辅助 ----
