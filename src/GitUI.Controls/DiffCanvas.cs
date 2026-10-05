@@ -125,7 +125,11 @@ public sealed class DiffCanvas : Grid
         };
         ThemeService.Applied += _ =>
         {
-            // 主题包切换（含暗↔亮与第三方包）→ 语法配色随主题重载
+            // 主题包切换（含暗↔亮与第三方包）→ 调色板与语法配色一并重载。
+            // 此前只重建 _syntaxStyles：_palette 依赖 ActualTheme 事件传播（对根容器
+            // 设 RequestedTheme 时后代元素不可靠），导致代码预览配色停留在旧基座。
+            // 基座以 TokenRuntime.CurrentBase（Apply 先行更新）为准，不依赖元素事件。
+            _palette = ResolvePalette();
             _syntaxStyles = BuildSyntaxStyles();
             _canvas.Invalidate();
         };
@@ -384,8 +388,11 @@ public sealed class DiffCanvas : Grid
 
     private DiffPalette ResolvePalette()
     {
+        // 基座取主题系统权威值（TokenRuntime.CurrentBase）：ActualTheme 依赖祖先
+        // RequestedTheme 传播，后代元素切换时可能不触发 ActualThemeChanged。
+        var light = TokenRuntime.CurrentBase == ThemeBase.Light;
         // 主题包 diff 段覆盖：克隆内置深/浅色板后应用（不污染静态单例）
-        var palette = (ActualTheme == ElementTheme.Light ? DiffPalette.Light : DiffPalette.Dark).Clone();
+        var palette = (light ? DiffPalette.Light : DiffPalette.Dark).Clone();
         palette.ApplyOverrides(ThemeService.ActiveDiff);
         return palette;
     }
@@ -393,7 +400,7 @@ public sealed class DiffCanvas : Grid
     /// <summary>活动主题语法配色 → 样式集（ThemeService.ActiveSyntax 覆盖内置缺省）。</summary>
     private SyntaxStyleSet BuildSyntaxStyles()
     {
-        var set = new SyntaxStyleSet(ActualTheme == ElementTheme.Light);
+        var set = new SyntaxStyleSet(TokenRuntime.CurrentBase == ThemeBase.Light);
         set.ApplyOverrides(ThemeService.ActiveSyntax);
         return set;
     }
@@ -458,7 +465,7 @@ public sealed class DiffCanvas : Grid
     {
         if (_model is null || _selectedHunks.Count == 0) return;
 
-        var overlay = ActualTheme == ElementTheme.Light
+        var overlay = TokenRuntime.CurrentBase == ThemeBase.Light
             ? Windows.UI.Color.FromArgb(0x26, 0x00, 0x60, 0xD0)
             : Windows.UI.Color.FromArgb(0x38, 0x60, 0xB8, 0xFF);
         int firstRow = (int)Math.Round(_vScroll.Value);

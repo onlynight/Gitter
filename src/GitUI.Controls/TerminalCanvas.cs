@@ -102,6 +102,9 @@ public sealed class TerminalCanvas : Grid
         GotFocus += (_, _) => { _hasFocus = true; if (Buffer is { CursorVisible: true }) _blinkTimer.Start(); };
         LostFocus += (_, _) => { _hasFocus = false; _blinkTimer.Stop(); _cursorOn = true; _canvas.Invalidate(); };
         ActualThemeChanged += (_, _) => { _palette = ResolvePalette(); _canvas.Invalidate(); };
+        // 主题包切换（含暗↔亮与第三方包）：基座取 TokenRuntime.CurrentBase（Apply 先行更新）——
+        // ActualTheme 依赖祖先 RequestedTheme 传播，后代元素切换时可能不触发 ActualThemeChanged
+        ThemeService.Applied += _ => { _palette = ResolvePalette(); _canvas.Invalidate(); };
 
         _palette = ResolvePalette();
         AutomationProperties.SetName(this, "终端输出区");
@@ -109,8 +112,10 @@ public sealed class TerminalCanvas : Grid
 
     private TerminalPalette ResolvePalette()
     {
+        // 基座取主题系统权威值（TokenRuntime.CurrentBase）：ActualTheme 依赖祖先
+        // RequestedTheme 传播，后代元素切换时可能不触发 ActualThemeChanged。
         // 主题包 terminal 段覆盖：克隆内置深/浅色板后应用（不污染静态单例）
-        return (ActualTheme == ElementTheme.Light
+        return (TokenRuntime.CurrentBase == ThemeBase.Light
             ? TerminalPalette.Light
             : TerminalPalette.Dark).WithOverrides(ThemeService.ActiveTerminal);
     }
