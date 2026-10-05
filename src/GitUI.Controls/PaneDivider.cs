@@ -1,4 +1,4 @@
-using Microsoft.UI.Input;
+﻿using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -18,10 +18,13 @@ public sealed class PaneDivider : Grid
 {
     public const double MinLeftWidth = 220;   // 左栏最小像素宽
     public const double RightMinWidth = 320;  // 右栏保留的最小像素宽
+    private const double GutterWidth = 10;    // 命中区宽度（显式设置：Grid 不设 Width 则为 NaN，
+                                              // 所有数值守卫会静默失效）
 
     private readonly ColumnDefinition _leftColumn;
     private readonly Func<double> _hostWidth;
     private FrameworkElement? _host;  // 拖动坐标基准：宿主 Grid（拖动中不移动）
+    private double? _fraction;        // 左栏占宿主宽度的比例；null = 未拖过，保持 star 初始布局
     private bool _dragging;
     private double _dragStartX;
     private double _dragStartLeft;
@@ -34,6 +37,7 @@ public sealed class PaneDivider : Grid
         _leftColumn = leftColumn;
         _hostWidth = hostWidth;
 
+        Width = GutterWidth;
         Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent); // 透明但可命中
         Children.Add(new Border
         {
@@ -48,6 +52,8 @@ public sealed class PaneDivider : Grid
         PointerReleased += OnReleased;
         PointerEntered += (_, _) => ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
         PointerExited += (_, _) => ProtectedCursor = null;
+        Loaded += (_, _) => EnsureHost();
+        LayoutUpdated += (_, _) => EnsureHost(); // Loaded 在部分挂载路径下不触发：布局帧兜底解析
         AutomationProperties.SetName(this, "调整左右面板宽度");
     }
 
@@ -68,9 +74,14 @@ public sealed class PaneDivider : Grid
     {
         if (!_dragging || _host is null) return;
         var dx = e.GetCurrentPoint(_host).Position.X - _dragStartX;
-        var maxLeft = Math.Max(MinLeftWidth, _hostWidth() - RightMinWidth - Width);
+        var hostW = _host.ActualWidth;
+        var maxLeft = Math.Max(MinLeftWidth, _hostWidth() - RightMinWidth - GutterWidth);
         var left = Math.Clamp(_dragStartLeft + dx, MinLeftWidth, maxLeft);
         _leftColumn.Width = new GridLength(left, GridUnitType.Pixel);
+        if (hostW > 0)
+        {
+            _fraction = left / hostW; // 记录比例，供窗口缩放回放
+        }
         e.Handled = true;
     }
 
@@ -82,11 +93,32 @@ public sealed class PaneDivider : Grid
         e.Handled = true;
     }
 
-    /// <summary>诊断钩子：程序化执行拖拽逻辑（验证列宽改写与布局联动，绕过鼠标注入）。</summary>
+    /// <summary>诊断钩子：程序化执行拖拽逻辑（鼠标注入被环境拦截时验证列宽改写与布局联动）。</summary>
     public void DiagDrag(double dx)
     {
-        var maxLeft = Math.Max(MinLeftWidth, _hostWidth() - RightMinWidth - Width);
-        _leftColumn.Width = new GridLength(
-            Math.Clamp(_leftColumn.ActualWidth + dx, MinLeftWidth, maxLeft), GridUnitType.Pixel);
+        var hostW = _host?.ActualWidth ?? _hostWidth();
+        var maxLeft = Math.Max(MinLeftWidth, _hostWidth() - RightMinWidth - GutterWidth);
+        var left = Math.Clamp(_leftColumn.ActualWidth + dx, MinLeftWidth, maxLeft);
+        _leftColumn.Width = new GridLength(left, GridUnitType.Pixel);
+        if (hostW > 0)
+        {
+            _fraction = left / hostW;
+        }
+    }
+
+    private void EnsureHost()
+    {
+        if (_host is not null || Parent is not FrameworkElement fe) return;
+        _host = fe;
+        fe.SizeChanged += (_, args) =>
+        {
+            if (_fraction is { } f && args.NewSize.Width > MinLeftWidth + RightMinWidth + GutterWidth)
+            {
+                _leftColumn.Width = new GridLength(
+                    Math.Clamp(f * args.NewSize.Width, MinLeftWidth,
+                        Math.Max(MinLeftWidth, args.NewSize.Width - RightMinWidth - GutterWidth)),
+                    GridUnitType.Pixel);
+            }
+        };
     }
 }

@@ -1,4 +1,4 @@
-using GitUI.Controls;
+﻿using GitUI.Controls;
 using GitUI.Core.Models;
 using GitUI.Core.Services;
 using GitUI.Core.Settings;
@@ -303,11 +303,10 @@ public sealed class LogPage : UserControl
             _ = DispatcherQueue.TryEnqueue(async () =>
             {
                 await Task.Delay(6000);
-                d.DiagDrag(150);
+                d.DiagDrag(150); // 程序化拖动（鼠标注入被环境拦截时的替代路径）
             });
         }
     }
-
     private const string HeadItem = "(HEAD)";
 
     // ---- 主题色（令牌来自 Ui，"Gitter IDE" v3）----
