@@ -46,6 +46,7 @@ $escA = $repoA.Replace('\', '\\')
 $escB = $repoB.Replace('\', '\\')
 @"
 {
+  "language": "zh-Hans",
   "projects": [
     { "path": "$escA" },
     { "path": "$escB" }

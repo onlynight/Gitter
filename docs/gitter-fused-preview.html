@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gitter · 融合预览（工具面 × Agent）</title>
+<style>
+:root{
+  --bg:#0b0e14; --chrome:#0d1119; --panel:#121826; --panel2:#171f30; --hover:#1b2436;
+  --border:#222c3f; --border-soft:#1a2333;
+  --text:#dbe4f0; --muted:#8b98ad; --dim:#5d6b81;
+  --blue:#4d9fff; --green:#3fca7f; --amber:#e8b64c; --red:#f0705f;
+  --purple:#b490ff; --cyan:#4fc9d8;
+  --mono:"Cascadia Code","Consolas",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  font-size:13.5px;line-height:1.55;overflow:hidden;
+}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font-family:inherit}
+
+/* ===== 窗口骨架 ===== */
+.app{display:flex;flex-direction:column;height:100vh}
+.titlebar{
+  height:42px;flex-shrink:0;display:flex;align-items:center;gap:14px;
+  padding:0 14px;background:var(--chrome);border-bottom:1px solid var(--border-soft);
+}
+.logo{font-weight:700;font-size:14px;letter-spacing:.4px;color:var(--blue)}
+.repo{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.repo b{color:var(--text);font-weight:600}
+.tb-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.tpill{
+  display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);
+  border:1px solid var(--border);border-radius:16px;padding:3px 11px;background:var(--panel);
+}
+.tpill.live{color:var(--green);border-color:rgba(63,202,127,.35)}
+.tpill .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.6s infinite}
+.tpill.mcp{color:var(--cyan);border-color:rgba(79,201,216,.3)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.tbtn{
+  font-size:11.5px;color:var(--muted);border:1px solid var(--border);border-radius:16px;
+  padding:3px 11px;background:var(--panel);
+}
+.tbtn:hover{color:var(--text);border-color:var(--dim)}
+.tbtn.warn{color:var(--amber);border-color:rgba(232,182,76,.4)}
+.tbtn.on{color:var(--purple);border-color:rgba(180,144,255,.5);background:rgba(180,144,255,.08)}
+
+.body{flex:1;display:flex;min-height:0}
+.rail{
+  width:76px;flex-shrink:0;background:var(--chrome);border-right:1px solid var(--border-soft);
+  display:flex;flex-direction:column;padding:10px 8px;gap:2px;
+}
+.rail button{
+  display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 2px;border-radius:9px;
+  color:var(--dim);font-size:10.5px;
+}
+.rail button .ic{font-family:var(--mono);font-size:16px;line-height:1}
+.rail button:hover{color:var(--muted);background:var(--hover)}
+.rail button.active{color:var(--blue);background:rgba(77,159,255,.09)}
+.rail button .bdg{
+  position:absolute;margin-left:34px;margin-top:-4px;background:var(--amber);color:#0b0e14;
+  font-size:9px;font-weight:700;border-radius:8px;padding:0 5px;
+}
+.rail button{position:relative}
+main{flex:1;min-width:0;overflow-y:auto;padding:22px 26px 40px}
+.page{display:none;max-width:1240px;margin:0 auto}
+.page.active{display:block}
+
+/* ===== 状态栏 ===== */
+.statusbar{
+  height:26px;flex-shrink:0;display:flex;align-items:center;gap:18px;padding:0 14px;
+  background:var(--chrome);border-top:1px solid var(--border-soft);
+  font-family:var(--mono);font-size:10.5px;color:var(--dim);white-space:nowrap;overflow:hidden;
+}
+.statusbar .sep{color:var(--border)}
+.statusbar .ok{color:var(--green)}
+
+/* ===== 通用元件 ===== */
+.page-head{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.page-head h2{font-size:18px;font-weight:700}
+.page-head .sub{color:var(--dim);font-size:12px}
+.btn{
+  font-size:12px;border:1px solid var(--border);border-radius:8px;padding:5px 13px;
+  color:var(--muted);background:var(--panel);
+}
+.btn:hover{color:var(--text);border-color:var(--dim)}
+.btn.primary{color:#0b0e14;font-weight:600;background:var(--blue);border-color:var(--blue)}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.good{color:var(--green);border-color:rgba(63,202,127,.4)}
+.btn.good:hover{background:rgba(63,202,127,.08)}
+.btn.bad{color:var(--red);border-color:rgba(240,112,95,.4)}
+.btn.bad:hover{background:rgba(240,112,95,.08)}
+.btn.mini{font-size:11px;padding:2px 9px;border-radius:6px}
+.tag{
+  display:inline-flex;align-items:center;gap:4px;font-size:10.5px;padding:1px 8px;
+  border-radius:9px;border:1px solid var(--border);color:var(--muted);white-space:nowrap;
+}
+.tag.blue{color:var(--blue);border-color:rgba(77,159,255,.35)}
+.tag.green{color:var(--green);border-color:rgba(63,202,127,.35)}
+.tag.amber{color:var(--amber);border-color:rgba(232,182,76,.4)}
+.tag.red{color:var(--red);border-color:rgba(240,112,95,.4)}
+.tag.purple{color:var(--purple);border-color:rgba(180,144,255,.4)}
+.tag.cyan{color:var(--cyan);border-color:rgba(79,201,216,.35)}
+.tag.dim{color:var(--dim)}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px}
+.mono{font-family:var(--mono)}
+.dim{color:var(--dim)}
+.muted{color:var(--muted)}
+
+/* ===== 融合标注 ===== */
+.callout{
+  display:none;position:absolute;z-index:30;
+  font-size:10px;font-family:var(--mono);color:var(--purple);
+  width:16px;height:16px;border-radius:50%;border:1px solid rgba(180,144,255,.6);
+  align-items:center;justify-content:center;cursor:help;background:var(--bg);
+}
+body.notes .callout{display:inline-flex}
+body.notes .callout:hover::after{
+  content:attr(data-tip);position:absolute;left:20px;top:-4px;width:280px;white-space:normal;
+  background:#1c1430;border:1px solid rgba(180,144,255,.5);color:var(--text);
+  padding:7px 10px;border-radius:8px;font-family:inherit;font-size:11px;line-height:1.6;z-index:99;
+}
+.note-legend{
+  display:none;position:fixed;left:86px;bottom:36px;z-index:60;width:330px;
+  background:#141024;border:1px solid rgba(180,144,255,.4);border-radius:12px;padding:13px 15px;
+  font-size:11.5px;color:var(--muted);line-height:1.7;box-shadow:0 8px 30px rgba(0,0,0,.5);
+}
+body.notes .note-legend{display:block}
+.note-legend b{color:var(--purple);font-family:var(--mono)}
+.note-legend .hd{color:var(--text);font-weight:600;margin-bottom:5px}
+
+/* ===== 任务页 ===== */
+.tasks-layout{display:grid;grid-template-columns:400px 1fr;gap:18px}
+@media (max-width:1150px){.tasks-layout{grid-template-columns:1fr}}
+.tlist{display:flex;flex-direction:column;gap:12px}
+.tcard{
+  position:relative;background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  padding:14px 16px;cursor:pointer;
+}
+.tcard:hover{border-color:var(--dim)}
+.tcard.selected{border-color:var(--blue);background:var(--panel2)}
+.tcard .t-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.tcard .t-title{font-weight:600;font-size:13.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tstate{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;padding:1px 9px;border-radius:10px;white-space:nowrap}
+.tstate.working{color:var(--green);border:1px solid rgba(63,202,127,.4)}
+.tstate.working .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.6s infinite}
+.tstate.perm{color:var(--amber);border:1px solid rgba(232,182,76,.45)}
+.tstate.done{color:var(--cyan);border:1px solid rgba(79,201,216,.4)}
+.tmeta{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.tstats{display:flex;gap:14px;font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:10px}
+.tstats .add{color:var(--green)} .tstats .del{color:var(--red)}
+.tacts{display:flex;gap:6px;flex-wrap:wrap}
+.perm-preview{
+  margin-top:10px;border:1px dashed rgba(232,182,76,.5);border-radius:9px;padding:9px 11px;
+  font-size:12px;color:var(--muted);background:rgba(232,182,76,.05);
+}
+.perm-preview .cmd{font-family:var(--mono);font-size:11px;color:var(--amber);display:block;margin:3px 0 7px}
+
+.tdetail{min-width:0}
+.td-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.td-head h3{font-size:15px}
+.timeline{position:relative;border-left:2px solid var(--border);margin-left:9px;padding:2px 0 2px 0}
+.tlevent{position:relative;display:flex;gap:10px;padding:7px 0 7px 18px;align-items:baseline}
+.tlevent::before{
+  content:"";position:absolute;left:-6px;top:13px;width:8px;height:8px;border-radius:50%;
+  background:var(--bg);border:2px solid var(--blue);
+}
+.tlevent.ev-agent::before{border-color:var(--purple)}
+.tlevent.ev-human::before{border-color:var(--green)}
+.tlevent.ev-host::before{border-color:var(--cyan)}
+.tlevent .who{
+  font-family:var(--mono);font-size:10px;flex-shrink:0;width:46px;text-align:center;
+  border-radius:8px;padding:0 0;color:var(--dim);border:1px solid var(--border);
+}
+.tlevent.ev-agent .who{color:var(--purple);border-color:rgba(180,144,255,.4)}
+.tlevent.ev-human .who{color:var(--green);border-color:rgba(63,202,127,.4)}
+.tlevent.ev-host .who{color:var(--cyan);border-color:rgba(79,201,216,.4)}
+.tlevent .tx{font-size:12.5px;color:#b9c4d6;flex:1}
+.tlevent .tx b{color:var(--text)}
+.tlevent .tx .mono{font-size:11px;color:var(--muted)}
+.tlevent .tm{font-family:var(--mono);font-size:10px;color:var(--dim);flex-shrink:0}
+
+.perm-card{
+  margin:14px 0;border:1px solid rgba(232,182,76,.5);border-radius:12px;
+  background:rgba(232,182,76,.06);padding:13px 16px;
+}
+.perm-card .pc-head{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.perm-card .pc-head b{color:var(--amber);font-size:13px}
+.perm-card .cmd{font-family:var(--mono);font-size:12px;color:var(--text);background:var(--bg);
+  border:1px solid var(--border-soft);border-radius:7px;padding:6px 10px;margin:7px 0;display:block}
+.perm-card .pc-foot{display:flex;align-items:center;gap:8px;margin-top:9px}
+.perm-card .why{font-size:11px;color:var(--dim);margin-left:auto}
+
+.escape{
+  margin-top:14px;border:1px solid var(--border);border-radius:12px;background:var(--panel);overflow:hidden;
+}
+.escape .esc-head{display:flex;align-items:center;gap:8px;padding:8px 13px;border-bottom:1px solid var(--border-soft);font-size:12px;color:var(--muted)}
+.termbody{
+  font-family:var(--mono);font-size:11.5px;line-height:1.75;padding:11px 14px;color:#9fb0c8;
+  background:#0a0d13;white-space:pre;overflow-x:auto;
+}
+.termbody .p{color:var(--green)} .termbody .c{color:var(--dim)} .termbody .j{color:var(--cyan)} .termbody .k{color:var(--amber)}
+
+/* ===== 变更页 ===== */
+.ch-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.seg button{font-size:11.5px;color:var(--muted);padding:4px 13px}
+.seg button.on{color:var(--blue);background:rgba(77,159,255,.1)}
+.rv-bar{
+  display:flex;align-items:center;gap:14px;padding:10px 15px;margin-bottom:14px;
+  background:var(--panel);border:1px solid var(--border);border-radius:11px;position:relative;flex-wrap:wrap;
+}
+.rv-bar .cnt{display:flex;gap:12px;font-family:var(--mono);font-size:11.5px}
+.rv-bar .cnt .p{color:var(--muted)} .rv-bar .cnt .a{color:var(--green)} .rv-bar .cnt .r{color:var(--red)}
+.rvbar-track{flex:1;min-width:120px;height:6px;border-radius:3px;background:var(--border-soft);overflow:hidden;display:flex}
+.rvbar-track .sa{background:var(--green);height:100%}
+.rvbar-track .sr{background:var(--red);height:100%}
+.ch-layout{display:grid;grid-template-columns:290px 1fr;gap:14px}
+@media (max-width:1150px){.ch-layout{grid-template-columns:1fr}}
+.flist{display:flex;flex-direction:column;gap:6px}
+.fitem{
+  border:1px solid var(--border);border-radius:10px;background:var(--panel);padding:9px 12px;cursor:pointer;
+}
+.fitem:hover{border-color:var(--dim)}
+.fitem.sel{border-color:var(--blue);background:var(--panel2)}
+.fitem .fpath{font-family:var(--mono);font-size:11.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fitem .frow{display:flex;gap:6px;margin-top:5px;align-items:center;flex-wrap:wrap}
+.fitem .num{font-family:var(--mono);font-size:10.5px;margin-left:auto}
+.fitem .num .add{color:var(--green)} .fitem .num .del{color:var(--red)}
+.diff{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.diff .d-head{
+  display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border-soft);
+  font-family:var(--mono);font-size:12px;flex-wrap:wrap;
+}
+.hunk{position:relative;border-bottom:1px solid var(--border-soft)}
+.hunk:last-child{border-bottom:none}
+.hunk .h-args{
+  font-family:var(--mono);font-size:11px;color:var(--dim);padding:5px 14px;
+  background:var(--panel2);border-bottom:1px solid var(--border-soft);
+  display:flex;align-items:center;gap:8px;
+}
+.code{font-family:var(--mono);font-size:11.8px;line-height:1.65;overflow-x:auto}
+.code .ln{display:flex}
+.code .ln .no{width:44px;flex-shrink:0;text-align:right;padding-right:10px;color:#3d4a5f;user-select:none}
+.code .ln.add{background:rgba(63,202,127,.09)} .code .ln.add .no{color:rgba(63,202,127,.6)}
+.code .ln.del{background:rgba(240,112,95,.09)} .code .ln.del .no{color:rgba(240,112,95,.6)}
+.hunk .h-state{position:absolute;right:12px;top:34px;z-index:5}
+.hstatebar{border-left:3px solid transparent}
+.hunk[data-st="accepted"] .h-args{background:rgba(63,202,127,.07)}
+.hunk[data-st="accepted"]{border-left:3px solid var(--green)}
+.hunk[data-st="rejected"]{border-left:3px solid var(--red)}
+.hunk[data-st="rejected"] .h-args{background:rgba(240,112,95,.07)}
+.hunk[data-st="pending"]{border-left:3px solid var(--dim)}
+.hk-acts{display:flex;gap:6px;margin-left:auto}
+.hk-flag{
+  font-size:10px;font-family:var(--mono);padding:1px 8px;border-radius:8px;
+}
+.hk-flag.acc{color:var(--green);border:1px solid rgba(63,202,127,.45)}
+.hk-flag.rej{color:var(--red);border:1px solid rgba(240,112,95,.45)}
+.safety{
+  display:flex;align-items:center;gap:10px;margin:14px 0 0;padding:10px 15px;
+  border:1px solid rgba(240,112,95,.45);border-radius:11px;background:rgba(240,112,95,.06);
+  font-size:12.5px;color:var(--muted);position:relative;
+}
+.safety b{color:var(--red)}
+
+/* ===== Log 页 ===== */
+.filterbar{display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap}
+.day{font-size:11.5px;color:var(--dim);letter-spacing:1px;margin:14px 0 8px}
+.scard{
+  position:relative;border:1px solid rgba(180,144,255,.35);border-radius:12px;margin-bottom:10px;
+  background:linear-gradient(135deg,rgba(180,144,255,.06),rgba(79,201,216,.05));
+}
+.scard .s-head{display:flex;align-items:center;gap:10px;padding:11px 15px;cursor:pointer;flex-wrap:wrap}
+.scard .s-title{font-weight:600;font-size:13px}
+.scard .s-stats{display:flex;gap:12px;font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto;flex-wrap:wrap}
+.scard .ck{border-top:1px dashed rgba(180,144,255,.25);padding:4px 15px 9px 34px;display:none}
+.scard.open .ck{display:block}
+.ckrow{font-family:var(--mono);font-size:11.5px;color:var(--muted);padding:3px 0;display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.ckrow .sha{color:var(--purple)}
+.commit{
+  display:flex;gap:10px;align-items:baseline;padding:7px 13px;border:1px solid var(--border);
+  border-radius:10px;background:var(--panel);margin-bottom:6px;
+}
+.commit .sha{font-family:var(--mono);font-size:11.5px;color:var(--blue);flex-shrink:0}
+.commit .msg{font-size:12.5px;color:#b9c4d6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.commit .au{margin-left:auto;font-size:10.5px;color:var(--dim);flex-shrink:0}
+
+/* ===== 分支页 ===== */
+table.wt{width:100%;border-collapse:collapse;font-size:12.5px}
+table.wt th{text-align:left;font-size:10.5px;letter-spacing:1px;color:var(--dim);padding:8px 12px;border-bottom:1px solid var(--border)}
+table.wt td{padding:9px 12px;border-bottom:1px solid var(--border-soft);color:var(--muted)}
+table.wt td.mono{font-size:11.5px}
+table.wt tr:hover td{background:rgba(77,159,255,.03)}
+
+/* ===== 设置页 ===== */
+.set-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:1000px){.set-grid{grid-template-columns:1fr}}
+.set-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.set-card h4{font-size:13.5px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.set-row{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12.5px;color:var(--muted);border-bottom:1px dashed var(--border-soft)}
+.set-row:last-child{border-bottom:none}
+.set-row .val{margin-left:auto;display:flex;align-items:center;gap:6px}
+.switch{width:34px;height:18px;border-radius:9px;background:var(--border);position:relative;cursor:pointer;flex-shrink:0}
+.switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--dim);transition:.15s}
+.switch.on{background:rgba(63,202,127,.35)}
+.switch.on::after{left:18px;background:var(--green)}
+select.sel{
+  background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;
+  font-size:11.5px;padding:3px 8px;font-family:inherit;
+}
+
+/* ===== 项目页 ===== */
+.proj-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;max-width:640px}
+.proj-card .p-path{font-family:var(--mono);font-size:13px;color:var(--text)}
+.hint{font-size:12px;color:var(--dim);margin-top:10px;line-height:1.8}
+
+/* ===== 命令面板 ===== */
+.palette{
+  display:none;position:fixed;inset:0;z-index:100;background:rgba(5,8,13,.6);
+  align-items:flex-start;justify-content:center;padding-top:12vh;
+}
+.palette.open{display:flex}
+.pal-box{width:560px;background:var(--panel2);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.pal-box input{
+  width:100%;background:transparent;border:none;outline:none;color:var(--text);
+  font-size:14px;padding:14px 18px;border-bottom:1px solid var(--border-soft);
+}
+.pal-list{max-height:320px;overflow-y:auto;padding:6px}
+.pal-cat{font-size:10px;letter-spacing:1.5px;color:var(--dim);padding:8px 12px 3px}
+.pal-item{display:flex;gap:10px;align-items:center;padding:7px 12px;border-radius:8px;cursor:pointer;font-size:13px;color:#b9c4d6}
+.pal-item:hover{background:rgba(77,159,255,.1);color:var(--text)}
+.pal-item .kbd{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--dim)}
+
+/* ===== 反馈弹层 ===== */
+.modal{
+  display:none;position:fixed;inset:0;z-index:110;background:rgba(5,8,13,.6);
+  align-items:center;justify-content:center;
+}
+.modal.open{display:flex}
+.mo-box{width:520px;background:var(--panel2);border:1px solid var(--border);border-radius:14px;padding:18px 20px}
+.mo-box h4{font-size:14px;margin-bottom:4px}
+.mo-box .sub{font-size:11.5px;color:var(--dim);margin-bottom:12px}
+.mo-box textarea{
+  width:100%;height:110px;background:var(--bg);border:1px solid var(--border);border-radius:9px;
+  color:var(--text);font-size:12.5px;padding:10px 12px;resize:vertical;outline:none;line-height:1.6;
+}
+.mo-box textarea:focus{border-color:var(--blue)}
+.mo-acts{display:flex;gap:8px;margin-top:12px;align-items:center}
+.mo-acts .sp{flex:1}
+
+/* ===== toast ===== */
+#toast{
+  position:fixed;right:20px;bottom:40px;z-index:200;display:flex;flex-direction:column;gap:8px;
+}
+.toast{
+  background:#132033;border:1px solid rgba(77,159,255,.4);color:var(--text);
+  font-size:12.5px;padding:10px 16px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.5);
+  animation:tin .2s ease;
+}
+.toast.green{border-color:rgba(63,202,127,.5);background:#0f1f18}
+.toast.amber{border-color:rgba(232,182,76,.5);background:#211a0d}
+@keyframes tin{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════ 标题栏 ══════ -->
+  <header class="titlebar">
+    <span class="logo">Gitter</span>
+    <span class="repo">D:\Code\Gitter · <b>master</b> ↑2 ↓1</span>
+    <div class="tb-right">
+      <span class="tpill live"><span class="dot"></span>Codex 工作中 · task/log-filter-fix</span>
+      <span class="tpill mcp" style="position:relative">MCP server · 2 客户端<span class="callout" data-tip="Gitter 既是宿主（harness）也是 agent 的工具（MCP）。Codex/Cursor 经 stdio 调用 repo.* / review.* 工具——同一操作目录的 MCP 投影。" style="position:static;margin-left:4px">⑧</span></span>
+      <button class="tbtn warn" onclick="goQueue()">待确认 2</button>
+      <button class="tbtn" id="noteBtn" onclick="toggleNotes()">◈ 融合标注</button>
+      <button class="tbtn" onclick="openPalette()">命令 ⌘K</button>
+    </div>
+  </header>
+
+  <div class="body">
+    <!-- ══════ 导航 ══════ -->
+    <nav class="rail">
+      <button data-page="projects"><span class="ic">⌂</span>项目</button>
+      <button data-page="tasks" class="active"><span class="ic">⚡</span>任务</button>
+      <button data-page="log"><span class="ic">≣</span>Log</button>
+      <button data-page="changes"><span class="ic">±</span>变更</button>
+      <button data-page="branches"><span class="ic">⑂</span>分支</button>
+      <button data-page="term"><span class="ic">&gt;_</span>终端</button>
+      <button data-page="settings"><span class="ic">⚙</span>设置</button>
+    </nav>
+
+    <main>
+      <!-- ══════ 任务页 ══════ -->
+      <section class="page active" id="page-tasks">
+        <div class="page-head">
+          <h2>任务</h2><span class="sub">任务卡 = worktree + harness 会话 + 会话基线</span>
+          <span style="flex:1"></span>
+          <span class="tag amber">确认队列 · 2</span>
+          <button class="btn primary">＋ 新建任务</button>
+        </div>
+
+        <div class="tasks-layout">
+          <div class="tlist">
+            <!-- 任务卡 1 -->
+            <div class="tcard selected" data-task="t1" onclick="selTask(this)">
+              <span class="callout" data-tip="任务卡三元组：一个任务卡 = 一个 worktree + 一个 harness 会话 + 一个会话基线（squash 视角 diff 的起点）。" style="right:10px;top:10px">①</span>
+              <div class="t-head">
+                <span class="t-title">修复 LogFilter 解析崩溃</span>
+                <span class="tstate working"><span class="dot"></span>Working</span>
+              </div>
+              <div class="tmeta">
+                <span class="tag purple">⚡ OpenAI Codex</span>
+                <span class="tag">⑂ task/log-filter-fix</span>
+                <span class="tag cyan">基线 a3f9c2e</span>
+              </div>
+              <div class="tstats"><span class="add">+412</span><span class="del">−87</span><span>6 文件改动中</span><span>checkpoint ×3</span><span>活跃 2m 前</span></div>
+              <div class="tacts">
+                <button class="btn mini" onclick="event.stopPropagation();showPage('changes')">会话 diff</button>
+                <button class="btn mini" onclick="event.stopPropagation();showPage('term')">打开终端</button>
+                <button class="btn mini" onclick="event.stopPropagation();toast('已请求优雅收尾（kill=false）','green')">停止</button>
+              </div>
+            </div>
+
+            <!-- 任务卡 2 -->
+            <div class="tcard" data-task="t2" onclick="selTask(this)">
+              <div class="t-head">
+                <span class="t-title">升级 dotnet-openapi 依赖</span>
+                <span class="tstate perm">待确认 1</span>
+              </div>
+              <div class="tmeta">
+                <span class="tag purple">⚡ OpenAI Codex</span>
+                <span class="tag">⑂ task/dep-upgrade</span>
+                <span class="tag cyan">基线 a3f9c2e</span>
+              </div>
+              <div class="tstats"><span class="add">+38</span><span class="del">−40</span><span>2 文件</span><span>checkpoint ×1</span></div>
+              <div class="perm-preview">
+                授权请求 · <span class="tag amber">EachTime 永不记忆</span>
+                <span class="cmd">git push origin task/dep-upgrade</span>
+                <button class="btn mini good" onclick="event.stopPropagation();resolvePerm(this,'批准')">批准</button>
+                <button class="btn mini bad" onclick="event.stopPropagation();resolvePerm(this,'驳回')">驳回</button>
+              </div>
+            </div>
+
+            <!-- 任务卡 3 -->
+            <div class="tcard" data-task="t3" onclick="selTask(this)">
+              <div class="t-head">
+                <span class="t-title">主题令牌收敛</span>
+                <span class="tstate done">Completed</span>
+              </div>
+              <div class="tmeta">
+                <span class="tag purple">⚡ OpenAI Codex</span>
+                <span class="tag">⑂ task/theme-tokens</span>
+                <span class="tag green">已合并 ✓</span>
+              </div>
+              <div class="tacts">
+                <button class="btn mini" onclick="event.stopPropagation();toast('打开会话基线 diff（vs BaselineSha）')">查看会话 diff</button>
+                <button class="btn mini" onclick="event.stopPropagation();toast('影响面确认：将丢弃 3 个 checkpoint 提交（reflog 可回退）','amber')">清理任务</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 任务详情 -->
+          <div class="task-detail">
+            <div class="td-head">
+              <h3>修复 LogFilter 解析崩溃</h3>
+              <span class="tstate working"><span class="dot"></span>Working</span>
+              <span class="tag dim mono">session 0d41f7… · resume ✓</span>
+            </div>
+
+            <div class="timeline" id="tl">
+              <div class="tlevent ev-human"><span class="who">人</span><span class="tx"><b>任务下发</b>（812 字 · preamble 已注入：worktree 边界 / 默认不自行提交）</span><span class="tm">09:14</span></div>
+              <div class="tlevent ev-agent"><span class="who">agent</span><span class="tx"><b>file_change ×3</b> <span class="mono">LogFilter.cs · LogFilterTests.cs · LogPage.cs</span></span><span class="tm">09:16</span></div>
+              <div class="tlevent ev-agent"><span class="who">agent</span><span class="tx"><b>command_execution</b> <span class="mono">dotnet test</span> → 24 passed</span><span class="tm">09:21</span></div>
+              <div class="tlevent ev-host">
+                <span class="who">宿主</span>
+                <span class="tx"><b>宿主托管 checkpoint</b> <span class="mono">c4f1a9e</span> "checkpoint: 修复空白符解析崩溃"
+                <span class="tag purple" style="margin-left:4px">Assisted-by: codex</span><span class="tag cyan" style="margin-left:3px">Gitter-Session: 7f2e…</span></span>
+                <span class="callout" data-tip="task.checkpoint（Hidden 出口）：agent 默认不打提交，轮次结束后由 Gitter 在任务 worktree 代打 WIP 提交，trailer 由宿主写——会话归组不依赖 agent 自觉。" style="right:0;top:8px">②</span>
+                <span class="tm">09:22</span>
+              </div>
+              <div class="tlevent ev-human" id="tlFeedback">
+                <span class="who">人</span>
+                <span class="tx"><b>退回重做 1 hunk</b> → 已直投（NextTurn · <span class="mono">codex exec resume 0d41f7…</span>）</span>
+                <span class="callout" data-tip="推通道：人点“退回重做”→ ReviewFeedback 经 SubmitFeedbackAsync 以 resume 起修复轮；agent 也可经 MCP 拉 review.state 主动核对剩余 rejected 项。" style="right:0;top:8px">⑤</span>
+                <span class="tm">09:38</span>
+              </div>
+              <div class="tlevent ev-agent"><span class="who">agent</span><span class="tx"><b>修复轮开始</b>（resume）· 先查 review.state：1 rejected → 定向修改</span><span class="tm">09:39</span></div>
+              <div class="tlevent ev-agent"><span class="who">agent</span><span class="tx"><b>turn.completed</b> · 用量 3.2k in / 1.1k out · LastMessage 已更新任务卡</span><span class="tm">09:52</span></div>
+            </div>
+
+            <div class="perm-card" id="permCard">
+              <div class="pc-head"><b>◈ 授权请求</b><span class="tag amber">repo.remote.write · EachTime</span></div>
+              <span class="cmd">git push origin task/log-filter-fix</span>
+              <div class="pc-foot">
+                <button class="btn mini good" onclick="resolvePerm(this,'批准')">批准</button>
+                <button class="btn mini bad" onclick="resolvePerm(this,'驳回')">驳回</button>
+                <span class="why">EachTime：每次确认，永不记忆 —— 高危操作没有“记住”后门</span>
+                <span class="callout" data-tip="统一确认队列：agent 的写请求进任务卡内联授权卡（不抢焦点）；Session 档可“本会话记住”，EachTime 档永远逐次确认。" style="right:10px;top:-8px">③</span>
+              </div>
+            </div>
+
+            <div class="escape">
+              <div class="esc-head"><span class="tag cyan">逃生舱</span>原始终端 · cli-pty 形态下终端即本体
+                <span class="callout" data-tip="终端永远是逃生舱：任何传输形态下任务卡都保留“打开原始终端”入口；cli-pty 形态下终端即任务本体。" style="position:static;margin-left:6px">⑨</span>
+                <span style="flex:1"></span><button class="btn mini" onclick="showPage('term')">在新 tab 打开</button>
+              </div>
+              <div class="termbody"><span class="p">PS D:\Code\Gitter\.worktrees\task\log-filter-fix&gt;</span> codex exec resume 0d41f7
+<span class="c">[GITUI_HARNESS=com.openai.codex · GITUI_TASK=t-1042]</span>
+<span class="j">{"type":"turn.started"}</span>
+<span class="j">{"type":"item.started","item":{"item_type":"command_execution","command":"dotnet test"}}</span>
+<span class="k">{"type":"turn.completed","usage":{"input_tokens":3200,"output_tokens":1100}}</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════ 变更页 ══════ -->
+      <section class="page" id="page-changes">
+        <div class="ch-head">
+          <h2>变更</h2>
+          <span class="sub">会话基线</span>
+          <div class="seg">
+            <button>HEAD</button><button>工作区</button><button class="on">会话起点</button>
+          </div>
+          <span class="tag cyan">task/log-filter-fix · squash 视角</span>
+          <span style="flex:1"></span>
+          <span class="tag purple">溯源：codex ×5 · 人 ×1 · 疑似 ×1</span>
+        </div>
+
+        <div class="rv-bar">
+          <span class="callout" data-tip="review.state 验收三态（本稿核心新增）：人经 UI 读写，agent 只读——修复轮 agent 先查裁决，只改 rejected 的 hunk。附 baselineSha + hunk 指纹，过期自动失效。" style="left:-6px;top:-9px">④</span>
+          <b style="font-size:12.5px">review.state</b>
+          <span class="cnt"><span class="p">待审 12</span><span class="a">已接受 3</span><span class="r">已拒绝 1</span></span>
+          <div class="rvbar-track" style="max-width:200px"><div class="sa" style="width:19%"></div><div class="sr" style="width:6%"></div></div>
+          <span class="tag dim mono">指纹 · baseline a3f9c2e</span>
+          <span style="flex:1"></span>
+          <button class="btn mini" onclick="openFeedback()">退回重做 1 hunk…</button>
+        </div>
+
+        <div class="ch-layout">
+          <div class="flist">
+            <div class="fitem sel">
+              <div class="fpath">src/ViewModels/LogFilter.cs</div>
+              <div class="frow"><span class="tag purple">codex</span><span class="num"><span class="add">+96</span> <span class="del">−31</span></span></div>
+            </div>
+            <div class="fitem">
+              <div class="fpath">tests/LogFilterTests.cs</div>
+              <div class="frow"><span class="tag purple">codex</span><span class="tag green">新增用例</span><span class="num"><span class="add">+40</span> <span class="del">−12</span></span></div>
+            </div>
+            <div class="fitem">
+              <div class="fpath">.github/workflows/ci.yml</div>
+              <div class="frow"><span class="tag purple">codex</span><span class="tag amber">⚠ 供应链面扩大</span><span class="num"><span class="add">+8</span> <span class="del">−2</span></span></div>
+            </div>
+            <div class="fitem">
+              <div class="fpath">scripts/publish.ps1</div>
+              <div class="frow"><span class="tag red">🔴 secrets 命中</span><span class="tag dim">疑似 agent 期间</span><span class="num"><span class="add">+12</span></span></div>
+            </div>
+          </div>
+
+          <div class="diff">
+            <div class="d-head">
+              <span style="color:var(--text)">src/ViewModels/LogFilter.cs</span>
+              <span class="tag purple">codex</span><span class="num mono" style="color:var(--muted);font-size:11px"><span style="color:var(--green)">+96</span> <span style="color:var(--red)">−31</span></span>
+              <span style="flex:1"></span><span class="tag dim">3 / 4 hunks 已裁决</span>
+            </div>
+
+            <!-- hunk 1: accepted -->
+            <div class="hunk" data-st="accepted">
+              <div class="h-args">@@ -12,7 +12,9 @@ Parse(raw)
+                <span class="hk-acts"><span class="hk-flag acc">✓ 已接受 · 人 · 09:41</span></span>
+              </div>
+              <div class="code">
+                <div class="ln"><span class="no">12</span>public static LogFilter Parse(string raw)</div>
+                <div class="ln"><span class="no">13</span>{</div>
+                <div class="ln del"><span class="no">14</span>-    var parts = raw.Split(' ');</div>
+                <div class="ln add"><span class="no">14</span>+    var parts = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries);</div>
+                <div class="ln add"><span class="no">15</span>+    if (parts.Length == 0) return LogFilter.All;</div>
+                <div class="ln"><span class="no">16</span>    return new LogFilter(parts);</div>
+              </div>
+            </div>
+
+            <!-- hunk 2: rejected -->
+            <div class="hunk" data-st="rejected">
+              <div class="h-args">@@ -88,6 +90,10 @@ TryParseDate()
+                <span class="hk-acts"><span class="hk-flag rej">✕ 已拒绝 · 反馈已直投</span></span>
+              </div>
+              <div class="code">
+                <div class="ln"><span class="no">88</span>if (DateTime.TryParse(text, out var d))</div>
+                <div class="ln del"><span class="no">89</span>-    return d;</div>
+                <div class="ln add"><span class="no">90</span>+    return d.ToLocalTime();   <span style="color:var(--dim)">// 被退回：不应改时区语义</span></div>
+              </div>
+            </div>
+
+            <!-- hunk 3: pending -->
+            <div class="hunk" data-st="pending" id="hunkPending">
+              <div class="h-args">@@ -120,4 +124,11 @@ Matches(commit)
+                <span class="h-state">
+                  <span class="hk-acts">
+                    <button class="btn mini good" onclick="setHunk('accepted','已接受')">接受</button>
+                    <button class="btn mini bad" onclick="setHunk('rejected','已拒绝（reverse apply）')">拒绝</button>
+                    <button class="btn mini" onclick="openFeedback()">退回重做…</button>
+                  </span>
+                </span>
+              </div>
+              <div class="code">
+                <div class="ln"><span class="no">120</span>foreach (var term in terms)</div>
+                <div class="ln"><span class="no">121</span>{</div>
+                <div class="ln add"><span class="no">122</span>+    if (term.StartsWith("is:")) return MatchFlag(commit, term[3..]);</div>
+                <div class="ln add"><span class="no">123</span>+    if (term.StartsWith("agent:")) return MatchAgent(commit, term[6..]);</div>
+                <div class="ln add"><span class="no">124</span>+    if (term.StartsWith("session:")) return MatchSession(commit, term[8..]);</div>
+                <div class="ln"><span class="no">125</span>}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="safety">
+          <span class="callout" data-tip="安全网 = 写管线拦截器（同源同构）：任何出口的 repo.commit（人点按钮 / agent 经 MCP / harness）都过同一套规则。人写也不豁免。" style="left:-6px;top:-9px">⑥</span>
+          <b>⚠ 提交被安全网拦截</b>
+          <span>scripts/publish.ps1:42 命中规则 <span class="mono" style="color:var(--amber)">secrets.aws-key</span>（AKIA… 占位符）—— 阻止档 · 可逐项豁免</span>
+          <span style="flex:1"></span>
+          <button class="btn mini" onclick="toast('打开命中项：文件 + 行 + 规则','amber')">查看命中</button>
+        </div>
+      </section>
+
+      <!-- ══════ Log 页 ══════ -->
+      <section class="page" id="page-log">
+        <div class="page-head">
+          <h2>Log</h2>
+          <div class="filterbar" style="margin:0">
+            <span class="tag blue">is:ai</span><span class="tag">agent:codex</span><span class="tag">session:7f2e…</span>
+            <span class="tag dim">过滤语法已扩展</span>
+          </div>
+        </div>
+
+        <div class="day">今天 · 会话聚合</div>
+        <div class="scard open" id="scard">
+          <span class="callout" data-tip="会话卡：连续 checkpoint 提交聚合为一张 agent 会话卡。trailer（Assisted-by / Gitter-Session）为最可信归组来源；宿主托管 checkpoint 使归组不依赖 agent 自觉。" style="right:10px;top:10px">⑦</span>
+          <div class="s-head" onclick="document.getElementById('scard').classList.toggle('open')">
+            <span class="tag purple">⚡ agent 会话 · Codex</span>
+            <span class="s-title">修复 LogFilter 解析崩溃</span>
+            <span class="tag">⑂ task/log-filter-fix</span>
+            <div class="s-stats"><span>09:14–09:52</span><span>checkpoint ×3</span><span style="color:var(--green)">+412</span><span style="color:var(--red)">−87</span><span>6 文件</span><span>▾</span></div>
+          </div>
+          <div class="ck">
+            <div class="ckrow"><span class="sha">c4f1a9e</span> checkpoint: 修复空白符解析崩溃 <span class="tag purple">Assisted-by: codex</span><span class="tag cyan">Gitter-Session: 7f2e…</span></div>
+            <div class="ckrow"><span class="sha">9d0b3aa</span> checkpoint: LogFilter 边界用例 ×6</div>
+            <div class="ckrow"><span class="sha">55e12cd</span> checkpoint: 修复轮反馈调整（时区语义还原）</div>
+          </div>
+        </div>
+
+        <div class="day">人写提交 · 不聚合</div>
+        <div class="commit"><span class="sha">cb29b66</span><span class="msg">fix(scripts): 诊断/冒烟脚本备份恢复用户 settings.json —— 项目列表丢失根因</span><span class="au">wyndam · 10:02</span></div>
+        <div class="commit"><span class="sha">723cd68</span><span class="msg">feat(ui): 分割条按比例记忆左栏宽度，窗口缩放后回放</span><span class="au">wyndam · 昨天</span></div>
+        <div class="commit"><span class="sha">4e945d3</span><span class="msg">fix(ui): 分割条拖动抖动 —— 坐标基准从分割条自身改为宿主 Grid</span><span class="au">wyndam · 昨天</span></div>
+      </section>
+
+      <!-- ══════ 分支页 ══════ -->
+      <section class="page" id="page-branches">
+        <div class="page-head"><h2>分支 · worktree</h2><span class="sub">并行工作台：一个任务一个 worktree</span></div>
+        <div class="card" style="padding:4px 0">
+          <table class="wt">
+            <tr><th>worktree</th><th>分支</th><th>状态</th><th>领先/落后</th><th>最近活动</th><th></th></tr>
+            <tr>
+              <td class="mono">D:\Code\Gitter</td><td class="mono">master</td>
+              <td><span class="tag dim">主 worktree · 干净</span></td><td class="mono">↑2 ↓1</td><td>10:02</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td class="mono">.worktrees\task\log-filter-fix</td><td class="mono">task/log-filter-fix</td>
+              <td><span class="tag green">● agent 工作中</span></td><td class="mono">+3</td><td>2m 前</td>
+              <td><button class="btn mini" onclick="showPage('tasks')">打开任务卡</button></td>
+            </tr>
+            <tr>
+              <td class="mono">.worktrees\task\theme-tokens</td><td class="mono">task/theme-tokens</td>
+              <td><span class="tag cyan">已合并</span></td><td class="mono">—</td><td>1h 前</td>
+              <td>
+                <button class="btn mini" onclick="toast('影响面确认：BranchDeleteImpact → 将丢弃 3 个提交（reflog 可回退）','amber')">清理</button>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </section>
+
+      <!-- ══════ 终端页 ══════ -->
+      <section class="page" id="page-term">
+        <div class="page-head">
+          <h2>终端</h2>
+          <div class="seg">
+            <button>主终端 · PowerShell</button>
+            <button class="on">task/log-filter-fix <span style="color:var(--green)">●</span></button>
+            <button>task/theme-tokens</button>
+          </div>
+          <span style="flex:1"></span>
+          <span class="tag cyan">多会话 tab · 每个 worktree 一个</span>
+        </div>
+        <div class="escape" style="margin-top:0">
+          <div class="esc-head"><span class="tag purple">cli-json</span>结构化事件流已接入任务卡 · 状态徽标来自真实事件，模式识别退居兜底</div>
+          <div class="termbody"><span class="p">PS D:\...\task\log-filter-fix&gt;</span> $env:GITUI_HARNESS
+<span class="j">com.openai.codex</span>
+<span class="p">PS&gt;</span> codex exec resume 0d41f7 --json --cd . --sandbox workspace-write -
+<span class="c">[Gitter 宿主注入：任务 worktree · sandbox=workspace-write · approvals=on-failure]</span>
+<span class="j">{"type":"thread.started","thread_id":"0d41f7aa-42c1-4b7e"}</span>
+<span class="j">{"type":"turn.started"}</span>
+<span class="j">{"type":"item.started","item":{"item_type":"command_execution","command":"dotnet test"}}</span>
+<span class="k">{"type":"item.completed","item":{"item_type":"file_change","changes":[{"path":"src/ViewModels/LogFilter.cs","kind":"modified"}]}}</span>
+<span class="k">{"type":"turn.completed","usage":{"input_tokens":3200,"output_tokens":1100}}</span>
+<span class="c">─ 事件已扇出 → 任务卡时间线 / review.state / 状态栏 ─</span></div>
+        </div>
+      </section>
+
+      <!-- ══════ 设置页 ══════ -->
+      <section class="page" id="page-settings">
+        <div class="page-head"><h2>设置 · Agent</h2><span class="sub">融合相关节选 · 其余设置不变</span></div>
+        <div class="set-grid">
+          <div class="set-card">
+            <h4>⚡ Agent 运行时</h4>
+            <div class="set-row">本项目默认 harness <span class="val"><select class="sel"><option>OpenAI Codex (com.openai.codex)</option><option>DeepSeek Agent</option><option>未设置</option></select></span></div>
+            <div class="set-row">默认沙箱 <span class="val"><span class="tag green">WorkspaceWrite</span></span></div>
+            <div class="set-row">宿主托管 checkpoint <span class="val"><span class="switch on" onclick="this.classList.toggle('on')"></span></span></div>
+            <div class="set-row">Gitter 退出时 <span class="val"><span class="tag">终止 agent 会话</span></span></div>
+            <div class="set-row">环境变量 denylist <span class="val"><span class="tag mono">GH_TOKEN · OPENAI_API_KEY …</span></span></div>
+          </div>
+          <div class="set-card">
+            <h4>◈ MCP server（Gitter 作为工具）</h4>
+            <div class="set-row">服务状态 <span class="val"><span class="tag green">运行中 · stdio / 命名管道</span></span></div>
+            <div class="set-row">已接入客户端 <span class="val"><span class="tag purple">codex ✓ config.toml</span><span class="tag purple">cursor ✓</span></span></div>
+            <div class="set-row">工具面目录 <span class="val"><span class="tag cyan">18 操作 · 3 出口</span><button class="btn mini" onclick="toast('打开操作目录：id / 确认策略 / 溯源 / 可见性')">查看</button></span></div>
+            <div class="set-row">写操作确认通道 <span class="val"><span class="tag amber">与任务卡共用（人批生效）</span></span></div>
+            <div class="set-row">审计 <span class="val"><span class="tag mono">.git/gitter/audit.jsonl · 128 行</span></span></div>
+          </div>
+          <div class="set-card">
+            <h4>⑂ 扩展包</h4>
+            <div class="set-row">com.openai.codex <span class="val"><span class="tag purple">harness · v0.1.0</span><span class="tag green">已探测 codex-cli 0.ₓ</span></span></div>
+            <div class="set-row">GitUI.syntax.builtin <span class="val"><span class="tag">syntax · 启用</span></span></div>
+            <div class="set-row">GitUI.theme.dark <span class="val"><span class="tag">theme · 启用</span></span></div>
+            <div class="set-row">按 kind 启停 <span class="val"><span class="tag dim">DisabledKinds："包id:harness"</span></span></div>
+          </div>
+          <div class="set-card">
+            <h4>🛡 边界（不可协商）</h4>
+            <div class="set-row">无人工确认不落盘 <span class="val"><span class="tag green">原则 · 不可关闭</span></span></div>
+            <div class="set-row">EachTime 操作记忆后门 <span class="val"><span class="tag green">不存在</span></span></div>
+            <div class="set-row">裁决/审计写入 git 数据 <span class="val"><span class="tag green">从不 · 仅 trailer 白名单</span></span></div>
+            <div class="set-row">本地优先 <span class="val"><span class="tag">密钥不经手 · agent 用自有 auth</span></span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════ 项目页 ══════ -->
+      <section class="page" id="page-projects">
+        <div class="page-head"><h2>项目</h2></div>
+        <div class="proj-card">
+          <div class="p-path">D:\Code\Gitter</div>
+          <div class="hint">
+            ⑂ master · 3 个任务 worktree · 默认 harness：OpenAI Codex<br>
+            双击任务卡 = 多窗口打开对应 worktree（每仓库一窗口）<br>
+            上次会话：Codex · task/log-filter-fix · <a href="#" onclick="showPage('tasks');return false" style="color:var(--blue)">续跑</a> 或 <a href="#" onclick="toast('已标记放弃，worktree 保留','amber');return false" style="color:var(--red)">放弃</a>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ══════ 状态栏 ══════ -->
+  <footer class="statusbar">
+    <span>⑂ master</span><span class="sep">|</span>
+    <span class="ok">● watcher 500ms</span><span class="sep">|</span>
+    <span>GitWorker 队列 0</span><span class="sep">|</span>
+    <span style="position:relative">audit.jsonl 128 行<span class="callout" data-tip="审计账本：谁、何时、经哪条通道、动了什么、人批没批——append-only，不进 git 数据。溯源 trailer 进 git，过程信息进审计，两者分离。" style="right:-22px;top:-6px">⑩</span></span><span class="sep">|</span>
+    <span class="ok">MCP server 运行中</span><span class="sep">|</span>
+    <span>工具面 18 操作 · 隐藏 2</span>
+  </footer>
+</div>
+
+<!-- 标注图例 -->
+<div class="note-legend">
+  <div class="hd">◈ 融合标注（悬停圆点看详情）</div>
+  ① 任务卡三元组 = worktree + harness 会话 + 会话基线<br>
+  ② 宿主托管 checkpoint —— trailer 由 Gitter 代打（Hidden 出口）<br>
+  ③ 内联授权卡 —— EachTime 每次确认，永不记忆<br>
+  ④ review.state —— hunk 三态：人写，agent 只读（带时效指纹）<br>
+  ⑤ 退回重做 —— NextTurn 直投（codex exec resume）<br>
+  ⑥ 安全网 = 写管线拦截器 —— 人写也不豁免<br>
+  ⑦ 会话卡 —— trailer 最可信归组来源<br>
+  ⑧ MCP server —— agent 用 Gitter 的工具（拉通道）<br>
+  ⑨ 终端逃生舱 —— cli-pty 形态下终端即本体<br>
+  ⑩ audit.jsonl —— 过程信息零 git 污染
+</div>
+
+<!-- 命令面板 -->
+<div class="palette" id="palette" onclick="if(event.target===this)closePalette()">
+  <div class="pal-box">
+    <input id="palInput" placeholder="输入命令，@ 按分类索引（@任务 @仓库 @视图）…" oninput="palFilter()">
+    <div class="pal-list" id="palList">
+      <div class="pal-cat">@任务</div>
+      <div class="pal-item" onclick="palDo('新建任务')">⚡ 新建任务（选 harness → worktree → 派活）<span class="kbd">tasks</span></div>
+      <div class="pal-item" onclick="palDo('查看会话 diff')">± 查看会话 diff（自会话起点）<span class="kbd">changes</span></div>
+      <div class="pal-item" onclick="palDo('退回重做')">↩ 退回重做：直投运行中会话（NextTurn）<span class="kbd">t-1042</span></div>
+      <div class="pal-item" onclick="palDo('整理为一次提交')">⧉ 整理为一次提交（soft reset + 重新提交）<span class="kbd">t-1042</span></div>
+      <div class="pal-cat">@仓库</div>
+      <div class="pal-item" onclick="palDo('打开 MCP 设置')">◈ MCP server 设置 / 一键接入客户端<span class="kbd">settings</span></div>
+      <div class="pal-item" onclick="palDo('后台 fetch')">⇣ 后台 fetch origin<span class="kbd">bg</span></div>
+      <div class="pal-cat">@视图</div>
+      <div class="pal-item" onclick="palDo('切换任务页')">⚡ 切换到任务页<span class="kbd">tasks</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- 退回重做弹层 -->
+<div class="modal" id="fbModal" onclick="if(event.target===this)closeFeedback()">
+  <div class="mo-box">
+    <h4>退回重做 · 直投 Codex（NextTurn）</h4>
+    <div class="sub">scripts/publish.ps1 @@ -42,4 +45,9 @@ · 反馈将写入 review.state（rejected）并经 <span class="mono">codex exec resume</span> 起修复轮</div>
+    <textarea id="fbText">该 hunk 引入了硬编码 AWS Key 占位（AKIA…），请改为从环境变量读取并加 .gitignore 示例；只修改 scripts/publish.ps1 第 42-48 行，不要动其他文件。</textarea>
+    <div class="mo-acts">
+      <button class="btn primary" onclick="submitFeedback()">直投运行中会话</button>
+      <button class="btn" onclick="toast('反馈已复制到剪贴板（v1 形态）')">复制到剪贴板</button>
+      <span class="sp"></span>
+      <button class="btn" onclick="closeFeedback()">取消</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ── 页面切换 ── */
+function showPage(key){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+key).classList.add('active');
+  document.querySelectorAll('.rail button').forEach(b=>b.classList.toggle('active',b.dataset.page===key));
+  document.querySelector('main').scrollTop=0;
+}
+document.querySelectorAll('.rail button').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
+function goQueue(){showPage('tasks');toast('确认队列：2 项待处理（任务卡内联授权卡）','amber')}
+
+/* ── 任务选择 ── */
+function selTask(el){
+  document.querySelectorAll('.tcard').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+/* ── 授权卡 ── */
+function resolvePerm(btn,decision){
+  const box=btn.closest('.perm-card,.perm-preview');
+  box.style.opacity=.45; box.querySelectorAll('button').forEach(b=>b.disabled=true);
+  const tl=document.getElementById('tl');
+  const ev=document.createElement('div');
+  ev.className='tlevent ev-human';
+  ev.innerHTML='<span class="who">人</span><span class="tx"><b>'+decision+'</b> 授权请求 <span class="mono">git push origin task/log-filter-fix</span> · 已写入 audit.jsonl</span><span class="tm"> now</span>';
+  tl.appendChild(ev);
+  toast(decision+' · 写管线放行/拦截已记录（audit.jsonl）',decision==='批准'?'green':'amber');
+}
+
+/* ── hunk 三态 ── */
+function setHunk(st,label){
+  const h=document.getElementById('hunkPending');
+  h.dataset.st=st;
+  const flags=document.querySelectorAll('.hk-flag');
+  // 更新计数
+  updateRv();
+  toast('review.state 已更新：'+label+'（agent 只读 · 带时效指纹）',st==='accepted'?'green':'amber');
+}
+function updateRv(){
+  let a=3,r=1,p=12;
+  document.querySelectorAll('.hunk').forEach(h=>{
+    if(h.dataset.st==='accepted')a++;
+    if(h.dataset.st==='rejected')r++;
+  });
+  const cnt=document.querySelector('.rv-bar .cnt');
+  cnt.innerHTML='<span class="p">待审 '+(p-1)+'</span><span class="a">已接受 '+a+'</span><span class="r">已拒绝 '+r+'</span>';
+}
+
+/* ── 退回重做 ── */
+function openFeedback(){document.getElementById('fbModal').classList.add('open')}
+function closeFeedback(){document.getElementById('fbModal').classList.remove('open')}
+function submitFeedback(){
+  closeFeedback();
+  setHunk('rejected','已拒绝（反馈已直投）');
+  toast('已直投 Codex（NextTurn · exec resume 0d41f7…）→ 修复轮已启动','green');
+}
+
+/* ── 标注 ── */
+function toggleNotes(){
+  document.body.classList.toggle('notes');
+  document.getElementById('noteBtn').classList.toggle('on');
+}
+
+/* ── 命令面板 ── */
+function openPalette(){document.getElementById('palette').classList.add('open');document.getElementById('palInput').value='';palFilter();document.getElementById('palInput').focus()}
+function closePalette(){document.getElementById('palette').classList.remove('open')}
+function palFilter(){
+  const q=document.getElementById('palInput').value.toLowerCase();
+  document.querySelectorAll('.pal-item').forEach(i=>i.style.display=i.textContent.toLowerCase().includes(q)?'':'none');
+}
+function palDo(name){
+  closePalette();
+  if(name==='查看会话 diff'||name==='切换任务页'||name==='新建任务')showPage(name==='查看会话 diff'?'changes':'tasks');
+  else if(name==='打开 MCP 设置')showPage('settings');
+  toast('执行：'+name);
+}
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette()}
+  if(e.key==='Escape'){closePalette();closeFeedback()}
+});
+
+/* ── toast ── */
+function toast(msg,kind){
+  const t=document.createElement('div');
+  t.className='toast'+(kind?' '+kind:'');
+  t.textContent=msg;
+  document.getElementById('toast').appendChild(t);
+  setTimeout(()=>t.remove(),3200);
+}
+</script>
+</body>
+</html>

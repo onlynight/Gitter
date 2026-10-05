@@ -73,6 +73,12 @@ public interface IRepositoryService
     /// <summary>把 patch 应用到 index（<c>git apply --cached</c>，reverse = 反向应用）。失败抛 <see cref="GitOperationException"/>。</summary>
     void ApplyIndexPatch(string workDir, string patch, bool reverse);
 
+    /// <summary>
+    /// 把 patch 应用到工作区（<c>git apply</c>，reverse = 反向应用）。
+    /// 验收台"拒绝此块"：丢弃该 hunk 的工作区改动（ai-native-redesign.md §3.4）。失败抛 <see cref="GitOperationException"/>。
+    /// </summary>
+    void ApplyWorktreePatch(string workDir, string patch, bool reverse);
+
     /// <summary>推送到远程。失败抛 <see cref="PushException"/>（含分类）。</summary>
     void Push(string workDir, string? remote, string? branch);
 
@@ -111,8 +117,54 @@ public interface IRepositoryService
     /// <summary>拉取并整合（rebase = git pull --rebase）。失败抛异常。</summary>
     void Pull(string workDir, bool rebase);
 
+    /// <summary>已配置的远程名列表（git remote，按字母序）。无远程返回空列表。</summary>
+    IReadOnlyList<string> GetRemotes(string workDir);
+
+    /// <summary>
+    /// 后台 fetch 指定远程（ai-native-redesign.md §7.1）。remote 为 null 时取 origin，
+    /// 无 origin 则取第一个远程；两者皆无时静默返回（空仓库/无远程不是错误）。
+    /// 认证失败/网络失败抛 <see cref="GitOperationException"/>，由调用方（后台监视器）吞掉。
+    /// </summary>
+    void Fetch(string workDir, string? remote);
+
     /// <summary>两个提交的最近公共祖先。不存在（无关历史）返回 null。</summary>
     string? MergeBase(string workDir, string aSha, string bSha);
+
+    // ---- P3 并行工作台（ai-native-redesign.md §六）----
+
+    /// <summary>全部 worktree（含主 worktree，首项）。解析 git worktree list --porcelain。</summary>
+    IReadOnlyList<WorktreeInfo> GetWorktrees(string workDir);
+
+    /// <summary>
+    /// 新建任务 worktree：在 <paramref name="path"/> 检出新分支 <paramref name="branchName"/>，
+    /// 起点 <paramref name="startPoint"/>（null = 默认分支的远程跟踪，再退 HEAD）。
+    /// 分支已存在或路径已占用抛 <see cref="GitOperationException"/>。
+    /// </summary>
+    void CreateWorktree(string workDir, string path, string branchName, string? startPoint);
+
+    /// <summary>移除 worktree（脏工作区失败抛异常；不强制）。路径不存在时静默。</summary>
+    void RemoveWorktree(string workDir, string path);
+
+    /// <summary>清理失效 worktree 记录（git worktree prune）。</summary>
+    void PruneWorktrees(string workDir);
+
+    /// <summary>默认分支名：origin/HEAD → main → master → HEAD。</summary>
+    string? DefaultBranchName(string workDir);
+
+    /// <summary>拣选一个提交到当前分支。冲突/失败抛异常。</summary>
+    void CherryPick(string workDir, string sha);
+
+    /// <summary>把当前分支重置到 <paramref name="sha"/>（session squash 用 Soft；Hard 需调用方确认）。</summary>
+    void ResetTo(string workDir, string sha, ResetMode mode);
+
+    /// <summary>创建轻量 tag（sha 为 null = HEAD）。已存在同名 tag 抛异常。</summary>
+    void CreateTag(string workDir, string name, string? sha);
+
+    /// <summary>暂存工作区与 index（git stash push，含未跟踪）。无变更时静默返回 false。</summary>
+    bool Stash(string workDir, string? message);
+
+    /// <summary>弹出最近一次 stash。无 stash 或冲突抛异常。</summary>
+    void StashPop(string workDir);
 
     /// <summary>
     /// 从 <paramref name="tipSha"/> 可达但 <paramref name="baseSha"/> 不可达的提交

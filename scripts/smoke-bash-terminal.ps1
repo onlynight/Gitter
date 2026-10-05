@@ -12,6 +12,11 @@ $hadUserSettings = Test-Path $settingsPath
 if ($hadUserSettings) { Copy-Item $settingsPath $settingsBackup -Force }
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
 
+# i18n 冒烟钉扎：断言锚点为中文文案（docs/i18n.md §五-4）
+@'
+{"language":"zh-Hans"}
+'@ | Set-Content -Path $settingsPath -Encoding UTF8
+
 Get-Process GitUI.App -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # ConPTY 预检（与 Shell.Tests 同策略）：bash -c echo 8 秒探测

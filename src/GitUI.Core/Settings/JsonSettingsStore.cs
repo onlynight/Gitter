@@ -146,7 +146,8 @@ public sealed class JsonSettingsStore : ISettingsStore
             s.BashPath = null;
         }
 
-        s.NormalizeTerminalShell();
+        s.Normalize(); // 终端 shell + 实时监视/fetch 间隔 + AI provider/隐私档（ai-native-redesign.md §八）
+        s.Language = LanguageService.Normalize(s.Language);
 
         // RecentRepos 去重并限制数量
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -161,16 +162,19 @@ public sealed class JsonSettingsStore : ISettingsStore
         }
         s.RecentRepos = list;
 
-        // 命令面板最近命令：去空、按标题去重、超 8 删尾（命令面板 v2）
+        // 命令面板最近命令：存稳定 id（docs/i18n.md §五-1，标题文案已多语言化），
+        // 去空、按 id 去重、超 8 删尾；历史版本的标题文本条目不匹配白名单，加载时清洗掉
         if (s.RecentCommands is null)
         {
             s.RecentCommands = new List<string>();
         }
+        var knownCommands = new HashSet<string>(CommandIds.All, StringComparer.Ordinal);
         var seenCmds = new HashSet<string>(StringComparer.Ordinal);
         var recentCmds = new List<string>(8);
         foreach (var cmd in s.RecentCommands)
         {
             if (string.IsNullOrWhiteSpace(cmd)) continue;
+            if (!knownCommands.Contains(cmd)) continue;
             if (seenCmds.Add(cmd) && recentCmds.Count < 8)
             {
                 recentCmds.Add(cmd);

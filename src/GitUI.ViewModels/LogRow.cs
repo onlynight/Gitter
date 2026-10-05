@@ -21,3 +21,13 @@ public sealed record LogCommitRow(
     bool IsSelected,
     string MetaText,
     IReadOnlyList<LogBadge> Badges) : LogRow;
+
+/// <summary>
+/// agent 会话卡行（ai-native-redesign.md §5.1）：折叠时独占一行，展开后其后跟全部
+/// 成员提交行。点击卡片 → LogViewModel.ToggleSession。
+/// </summary>
+public sealed record LogSessionRow(
+    AgentSession Session,
+    bool IsCollapsed,
+    string Title,
+    string MetaText) : LogRow;

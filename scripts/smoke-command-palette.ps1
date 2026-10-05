@@ -11,6 +11,11 @@ $hadUserSettings = Test-Path $settingsPath
 if ($hadUserSettings) { Copy-Item $settingsPath $settingsBackup -Force }
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
 
+# i18n 冒烟钉扎：断言锚点为中文文案（docs/i18n.md §五-4）
+@'
+{"language":"zh-Hans"}
+'@ | Set-Content -Path $settingsPath -Encoding UTF8
+
 $p = Start-Process -FilePath $Exe -PassThru
 Start-Sleep -Seconds 8
 

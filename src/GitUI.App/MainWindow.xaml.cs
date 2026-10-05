@@ -1,6 +1,7 @@
 using GitUI.App.Pages;
 using GitUI.Controls.Theme;
 using GitUI.Core.Services;
+using GitUI.Core.Resources;
 using GitUI.Core.Settings;
 using GitUI.Git;
 using Microsoft.UI.Xaml;
@@ -52,6 +53,12 @@ public sealed partial class MainWindow : Window
     // S7：标题栏应用名（随当前仓库更新）、命令面板
     private readonly TextBlock _appTitle;
     private TextBlock? _statusRepo;
+    private readonly Action<string> _languageApplied;
+    private TextBlock? _statusHint;
+    private TextBlock? _paletteBtnLabel;
+    private Button? _paletteBtn;
+    private TextBlock? _paletteFooterLeft;
+    private TextBlock? _paletteFooterRight;
     private Popup? _commandPalette;
     private Border? _paletteBorder;
     private TextBox? _paletteInput;
@@ -68,10 +75,23 @@ public sealed partial class MainWindow : Window
     // 分支页签缓存（S6）：与 Log 页共享 RepositoryContext（当前仓库）
     private BranchesPage? _branchesPage;
 
+    // 任务页缓存（P3 并行工作台）：worktree 任务卡
+    private Pages.TasksPage? _tasksPage;
+
     private readonly RepositoryContext _repoContext = new();
 
     // App 级唯一服务实例（known-issues 2.3：此前三页各自 new，无共享）
     private readonly LibGit2RepositoryService _repoService = new();
+
+    // 实时基座（ai-native-redesign.md §7.1）：后台任务统一走 GitWorker 单队列；
+    // RepoMonitor（FSW + 焦点轮询 + 后台 fetch）事件驱动页签自动刷新。
+    private readonly GitWorker _gitWorker;
+    private RepoMonitor? _repoMonitor;
+    private RepoMonitorOptions? _monitorOptions;
+
+    // MCP 命名管道宿主（ai-native-redesign.md §7.2）：随仓库/开关启停，写操作弹卡确认
+    private McpPipeHost? _mcpHost;
+    private string? _mcpWorkDir;
 
     private string _currentKey = "log";
 
@@ -91,6 +111,8 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         _settings = settings;
+        _gitWorker = new GitWorker(_repoService);
+        _languageApplied = _ => DispatcherQueue.TryEnqueue(OnLanguageApplied);
 
         // P0（theme-framework.md §四）：先于 UI 构建装载主题包——语义令牌 + 框架键覆盖 +
         // 基座解析，UI 首帧即用正确主题；运行时切换由 ApplyTheme 更新 RootGrid.RequestedTheme。
@@ -141,12 +163,13 @@ public sealed partial class MainWindow : Window
         // FontItem 仅保留与设计稿形状一致的 Segoe 字形（项目=文件夹、终端=控制台、设置=齿轮）
         var items = new (string? Glyph, string? SvgPath, string Label, string Key)[]
         {
-            ("\uE8B7", null, "项目", "projects"),
+            ("\uE8B7", null, NavLabel("projects"), "projects"),
             (null, "M2 3h12v1.5H2V3zm0 4.25h8.5v1.5H2v-1.5zM2 11.5h12V13H2v-1.5z", "Log", "log"),
-            (null, "M2 4.25 5 8l-3 3.75V4.25zM6 3h1.5v10H6V3zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3z", "变更", "changes"),
-            (null, "M13.1 3.9a2.3 2.3 0 0 0-3.25 3.25l-.1.1a2.3 2.3 0 0 1-3.25 0L5.4 6.2a2.3 2.3 0 1 0-1.06 1.06l1.1 1.05a3.8 3.8 0 0 0 2.31 1.09v1.2a2.3 2.3 0 1 0 1.5 0V9.4a3.8 3.8 0 0 0 2.31-1.09l.1-.1a2.3 2.3 0 1 0 1.44-4.31z", "分支", "branches"),
-            ("\uE756", null, "终端", "bash"),
-            ("\uE713", null, "设置", "settings"),
+            (null, "M2 4.25 5 8l-3 3.75V4.25zM6 3h1.5v10H6V3zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3z", NavLabel("changes"), "changes"),
+            (null, "M13.1 3.9a2.3 2.3 0 0 0-3.25 3.25l-.1.1a2.3 2.3 0 0 1-3.25 0L5.4 6.2a2.3 2.3 0 1 0-1.06 1.06l1.1 1.05a3.8 3.8 0 0 0 2.31 1.09v1.2a2.3 2.3 0 1 0 1.5 0V9.4a3.8 3.8 0 0 0 2.31-1.09l.1-.1a2.3 2.3 0 1 0 1.44-4.31z", NavLabel("branches"), "branches"),
+            ("\uE7C1", null, NavLabel("tasks"), "tasks"),
+            ("\uE756", null, NavLabel("bash"), "bash"),
+            ("\uE713", null, NavLabel("settings"), "settings"),
         };
 
         var buttons = new List<Button>();
@@ -207,7 +230,7 @@ public sealed partial class MainWindow : Window
             Margin = new Thickness(8, 0, 0, 0),
         };
         _collapseBtn.Click += CollapseToggle_Click;
-        AutomationProperties.SetName(_collapseBtn, "切换侧边栏");
+        AutomationProperties.SetName(_collapseBtn, Strings.Common_ToggleSidebar);
 
         _appTitle = new TextBlock
         {
@@ -260,7 +283,7 @@ public sealed partial class MainWindow : Window
         _rootGrid.Children.Add(_collapseBtn);
 
         // S7 命令面板入口（标题栏右侧，系统按钮左侧）：文字 chip + 快捷键提示
-        var paletteBtn = new Button
+        var paletteBtn = _paletteBtn = new Button
         {
             Background = ClearBrush,
             BorderThickness = new Thickness(0),
@@ -271,7 +294,7 @@ public sealed partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 160, 0),
         };
-        var paletteBtnLabel = new TextBlock { Text = "命令面板", FontSize = 11.5, Foreground = Ui.Text2 };
+        var paletteBtnLabel = _paletteBtnLabel = new TextBlock { Text = Strings.Palette_Title, FontSize = 11.5, Foreground = Ui.Text2 };
         var paletteKbd = new Border
         {
             Background = Ui.Base,
@@ -288,7 +311,7 @@ public sealed partial class MainWindow : Window
         paletteBtn.PointerEntered += (_, _) => { paletteBtn.Background = Ui.Hover; paletteBtnLabel.Foreground = Ui.Text; };
         paletteBtn.PointerExited += (_, _) => { paletteBtn.Background = ClearBrush; paletteBtnLabel.Foreground = Ui.Text2; };
         paletteBtn.Click += (_, _) => OpenCommandPalette();
-        AutomationProperties.SetName(paletteBtn, "命令面板");
+        AutomationProperties.SetName(paletteBtn, Strings.Palette_Title);
         Grid.SetRow(paletteBtn, 0);
         Grid.SetColumn(paletteBtn, 0);
         Grid.SetColumnSpan(paletteBtn, 2);
@@ -317,11 +340,11 @@ public sealed partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(10, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Text = "未选择项目",
+            Text = Strings.Common_NoProjectSelected,
         };
-        var statusHint = new TextBlock
+        var statusHint = _statusHint = new TextBlock
         {
-            Text = "Ctrl+1..6 切换页签 · F5 刷新",
+            Text = Strings.Main_StatusHint,
             FontSize = 10.5,
             Foreground = Ui.Text3,
             VerticalAlignment = VerticalAlignment.Center,
@@ -372,14 +395,14 @@ public sealed partial class MainWindow : Window
         var createBranchAccel = new KeyboardAccelerator { Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, Key = VirtualKey.N };
         createBranchAccel.Invoked += (_, args) =>
         {
-            var cmd = BuildCommands().FirstOrDefault(c => c.Title == "创建分支…");
+            var cmd = BuildCommands().FirstOrDefault(c => c.Id == CommandIds.CreateBranch);
             if (cmd is { Enabled: true }) ExecuteCommand(cmd);
             args.Handled = true;
         };
         _rootGrid.KeyboardAccelerators.Add(createBranchAccel);
 
         // Ctrl+1..6 直达页签（sidebar 顺序：项目 / Log / 变更 / 分支 / Git Bash / 设置）
-        var pageKeys = new[] { ("projects", VirtualKey.Number1), ("log", VirtualKey.Number2), ("changes", VirtualKey.Number3), ("branches", VirtualKey.Number4), ("bash", VirtualKey.Number5), ("settings", VirtualKey.Number6) };
+        var pageKeys = new[] { ("projects", VirtualKey.Number1), ("log", VirtualKey.Number2), ("changes", VirtualKey.Number3), ("branches", VirtualKey.Number4), ("tasks", VirtualKey.Number5), ("bash", VirtualKey.Number6), ("settings", VirtualKey.Number7) };
         foreach (var (key, vk) in pageKeys)
         {
             var accel = new KeyboardAccelerator { Modifiers = VirtualKeyModifiers.Control, Key = vk };
@@ -408,6 +431,27 @@ public sealed partial class MainWindow : Window
         // S7：窗口标题随当前仓库更新（多窗口时任务栏可区分，design.md §6.7）
         _repoContext.Changed += () => DispatcherQueue.TryEnqueue(UpdateWindowTitle);
 
+        // 实时基座（ai-native-redesign.md §7.1）：仓库打开/关闭 ↔ 监视启停；
+        // 监视/fetch 设置变更 → 重建监视器（低频操作）
+        _repoContext.Changed += () => DispatcherQueue.TryEnqueue(() =>
+        {
+            EnsureRepoMonitor();
+            if (_repoMonitor is null) return;
+            var workDir = _repoContext.WorkDir;
+            if (workDir is not null) _repoMonitor.Start(workDir);
+            else _repoMonitor.Stop();
+            SyncMcpHost();
+        });
+        _settings.Changed += (_, _) => DispatcherQueue.TryEnqueue(EnsureRepoMonitor);
+        EnsureRepoMonitor();
+
+        this.Closed += (_, _) =>
+        {
+            _repoMonitor?.Dispose();
+            _mcpHost?.Dispose();
+            _gitWorker.Dispose();
+        };
+
         // i18n 热切换（docs/i18n.md §四）：广播在发起窗口的 UI 线程触发，
         // 本窗口（可能是另一窗口）经 DispatcherQueue 回投后重绘
         LanguageService.Applied += _languageApplied;
@@ -425,16 +469,99 @@ public sealed partial class MainWindow : Window
         ShowPage("log");
     }
 
+    // ---- i18n 热切换（docs/i18n.md §四）----
+
+    /// <summary>窗口关闭时解除语言订阅（App.Closing 调用，防静态事件钉住已关窗口）。</summary>
+    public void DetachLanguageHandler() => LanguageService.Applied -= _languageApplied;
+
+    private void OnLanguageApplied()
+    {
+        RecentCategory = Strings.Palette_Recent;
+        CategoryOrder = new[] { Strings.Cat_Nav, Strings.Cat_Repo, Strings.Cat_Commit, Strings.Cat_Branch, Strings.Cat_Sync, Strings.Cat_View, Strings.Cat_Settings };
+
+        // 面板行携带旧语言标题，直接关闭（重开时按新语言重建）
+        if (_commandPalette is { IsOpen: true })
+        {
+            _commandPalette.IsOpen = false;
+        }
+
+        // 分步隔离：单步失败只丢失该步，不拖垮其余刷新——广播回调里的异常若被全局
+        // 处理器静默吞掉，表现就是"部分区域切了、部分切了没反应"。
+        RunLanguageStep("chrome", RefreshChromeTexts);
+        RunLanguageStep("log", () => _logPage?.OnLanguageChanged());
+        RunLanguageStep("changes", () => _changesPage?.OnLanguageChanged());
+        RunLanguageStep("branches", () => _branchesPage?.OnLanguageChanged());
+        RunLanguageStep("projects", () => _projectsPage?.OnLanguageChanged());
+        RunLanguageStep("terminal", () => _terminalPage?.OnLanguageChanged());
+        RunLanguageStep("title", UpdateWindowTitle);
+    }
+
+    private void RunLanguageStep(string step, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            App.LogRecoverable("language-refresh/" + step, "语言热切换单步刷新失败", ex);
+        }
+    }
+
+    private static string NavLabel(string key) => key switch
+    {
+        "projects" => Strings.Nav_Projects,
+        "log" => Strings.Nav_Log,
+        "changes" => Strings.Nav_Changes,
+        "branches" => Strings.Nav_Branches,
+        "tasks" => Strings.Nav_Tasks,
+        "bash" => Strings.Nav_Terminal,
+        _ => Strings.Nav_Settings,
+    };
+
+    private void RefreshChromeTexts()
+    {
+        foreach (var btn in _navButtons)
+        {
+            var label = NavLabel(btn.Tag as string ?? string.Empty);
+            AutomationProperties.SetName(btn, label);
+            // label 按 Tag 定位（BuildNavItem 重构会调整子元素顺序，索引定位曾静默失效）
+            if (btn.Content is Grid row)
+            {
+                foreach (var child in row.Children)
+                {
+                    if (child is TextBlock text && Equals(text.Tag, "label"))
+                    {
+                        text.Text = label;
+                    }
+                }
+            }
+        }
+
+        AutomationProperties.SetName(_collapseBtn, Strings.Common_ToggleSidebar);
+        if (_statusHint is not null) _statusHint.Text = Strings.Main_StatusHint;
+        if (_paletteBtnLabel is not null) _paletteBtnLabel.Text = Strings.Palette_Title;
+        if (_paletteBtn is not null) AutomationProperties.SetName(_paletteBtn, Strings.Palette_Title);
+        if (_paletteInput is not null)
+        {
+            _paletteInput.PlaceholderText = Strings.Palette_InputPlaceholder;
+            AutomationProperties.SetName(_paletteInput, Strings.Palette_InputPlaceholder);
+        }
+        if (_paletteFooterLeft is not null) _paletteFooterLeft.Text = Strings.Palette_FooterKeys;
+        if (_paletteFooterRight is not null) _paletteFooterRight.Text = Strings.Palette_FooterAt;
+    }
+
     private void UpdateWindowTitle()
     {
         var workDir = _repoContext.WorkDir;
-        var name = workDir is null ? "GitUI" : System.IO.Path.GetFileName(workDir.TrimEnd('/', '\\')) + " - GitUI";
+        var name = workDir is null ? "GitUI"
+            : string.Format(Strings.Main_WindowTitle, System.IO.Path.GetFileName(workDir.TrimEnd('/', '\\')));
         Title = name;
         _appTitle.Text = name;
         if (_statusRepo is not null)
         {
             _statusRepo.Text = workDir is null
-                ? "未选择项目"
+                ? Strings.Common_NoProjectSelected
                 : $"{System.IO.Path.GetFileName(workDir.TrimEnd('/', '\\'))} · {workDir}";
         }
     }
@@ -442,7 +569,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Ctrl+Tab：按 sidebar 顺序循环切换页签。</summary>
     private void CyclePage(int direction)
     {
-        var order = new[] { "projects", "log", "changes", "branches", "bash", "settings" };
+        var order = new[] { "projects", "log", "changes", "branches", "tasks", "bash", "settings" };
         var idx = Array.IndexOf(order, _currentKey);
         if (idx < 0) idx = 0;
         ShowPage(order[(idx + direction + order.Length) % order.Length]);
@@ -456,7 +583,125 @@ public sealed partial class MainWindow : Window
             case "log": _ = (_logPage is null ? Task.CompletedTask : _logPage.RefreshAsync()); break;
             case "changes": _ = (_changesPage is null ? Task.CompletedTask : _changesPage.RefreshAsync()); break;
             case "branches": _ = (_branchesPage is null ? Task.CompletedTask : _branchesPage.RefreshAsync()); break;
+            case "tasks": _ = (_tasksPage is null ? Task.CompletedTask : _tasksPage.RefreshAsync()); break;
         }
+    }
+
+    /// <summary>供 App.OpenNewWindow(initialRepo) 在新窗口直接打开指定仓库（任务卡"新窗口"入口）。</summary>
+    internal void OpenRepoPath(string path) => _repoContext.Set(path);
+
+    /// <summary>为任务 worktree 开专用终端 tab（cwd 固定到该 worktree，ai-native-redesign.md §6.3）。</summary>
+    private void OpenTerminalTab(string title, string cwd)
+    {
+        ShowPage("bash");
+        _terminalPage ??= new TerminalPage(_settings, _repoService, _repoContext, CloseCommandPalette);
+        _terminalPage.OpenWorktreeSession(title, cwd);
+    }
+
+    // ---- 实时基座（ai-native-redesign.md §7.1）----
+
+    /// <summary>按当前设置（监视开关 / fetch 开关与间隔）保证监视器存在且配置最新；无变化不重建。</summary>
+    private void EnsureRepoMonitor()
+    {
+        var s = _settings.Current;
+        var options = new RepoMonitorOptions(
+            WatchFiles: s.WatchWorktree,
+            FocusPoll: s.WatchWorktree,
+            AutoFetch: s.AutoFetch,
+            FetchInterval: TimeSpan.FromMinutes(Math.Clamp(s.AutoFetchIntervalMinutes, 1, 120)));
+        if (_repoMonitor is not null && _monitorOptions == options) return;
+
+        _repoMonitor?.Dispose();
+        var monitor = new RepoMonitor(_repoService, _gitWorker, options);
+        monitor.Changed += OnRepoMonitorChanged;
+        monitor.FetchCompleted += OnRepoFetchCompleted;
+        _repoMonitor = monitor;
+        _monitorOptions = options;
+
+        var workDir = _repoContext.WorkDir;
+        if (workDir is not null) monitor.Start(workDir);
+        SyncMcpHost();
+    }
+
+    /// <summary>
+    /// MCP 管道宿主随仓库/设置同步：开关关闭或无仓库即停止；仓库切换重建（工具绑定当前仓库）。
+    /// </summary>
+    private void SyncMcpHost()
+    {
+        var workDir = _repoContext.WorkDir;
+        var enabled = _settings.Current.McpPipeEnabled && workDir is not null;
+        if (!enabled || (workDir is not null && workDir == _mcpWorkDir && _mcpHost is not null))
+            return;
+
+        _mcpHost?.Dispose();
+        _mcpHost = null;
+        _mcpWorkDir = null;
+        if (!enabled || workDir is null) return;
+
+        var host = new McpPipeHost(_repoService, ApproveAgentWriteAsync);
+        host.Start(workDir);
+        _mcpHost = host;
+        _mcpWorkDir = workDir;
+    }
+
+    /// <summary>
+    /// agent 写操作确认卡（原则 1.2-2：无人工确认不落盘）：UI 线程弹 ContentDialog，
+    /// 30 秒无响应自动隐藏（结果为 Canceled → 拒绝）。
+    /// </summary>
+    private Task<bool> ApproveAgentWriteAsync(string description)
+    {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = DispatcherQueue.TryEnqueue(async () =>
+        {
+            Microsoft.UI.Dispatching.DispatcherQueueTimer? timeout = null;
+            try
+            {
+                var xamlRoot = _rootGrid.XamlRoot;
+                if (xamlRoot is null) { tcs.TrySetResult(false); return; }
+
+                var dialog = new ContentDialog
+                {
+                    Title = Strings.Settings_McpApproveTitle,
+                    Content = new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap },
+                    PrimaryButtonText = Strings.Settings_McpApprove,
+                    CloseButtonText = Strings.Common_Cancel,
+                    XamlRoot = xamlRoot,
+                };
+                timeout = DispatcherQueue.CreateTimer();
+                timeout.Interval = TimeSpan.FromSeconds(30);
+                timeout.Tick += (_, _) => dialog.Hide();
+                timeout.Start();
+
+                var result = await dialog.ShowAsync();
+                tcs.TrySetResult(result == ContentDialogResult.Primary);
+            }
+            catch
+            {
+                tcs.TrySetResult(false);
+            }
+            finally
+            {
+                timeout?.Stop();
+            }
+        });
+        return tcs.Task;
+    }
+
+    /// <summary>仓库变化（FSW 去抖 / 轮询探测）：刷新当前页 + 变更页（agent/外部工具改文件即时可见）。</summary>
+    private void OnRepoMonitorChanged(RepoChangeKind kind)
+    {
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            RefreshCurrentPage();
+            if (_currentKey != "changes" && kind.HasFlag(RepoChangeKind.Worktree))
+                _ = (_changesPage is null ? Task.CompletedTask : _changesPage.RefreshAsync());
+        });
+    }
+
+    /// <summary>后台 fetch 完成：远程引用可能变化，静默刷新当前页（ahead/behind、远程分支）。</summary>
+    private void OnRepoFetchCompleted()
+    {
+        _ = DispatcherQueue.TryEnqueue(RefreshCurrentPage);
     }
 
     /// <summary>标题栏折叠/展开按钮点击处理。</summary>
@@ -587,6 +832,9 @@ public sealed partial class MainWindow : Window
             Content = row,
             Background = ClearBrush,
             BorderThickness = new Thickness(0),
+            // Margin(4,1,4,1) 两态共用：折叠（导轨 48 → 按钮宽 40，内容槽 40-20(padding)=20
+            // 恰等于图标列宽，图标完整且居中，左右留白 17px == 上下 8+1+8=17px）；
+            // 展开（176 → 按钮宽 168）。图标列相对导轨位置恒为 4+10=14，切换不跳变。
             Padding = new Thickness(10, 5, 10, 5),
             CornerRadius = new CornerRadius(Ui.CornerRadius),
             Height = Ui.NavRowHeight,
@@ -594,7 +842,7 @@ public sealed partial class MainWindow : Window
             HorizontalContentAlignment = HorizontalAlignment.Left,
             VerticalContentAlignment = VerticalAlignment.Center,
             Tag = key,
-            Margin = new Thickness(8, 1, 8, 1),
+            Margin = new Thickness(4, 1, 4, 1),
         };
 
         btn.Click += NavItem_Click;
@@ -702,8 +950,15 @@ public sealed partial class MainWindow : Window
         UIElement page = key switch
         {
             "projects" => _projectsPage ??= new Pages.ProjectsPage(_settings, _repoService, _repoContext, ShowPage, () => Hwnd),
-            "changes" => _changesPage ??= new ChangesPage(_settings, _repoService, _repoContext, ShowPage),
+            "changes" => _changesPage ??= new ChangesPage(_settings, _repoService, _repoContext, ShowPage,
+                canSendToTerminal: () => _terminalPage is { } tp && tp.CanReceiveFeedback,
+                sendToTerminal: prompt =>
+                {
+                    ShowPage("bash");
+                    _terminalPage?.SendText(prompt);
+                }),
             "branches" => _branchesPage ??= new BranchesPage(_repoService, _repoContext, ShowPage),
+            "tasks" => _tasksPage ??= new Pages.TasksPage(_settings, _repoService, _repoContext, ShowPage, openTerminalTab: OpenTerminalTab),
             "bash" => _terminalPage,
             "settings" => new SettingsPage(_settings, ExportSettingsAsync, ImportSettingsAsync, ImportThemePackageAsync),
             _ => _logPage ??= new LogPage(_settings, _repoService, _repoContext, ShowPage),
@@ -726,7 +981,7 @@ public sealed partial class MainWindow : Window
     // ===================== S7：命令面板 v2（docs/command-palette-v2.md） =====================
 
     /// <summary>命令面板条目：分类 + 标题 + 快捷键提示 + 动作。Enabled=false 显示置灰、不可执行（Action 在 UI 线程执行）。</summary>
-    public sealed record CommandItem(string Category, string Title, string KeyHint, Action Action, bool Enabled = true);
+    public sealed record CommandItem(string Id, string Category, string Title, string KeyHint, Action Action, bool Enabled = true);
 
     /// <summary>
     /// 面板行：组头占位（Command=null）或命令项。组头不可选中、↑↓ 自动跳过。
@@ -738,24 +993,25 @@ public sealed partial class MainWindow : Window
 
         public static PaletteRow Header(string name, string count) => new(name, count, null);
         public static PaletteRow For(CommandItem cmd) => new(null, string.Empty, cmd);
-        public static PaletteRow Empty() => new("没有匹配的命令（Esc 关闭）", string.Empty, null);
+        public static PaletteRow Empty() => new(Strings.Palette_NoMatches, string.Empty, null);
     }
 
     private List<CommandItem> _commands = new();
 
     /// <summary>分类固定顺序：空查询按此排列组（最近使用组置顶）。</summary>
-    private static readonly string[] CategoryOrder = { "导航", "仓库", "提交", "分支", "同步", "视图", "设置" };
+    private string RecentCategory { get; set; } = Strings.Palette_Recent;
+    private string[] CategoryOrder { get; set; } = { Strings.Cat_Nav, Strings.Cat_Repo, Strings.Cat_Commit, Strings.Cat_Branch, Strings.Cat_Sync, Strings.Cat_View, Strings.Cat_Settings };
 
-    private static string CategoryGlyph(string category) => category switch
+    private string CategoryGlyph(string category) => category switch
     {
-        "最近使用" => "\uE823",
-        "导航" => "\uE700",
-        "仓库" => "\uE8B7",
-        "提交" => "\uE73E",
-        "分支" => "\uE713",
-        "同步" => "\uE895",
-        "视图" => "\uE790",
-        "设置" => "\uE713",
+        _ when category == RecentCategory => "\uE823",
+        _ when category == Strings.Cat_Nav => "\uE700",
+        _ when category == Strings.Cat_Repo => "\uE8B7",
+        _ when category == Strings.Cat_Commit => "\uE73E",
+        _ when category == Strings.Cat_Branch => "\uE713",
+        _ when category == Strings.Cat_Sync => "\uE895",
+        _ when category == Strings.Cat_View => "\uE790",
+        _ when category == Strings.Cat_Settings => "\uE713",
         _ => "\uE7C3",
     };
 
@@ -773,42 +1029,42 @@ public sealed partial class MainWindow : Window
         return new List<CommandItem>
         {
             // ---- 导航 ----
-            new("导航", "转到项目", "Ctrl+1", () => ShowPage("projects")),
-            new("导航", "转到 Log", "Ctrl+2", () => ShowPage("log")),
-            new("导航", "转到变更", "Ctrl+3", () => ShowPage("changes")),
-            new("导航", "转到分支", "Ctrl+4", () => ShowPage("branches")),
-            new("导航", "转到终端", "Ctrl+5", () => ShowPage("bash")),
-            new("导航", "转到设置", "Ctrl+6", () => ShowPage("settings")),
+            new(CommandIds.GotoProjects, Strings.Cat_Nav, Strings.Cmd_GotoProjects, "Ctrl+1", () => ShowPage("projects")),
+            new(CommandIds.GotoLog, Strings.Cat_Nav, Strings.Cmd_GotoLog, "Ctrl+2", () => ShowPage("log")),
+            new(CommandIds.GotoChanges, Strings.Cat_Nav, Strings.Cmd_GotoChanges, "Ctrl+3", () => ShowPage("changes")),
+            new(CommandIds.GotoBranches, Strings.Cat_Nav, Strings.Cmd_GotoBranches, "Ctrl+4", () => ShowPage("branches")),
+            new(CommandIds.GotoTerminal, Strings.Cat_Nav, Strings.Cmd_GotoTerminal, "Ctrl+5", () => ShowPage("bash")),
+            new(CommandIds.GotoSettings, Strings.Cat_Nav, Strings.Cmd_GotoSettings, "Ctrl+6", () => ShowPage("settings")),
             // ---- 仓库 ----
-            new("仓库", "刷新当前页", "F5", RefreshCurrentPage),
-            new("仓库", "新建窗口", string.Empty, OpenNewWindow),
-            new("仓库", "切换项目", string.Empty, () => ShowPage("projects")),
+            new(CommandIds.RefreshPage, Strings.Cat_Repo, Strings.Cmd_RefreshPage, "F5", RefreshCurrentPage),
+            new(CommandIds.NewWindow, Strings.Cat_Repo, Strings.Cmd_NewWindow, string.Empty, OpenNewWindow),
+            new(CommandIds.SwitchProject, Strings.Cat_Repo, Strings.Cmd_SwitchProject, string.Empty, () => ShowPage("projects")),
             // ---- 提交（未开仓库置灰）----
-            new("提交", "提交", "Ctrl+Enter", () => { ShowPage("changes"); _changesPage?.CommitFromPalette(push: false); }, repoOpen),
-            new("提交", "提交并推送", string.Empty, () => { ShowPage("changes"); _changesPage?.CommitFromPalette(push: true); }, repoOpen),
-            new("提交", "全部暂存", string.Empty, () => _changesPage?.StageAllFromPalette(), repoOpen),
-            new("提交", "全部撤销暂存", string.Empty, () => _changesPage?.UnstageAllFromPalette(), repoOpen),
+            new(CommandIds.Commit, Strings.Cat_Commit, Strings.Cmd_Commit, "Ctrl+Enter", () => { ShowPage("changes"); _changesPage?.CommitFromPalette(push: false); }, repoOpen),
+            new(CommandIds.CommitPush, Strings.Cat_Commit, Strings.Cmd_CommitPush, string.Empty, () => { ShowPage("changes"); _changesPage?.CommitFromPalette(push: true); }, repoOpen),
+            new(CommandIds.StageAll, Strings.Cat_Commit, Strings.Cmd_StageAll, string.Empty, () => _changesPage?.StageAllFromPalette(), repoOpen),
+            new(CommandIds.UnstageAll, Strings.Cat_Commit, Strings.Cmd_UnstageAll, string.Empty, () => _changesPage?.UnstageAllFromPalette(), repoOpen),
             // ---- 分支（分支页未打开或无选中置灰）----
-            new("分支", "检出选中分支", string.Empty, () => { ShowPage("branches"); _branchesPage?.CheckoutSelectedFromPalette(); }, branchSelected),
-            new("分支", "创建分支…", "Ctrl+Shift+N", () => { ShowPage("branches"); _ = _branchesPage?.CreateBranchFromPaletteAsync(); }, branchesOpen),
-            new("分支", "重命名分支", string.Empty, () => { ShowPage("branches"); _ = _branchesPage?.RenameBranchFromPaletteAsync(); }, branchSelected),
-            new("分支", "删除分支", string.Empty, () => { ShowPage("branches"); _ = _branchesPage?.DeleteBranchFromPaletteAsync(); }, branchSelected),
-            new("分支", "合并到当前分支", string.Empty, () => { ShowPage("branches"); _branchesPage?.MergeSelectedFromPalette(); }, branchSelected),
-            new("分支", "变基到该分支", string.Empty, () => { ShowPage("branches"); _branchesPage?.RebaseSelectedFromPalette(); }, branchSelected),
-            new("分支", "快进", string.Empty, () => { ShowPage("branches"); _branchesPage?.FastForwardSelectedFromPalette(); }, branchSelected),
+            new(CommandIds.CheckoutBranch, Strings.Cat_Branch, Strings.Cmd_CheckoutBranch, string.Empty, () => { ShowPage("branches"); _branchesPage?.CheckoutSelectedFromPalette(); }, branchSelected),
+            new(CommandIds.CreateBranch, Strings.Cat_Branch, Strings.Cmd_CreateBranch, "Ctrl+Shift+N", () => { ShowPage("branches"); _ = _branchesPage?.CreateBranchFromPaletteAsync(); }, branchesOpen),
+            new(CommandIds.RenameBranch, Strings.Cat_Branch, Strings.Cmd_RenameBranch, string.Empty, () => { ShowPage("branches"); _ = _branchesPage?.RenameBranchFromPaletteAsync(); }, branchSelected),
+            new(CommandIds.DeleteBranch, Strings.Cat_Branch, Strings.Cmd_DeleteBranch, string.Empty, () => { ShowPage("branches"); _ = _branchesPage?.DeleteBranchFromPaletteAsync(); }, branchSelected),
+            new(CommandIds.MergeBranch, Strings.Cat_Branch, Strings.Cmd_MergeBranch, string.Empty, () => { ShowPage("branches"); _branchesPage?.MergeSelectedFromPalette(); }, branchSelected),
+            new(CommandIds.RebaseBranch, Strings.Cat_Branch, Strings.Cmd_RebaseBranch, string.Empty, () => { ShowPage("branches"); _branchesPage?.RebaseSelectedFromPalette(); }, branchSelected),
+            new(CommandIds.FastForward, Strings.Cat_Branch, Strings.Cmd_FastForward, string.Empty, () => { ShowPage("branches"); _branchesPage?.FastForwardSelectedFromPalette(); }, branchSelected),
             // ---- 同步（未开仓库置灰；动作先跳分支页复用其按钮逻辑）----
-            new("同步", "Pull", string.Empty, () => { ShowPage("branches"); _branchesPage?.PullFromPalette(rebase: false); }, repoOpen),
-            new("同步", "Pull Rebase", string.Empty, () => { ShowPage("branches"); _branchesPage?.PullFromPalette(rebase: true); }, repoOpen),
-            new("同步", "Push", string.Empty, () => { ShowPage("branches"); _branchesPage?.PushFromPalette(); }, repoOpen),
+            new(CommandIds.Pull, Strings.Cat_Sync, Strings.Cmd_Pull, string.Empty, () => { ShowPage("branches"); _branchesPage?.PullFromPalette(rebase: false); }, repoOpen),
+            new(CommandIds.PullRebase, Strings.Cat_Sync, Strings.Cmd_PullRebase, string.Empty, () => { ShowPage("branches"); _branchesPage?.PullFromPalette(rebase: true); }, repoOpen),
+            new(CommandIds.Push, Strings.Cat_Sync, Strings.Cmd_Push, string.Empty, () => { ShowPage("branches"); _branchesPage?.PushFromPalette(); }, repoOpen),
             // ---- 视图 ----
-            new("视图", "Diff 模式：并排", string.Empty, () => ApplyDiffModeSetting(DiffViewMode.SideBySide)),
-            new("视图", "Diff 模式：内联", string.Empty, () => ApplyDiffModeSetting(DiffViewMode.Inline)),
-            new("视图", "主题：跟随系统", string.Empty, () => ApplyThemeSetting(ThemePreference.System)),
-            new("视图", "主题：浅色", string.Empty, () => ApplyThemeSetting(ThemePreference.Light)),
-            new("视图", "主题：深色", string.Empty, () => ApplyThemeSetting(ThemePreference.Dark)),
+            new(CommandIds.DiffSideBySide, Strings.Cat_View, Strings.Cmd_DiffSideBySide, string.Empty, () => ApplyDiffModeSetting(DiffViewMode.SideBySide)),
+            new(CommandIds.DiffInline, Strings.Cat_View, Strings.Cmd_DiffInline, string.Empty, () => ApplyDiffModeSetting(DiffViewMode.Inline)),
+            new(CommandIds.ThemeSystem, Strings.Cat_View, Strings.Cmd_ThemeSystem, string.Empty, () => ApplyThemeSetting(ThemePreference.System)),
+            new(CommandIds.ThemeLight, Strings.Cat_View, Strings.Cmd_ThemeLight, string.Empty, () => ApplyThemeSetting(ThemePreference.Light)),
+            new(CommandIds.ThemeDark, Strings.Cat_View, Strings.Cmd_ThemeDark, string.Empty, () => ApplyThemeSetting(ThemePreference.Dark)),
             // ---- 设置 ----
-            new("设置", "导出设置", string.Empty, () => _ = ExportSettingsAsync()),
-            new("设置", "导入设置", string.Empty, () => _ = ImportSettingsAsync()),
+            new(CommandIds.ExportSettings, Strings.Cat_Settings, Strings.Cmd_ExportSettings, string.Empty, () => _ = ExportSettingsAsync()),
+            new(CommandIds.ImportSettings, Strings.Cat_Settings, Strings.Cmd_ImportSettings, string.Empty, () => _ = ImportSettingsAsync()),
         };
     }
 
@@ -866,7 +1122,7 @@ public sealed partial class MainWindow : Window
     {
         _paletteInput = new TextBox
         {
-            PlaceholderText = "输入命令…",
+            PlaceholderText = Strings.Palette_InputPlaceholder,
             FontSize = 12.5,
             MinHeight = 30,
             BorderThickness = new Thickness(0),
@@ -874,7 +1130,7 @@ public sealed partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
         // 显式 Name：占位符在部分 UIA 客户端不稳，冒烟依赖 Name="输入命令…"
-        AutomationProperties.SetName(_paletteInput, "输入命令…");
+        AutomationProperties.SetName(_paletteInput, Strings.Palette_InputPlaceholder);
 
         var prompt = new TextBlock
         {
@@ -920,17 +1176,17 @@ public sealed partial class MainWindow : Window
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
 
-        var footerLeft = new TextBlock
+        var footerLeft = _paletteFooterLeft = new TextBlock
         {
-            Text = "↑↓ 选择 · ↵ 执行 · Esc 关闭",
+            Text = Strings.Palette_FooterKeys,
             FontSize = 10.5,
             Foreground = Ui.Text3,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(2, 0, 0, 0),
         };
-        var footerRight = new TextBlock
+        var footerRight = _paletteFooterRight = new TextBlock
         {
-            Text = "@分类名 直接索引",
+            Text = Strings.Palette_FooterAt,
             FontSize = 10.5,
             Foreground = Ui.Text3,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1068,15 +1324,15 @@ public sealed partial class MainWindow : Window
         {
             // 空查询：最近使用（≤8，置顶）→ 分类顺序全量
             var recents = new List<CommandItem>();
-            foreach (var title in _settings.Current.RecentCommands)
+            foreach (var id in _settings.Current.RecentCommands)
             {
-                if (_commands.FirstOrDefault(c => c.Title == title) is not { } cmd) continue;
+                if (_commands.FirstOrDefault(c => c.Id == id) is not { } cmd) continue;
                 recents.Add(cmd);
                 if (recents.Count >= 8) break;
             }
             if (recents.Count > 0)
             {
-                rows.Add(PaletteRow.Header("最近使用", recents.Count.ToString()));
+                rows.Add(PaletteRow.Header(RecentCategory, recents.Count.ToString()));
                 foreach (var c in recents) rows.Add(PaletteRow.For(c));
             }
             foreach (var cat in CategoryOrder)
@@ -1107,7 +1363,7 @@ public sealed partial class MainWindow : Window
     private void AddGroup(List<PaletteRow> rows, string category, List<CommandItem> items, bool filtered)
     {
         if (items.Count == 0) return;
-        rows.Add(PaletteRow.Header(category, filtered ? $"命中 {items.Count}" : items.Count.ToString()));
+        rows.Add(PaletteRow.Header(category, filtered ? string.Format(Strings.Palette_HitCount, items.Count) : items.Count.ToString()));
         foreach (var c in items) rows.Add(PaletteRow.For(c));
     }
 
@@ -1169,7 +1425,7 @@ public sealed partial class MainWindow : Window
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             IsTabStop = false,
         };
-        AutomationProperties.SetName(btn, $"分类 {row.HeaderText}");
+        AutomationProperties.SetName(btn, string.Format(Strings.Palette_CategoryAutomation, row.HeaderText));
         btn.Click += (_, _) => ActivatePaletteRow(row);
         return btn;
     }
@@ -1403,7 +1659,7 @@ public sealed partial class MainWindow : Window
     {
         if (!cmd.Enabled) return;
         if (_commandPalette is not null) _commandPalette.IsOpen = false;
-        RecordRecentCommand(cmd.Title);
+        RecordRecentCommand(cmd.Id);
         cmd.Action();
     }
 

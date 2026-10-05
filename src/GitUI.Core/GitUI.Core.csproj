@@ -7,6 +7,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>GitUI.Core</RootNamespace>
     <AssemblyName>GitUI.Core</AssemblyName>
+    <!-- 中性语言 = 英文（docs/i18n.md）：zh-Hans 走卫星程序集，其余文化回退英文 -->
+    <NeutralLanguage>en</NeutralLanguage>
   </PropertyGroup>
 
   <ItemGroup>

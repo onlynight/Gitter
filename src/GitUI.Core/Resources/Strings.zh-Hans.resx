@@ -1,0 +1,426 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 由 scripts/gen-localization.ps1 从 Strings.tsv 生成，勿手工修改。 -->
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="Common.Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="Common.FollowSystem" xml:space="preserve"><value>跟随系统</value></data>
+  <data name="Common.Light" xml:space="preserve"><value>浅色</value></data>
+  <data name="Common.Dark" xml:space="preserve"><value>深色</value></data>
+  <data name="Common.On" xml:space="preserve"><value>开</value></data>
+  <data name="Common.Off" xml:space="preserve"><value>关</value></data>
+  <data name="Common.Search" xml:space="preserve"><value>搜索</value></data>
+  <data name="Common.Refresh" xml:space="preserve"><value>刷新</value></data>
+  <data name="Common.Loading" xml:space="preserve"><value>加载中…</value></data>
+  <data name="Common.ErrorPrefix" xml:space="preserve"><value>错误: {0}</value></data>
+  <data name="Common.UnknownError" xml:space="preserve"><value>未知错误</value></data>
+  <data name="Common.NoProjectSelected" xml:space="preserve"><value>未选择项目</value></data>
+  <data name="Common.SwitchProject" xml:space="preserve"><value>切换项目</value></data>
+  <data name="Common.NoRepoOpen" xml:space="preserve"><value>未打开仓库</value></data>
+  <data name="Common.CopyErrorDetail" xml:space="preserve"><value>复制错误详情</value></data>
+  <data name="Common.SideBySide" xml:space="preserve"><value>并排</value></data>
+  <data name="Common.Inline" xml:space="preserve"><value>内联</value></data>
+  <data name="Common.NoDiff" xml:space="preserve"><value>无差异</value></data>
+  <data name="Common.BinaryNoDiff" xml:space="preserve"><value>二进制文件已修改，无法比较</value></data>
+  <data name="Common.BinarySuffix" xml:space="preserve"><value>(二进制)</value></data>
+  <data name="Common.Builtin" xml:space="preserve"><value>内置</value></data>
+  <data name="Common.Custom" xml:space="preserve"><value>自定义</value></data>
+  <data name="Common.ToggleSidebar" xml:space="preserve"><value>切换侧边栏</value></data>
+  <data name="Common.DiffViewAutomation" xml:space="preserve"><value>Diff 视图</value></data>
+  <data name="Common.TerminalOutputAutomation" xml:space="preserve"><value>终端输出区</value></data>
+  <data name="Common.PaneDividerAutomation" xml:space="preserve"><value>调整左右面板宽度</value></data>
+  <data name="Common.FileListAutomation" xml:space="preserve"><value>文件列表</value></data>
+  <data name="Nav.Projects" xml:space="preserve"><value>项目</value></data>
+  <data name="Nav.Log" xml:space="preserve"><value>Log</value></data>
+  <data name="Nav.Changes" xml:space="preserve"><value>变更</value></data>
+  <data name="Nav.Branches" xml:space="preserve"><value>分支</value></data>
+  <data name="Nav.Terminal" xml:space="preserve"><value>终端</value></data>
+  <data name="Nav.Settings" xml:space="preserve"><value>设置</value></data>
+  <data name="Main.WindowTitle" xml:space="preserve"><value>{0} - GitUI</value></data>
+  <data name="Main.StatusHint" xml:space="preserve"><value>Ctrl+1..6 切换页签 · F5 刷新</value></data>
+  <data name="Palette.Title" xml:space="preserve"><value>命令面板</value></data>
+  <data name="Palette.InputPlaceholder" xml:space="preserve"><value>输入命令…</value></data>
+  <data name="Palette.FooterKeys" xml:space="preserve"><value>↑↓ 选择 · ↵ 执行 · Esc 关闭</value></data>
+  <data name="Palette.FooterAt" xml:space="preserve"><value>@分类名 直接索引</value></data>
+  <data name="Palette.NoMatches" xml:space="preserve"><value>没有匹配的命令（Esc 关闭）</value></data>
+  <data name="Palette.Recent" xml:space="preserve"><value>最近使用</value></data>
+  <data name="Palette.HitCount" xml:space="preserve"><value>命中 {0}</value></data>
+  <data name="Palette.CategoryAutomation" xml:space="preserve"><value>分类 {0}</value></data>
+  <data name="Cat.Nav" xml:space="preserve"><value>导航</value></data>
+  <data name="Cat.Repo" xml:space="preserve"><value>仓库</value></data>
+  <data name="Cat.Commit" xml:space="preserve"><value>提交</value></data>
+  <data name="Cat.Branch" xml:space="preserve"><value>分支</value></data>
+  <data name="Cat.Sync" xml:space="preserve"><value>同步</value></data>
+  <data name="Cat.View" xml:space="preserve"><value>视图</value></data>
+  <data name="Cat.Settings" xml:space="preserve"><value>设置</value></data>
+  <data name="Cmd.GotoProjects" xml:space="preserve"><value>转到项目</value></data>
+  <data name="Cmd.GotoLog" xml:space="preserve"><value>转到 Log</value></data>
+  <data name="Cmd.GotoChanges" xml:space="preserve"><value>转到变更</value></data>
+  <data name="Cmd.GotoBranches" xml:space="preserve"><value>转到分支</value></data>
+  <data name="Cmd.GotoTerminal" xml:space="preserve"><value>转到终端</value></data>
+  <data name="Cmd.GotoSettings" xml:space="preserve"><value>转到设置</value></data>
+  <data name="Cmd.RefreshPage" xml:space="preserve"><value>刷新当前页</value></data>
+  <data name="Cmd.NewWindow" xml:space="preserve"><value>新建窗口</value></data>
+  <data name="Cmd.SwitchProject" xml:space="preserve"><value>切换项目</value></data>
+  <data name="Cmd.Commit" xml:space="preserve"><value>提交</value></data>
+  <data name="Cmd.CommitPush" xml:space="preserve"><value>提交并推送</value></data>
+  <data name="Cmd.StageAll" xml:space="preserve"><value>全部暂存</value></data>
+  <data name="Cmd.UnstageAll" xml:space="preserve"><value>全部撤销暂存</value></data>
+  <data name="Cmd.CheckoutBranch" xml:space="preserve"><value>检出选中分支</value></data>
+  <data name="Cmd.CreateBranch" xml:space="preserve"><value>创建分支…</value></data>
+  <data name="Cmd.RenameBranch" xml:space="preserve"><value>重命名分支</value></data>
+  <data name="Cmd.DeleteBranch" xml:space="preserve"><value>删除分支</value></data>
+  <data name="Cmd.MergeBranch" xml:space="preserve"><value>合并到当前分支</value></data>
+  <data name="Cmd.RebaseBranch" xml:space="preserve"><value>变基到该分支</value></data>
+  <data name="Cmd.FastForward" xml:space="preserve"><value>快进</value></data>
+  <data name="Cmd.Pull" xml:space="preserve"><value>Pull</value></data>
+  <data name="Cmd.PullRebase" xml:space="preserve"><value>Pull Rebase</value></data>
+  <data name="Cmd.Push" xml:space="preserve"><value>Push</value></data>
+  <data name="Cmd.DiffSideBySide" xml:space="preserve"><value>Diff 模式：并排</value></data>
+  <data name="Cmd.DiffInline" xml:space="preserve"><value>Diff 模式：内联</value></data>
+  <data name="Cmd.ThemeSystem" xml:space="preserve"><value>主题：跟随系统</value></data>
+  <data name="Cmd.ThemeLight" xml:space="preserve"><value>主题：浅色</value></data>
+  <data name="Cmd.ThemeDark" xml:space="preserve"><value>主题：深色</value></data>
+  <data name="Cmd.ExportSettings" xml:space="preserve"><value>导出设置</value></data>
+  <data name="Cmd.ImportSettings" xml:space="preserve"><value>导入设置</value></data>
+  <data name="Settings.Title" xml:space="preserve"><value>设置</value></data>
+  <data name="Settings.Theme" xml:space="preserve"><value>主题</value></data>
+  <data name="Settings.Base" xml:space="preserve"><value>基座</value></data>
+  <data name="Settings.ThemePackages" xml:space="preserve"><value>主题包</value></data>
+  <data name="Settings.FollowBaseBuiltin" xml:space="preserve"><value>跟随基座（内置）</value></data>
+  <data name="Settings.ImportThemePackage" xml:space="preserve"><value>导入主题包 .gpk…</value></data>
+  <data name="Settings.ImportUnavailable" xml:space="preserve"><value>当前窗口不支持导入（缺少宿主句柄）</value></data>
+  <data name="Settings.Extensions" xml:space="preserve"><value>扩展</value></data>
+  <data name="Settings.ExtensionsHint" xml:space="preserve"><value>按种类启用/禁用扩展包（主题 / 语法高亮）；卸载仅对自定义包可用。</value></data>
+  <data name="Settings.DiffMode" xml:space="preserve"><value>Diff 模式</value></data>
+  <data name="Settings.DevTools" xml:space="preserve"><value>开发工具</value></data>
+  <data name="Settings.OpenDiffPreview" xml:space="preserve"><value>打开 Diff 渲染预览（S3 验证）</value></data>
+  <data name="Settings.SettingsFile" xml:space="preserve"><value>设置文件</value></data>
+  <data name="Settings.Export" xml:space="preserve"><value>导出到文件…</value></data>
+  <data name="Settings.Import" xml:space="preserve"><value>从文件导入…</value></data>
+  <data name="Settings.Language" xml:space="preserve"><value>语言</value></data>
+  <data name="Settings.LanguageHint" xml:space="preserve"><value>更改立即生效。</value></data>
+  <data name="Settings.ThemePackageRowFormat" xml:space="preserve"><value>{0}（{1} · {2}）</value></data>
+  <data name="Settings.ThemePackageAutomation" xml:space="preserve"><value>主题包 {0}</value></data>
+  <data name="Settings.EnableKindAutomation" xml:space="preserve"><value>启用 {0} {1}</value></data>
+  <data name="Settings.Uninstall" xml:space="preserve"><value>卸载</value></data>
+  <data name="Settings.UninstallAutomation" xml:space="preserve"><value>卸载 {0}</value></data>
+  <data name="Settings.EnabledStatus" xml:space="preserve"><value>已启用：{0}</value></data>
+  <data name="Settings.DisabledStatus" xml:space="preserve"><value>已禁用：{0}</value></data>
+  <data name="Settings.Uninstalled" xml:space="preserve"><value>已卸载：{0}</value></data>
+  <data name="Settings.UninstallFailed" xml:space="preserve"><value>卸载失败（内置包或目录不可删）</value></data>
+  <data name="Kind.Theme" xml:space="preserve"><value>主题</value></data>
+  <data name="Kind.Syntax" xml:space="preserve"><value>语法</value></data>
+  <data name="ThemePkg.Light" xml:space="preserve"><value>亮色</value></data>
+  <data name="ThemePkg.Dark" xml:space="preserve"><value>深色</value></data>
+  <data name="Log.BranchPlaceholder" xml:space="preserve"><value>分支</value></data>
+  <data name="Log.BranchPickerAutomation" xml:space="preserve"><value>分支选择</value></data>
+  <data name="Log.SearchPlaceholder" xml:space="preserve"><value>author: branch: after: before: topic: 自由词</value></data>
+  <data name="Log.SearchAutomation" xml:space="preserve"><value>Log 搜索</value></data>
+  <data name="Log.SetCompareBase" xml:space="preserve"><value>设为比较基准</value></data>
+  <data name="Log.ClearCompareBase" xml:space="preserve"><value>清除比较基准</value></data>
+  <data name="Log.CompareNoBase" xml:space="preserve"><value>未设置基准：显示与父提交的差异</value></data>
+  <data name="Log.CompareWithBase" xml:space="preserve"><value>基准 {0}：所选提交显示与基准的差异</value></data>
+  <data name="Log.CommitDetailsAutomation" xml:space="preserve"><value>提交详情</value></data>
+  <data name="Log.CanvasIdle" xml:space="preserve"><value>选择提交与文件查看差异</value></data>
+  <data name="Log.CommitsOne" xml:space="preserve"><value>1 个提交</value></data>
+  <data name="Log.CommitsMany" xml:space="preserve"><value>{0} 个提交</value></data>
+  <data name="Log.GroupAutomation" xml:space="preserve"><value>分组 {0}</value></data>
+  <data name="Log.CommitRowAutomation" xml:space="preserve"><value>提交 {0} {1}</value></data>
+  <data name="Log.CopyShaFull" xml:space="preserve"><value>复制提交 ID（完整）</value></data>
+  <data name="Log.CopyShaShort" xml:space="preserve"><value>复制短 ID</value></data>
+  <data name="Log.CopySubject" xml:space="preserve"><value>复制提交消息</value></data>
+  <data name="Log.CopyFullMessage" xml:space="preserve"><value>复制完整提交消息（含正文）</value></data>
+  <data name="Log.CopyAuthor" xml:space="preserve"><value>复制作者</value></data>
+  <data name="Log.CopySummaryLine" xml:space="preserve"><value>复制单行摘要（短 ID + 标题）</value></data>
+  <data name="Log.MergeCommitSuffix" xml:space="preserve"><value>合并提交</value></data>
+  <data name="Log.LoadingChanges" xml:space="preserve"><value>加载变更中…</value></data>
+  <data name="Log.FileAutomation" xml:space="preserve"><value>文件 {0}</value></data>
+  <data name="Log.ReadChangesFailed" xml:space="preserve"><value>读取变更失败: {0}</value></data>
+  <data name="Log.RootNoDiff" xml:space="preserve"><value>根提交没有父提交，无差异</value></data>
+  <data name="Log.SelectFileAbove" xml:space="preserve"><value>选择上方文件查看差异</value></data>
+  <data name="Log.OpenRepoFailed" xml:space="preserve"><value>打开仓库失败：{0}</value></data>
+  <data name="Log.EmptyNoProject" xml:space="preserve"><value>未选择项目：在左侧「项目」页添加并双击选择（Ctrl+1）</value></data>
+  <data name="Log.EmptyNoMatches" xml:space="preserve"><value>没有匹配的提交（调整搜索词，或清空搜索）</value></data>
+  <data name="Log.EmptyRepo" xml:space="preserve"><value>空仓库：还没有任何提交</value></data>
+  <data name="Log.LoadedStatus" xml:space="preserve"><value>已加载 {0} / 共 {1}</value></data>
+  <data name="Log.ScrollMore" xml:space="preserve"><value> · 滚动加载更多</value></data>
+  <data name="Log.GroupsSuffix" xml:space="preserve"><value> · {0} 个分组</value></data>
+  <data name="Changes.OpenInEditor" xml:space="preserve"><value>在编辑器打开</value></data>
+  <data name="Changes.StageFile" xml:space="preserve"><value>暂存文件</value></data>
+  <data name="Changes.UnstageFile" xml:space="preserve"><value>撤销暂存文件</value></data>
+  <data name="Changes.StageHunk" xml:space="preserve"><value>暂存此块</value></data>
+  <data name="Changes.UnstageHunk" xml:space="preserve"><value>撤销此块</value></data>
+  <data name="Changes.CanvasIdle" xml:space="preserve"><value>选择左侧文件查看差异</value></data>
+  <data name="Changes.MessagePlaceholder" xml:space="preserve"><value>提交消息（Ctrl+Enter 提交）</value></data>
+  <data name="Changes.MessageAutomation" xml:space="preserve"><value>提交消息</value></data>
+  <data name="Changes.PrefixPlaceholder" xml:space="preserve"><value>前缀</value></data>
+  <data name="Changes.PrefixAutomation" xml:space="preserve"><value>提交前缀</value></data>
+  <data name="Changes.RecentPlaceholder" xml:space="preserve"><value>最近提交消息（作模板）</value></data>
+  <data name="Changes.RecentAutomation" xml:space="preserve"><value>最近消息</value></data>
+  <data name="Changes.Commit" xml:space="preserve"><value>提交</value></data>
+  <data name="Changes.CommitAndPush" xml:space="preserve"><value>提交并推送</value></data>
+  <data name="Changes.RetryPush" xml:space="preserve"><value>重试推送</value></data>
+  <data name="Changes.NoFilesChecked" xml:space="preserve"><value>未勾选任何文件</value></data>
+  <data name="Changes.PreviewMore" xml:space="preserve"><value> 等 {0} 个文件</value></data>
+  <data name="Changes.MarkResolved" xml:space="preserve"><value>标记已解决</value></data>
+  <data name="Changes.ConflictHint" xml:space="preserve"><value>冲突文件：解决后点击标记已解决</value></data>
+  <data name="Changes.SectionConflicts" xml:space="preserve"><value>冲突 ({0})</value></data>
+  <data name="Changes.SectionChanges" xml:space="preserve"><value>变更 ({0})</value></data>
+  <data name="Changes.SectionStaged" xml:space="preserve"><value>已暂存 ({0})</value></data>
+  <data name="Changes.SectionUntracked" xml:space="preserve"><value>未跟踪 ({0})</value></data>
+  <data name="Changes.SectionConflictsAutomation" xml:space="preserve"><value>冲突</value></data>
+  <data name="Changes.SectionChangesAutomation" xml:space="preserve"><value>变更</value></data>
+  <data name="Changes.SectionStagedAutomation" xml:space="preserve"><value>已暂存</value></data>
+  <data name="Changes.SectionUntrackedAutomation" xml:space="preserve"><value>未跟踪</value></data>
+  <data name="Changes.StageAll" xml:space="preserve"><value>全部暂存 +</value></data>
+  <data name="Changes.UnstageAll" xml:space="preserve"><value>全部撤销 −</value></data>
+  <data name="Changes.CheckAutomation" xml:space="preserve"><value>勾选 {0}</value></data>
+  <data name="Changes.PushFailed" xml:space="preserve"><value>推送失败: {0}
+{1}</value></data>
+  <data name="Changes.Committing" xml:space="preserve"><value>正在提交…</value></data>
+  <data name="Changes.CountChanges" xml:space="preserve"><value>{0} 项变更</value></data>
+  <data name="Changes.CountStaged" xml:space="preserve"><value>{0} 项已暂存</value></data>
+  <data name="Changes.CountUntracked" xml:space="preserve"><value>{0} 项未跟踪</value></data>
+  <data name="Changes.CountConflicts" xml:space="preserve"><value>{0} 项冲突</value></data>
+  <data name="Changes.CleanTree" xml:space="preserve"><value>工作区干净</value></data>
+  <data name="Changes.CheckedCount" xml:space="preserve"><value>已勾选 {0} 项</value></data>
+  <data name="Changes.EmptyMessage" xml:space="preserve"><value>提交消息不能为空</value></data>
+  <data name="Changes.UnresolvedConflicts" xml:space="preserve"><value>存在未解决的冲突文件，请先解决冲突再提交</value></data>
+  <data name="Changes.Committed" xml:space="preserve"><value>已提交 {0}</value></data>
+  <data name="Changes.PushedSuffix" xml:space="preserve"><value> · 推送成功</value></data>
+  <data name="Branches.Checkout" xml:space="preserve"><value>检出</value></data>
+  <data name="Branches.Create" xml:space="preserve"><value>创建</value></data>
+  <data name="Branches.Rename" xml:space="preserve"><value>重命名</value></data>
+  <data name="Branches.Delete" xml:space="preserve"><value>删除</value></data>
+  <data name="Branches.MergeIntoCurrent" xml:space="preserve"><value>合并到当前分支</value></data>
+  <data name="Branches.RebaseOntoThis" xml:space="preserve"><value>变基到该分支</value></data>
+  <data name="Branches.FastForward" xml:space="preserve"><value>快进</value></data>
+  <data name="Branches.NewBranchName" xml:space="preserve"><value>新分支名</value></data>
+  <data name="Branches.StartPointPlaceholder" xml:space="preserve"><value>起点（留空 = HEAD）</value></data>
+  <data name="Branches.StartPointAutomation" xml:space="preserve"><value>起点</value></data>
+  <data name="Branches.CreateTitle" xml:space="preserve"><value>创建分支</value></data>
+  <data name="Branches.CreateConfirm" xml:space="preserve"><value>确认创建</value></data>
+  <data name="Branches.NewName" xml:space="preserve"><value>新名称</value></data>
+  <data name="Branches.RenameTitle" xml:space="preserve"><value>重命名分支 {0}</value></data>
+  <data name="Branches.RenameConfirm" xml:space="preserve"><value>确认重命名</value></data>
+  <data name="Branches.DeleteTitle" xml:space="preserve"><value>删除分支 {0}</value></data>
+  <data name="Branches.DeleteConfirm" xml:space="preserve"><value>确认删除</value></data>
+  <data name="Branches.DeleteRecoverHint" xml:space="preserve"><value>恢复方式：删除后可从 reflog 或本对话框列出的提交 SHA 重建分支。</value></data>
+  <data name="Branches.LocalGroupAutomation" xml:space="preserve"><value>本地分支组</value></data>
+  <data name="Branches.RemoteGroupAutomation" xml:space="preserve"><value>远程分支组</value></data>
+  <data name="Branches.RowAutomation" xml:space="preserve"><value>分支 {0}</value></data>
+  <data name="Branches.CurrentSuffix" xml:space="preserve"><value> 当前</value></data>
+  <data name="Branches.SelectedSuffix" xml:space="preserve"><value> 已选中</value></data>
+  <data name="Branches.Busy" xml:space="preserve"><value>执行中…</value></data>
+  <data name="Branches.TotalCountOne" xml:space="preserve"><value>1 个分支</value></data>
+  <data name="Branches.TotalCountMany" xml:space="preserve"><value>{0} 个分支</value></data>
+  <data name="Branches.CheckedOut" xml:space="preserve"><value>已检出 {0}</value></data>
+  <data name="Branches.Created" xml:space="preserve"><value>已创建 {0}</value></data>
+  <data name="Branches.Renamed" xml:space="preserve"><value>已重命名 {0} → {1}</value></data>
+  <data name="Branches.Deleted" xml:space="preserve"><value>已删除 {0}</value></data>
+  <data name="Branches.Merged" xml:space="preserve"><value>已合并 {0}</value></data>
+  <data name="Branches.Rebased" xml:space="preserve"><value>已变基到 {0}</value></data>
+  <data name="Branches.FastForwarded" xml:space="preserve"><value>已快进到 {0}</value></data>
+  <data name="Branches.PulledRebase" xml:space="preserve"><value>已拉取（rebase）</value></data>
+  <data name="Branches.Pulled" xml:space="preserve"><value>已拉取</value></data>
+  <data name="Branches.Pushed" xml:space="preserve"><value>已推送</value></data>
+  <data name="Branches.LocalGroup" xml:space="preserve"><value>本地分支 ({0})</value></data>
+  <data name="Branches.RemoteGroup" xml:space="preserve"><value>远程分支 ({0})</value></data>
+  <data name="Branches.EmptyBranch" xml:space="preserve"><value>（空分支）</value></data>
+  <data name="Branches.FastForwardInvalid" xml:space="preserve"><value>当前分支无法快进到 {0}（存在分叉或目标无效）</value></data>
+  <data name="Branches.DeleteSafe" xml:space="preserve"><value>分支 {0} 的全部提交在其他分支上仍然可达，删除分支不会丢弃任何提交。</value></data>
+  <data name="Branches.DeleteLoseOne" xml:space="preserve"><value>将丢弃 1 个提交：{0}</value></data>
+  <data name="Branches.DeleteLoseMany" xml:space="preserve"><value>将丢弃 {0} 个提交：{1}</value></data>
+  <data name="Branches.DeleteLoseMore" xml:space="preserve"><value> 等（共 {0} 个）</value></data>
+  <data name="Projects.AddProject" xml:space="preserve"><value>+ 添加项目</value></data>
+  <data name="Projects.AddProjectAutomation" xml:space="preserve"><value>添加项目</value></data>
+  <data name="Projects.TitleFormat" xml:space="preserve"><value>项目 ({0})</value></data>
+  <data name="Projects.EmptyTitle" xml:space="preserve"><value>还没有项目</value></data>
+  <data name="Projects.EmptyHint" xml:space="preserve"><value>点击右上角「添加项目」选择本地文件夹，或从下方开始</value></data>
+  <data name="Projects.EmptyAutomation" xml:space="preserve"><value>项目空状态</value></data>
+  <data name="Projects.SetCurrent" xml:space="preserve"><value>设为当前项目</value></data>
+  <data name="Projects.OpenInExplorer" xml:space="preserve"><value>在资源管理器中打开</value></data>
+  <data name="Projects.Remove" xml:space="preserve"><value>移除项目</value></data>
+  <data name="Projects.RowAutomation" xml:space="preserve"><value>项目 {0}</value></data>
+  <data name="Projects.PickFolderTitle" xml:space="preserve"><value>选择项目文件夹</value></data>
+  <data name="Projects.PickerFailed" xml:space="preserve"><value>打开目录选择器失败: {0}</value></data>
+  <data name="Projects.AlreadyInList" xml:space="preserve"><value>「{0}」已在列表中</value></data>
+  <data name="Projects.NotRepoTitle" xml:space="preserve"><value>不是 Git 仓库</value></data>
+  <data name="Projects.NotRepoBody" xml:space="preserve"><value>「{0}」不包含 Git 仓库。
+
+仍要添加为项目吗？（之后可在此目录初始化仓库）</value></data>
+  <data name="Projects.AddAnyway" xml:space="preserve"><value>仍要添加</value></data>
+  <data name="Projects.RemoveCurrentTitle" xml:space="preserve"><value>移除当前项目</value></data>
+  <data name="Projects.RemoveCurrentBody" xml:space="preserve"><value>「{0}」是当前打开的项目，移除后各页面将回到未选择项目状态。
+
+（仅从列表移除，不会删除磁盘文件）</value></data>
+  <data name="Projects.RemoveConfirm" xml:space="preserve"><value>移除</value></data>
+  <data name="Projects.ExplorerFailed" xml:space="preserve"><value>打开资源管理器失败: {0}</value></data>
+  <data name="Projects.StatusNoCurrentOne" xml:space="preserve"><value>共 {0} 个项目 · 双击设为当前项目</value></data>
+  <data name="Projects.StatusNoCurrentMany" xml:space="preserve"><value>共 {0} 个项目 · 双击设为当前项目</value></data>
+  <data name="Projects.StatusCurrentOne" xml:space="preserve"><value>共 {0} 个项目 · 双击设为当前项目 · 当前：{1}</value></data>
+  <data name="Projects.StatusCurrentMany" xml:space="preserve"><value>共 {0} 个项目 · 双击设为当前项目 · 当前：{1}</value></data>
+  <data name="Terminal.NotStarted" xml:space="preserve"><value>未启动</value></data>
+  <data name="Terminal.Clear" xml:space="preserve"><value>清屏</value></data>
+  <data name="Terminal.More" xml:space="preserve"><value>更多</value></data>
+  <data name="Terminal.ShellPickerAutomation" xml:space="preserve"><value>终端 Shell 选择</value></data>
+  <data name="Terminal.BashNotFound" xml:space="preserve"><value>未找到 bash</value></data>
+  <data name="Terminal.BashMissing" xml:space="preserve"><value>未检测到 Git Bash（已选 Git Bash shell）：{0}</value></data>
+  <data name="Terminal.BashMissingFallback" xml:space="preserve"><value>请安装 Git for Windows 或改用 PowerShell/CMD。</value></data>
+  <data name="Terminal.Probing" xml:space="preserve"><value>正在检测终端环境…</value></data>
+  <data name="Terminal.Starting" xml:space="preserve"><value>启动中</value></data>
+  <data name="Terminal.Running" xml:space="preserve"><value>运行中</value></data>
+  <data name="Terminal.StartFailed" xml:space="preserve"><value>启动失败</value></data>
+  <data name="Terminal.StartFailedWinpty" xml:space="preserve"><value>winpty 启动失败</value></data>
+  <data name="Terminal.ConptyFailed" xml:space="preserve"><value>ConPTY 会话启动失败：{0}</value></data>
+  <data name="Terminal.WinptyFailed" xml:space="preserve"><value>winpty 会话启动失败：{0}</value></data>
+  <data name="Terminal.Exited" xml:space="preserve"><value>已退出 (code {0})</value></data>
+  <data name="Terminal.EnvironmentAutomation" xml:space="preserve"><value>终端环境提示</value></data>
+  <data name="Terminal.Unavailable" xml:space="preserve"><value>终端不可用</value></data>
+  <data name="Terminal.UnavailableHint" xml:space="preserve"><value>可改用其他 Shell（工具条下拉）或打开下载页安装 Git Bash。</value></data>
+  <data name="Terminal.OpenDownload" xml:space="preserve"><value>打开下载页（git-scm.com）</value></data>
+  <data name="Terminal.OpenDownloadAutomation" xml:space="preserve"><value>打开 Git 下载页</value></data>
+  <data name="Terminal.RestartShell" xml:space="preserve"><value>重开 shell</value></data>
+  <data name="Terminal.CopyScreen" xml:space="preserve"><value>复制屏幕输出</value></data>
+  <data name="Terminal.FollowRepo" xml:space="preserve"><value>跟随仓库工作目录</value></data>
+  <data name="Terminal.StatusFormat" xml:space="preserve"><value>{0}{1} · {2}×{3} · 跟随仓库: {4}</value></data>
+  <data name="Preview.Title" xml:space="preserve"><value>Diff 渲染预览（S3 验证）</value></data>
+  <data name="Preview.RepoPathAutomation" xml:space="preserve"><value>仓库路径</value></data>
+  <data name="Preview.OpenRepo" xml:space="preserve"><value>打开仓库</value></data>
+  <data name="Preview.SideBySideAutomation" xml:space="preserve"><value>并排模式</value></data>
+  <data name="Preview.InlineAutomation" xml:space="preserve"><value>内联模式</value></data>
+  <data name="Preview.RepoLabel" xml:space="preserve"><value>仓库:</value></data>
+  <data name="Preview.CommitsAutomation" xml:space="preserve"><value>提交列表</value></data>
+  <data name="Preview.SelectCommit" xml:space="preserve"><value>选择一个提交</value></data>
+  <data name="Preview.SelectFile" xml:space="preserve"><value>选择一个文件</value></data>
+  <data name="Preview.OpenedStatus" xml:space="preserve"><value>{0} — {1} 个提交（显示最近 {2} 个）</value></data>
+  <data name="Preview.OpenFailed" xml:space="preserve"><value>打开失败: {0}</value></data>
+  <data name="Preview.ReadFailed" xml:space="preserve"><value>读取提交失败: {0}</value></data>
+  <data name="Preview.FilesStatus" xml:space="preserve"><value>{0} — {1} 个文件</value></data>
+  <data name="Time.Yesterday" xml:space="preserve"><value>昨天 {0}</value></data>
+  <data name="Time.DayBefore" xml:space="preserve"><value>前天 {0}</value></data>
+  <data name="Time.DaysAgo" xml:space="preserve"><value>{0} 天前</value></data>
+  <data name="Time.MonthDay" xml:space="preserve"><value>M月d日</value></data>
+  <data name="Time.MonthDayYear" xml:space="preserve"><value>yyyy年M月d日</value></data>
+  <data name="Time.Weekdays" xml:space="preserve"><value>日,一,二,三,四,五,六</value></data>
+  <data name="Time.Today" xml:space="preserve"><value>今天 · {0} 星期{1}</value></data>
+  <data name="Time.YesterdayDay" xml:space="preserve"><value>昨天 · {0} 星期{1}</value></data>
+  <data name="Time.PlainDay" xml:space="preserve"><value>{0} 星期{1}</value></data>
+  <data name="Import.FileNotFound" xml:space="preserve"><value>文件不存在：{0}</value></data>
+  <data name="Import.MissingManifest" xml:space="preserve"><value>包内缺少 manifest.json</value></data>
+  <data name="Import.InvalidManifest" xml:space="preserve"><value>manifest 无效（缺少 id）</value></data>
+  <data name="Import.NoKinds" xml:space="preserve"><value>该包未声明受支持的种类（kinds 需含 theme 或 syntax）</value></data>
+  <data name="Import.MissingTheme" xml:space="preserve"><value>包内缺少 theme/theme.json</value></data>
+  <data name="Import.MissingSyntax" xml:space="preserve"><value>包内缺少 syntax/highlighters.json</value></data>
+  <data name="Import.AppliedTheme" xml:space="preserve"><value>已导入并应用主题包：{0}</value></data>
+  <data name="Import.AppliedSyntax" xml:space="preserve"><value>已导入语法高亮包：{0}</value></data>
+  <data name="Import.Failed" xml:space="preserve"><value>导入失败：{0}</value></data>
+  <data name="Bash.CustomPathMissing" xml:space="preserve"><value>手动指定的 bash 路径不存在：{0}</value></data>
+  <data name="Bash.LocateFailed" xml:space="preserve"><value>未找到 Git for Windows 的 bash.exe。请安装 Git for Windows，或在设置中手动指定 bash 路径。</value></data>
+  <data name="Op.Stage" xml:space="preserve"><value>暂存</value></data>
+  <data name="Op.Unstage" xml:space="preserve"><value>撤销暂存</value></data>
+  <data name="Op.StageHunk" xml:space="preserve"><value>暂存块</value></data>
+  <data name="Op.UnstageHunk" xml:space="preserve"><value>撤销暂存块</value></data>
+  <data name="Op.CreateBranch" xml:space="preserve"><value>创建分支</value></data>
+  <data name="Op.RenameBranch" xml:space="preserve"><value>重命名分支</value></data>
+  <data name="Op.Checkout" xml:space="preserve"><value>检出</value></data>
+  <data name="Op.DeleteBranch" xml:space="preserve"><value>删除分支</value></data>
+  <data name="Git.OpFailed" xml:space="preserve"><value>{0} 失败: {1}</value></data>
+  <data name="Git.CommitNotFound" xml:space="preserve"><value>找不到提交 {0}</value></data>
+  <data name="Git.NothingStaged" xml:space="preserve"><value>没有已暂存的变更，无法提交</value></data>
+  <data name="Git.StartNotFound" xml:space="preserve"><value>找不到起点提交 {0}</value></data>
+  <data name="Git.BranchNotFound" xml:space="preserve"><value>分支 {0} 不存在</value></data>
+  <data name="Git.Timeout" xml:space="preserve"><value>执行超时</value></data>
+  <data name="Push.HintAuthFailed" xml:space="preserve"><value>凭据被拒绝，请检查远程仓库的登录状态后重试</value></data>
+  <data name="Push.HintNetwork" xml:space="preserve"><value>无法连接远程仓库，请检查网络后重试</value></data>
+  <data name="Push.HintNonFastForward" xml:space="preserve"><value>远端分支有新提交，请先拉取（Pull）再推送</value></data>
+  <data name="Push.HintGeneric" xml:space="preserve"><value>推送失败，可重试或查看完整输出</value></data>
+  <data name="Rules.SecretToken" xml:space="preserve"><value>疑似硬编码的密钥或令牌</value></data>
+  <data name="Rules.PrivateKey" xml:space="preserve"><value>检测到私钥内容</value></data>
+  <data name="Rules.SecretAssignment" xml:space="preserve"><value>疑似明文密钥赋值</value></data>
+  <data name="Rules.DebugResidue" xml:space="preserve"><value>调试输出残留</value></data>
+  <data name="Rules.LargeFile" xml:space="preserve"><value>大文件：新增 {0} 行（阈值 {1}）</value></data>
+  <data name="Rules.BinaryIncoming" xml:space="preserve"><value>二进制文件入库</value></data>
+  <data name="Changes.SafetyBlocked" xml:space="preserve"><value>提交被安全网拦截：{0} 个阻止级问题，详见错误详情</value></data>
+  <data name="Changes.SafetyWarnings" xml:space="preserve"><value>{0} 条安全网警告</value></data>
+  <data name="Changes.AiGenerate" xml:space="preserve"><value>AI 生成</value></data>
+  <data name="Changes.AiGenerating" xml:space="preserve"><value>生成中…</value></data>
+  <data name="Changes.AiNotConfigured" xml:space="preserve"><value>未配置 AI，请在设置中配置</value></data>
+  <data name="Changes.AiEmptyDraft" xml:space="preserve"><value>AI 返回了空草稿</value></data>
+  <data name="Changes.AiBlockedBySecrets" xml:space="preserve"><value>未发送给 AI：diff 中检测到疑似密钥</value></data>
+  <data name="Settings.MonitorSection" xml:space="preserve"><value>实时监视与后台拉取</value></data>
+  <data name="Settings.WatchWorktree" xml:space="preserve"><value>监视工作区文件变化（自动刷新）</value></data>
+  <data name="Settings.AutoFetch" xml:space="preserve"><value>后台定时 fetch</value></data>
+  <data name="Settings.FetchIntervalMinutes" xml:space="preserve"><value>Fetch 间隔（分钟）</value></data>
+  <data name="Settings.AiSection" xml:space="preserve"><value>AI 助手（自带端点）</value></data>
+  <data name="Settings.AiProvider" xml:space="preserve"><value>Provider</value></data>
+  <data name="Settings.AiProviderOff" xml:space="preserve"><value>关闭</value></data>
+  <data name="Settings.AiProviderOllama" xml:space="preserve"><value>Ollama（本地）</value></data>
+  <data name="Settings.AiProviderOpenAi" xml:space="preserve"><value>OpenAI 兼容端点</value></data>
+  <data name="Settings.AiProviderAnthropic" xml:space="preserve"><value>Anthropic</value></data>
+  <data name="Settings.AiProviderCli" xml:space="preserve"><value>命令行桥</value></data>
+  <data name="Settings.AiEndpoint" xml:space="preserve"><value>端点（OpenAI 兼容基础地址）</value></data>
+  <data name="Settings.AiModel" xml:space="preserve"><value>模型</value></data>
+  <data name="Settings.AiApiKey" xml:space="preserve"><value>API Key（DPAPI 加密存储）</value></data>
+  <data name="Settings.AiCliCommand" xml:space="preserve"><value>命令行桥命令（prompt 经 stdin 传入）</value></data>
+  <data name="Settings.AiPrivacy" xml:space="preserve"><value>隐私级别</value></data>
+  <data name="Settings.PrivacyDisabled" xml:space="preserve"><value>关闭（禁用 AI）</value></data>
+  <data name="Settings.PrivacyMetadata" xml:space="preserve"><value>仅元数据（路径与行数）</value></data>
+  <data name="Settings.PrivacyFullDiff" xml:space="preserve"><value>完整 diff（发送前过密钥扫描）</value></data>
+  <data name="Settings.AiAppendTrailer" xml:space="preserve"><value>AI 生成的提交自动追加 Assisted-by 署名</value></data>
+  <data name="Settings.SafetyNetMode" xml:space="preserve"><value>提交前安全网</value></data>
+  <data name="Settings.SafetyOff" xml:space="preserve"><value>关闭</value></data>
+  <data name="Settings.SafetyWarn" xml:space="preserve"><value>仅警告</value></data>
+  <data name="Settings.SafetyBlock" xml:space="preserve"><value>拦截提交</value></data>
+  <data name="Settings.AiHint" xml:space="preserve"><value>密钥只保存在本机（DPAPI 加密）。云端 provider 仅收到下方隐私级别允许的数据。</value></data>
+  <data name="Changes.RejectHunk" xml:space="preserve"><value>拒绝此块</value></data>
+  <data name="Changes.Retake" xml:space="preserve"><value>退回重做</value></data>
+  <data name="Changes.RetakeTitle" xml:space="preserve"><value>退回重做</value></data>
+  <data name="Changes.RetakeNotePlaceholder" xml:space="preserve"><value>描述问题（将随 diff 一起发给 agent）</value></data>
+  <data name="Changes.RetakeCopy" xml:space="preserve"><value>复制反馈</value></data>
+  <data name="Changes.AiExplain" xml:space="preserve"><value>AI 解释</value></data>
+  <data name="Changes.AiReview" xml:space="preserve"><value>AI 审查</value></data>
+  <data name="Changes.ExplainPanelTitle" xml:space="preserve"><value>AI 批注</value></data>
+  <data name="Common.Close" xml:space="preserve"><value>关闭</value></data>
+  <data name="Changes.RiskBlockedTooltip" xml:space="preserve"><value>安全网：{0} 个阻止级问题</value></data>
+  <data name="Changes.RiskWarningTooltip" xml:space="preserve"><value>安全网：{0} 条警告</value></data>
+  <data name="Nav.Tasks" xml:space="preserve"><value>任务</value></data>
+  <data name="Tasks.NewTask" xml:space="preserve"><value>新建任务</value></data>
+  <data name="Tasks.NewTaskTitle" xml:space="preserve"><value>新建任务（分支：task/&lt;名称&gt;）</value></data>
+  <data name="Tasks.NamePlaceholder" xml:space="preserve"><value>task-name（a-z0-9-）</value></data>
+  <data name="Tasks.Create" xml:space="preserve"><value>Create</value></data>
+  <data name="Tasks.Prune" xml:space="preserve"><value>清理失效</value></data>
+  <data name="Tasks.Open" xml:space="preserve"><value>打开</value></data>
+  <data name="Tasks.NewWindow" xml:space="preserve"><value>新窗口</value></data>
+  <data name="Tasks.Merge" xml:space="preserve"><value>合并回主分支</value></data>
+  <data name="Tasks.MergeConfirmFormat" xml:space="preserve"><value>将 {0} 合并回 {1}（快进）？</value></data>
+  <data name="Tasks.Remove" xml:space="preserve"><value>移除</value></data>
+  <data name="Tasks.RemoveConfirmFormat" xml:space="preserve"><value>移除任务 worktree {0}？脏工作区会被拒绝。</value></data>
+  <data name="Tasks.Clean" xml:space="preserve"><value>干净</value></data>
+  <data name="Tasks.DirtyFormat" xml:space="preserve"><value>{0} 个文件未提交</value></data>
+  <data name="Tasks.Empty" xml:space="preserve"><value>还没有任务 worktree。新建一个即可隔离运行 agent。</value></data>
+  <data name="Tasks.MainBadge" xml:space="preserve"><value>主</value></data>
+  <data name="Tasks.CreatedFormat" xml:space="preserve"><value>任务 worktree 已创建：{0}</value></data>
+  <data name="Tasks.MergedFormat" xml:space="preserve"><value>已把 {0} 合并回 {1}</value></data>
+  <data name="Tasks.RemovedFormat" xml:space="preserve"><value>worktree 已移除：{0}</value></data>
+  <data name="Tasks.MainHint" xml:space="preserve"><value>主 worktree（当前仓库本体）</value></data>
+  <data name="Log.SessionTitle" xml:space="preserve"><value>{0} · {1} 个提交</value></data>
+  <data name="Log.AiBadge" xml:space="preserve"><value>AI</value></data>
+  <data name="Log.Squash" xml:space="preserve"><value>整理为一次提交</value></data>
+  <data name="Log.SquashAutomation" xml:space="preserve"><value>将会话整理为一次提交</value></data>
+  <data name="Log.SquashConfirm" xml:space="preserve"><value>把 {1} 的 {0} 个 checkpoint 提交整理为一次提交？原提交链保留在 reflog 可回退。</value></data>
+  <data name="Log.SquashNotHead" xml:space="preserve"><value>会话顶端不是当前 HEAD，请先检出对应分支。</value></data>
+  <data name="Log.SquashRootCommit" xml:space="preserve"><value>会话触及根提交，无法整理。</value></data>
+  <data name="Terminal.AgentRunning" xml:space="preserve"><value>agent 运行中：{0}</value></data>
+  <data name="Changes.AgentFeedback" xml:space="preserve"><value>agent 反馈</value></data>
+  <data name="Settings.McpPipe" xml:space="preserve"><value>MCP 服务（本机命名管道；agent 写操作需人工确认）</value></data>
+  <data name="Settings.McpApproveTitle" xml:space="preserve"><value>agent 请求写入仓库</value></data>
+  <data name="Settings.McpApprove" xml:space="preserve"><value>允许</value></data>
+  <data name="Changes.RetypeSendToTerminal" xml:space="preserve"><value>发送到终端</value></data>
+  <data name="Terminal.NewTab" xml:space="preserve"><value>新建终端</value></data>
+  <data name="Terminal.TabDefault" xml:space="preserve"><value>shell</value></data>
+  <data name="Terminal.TabAutomation" xml:space="preserve"><value>终端页：{0}</value></data>
+</root>

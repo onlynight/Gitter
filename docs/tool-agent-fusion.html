@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gitter 工具属性 × Agent 融合设计 · 工具面统一稿</title>
+<style>
+  :root{
+    --bg:#0b0e14;
+    --panel:#11161f;
+    --panel2:#161d29;
+    --border:#212b3b;
+    --border-soft:#1a2331;
+    --text:#dbe4f0;
+    --muted:#8391a7;
+    --dim:#5c6a80;
+    --blue:#4d9fff;
+    --green:#3fca7f;
+    --amber:#e8b64c;
+    --red:#f0705f;
+    --purple:#b490ff;
+    --cyan:#4fc9d8;
+    --code:"Cascadia Code","Consolas","JetBrains Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    font-size:15px;line-height:1.7;
+  }
+  ::selection{background:rgba(77,159,255,.3)}
+
+  /* ===== 布局 ===== */
+  .layout{display:flex;min-height:100vh}
+  nav#toc{
+    width:236px;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;
+    padding:28px 18px 40px 26px;border-right:1px solid var(--border-soft);
+    background:linear-gradient(180deg,#0d1119,#0b0e14);
+  }
+  nav#toc .brand{font-weight:700;font-size:14px;letter-spacing:.5px;margin-bottom:2px}
+  nav#toc .brand-sub{font-size:11px;color:var(--dim);margin-bottom:22px}
+  nav#toc a{
+    display:block;color:var(--muted);text-decoration:none;font-size:13px;
+    padding:5px 10px;border-radius:7px;border-left:2px solid transparent;margin-bottom:1px;
+  }
+  nav#toc a:hover{color:var(--text);background:var(--panel2)}
+  nav#toc a.active{color:var(--blue);background:rgba(77,159,255,.08);border-left-color:var(--blue)}
+  nav#toc .toc-sec{font-size:10.5px;color:var(--dim);letter-spacing:1.5px;margin:16px 0 6px 10px;text-transform:uppercase}
+  main{flex:1;min-width:0;padding:52px 56px 90px}
+  .wrap{max-width:960px;margin:0 auto}
+  @media (max-width:1080px){nav#toc{display:none}main{padding:36px 22px 70px}}
+
+  /* ===== Hero ===== */
+  .hero-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+  .chip{
+    font-size:11.5px;padding:3px 11px;border-radius:20px;border:1px solid var(--border);
+    color:var(--muted);background:var(--panel);
+  }
+  .chip.accent{border-color:rgba(77,159,255,.4);color:var(--blue)}
+  .chip.warn{border-color:rgba(232,182,76,.4);color:var(--amber)}
+  h1.title{
+    font-size:34px;line-height:1.3;font-weight:700;letter-spacing:.3px;margin-bottom:10px;
+  }
+  h1.title .grad{
+    background:linear-gradient(92deg,var(--blue) 10%,var(--purple) 60%,var(--cyan) 95%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .hero-sub{color:var(--muted);font-size:15.5px;max-width:720px;margin-bottom:8px}
+  .hero-meta{font-size:12.5px;color:var(--dim);margin-bottom:34px}
+  .hero-meta code, .inline-code{font-family:var(--code);font-size:12px;background:var(--panel2);border:1px solid var(--border-soft);padding:1px 6px;border-radius:5px}
+
+  /* ===== 章节 ===== */
+  section{margin-bottom:64px;scroll-margin-top:24px}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+  .sec-no{
+    font-family:var(--code);font-size:12px;color:var(--blue);
+    background:rgba(77,159,255,.1);border:1px solid rgba(77,159,255,.25);
+    padding:1px 9px;border-radius:6px;flex-shrink:0;
+  }
+  h2{font-size:21px;font-weight:700;letter-spacing:.3px}
+  .sec-desc{color:var(--muted);font-size:13.5px;margin-bottom:22px;max-width:820px}
+  h3{font-size:15.5px;font-weight:600;margin:26px 0 12px;color:var(--text)}
+  p.body{color:#b9c4d6;font-size:14px;margin-bottom:12px}
+  p.body b{color:var(--text)}
+  .note{
+    font-size:13px;color:var(--muted);background:var(--panel);
+    border:1px solid var(--border-soft);border-left:3px solid var(--blue);
+    padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;
+  }
+  .note.warn{border-left-color:var(--amber)}
+  .note.green{border-left-color:var(--green)}
+
+  /* ===== 卡片通用 ===== */
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px 22px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:860px){.grid3,.grid2{grid-template-columns:1fr}}
+
+  /* ===== 三命题 ===== */
+  .prop{position:relative;padding-top:24px}
+  .prop .pn{
+    position:absolute;top:-14px;left:18px;font-family:var(--code);font-size:12px;
+    color:#0b0e14;background:linear-gradient(92deg,var(--blue),var(--purple));
+    padding:2px 10px;border-radius:12px;font-weight:700;
+  }
+  .prop h4{font-size:15.5px;margin-bottom:8px}
+  .prop p{font-size:13px;color:var(--muted)}
+  .prop .tag{
+    display:inline-block;margin-top:12px;font-size:11px;color:var(--purple);
+    border:1px dashed rgba(180,144,255,.45);padding:2px 9px;border-radius:6px;
+  }
+
+  /* ===== 架构图 ===== */
+  .arch{margin-top:8px}
+  .clients{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media (max-width:860px){.clients{grid-template-columns:1fr}}
+  .client{
+    background:var(--panel);border:1px solid var(--border);border-radius:12px;
+    padding:14px 16px;border-top:3px solid var(--blue);
+  }
+  .client.c2{border-top-color:var(--purple)}
+  .client.c3{border-top-color:var(--cyan)}
+  .client h5{font-size:14px;margin-bottom:3px}
+  .client .exit{font-size:11px;color:var(--dim);font-family:var(--code);margin-bottom:8px}
+  .client p{font-size:12.5px;color:var(--muted);line-height:1.6}
+  .client .chips{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+  .client .chips span{font-size:10.5px;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:1px 7px;background:var(--panel2)}
+
+  .flow-arrow{
+    text-align:center;color:var(--dim);font-size:12px;margin:8px 0;
+    display:flex;align-items:center;justify-content:center;gap:10px;
+  }
+  .flow-arrow .line{flex:1;max-width:180px;height:1px;background:linear-gradient(90deg,transparent,var(--border))}
+  .flow-arrow .line.r{background:linear-gradient(90deg,var(--border),transparent)}
+  .flow-arrow .arr{color:var(--blue);font-size:14px}
+
+  .surface{
+    background:linear-gradient(135deg,rgba(77,159,255,.09),rgba(180,144,255,.08),rgba(79,201,216,.07));
+    border:1px solid rgba(77,159,255,.35);border-radius:14px;
+    padding:20px 24px;text-align:center;position:relative;
+  }
+  .surface h4{font-size:16.5px;margin-bottom:4px}
+  .surface .en{font-family:var(--code);font-size:11.5px;color:var(--blue);letter-spacing:.5px}
+  .surface p{font-size:12.5px;color:var(--muted);margin-top:6px}
+  .surface .attrs{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .surface .attrs span{
+    font-size:11.5px;font-family:var(--code);color:var(--text);
+    background:rgba(11,14,20,.55);border:1px solid var(--border);padding:3px 12px;border-radius:7px;
+  }
+
+  .pipeline{display:flex;gap:0;align-items:stretch;justify-content:center}
+  @media (max-width:960px){.pipeline{flex-direction:column;align-items:center}}
+  .pstep{
+    background:var(--panel2);border:1px solid var(--border);border-radius:10px;
+    padding:12px 14px;min-width:150px;text-align:center;position:relative;
+  }
+  .pstep .no{
+    font-family:var(--code);font-size:10.5px;color:var(--cyan);
+    border:1px solid rgba(79,201,216,.4);border-radius:10px;padding:0 8px;display:inline-block;margin-bottom:6px;
+  }
+  .pstep h6{font-size:13px;margin-bottom:3px}
+  .pstep p{font-size:11px;color:var(--dim);line-height:1.5}
+  .pstep.write p:first-line{color:inherit}
+  .parr{display:flex;align-items:center;color:var(--dim);padding:0 6px;font-size:15px}
+  @media (max-width:960px){.parr{transform:rotate(90deg);padding:4px 0}}
+
+  .core-row{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+  @media (max-width:860px){.core-row{grid-template-columns:1fr}}
+  .corebox{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+  .corebox h6{font-size:13.5px;margin-bottom:6px}
+  .corebox p{font-size:12.5px;color:var(--muted)}
+  .corebox code{font-family:var(--code);font-size:11.5px;color:var(--cyan)}
+
+  /* ===== 表格与徽标 ===== */
+  table.cat{width:100%;border-collapse:collapse;font-size:13px}
+  table.cat th{
+    text-align:left;font-size:11px;letter-spacing:1px;color:var(--dim);font-weight:600;
+    padding:8px 10px;border-bottom:1px solid var(--border);
+  }
+  table.cat td{padding:8px 10px;border-bottom:1px solid var(--border-soft);vertical-align:middle}
+  table.cat tr:hover td{background:rgba(77,159,255,.03)}
+  table.cat tr.group td{
+    background:var(--panel2);color:var(--muted);font-size:11.5px;letter-spacing:1px;
+    font-weight:600;padding:6px 10px;border-bottom:1px solid var(--border);
+  }
+  .op{font-family:var(--code);font-size:12px;color:var(--cyan)}
+  .impl{font-size:12px;color:var(--muted)}
+  .impl .new{color:var(--purple);font-size:10.5px;border:1px dashed rgba(180,144,255,.5);border-radius:4px;padding:0 5px;margin-left:4px}
+  .badge{
+    display:inline-block;font-size:11px;padding:1px 9px;border-radius:10px;white-space:nowrap;
+  }
+  .bg-read{color:var(--blue);background:rgba(77,159,255,.1);border:1px solid rgba(77,159,255,.3)}
+  .bg-write{color:var(--amber);background:rgba(232,182,76,.09);border:1px solid rgba(232,182,76,.3)}
+  .bc-auto{color:var(--green);background:rgba(63,202,127,.09);border:1px solid rgba(63,202,127,.3)}
+  .bc-session{color:var(--blue);background:rgba(77,159,255,.09);border:1px solid rgba(77,159,255,.3)}
+  .bc-each{color:var(--amber);background:rgba(232,182,76,.09);border:1px solid rgba(232,182,76,.35)}
+  .bc-hidden{color:#8a94a8;background:rgba(138,148,168,.09);border:1px solid rgba(138,148,168,.3)}
+  .bv-rw{color:var(--green);background:transparent;border:1px solid rgba(63,202,127,.35)}
+  .bv-ro{color:var(--cyan);background:transparent;border:1px solid rgba(79,201,216,.4)}
+  .bv-hid{color:#8a94a8;border:1px dashed rgba(138,148,168,.4)}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin:10px 2px 0}
+  .legend b{font-weight:600;color:var(--text)}
+
+  /* ===== review.state 双向图 ===== */
+  .vs-diagram{display:grid;grid-template-columns:1fr auto 1.35fr auto 1fr;gap:12px;align-items:center}
+  @media (max-width:860px){.vs-diagram{grid-template-columns:1fr}}
+  .vs-node{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center}
+  .vs-node h6{font-size:14px;margin-bottom:2px}
+  .vs-node .sub{font-size:11.5px;color:var(--dim);margin-bottom:10px}
+  .vs-state{
+    background:linear-gradient(135deg,rgba(63,202,127,.07),rgba(77,159,255,.07));
+    border:1px solid rgba(63,202,127,.35);border-radius:14px;padding:18px 20px;text-align:center;
+  }
+  .vs-state h6{font-size:15px;font-family:var(--code);letter-spacing:.3px;margin-bottom:8px}
+  .states{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .st{font-size:11.5px;font-family:var(--code);padding:2px 11px;border-radius:11px}
+  .st.pending{color:var(--muted);border:1px solid var(--border)}
+  .st.accepted{color:var(--green);border:1px solid rgba(63,202,127,.45);background:rgba(63,202,127,.08)}
+  .st.rejected{color:var(--red);border:1px solid rgba(240,112,95,.45);background:rgba(240,112,95,.08)}
+  .vs-note{font-size:11.5px;color:var(--dim);margin-top:10px;line-height:1.6}
+  .arrow-h{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--dim);font-size:11px;text-align:center}
+  .arrow-h .lbl{font-family:var(--code)}
+  .arrow-h .lbl.rw{color:var(--green)}
+  .arrow-h .lbl.ro{color:var(--cyan)}
+  .arrow-h .glyph{font-size:18px;line-height:1}
+  .arrow-h .glyph.ro{color:var(--cyan)}
+
+  /* ===== 两通道一状态 ===== */
+  .chan{display:grid;grid-template-columns:1fr 60px 1.3fr;gap:0;align-items:center}
+  @media (max-width:860px){.chan{grid-template-columns:1fr}}
+  .chan-left{display:flex;flex-direction:column;gap:12px}
+  .chan-box{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 16px}
+  .chan-box h6{font-size:13px;margin-bottom:2px}
+  .chan-box p{font-size:11.5px;color:var(--muted)}
+  .chan-box .k{font-size:10.5px;font-family:var(--code);color:var(--purple)}
+  .chan-state{
+    background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;text-align:center;
+  }
+  .chan-state h6{font-size:14px;color:var(--green)}
+  .chan-state p{font-size:12px;color:var(--muted);margin-top:6px}
+
+  /* ===== 确认队列 ===== */
+  .confirm-keys{display:flex;gap:10px;margin:12px 0 4px;flex-wrap:wrap}
+  .ckey{font-size:12.5px;padding:5px 16px;border-radius:8px;border:1px solid}
+  .ckey.ok{color:var(--green);border-color:rgba(63,202,127,.4);background:rgba(63,202,127,.07)}
+  .ckey.no{color:var(--red);border-color:rgba(240,112,95,.4);background:rgba(240,112,95,.07)}
+  .ckey.mem{color:var(--blue);border-color:rgba(77,159,255,.4);background:rgba(77,159,255,.07)}
+
+  /* ===== 场景 ===== */
+  .scene{margin-bottom:18px}
+  .scene-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .scene-head .sn{
+    font-family:var(--code);font-size:11px;color:#0b0e14;font-weight:700;
+    padding:2px 10px;border-radius:10px;
+  }
+  .scene-head h4{font-size:15px}
+  .scene-head .take{margin-left:auto;font-size:11.5px;color:var(--dim)}
+  .steps{border-left:2px solid var(--border);margin-left:8px;padding-left:0}
+  .step{display:flex;gap:12px;padding:7px 0 7px 16px;position:relative;align-items:baseline}
+  .step::before{
+    content:"";position:absolute;left:-6px;top:14px;width:8px;height:8px;border-radius:50%;
+    background:var(--bg);border:2px solid var(--blue);
+  }
+  .step.agent::before{border-color:var(--purple)}
+  .step.human::before{border-color:var(--green)}
+  .step.host::before{border-color:var(--cyan)}
+  .step .st-txt{flex:1;font-size:13px;color:#b9c4d6}
+  .step .st-txt b{color:var(--text);font-weight:600}
+  .step .st-op{
+    font-family:var(--code);font-size:10.5px;color:var(--dim);white-space:nowrap;
+    display:inline-block;margin-left:8px;
+  }
+  .step .st-op em{font-style:normal;color:var(--amber)}
+
+  /* ===== 路线图 ===== */
+  .roadmap{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;position:relative}
+  @media (max-width:960px){.roadmap{grid-template-columns:1fr 1fr}}
+  @media (max-width:640px){.roadmap{grid-template-columns:1fr}}
+  .fcard{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative}
+  .fcard .fb{
+    font-family:var(--code);font-size:11px;font-weight:700;color:#0b0e14;
+    background:linear-gradient(92deg,var(--blue),var(--cyan));
+    display:inline-block;padding:1px 10px;border-radius:10px;margin-bottom:8px;
+  }
+  .fcard h6{font-size:13.5px;margin-bottom:8px}
+  .fcard ul{list-style:none;font-size:11.5px;color:var(--muted);line-height:1.65}
+  .fcard ul li::before{content:"· ";color:var(--blue)}
+  .fcard .align{
+    margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;
+  }
+  .fcard .align span{font-size:10px;font-family:var(--code);color:var(--cyan);border:1px solid rgba(79,201,216,.35);border-radius:5px;padding:0 6px}
+  .fcard .dep{margin-top:6px;font-size:10.5px;color:var(--dim)}
+  .fcard .dep b{color:var(--amber);font-weight:600}
+
+  /* ===== 边界与关系 ===== */
+  .nos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:860px){.nos{grid-template-columns:1fr}}
+  .no-item{
+    display:flex;gap:10px;background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted);align-items:flex-start;
+  }
+  .no-item .x{color:var(--red);font-weight:700;flex-shrink:0}
+  .no-item b{color:var(--text)}
+
+  table.rel{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.rel th{text-align:left;font-size:11px;letter-spacing:1px;color:var(--dim);padding:8px 10px;border-bottom:1px solid var(--border)}
+  table.rel td{padding:9px 10px;border-bottom:1px solid var(--border-soft);color:var(--muted);vertical-align:top}
+  table.rel td:first-child{color:var(--text)}
+  .rb{display:inline-block;font-size:10.5px;padding:1px 8px;border-radius:9px;white-space:nowrap}
+  .rb-absorb{color:var(--green);border:1px solid rgba(63,202,127,.4)}
+  .rb-conv{color:var(--amber);border:1px solid rgba(232,182,76,.4)}
+  .rb-move{color:var(--blue);border:1px solid rgba(77,159,255,.4)}
+  .rb-ref{color:var(--muted);border:1px solid var(--border)}
+
+  footer{
+    border-top:1px solid var(--border-soft);margin-top:20px;padding-top:22px;
+    font-size:12px;color:var(--dim);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="toc">
+  <div class="brand">Gitter</div>
+  <div class="brand-sub">工具属性 × Agent 融合设计</div>
+  <div class="toc-sec">为什么</div>
+  <a href="#s1">01 · 融合三命题</a>
+  <div class="toc-sec">是什么</div>
+  <a href="#s2">02 · 总纲：一套工具 三类客户端</a>
+  <a href="#s3">03 · 统一操作目录</a>
+  <a href="#s4">04 · 执行管线</a>
+  <div class="toc-sec">怎么融</div>
+  <a href="#s5">05 · 写路径：确认·溯源·审计</a>
+  <a href="#s6">06 · 验收状态双向共享</a>
+  <a href="#s7">07 · 闭环：两通道一状态</a>
+  <a href="#s8">08 · 场景走查</a>
+  <div class="toc-sec">怎么落</div>
+  <a href="#s9">09 · 路线图 F0–F3</a>
+  <a href="#s10">10 · 边界与文档关系</a>
+</nav>
+
+<main>
+<div class="wrap">
+
+<!-- ============ HERO ============ -->
+<header>
+  <div class="hero-chips">
+    <span class="chip accent">设计稿 v1.0 · 2026-10-05</span>
+    <span class="chip warn">仅设计 · 未动任何代码</span>
+    <span class="chip">上位：ai-native-redesign v1.2</span>
+    <span class="chip">上位：agent-harness-codex</span>
+  </div>
+  <h1 class="title">Gitter <span class="grad">工具属性 × Agent</span> 融合设计</h1>
+  <p class="hero-sub"><b>工具面统一稿</b> —— 不新增功能域，把分散的 MCP 工具集、harness 权限、提交安全网、hunk 三态收敛成一个模型：<b>一套工具、三类客户端、一条闭环</b>，并补上融合缺的拼图：验收状态的人机双向共享。</p>
+  <p class="hero-meta">源文档：<code>docs/tool-agent-fusion.md</code> · 本页为其可视化呈现 · 定位不漂移："AI 生产，人验收，Gitter 管理验收台"</p>
+</header>
+
+<!-- ============ 01 三命题 ============ -->
+<section id="s1">
+  <div class="sec-head"><span class="sec-no">01</span><h2>融合三命题</h2></div>
+  <p class="sec-desc">"融合"不是加功能，而是三件可以逐条验收的事。命题 1、2 在既有文档已有落点，命题 3 是本稿补齐的拼图。</p>
+  <div class="grid3">
+    <div class="card prop">
+      <span class="pn">命题 1</span>
+      <h4>工具出口 agent 化</h4>
+      <p>Gitter 的工具能力成为 agent <b>可寻址、可组合、可控</b>的调用面——agent 不必再裸解析 git 文本输出。</p>
+      <span class="tag">落点：MCP / CLI / harness 三出口</span>
+    </div>
+    <div class="card prop">
+      <span class="pn">命题 2</span>
+      <h4>agent 输入数据化</h4>
+      <p>agent 的动作与会话成为 Gitter 工具视图的<b>一等数据</b>（会话卡、溯源徽标、活动指示）——agent 只是一个新的"变更来源"。</p>
+      <span class="tag">落点：provenance / 会话卡 / 任务卡</span>
+    </div>
+    <div class="card prop">
+      <span class="pn">命题 3</span>
+      <h4>人的裁决共享化</h4>
+      <p>验收三态（接受 / 拒绝 / 待审）成为<b>人机共享状态</b>，反向成为 agent 的输入——agent 知道人对上一轮的裁决。</p>
+      <span class="tag">★ 本稿补齐 · review.state</span>
+    </div>
+  </div>
+  <div class="note warn" style="margin-top:18px">
+    <b>反融合边界（定位护栏）：</b>Gitter 不做 agent 编排 / 工作流 / 多 agent 调度；不做 inline 补全与内嵌 chat；工具面是薄层，只做能力封装与策略执行；拔掉所有 agent，Gitter 仍是完整 git 客户端（有降级守卫测试）。
+  </div>
+</section>
+
+<!-- ============ 02 总纲 ============ -->
+<section id="s2">
+  <div class="sec-head"><span class="sec-no">02</span><h2>总纲：一套工具、三类客户端、一条闭环</h2></div>
+  <p class="sec-desc">融合的正确性来源是<b>同源同构</b>：人点的按钮、agent 调的工具、宿主代打的 checkpoint，是同一个 Operation 的三个投影——同一条管线、同一套策略、同一种溯源、同一份测试。</p>
+
+  <div class="arch">
+    <div class="clients">
+      <div class="client">
+        <h5>👤 人</h5>
+        <div class="exit">UI 出口</div>
+        <p>按钮 / 命令面板 / 右键菜单——<b>既有交互不变</b>，只是底层换到统一管线。</p>
+        <div class="chips"><span>验收台</span><span>任务卡</span><span>危险操作确认</span></div>
+      </div>
+      <div class="client c2">
+        <h5>🤖 agent</h5>
+        <div class="exit">MCP + CLI 出口</div>
+        <p>结构化工具调用。有 MCP 的走 stdio 管道，没有的走 <code>gitter</code> CLI 子命令。</p>
+        <div class="chips"><span>Codex</span><span>Claude Code</span><span>Cursor</span><span>脚本/CI</span></div>
+      </div>
+      <div class="client c3">
+        <h5>⚙️ harness 宿主</h5>
+        <div class="exit">内部出口</div>
+        <p>Gitter 宿主 agent 时的代打动作：托管 checkpoint、反馈直投。</p>
+        <div class="chips"><span>com.openai.codex</span><span>.gpk harness 包</span></div>
+      </div>
+    </div>
+
+    <div class="flow-arrow"><span class="line"></span><span>同一 Operation 的三个投影</span><span class="arr">▼</span><span class="line r"></span></div>
+
+    <div class="surface">
+      <h4>工具面 · 统一操作目录</h4>
+      <div class="en">Tool Surface — Operation Catalog</div>
+      <p>每个工具操作声明一份元数据，三个出口共用，策略只定义一次</p>
+      <div class="attrs">
+        <span>id</span><span>读 / 写</span><span>确认策略</span><span>溯源要求</span><span>agent 可见性</span>
+      </div>
+    </div>
+
+    <div class="flow-arrow"><span class="line"></span><span>同一条执行管线</span><span class="arr">▼</span><span class="line r"></span></div>
+
+    <div class="pipeline">
+      <div class="pstep"><span class="no">STEP 1</span><h6>可见性检查</h6><p>Hidden 操作拒绝<br>非人来源</p></div>
+      <div class="parr">▶</div>
+      <div class="pstep"><span class="no">STEP 2</span><h6>确认策略</h6><p>Session 未记忆<br>EachTime → 入队</p></div>
+      <div class="parr">▶</div>
+      <div class="pstep"><span class="no">STEP 3</span><h6>安全网拦截</h6><p>写操作过 §4.2 规则<br>人写也不豁免</p></div>
+      <div class="parr">▶</div>
+      <div class="pstep"><span class="no">STEP 4</span><h6>执行</h6><p>GitWorker 串行队列<br>不与前台争抢</p></div>
+      <div class="parr">▶</div>
+      <div class="pstep"><span class="no">STEP 5</span><h6>溯源 + 审计</h6><p>trailer 打戳<br>audit.jsonl 追加</p></div>
+    </div>
+
+    <div class="flow-arrow"><span class="line"></span><span>结果（结构化返回，错误分类与 UI 一致）</span><span class="arr">▼</span><span class="line r"></span></div>
+
+    <div class="core-row">
+      <div class="corebox">
+        <h6>git 事务内核</h6>
+        <p><code>IRepositoryService</code>（libgit2 读 + git CLI 写）经 <code>GitWorker</code> 串行执行——工具面之前已有的全部能力，一行不改。</p>
+      </div>
+      <div class="corebox">
+        <h6>审计账本</h6>
+        <p><code>.git/gitter/audit.jsonl</code> · append-only：谁、何时、经哪条通道、动了什么、人批没批。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="note green">
+    <b>同源同构的四个一致性保证：</b>① agent 经 Gitter 提交与人手点提交过同一道安全网；② harness 权限白名单与 MCP 工具集不会各自漂移；③ 确认交互只有一种范式；④ 溯源只看目录不看调用方。
+  </div>
+</section>
+
+<!-- ============ 03 操作目录 ============ -->
+<section id="s3">
+  <div class="sec-head"><span class="sec-no">03</span><h2>统一操作目录（首批）</h2></div>
+  <p class="sec-desc">直接映射 <code>IRepositoryService</code> 现有方法。目录即守卫测试的输入：Hidden 操作被 agent 通道调用必须拒绝，EachTime 永不出现"记住"路径，纯读永远不触发确认。</p>
+
+  <div class="card" style="padding:8px 6px">
+  <table class="cat">
+    <thead><tr><th style="width:26%">操作 id</th><th style="width:34%">现有实现</th><th style="width:9%">类别</th><th style="width:16%">确认策略</th><th>agent 可见性</th></tr></thead>
+    <tbody>
+      <tr class="group"><td colspan="5">读操作 — Auto 免确认</td></tr>
+      <tr><td><span class="op">repo.status / log / branches</span></td><td class="impl">GetStatus · GetLog · GetBranches</td><td><span class="badge bg-read">读</span></td><td><span class="badge bc-auto">Auto</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">repo.diff</span></td><td class="impl">GetWorktreePatch · GetCommitDiff · GetTreeDiff · GetFileDiff · GetNumStat</td><td><span class="badge bg-read">读</span></td><td><span class="badge bc-auto">Auto</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">repo.impact</span></td><td class="impl">BranchDeleteImpact · UniqueCommits · MergeBase</td><td><span class="badge bg-read">读</span></td><td><span class="badge bc-auto">Auto</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">repo.worktrees</span></td><td class="impl">GetWorktrees · DefaultBranchName</td><td><span class="badge bg-read">读</span></td><td><span class="badge bc-auto">Auto</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">review.session_diff</span></td><td class="impl">规划 §3.1 会话基线（squash 视角净 diff）</td><td><span class="badge bg-read">读</span></td><td><span class="badge bc-auto">Auto</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">review.risk_signals</span></td><td class="impl">规划 §3.3 规则引擎风险标注</td><td><span class="badge bg-read">读</span></td><td><span class="badge bc-auto">Auto</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">review.state.read</span><span class="impl"><span class="new">本稿新增</span></span></td><td class="impl">验收三态 + 时效指纹（§06）</td><td><span class="badge bg-read">读</span></td><td><span class="badge bc-auto">Auto</span></td><td><span class="badge bv-ro">RO 只读</span></td></tr>
+
+      <tr class="group"><td colspan="5">写操作 — 按策略确认</td></tr>
+      <tr><td><span class="op">repo.stage / unstage</span></td><td class="impl">Stage · Unstage</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-session">Session</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">repo.apply_patch</span></td><td class="impl">ApplyIndexPatch · ApplyWorktreePatch（reverse = hunk 拒绝）</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-session">Session</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">repo.commit</span></td><td class="impl">Commit（过安全网拦截器）</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-session">Session</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">repo.worktree.write</span></td><td class="impl">CreateWorktree（Session）· Remove / Prune（EachTime）</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-session">Session</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">review.submit_feedback</span></td><td class="impl">规划 §7.2 反向通道</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-session">Session</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">repo.branch.write</span></td><td class="impl">CreateBranch · Rename · Delete · Checkout</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-each">EachTime</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">repo.history.write</span></td><td class="impl">Rebase · Merge · ResetTo · CherryPick · Stash</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-each">EachTime</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+      <tr><td><span class="op">repo.remote.write</span></td><td class="impl">Push · Fetch</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-each">EachTime</span></td><td><span class="badge bv-rw">RW</span></td></tr>
+
+      <tr class="group"><td colspan="5">人专属与宿主内部</td></tr>
+      <tr><td><span class="op">review.state.write</span><span class="impl"><span class="new">本稿新增</span></span></td><td class="impl">人写入裁决（接受/拒绝）——agent 永远只读</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-hidden">—</span></td><td><span class="badge bv-hid">🔒 Hidden</span></td></tr>
+      <tr><td><span class="op">task.checkpoint</span></td><td class="impl">IHostCheckpointService（§12.9 宿主托管 checkpoint）</td><td><span class="badge bg-write">写</span></td><td><span class="badge bc-auto">Auto</span>（任务卡开关）</td><td><span class="badge bv-hid">🔒 Hidden</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="legend">
+    <span><b>确认策略</b>：</span>
+    <span class="badge bc-auto">Auto</span><span>免确认（读/幂等）</span>
+    <span class="badge bc-session">Session</span><span>会话内一次确认后记忆</span>
+    <span class="badge bc-each">EachTime</span><span>每次确认，永不记忆</span>
+    <span class="badge bv-hid">Hidden</span><span>不对 agent 开放</span>
+  </div>
+</section>
+
+<!-- ============ 04 执行管线 ============ -->
+<section id="s4">
+  <div class="sec-head"><span class="sec-no">04</span><h2>执行管线（所有出口共用）</h2></div>
+  <p class="sec-desc">请求携带来源与 agent 身份，五个挂点顺序执行。人自己的操作走既有交互，不经过确认队列——队列只是 agent 写请求的排队形态，策略同一张目录表。</p>
+  <div class="card" style="font-family:var(--code);font-size:12.5px;line-height:2.1;color:#b9c4d6">
+    <div><span style="color:var(--dim)">请求</span>(来源: <span style="color:var(--purple)">ui | mcp | harness</span>, 携带 agent 身份)</div>
+    <div>&nbsp;&nbsp;→ <span style="color:var(--cyan)">① 可见性检查</span>　Hidden + 非人来源 → 拒绝（审计记录）</div>
+    <div>&nbsp;&nbsp;→ <span style="color:var(--cyan)">② 确认策略</span>　Session 未记忆 / EachTime → 确认队列（§05）</div>
+    <div>&nbsp;&nbsp;→ <span style="color:var(--cyan)">③ 安全网拦截</span>　写操作 · §4.2 同库规则 · 阻止/警告分档</div>
+    <div>&nbsp;&nbsp;→ <span style="color:var(--cyan)">④ 执行</span>　GitWorker 入队，短生命周期仓库句柄</div>
+    <div>&nbsp;&nbsp;→ <span style="color:var(--cyan)">⑤ 溯源 + 审计</span>　trailer 打戳 / audit.jsonl → <span style="color:var(--green)">结构化结果</span></div>
+  </div>
+  <div class="note">
+    <b>三处收敛：</b>§7.2 MCP 工具清单改由目录生成（加工具 = 加一行）；§12.3 harness 的 <code>gitWrite</code> 白名单改引用操作 id；§4.2 安全网从"提交时机的功能"重定位为"写管线拦截器"。规则库本身不变。
+  </div>
+</section>
+
+<!-- ============ 05 写路径 ============ -->
+<section id="s5">
+  <div class="sec-head"><span class="sec-no">05</span><h2>写路径：确认通道 · 溯源 · 审计</h2></div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin-top:0">统一确认队列（人机同权）</h3>
+      <p class="body" style="font-size:13px">有任务卡的进任务卡<b>内联授权卡</b>（不抢焦点）；无任务卡降级为变更页横幅 + 命令面板角标。队列积压 → 会话进入 <b>AwaitingPermission</b> 徽标态。</p>
+      <div class="confirm-keys">
+        <span class="ckey ok">✓ 批准</span>
+        <span class="ckey no">✕ 驳回</span>
+        <span class="ckey mem">⭑ 本会话记住</span>
+      </div>
+      <p class="body" style="font-size:12px;color:var(--dim)">"记住"仅 Session 档出现；EachTime 档按钮不出现——高危操作没有记忆后门。</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">溯源与审计分离</h3>
+      <p class="body" style="font-size:13px"><b style="color:var(--green)">进 git 数据</b>（沿 §5.2 不扩）：<br><code style="font-family:var(--code);font-size:11px">Assisted-by: &lt;agent-id&gt;</code> · <code style="font-family:var(--code);font-size:11px">Gitter-Session: &lt;uuid&gt;</code><br>MCP 通道身份取握手 clientInfo，harness 通道取 manifest identity。</p>
+      <p class="body" style="font-size:13px"><b style="color:var(--amber)">不进 git 数据</b>：通道、确认人、耗时 → <code style="font-family:var(--code);font-size:11px">audit.jsonl</code>。出问题时"谁在何时经哪条通道动了什么"有账可查。</p>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <b>诚实边界：</b>agent 绕过 Gitter 直接跑 git（进程内自有行为）不受管线约束。对策不变：Codex sandbox 默认 workspace-write + preamble 软约束 + 验收台弱标注兜底。工具面管"经 Gitter 的"，验收台管"没经 Gitter 的"——两层防线各司其职，不伪装强隔离。
+  </div>
+</section>
+
+<!-- ============ 06 review.state ============ -->
+<section id="s6">
+  <div class="sec-head"><span class="sec-no">06</span><h2>review.state：验收三态的人机双向共享</h2></div>
+  <p class="sec-desc">本稿核心新增、融合缺的拼图。agent 修复轮先查裁决、只改 rejected 的 hunk——人的验收状态第一次成为 agent 的输入信号。</p>
+
+  <div class="vs-diagram">
+    <div class="vs-node">
+      <h6>👤 人</h6>
+      <div class="sub">验收台 / 任务卡</div>
+      <span class="badge bv-rw" style="font-size:12px;padding:3px 14px">读写 RW</span>
+      <p class="vs-note">UI 出口直写裁决<br>（review.state.write）</p>
+    </div>
+    <div class="arrow-h"><span class="lbl rw">⟷ 读写</span><span class="glyph">⇄</span></div>
+    <div class="vs-state">
+      <h6>review.state</h6>
+      <div class="states">
+        <span class="st pending">pending</span>
+        <span class="st accepted">accepted</span>
+        <span class="st rejected">rejected</span>
+      </div>
+      <p class="vs-note" style="margin-top:6px">hunk / 文件 / 整体 三层 + 反馈批注引用</p>
+      <div class="vs-note" style="border-top:1px dashed var(--border);padding-top:8px;margin-top:8px">
+        存储：会话内存 + 任务账本<br><b style="color:var(--amber)">不写入 git 数据</b>（沿 §九）
+      </div>
+    </div>
+    <div class="arrow-h"><span class="lbl ro">→ 只读</span><span class="glyph ro">⇢</span></div>
+    <div class="vs-node" style="border-style:dashed">
+      <h6>🤖 agent</h6>
+      <div class="sub">MCP / harness 出口</div>
+      <span class="badge bv-ro" style="font-size:12px;padding:3px 14px">只读 RO</span>
+      <p class="vs-note">review.state.read<br>感知人的裁决（Hidden 写入口）</p>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:16px">
+    <b>时效指纹：</b>状态附 <code>baselineSha</code> + hunk 内容指纹——人改了代码或基线推进后旧裁决自动失效，agent 不会拿过期裁决当指令。
+  </div>
+  <div class="note green">
+    <b>闭环价值：</b><code>codex exec resume</code> 修复轮里，agent 先查 review.state → 只处理 rejected 项 + 反馈文本 → 改动面积最小化。命题 3"人的裁决成为 agent 输入"即此。
+  </div>
+</section>
+
+<!-- ============ 07 两通道一状态 ============ -->
+<section id="s7">
+  <div class="sec-head"><span class="sec-no">07</span><h2>闭环：两通道、一状态</h2></div>
+  <p class="sec-desc">人的裁决与反馈通过两个通道喂给 agent，但状态只有一份——不出现"反馈双份、裁决两套"。</p>
+  <div class="chan">
+    <div class="chan-left">
+      <div class="chan-box">
+        <h6>推 · harness 通道</h6>
+        <p>人点"退回重做"，agent 会话在场</p>
+        <span class="k">SubmitFeedbackAsync（NextTurn · exec resume）</span>
+      </div>
+      <div class="chan-box">
+        <h6>拉 · MCP 通道</h6>
+        <p>agent 主动查询（会话不在场 / 自主循环中）</p>
+        <span class="k">review.state.read · review.submit_feedback</span>
+      </div>
+    </div>
+    <div style="text-align:center;color:var(--dim);font-size:18px">⟶</div>
+    <div class="chan-state">
+      <h6>review.state + ReviewFeedback 列表（唯一一份）</h6>
+      <p>人标 rejected + 写反馈 → 推通道起修复轮<br>修复轮中 agent 拉通道核对剩余 rejected 项<br>→ turn.completed → 宿主 checkpoint → 人继续审</p>
+    </div>
+  </div>
+  <div class="note" style="margin-top:16px">
+    <b>CLI 出口兜底：</b><code>gitter mcp serve · gitter repo &lt;op&gt; · gitter session &lt;id&gt; status · gitter task list</code>——同一目录的文本投影，给不能挂 MCP 的 agent（脚本、CI）。无头环境 Session 确认降级为 <code>--yes</code> 显式旗标 + 审计标记 unattended。
+  </div>
+</section>
+
+<!-- ============ 08 场景 ============ -->
+<section id="s8">
+  <div class="sec-head"><span class="sec-no">08</span><h2>场景走查（融合咬合点）</h2></div>
+
+  <div class="scene card">
+    <div class="scene-head"><span class="sn" style="background:linear-gradient(92deg,var(--blue),var(--cyan))">场景 1</span><h4>旗舰闭环 · harness 在场（Codex）</h4><span class="take">每一步人与 agent 都咬合同一张目录</span></div>
+    <div class="steps">
+      <div class="step human"><span class="st-txt"><b>新建任务</b>：拉出 task/&lt;slug&gt; worktree<span class="st-op">repo.worktree.write · <em>Session</em></span></span></div>
+      <div class="step"><span class="st-txt"><b>派活给 Codex</b><span class="st-op">harness 出口 · 不涉目录</span></span></div>
+      <div class="step agent"><span class="st-txt"><b>Codex 改文件</b>——绕过 Gitter，sandbox 兜底<span class="st-op">管线外 · 诚实边界</span></span></div>
+      <div class="step host"><span class="st-txt"><b>轮次结束 → 宿主托管 checkpoint</b>，trailer 齐全<span class="st-op">task.checkpoint · <em>Hidden</em></span></span></div>
+      <div class="step human"><span class="st-txt"><b>人审：接受</b> → review.state 置 accepted<span class="st-op">repo.apply_patch · <em>Session</em></span></span></div>
+      <div class="step human"><span class="st-txt"><b>人审：退回 + 写反馈</b> → rejected → 推通道直投<span class="st-op">reverse apply → SubmitFeedbackAsync</span></span></div>
+      <div class="step agent"><span class="st-txt"><b>agent 拉通道核对</b>剩余 rejected 项，精准修复<span class="st-op">review.state.read · <em>RO</em></span></span></div>
+      <div class="step human"><span class="st-txt"><b>整理为一次提交</b>（影响面数据来自 repo.impact）<span class="st-op">repo.history.write · <em>EachTime</em></span></span></div>
+      <div class="step human"><span class="st-txt"><b>合并清理任务</b><span class="st-op">repo.worktree.write · <em>EachTime</em></span></span></div>
+    </div>
+  </div>
+
+  <div class="scene card">
+    <div class="scene-head"><span class="sn" style="background:linear-gradient(92deg,var(--purple),var(--blue))">场景 2</span><h4>纯 MCP 客户端 · 不经 harness（如 Cursor）</h4><span class="take">没有任务卡，融合依然成立</span></div>
+    <div class="steps">
+      <div class="step agent"><span class="st-txt"><b>自查</b>：diff + 风险信号<span class="st-op">repo.diff · review.risk_signals · <em>Auto</em></span></span></div>
+      <div class="step agent"><span class="st-txt"><b>暂存</b>：首次弹内联卡，批准后本会话记住<span class="st-op">repo.stage · <em>Session</em></span></span></div>
+      <div class="step agent"><span class="st-txt"><b>提交被安全网拦截</b>：发现疑似密钥 → 阻止<span class="st-op">repo.commit · 管线 STEP 3</span></span></div>
+      <div class="step agent"><span class="st-txt"><b>agent 收结构化错误</b> → 改写 message 去掉密钥行 → 二次提交 → 人批<span class="st-op">repo.commit · <em>Session</em></span></span></div>
+      <div class="step"><span class="st-txt"><b>溯源 + 审计</b>：Assisted-by: cursor（握手 clientInfo）+ Gitter-Session<span class="st-op">管线 STEP 5</span></span></div>
+    </div>
+  </div>
+
+  <div class="scene card">
+    <div class="scene-head"><span class="sn" style="background:linear-gradient(92deg,var(--green),var(--cyan))">场景 3</span><h4>agent 全部离场（降级守卫）</h4><span class="take">拔掉所有 agent，Gitter 仍是完整 git 客户端</span></div>
+    <div class="steps">
+      <div class="step human"><span class="st-txt"><b>Hidden / RW 标注</b>不影响任何 UI 操作；确认队列空；审计无 agent 行；MCP 关闭</span></div>
+      <div class="step human"><span class="st-txt"><b>守卫测试断言</b>：禁用全部 harness 包 + 关闭 MCP 后，UI 出口对每个 Operation 的行为与引入工具面之前<b>逐项一致</b></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 09 路线图 ============ -->
+<section id="s9">
+  <div class="sec-head"><span class="sec-no">09</span><h2>落地切片 F0–F3</h2></div>
+  <p class="sec-desc">F0 无前置依赖可先走：UI 出口先切到统一管线，行为不变——融合的第一步对用户完全不可见。</p>
+  <div class="roadmap">
+    <div class="fcard">
+      <span class="fb">F0</span>
+      <h6>目录与策略模型</h6>
+      <ul>
+        <li>GitUI.Core/Tools：Operation 模型</li>
+        <li>首批目录（§03 表）</li>
+        <li>执行管线骨架（挂点就位）</li>
+        <li>UI 出口先切换，行为不变</li>
+      </ul>
+      <div class="align"><span>对齐 P1</span></div>
+      <div class="dep">依赖：<b>无</b></div>
+    </div>
+    <div class="fcard">
+      <span class="fb">F1</span>
+      <h6>读出口（MCP server）</h6>
+      <ul>
+        <li>stdio 暴露全部读操作</li>
+        <li>review.state.read（RO）</li>
+        <li>验收级视图作为 agent 工具</li>
+      </ul>
+      <div class="align"><span>P5 具体化</span></div>
+      <div class="dep">依赖：<b>P0</b> watcher 保新鲜 · <b>P5</b> 管道层</div>
+    </div>
+    <div class="fcard">
+      <span class="fb">F2</span>
+      <h6>写出口与确认队列</h6>
+      <ul>
+        <li>写操作经管线 + Session/EachTime</li>
+        <li>audit.jsonl + provenance 打戳</li>
+        <li>harness gitWrite → 操作 id 引用</li>
+      </ul>
+      <div class="align"><span>补全 P5</span><span>§12.3 收敛</span></div>
+      <div class="dep">依赖：<b>F1</b> · <b>C1</b> 账本</div>
+    </div>
+    <div class="fcard">
+      <span class="fb">F3</span>
+      <h6>裁决回流与 CLI</h6>
+      <ul>
+        <li>review.state 双向 + 时效指纹</li>
+        <li>推/拉两通道合一</li>
+        <li>gitter CLI 子命令面</li>
+      </ul>
+      <div class="align"><span>C2 衔接</span></div>
+      <div class="dep">依赖：<b>F2</b> · <b>C1</b> NextTurn 反馈</div>
+    </div>
+  </div>
+  <div class="note" style="margin-top:16px">
+    <b>测试策略</b>（延续仓库守卫风格）：目录不变量黄金用例（Hidden 拒绝 / EachTime 无记忆 / 读零确认）；确认策略纯函数化；管线挂点快照测试（安全网命中、trailer 字段、审计行格式）；MCP 协议层单测；<b>降级守卫</b>（场景 3 逐项一致）；review.state 时效指纹过期失效参数化测试。
+  </div>
+</section>
+
+<!-- ============ 10 边界与关系 ============ -->
+<section id="s10">
+  <div class="sec-head"><span class="sec-no">10</span><h2>明确不做 & 文档关系</h2></div>
+  <div class="nos">
+    <div class="no-item"><span class="x">✕</span><span>不做 <b>agent 编排 / 工作流引擎 / 多 agent 调度</b>——Gitter 不成为 agent 框架</span></div>
+    <div class="no-item"><span class="x">✕</span><span>不做工具的<b>动态注册</b>——目录静态、可审计、随版本发布</span></div>
+    <div class="no-item"><span class="x">✕</span><span>裁决、审计、反馈<b>不写进 git 数据</b>——trailer 白名单之外零污染</span></div>
+    <div class="no-item"><span class="x">✕</span><span>不为 agent 开放任何 Hidden 操作的<b>特权模式</b>；EachTime 无记忆后门</span></div>
+    <div class="no-item"><span class="x">✕</span><span>不做 MCP 之外的第三方工具协议适配——需要时它们也只是目录的<b>新投影</b></span></div>
+  </div>
+
+  <h3>与既有文档的关系</h3>
+  <div class="card" style="padding:8px 6px">
+  <table class="rel">
+    <thead><tr><th style="width:38%">既有章节 / 文档</th><th style="width:14%">关系</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>ai-native-redesign §7.2 · MCP 工具集</td><td><span class="rb rb-absorb">被吸收</span></td><td>工具清单改由操作目录生成（F1），不再手写维护</td></tr>
+      <tr><td>ai-native-redesign §12.3 · harness manifest</td><td><span class="rb rb-conv">后续收敛</span></td><td>gitWrite 白名单改引用操作 id（F2）；其余不动</td></tr>
+      <tr><td>ai-native-redesign §3.4 · hunk 三态</td><td><span class="rb rb-absorb">被吸收</span></td><td>三态即 review.state 的数据源，存储与时效在本稿定义</td></tr>
+      <tr><td>ai-native-redesign §4.2 · 提交安全网</td><td><span class="rb rb-move">位置重定义</span></td><td>从"提交时机的功能"改为"写管线拦截器"，规则库不变</td></tr>
+      <tr><td>ai-native-redesign §12.9 · 宿主 checkpoint</td><td><span class="rb rb-ref">引用</span></td><td>task.checkpoint 即其 Hidden 出口形态</td></tr>
+      <tr><td>agent-harness-codex.md</td><td><span class="rb rb-ref">引用</span></td><td>场景 1 的 harness 细节、sandbox 边界（§八）、NextTurn 反馈（C1）</td></tr>
+      <tr><td>两文档的定位宣言</td><td><span class="rb rb-absorb">不漂移</span></td><td>"AI 生产，人验收，Gitter 管理验收台"——工具面让这句话对人机同时成立</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<footer>
+  <span>docs/tool-agent-fusion.md · 可视化设计稿 · 2026-10-05</span>
+  <span>仅设计，未动任何代码 · Gitter — AI 生产，人验收，Gitter 管理验收台</span>
+</footer>
+
+</div>
+</main>
+</div>
+
+<script>
+  // scrollspy：滚动时高亮左侧目录
+  const links = document.querySelectorAll('nav#toc a[href^="#"]');
+  const secs = [...links].map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function spy(){
+    const y = window.scrollY + 140;
+    let cur = -1;
+    secs.forEach((s,i)=>{ if(s.offsetTop <= y) cur = i; });
+    links.forEach((a,i)=>a.classList.toggle('active', i===cur));
+  }
+  document.addEventListener('scroll', spy, {passive:true});
+  spy();
+</script>
+</body>
+</html>

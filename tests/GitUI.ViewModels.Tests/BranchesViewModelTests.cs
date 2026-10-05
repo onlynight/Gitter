@@ -2,6 +2,7 @@ using GitUI.Core.Models;
 using GitUI.Core.Services;
 using GitUI.Git;
 using Xunit;
+using GitUI.Core.Resources;
 
 namespace GitUI.ViewModels.Tests;
 
@@ -75,7 +76,7 @@ public sealed class BranchesViewModelTests : IDisposable
         var head = Row("side");
         Assert.True(head.IsHead);
         Assert.False(Row("main").IsHead);
-        Assert.Contains("已检出 side", _vm.StatusText);
+        Assert.Contains(string.Format(Strings.Branches_CheckedOut, "side"), _vm.StatusText);
     }
 
     [Fact]
@@ -87,7 +88,7 @@ public sealed class BranchesViewModelTests : IDisposable
         var baseSha = _builder.Sha("HEAD");
         await _vm.CreateAsync("feature/x", baseSha);
         Assert.Contains("refs/heads/feature/x", _builder.RunGit("for-each-ref", "--format=%(refname)", "refs/heads/"));
-        Assert.Contains("已创建 feature/x", _vm.StatusText);
+        Assert.Contains(string.Format(Strings.Branches_Created, "feature/x"), _vm.StatusText);
     }
 
     [Fact]
@@ -125,7 +126,7 @@ public sealed class BranchesViewModelTests : IDisposable
 
         await _vm.DeleteAsync("side", force: true);
         Assert.DoesNotContain("refs/heads/side", _builder.RunGit("for-each-ref", "--format=%(refname)", "refs/heads/"));
-        Assert.Contains("已删除 side", _vm.StatusText);
+        Assert.Contains(string.Format(Strings.Branches_Deleted, "side"), _vm.StatusText);
 
         // 回滚：从删除前 tip 重建分支，提交重新可达（reflog/GUI 恢复的等价路径）
         _builder.Branch("side-recovered", sideTip);
@@ -165,7 +166,7 @@ public sealed class BranchesViewModelTests : IDisposable
         // HEAD == side tip，历史线性（无合并提交）
         Assert.Equal(_builder.Sha("side"), _builder.Sha("main"));
         Assert.Equal(0, _builder.ParentCount("main") - 1); // 单父
-        Assert.Contains("已合并 side", _vm.StatusText);
+        Assert.Contains(string.Format(Strings.Branches_Merged, "side"), _vm.StatusText);
     }
 
     [Fact]
@@ -194,7 +195,7 @@ public sealed class BranchesViewModelTests : IDisposable
         Assert.Contains("main-2", log);
         Assert.Contains("side-1", log);
         Assert.Equal(1, _builder.ParentCount(_builder.Sha("HEAD"))); // 单父 = 线性
-        Assert.Contains("已变基到 main", _vm.StatusText);
+        Assert.Contains(string.Format(Strings.Branches_Rebased, "main"), _vm.StatusText);
     }
 
     [Fact]
@@ -235,9 +236,9 @@ public sealed class BranchesViewModelTests : IDisposable
         _builder.Commit("base", ("a.txt", "1\n"));
         _builder.Branch("b2", _builder.Sha("HEAD"));
         await OpenAsync();
-        Assert.Equal("共 2 个分支", _vm.StatusText);
+        Assert.Equal(string.Format(Strings.Branches_TotalCountMany, 2), _vm.StatusText);
 
         await _vm.CheckoutAsync("b2");
-        Assert.StartsWith("已检出 b2", _vm.StatusText);
+        Assert.StartsWith(string.Format(Strings.Branches_CheckedOut, "b2"), _vm.StatusText);
     }
 }

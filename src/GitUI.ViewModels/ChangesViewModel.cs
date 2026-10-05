@@ -1,5 +1,10 @@
+using System.Globalization;
+using GitUI.Core.Ai;
 using GitUI.Core.Models;
+using GitUI.Core.Resources;
+using GitUI.Core.Rules;
 using GitUI.Core.Services;
+using GitUI.Core.Settings;
 
 namespace GitUI.ViewModels;
 
@@ -32,6 +37,8 @@ public sealed class ChangesViewModel
 {
     private readonly IRepositoryService _repo;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly CommitSafetyOptions? _safetyOptions;
+    private IAiGateway? _ai;
 
     private string? _workDir;
     private List<WorktreeFileStatus> _changes = new();
@@ -56,7 +63,26 @@ public sealed class ChangesViewModel
     private string? _lastPushedMessage;
     private bool _isCommitting;
 
-    public ChangesViewModel(IRepositoryService repo) => _repo = repo;
+    /// <summary>最近一次安全网扫描发现（Off 模式为空）。UI 呈现用，提交后清空。</summary>
+    private IReadOnlyList<RuleFinding> _lastFindings = Array.Empty<RuleFinding>();
+
+    /// <summary>
+    /// 当前提交信息是否由 AI 生成（<see cref="GenerateCommitMessageAsync"/> 成功置位）。
+    /// CommitAsync 消费：按设置追加 Assisted-by trailer 后清除（ai-native-redesign.md §5.2）。
+    /// </summary>
+    private string? _pendingAiTrailer;
+
+    /// <param name="safety">安全网扫描参数；null = 扫描（阈值默认）。Off/Warn/Block 档位由 <see cref="SafetyNetMode"/> 控制。</param>
+    /// <param name="ai">AI 网关；null = AI 提交信息生成不可用（入口隐藏）。</param>
+    public ChangesViewModel(
+        IRepositoryService repo,
+        CommitSafetyOptions? safety = null,
+        IAiGateway? ai = null)
+    {
+        _repo = repo;
+        _safetyOptions = safety;
+        _ai = ai;
+    }
 
     /// <summary>列表 / 勾选 / 状态条 / 错误变化（含加载开始与结束）。</summary>
     public event Action? StructureChanged;
@@ -84,6 +110,37 @@ public sealed class ChangesViewModel
     }
     public bool IsCommitting => _isCommitting;
 
+    // ---- AI 与安全网（ai-native-redesign.md §四 / §八）----
+
+    /// <summary>提交前安全网档位（设置页修改后由页面回写）。</summary>
+    public CommitSafetyMode SafetyNetMode { get; set; } = CommitSafetyMode.Warn;
+
+    /// <summary>AI 隐私档位（生成提交信息时决定是否随请求发送 diff 全文）。</summary>
+    public AiPrivacyLevel AiPrivacy { get; set; } = AiPrivacyLevel.MetadataOnly;
+
+    /// <summary>AI 提交信息生成是否可用（网关已配置且隐私档位非 Disabled）。</summary>
+    public bool IsAiAvailable => _ai is { IsConfigured: true } && AiPrivacy != AiPrivacyLevel.Disabled;
+
+    /// <summary>最近一次安全网扫描发现（提交动作之间保留，供 UI 呈现；Off 模式始终为空）。</summary>
+    public IReadOnlyList<RuleFinding> LastFindings => _lastFindings;
+
+    /// <summary>AI 生成的 trailer 溯源 id（Assisted-by 值，如 provider/model）；由页面在生成后设置。</summary>
+    public string? AiTrailerId { get; set; }
+
+    /// <summary>设置变更时由页面整体回写（网关可换、档位即时生效；线程模型：UI 线程调用）。</summary>
+    public void UpdateAi(
+        CommitSafetyMode safetyMode,
+        AiPrivacyLevel privacy,
+        string? trailerId,
+        IAiGateway? gateway)
+    {
+        SafetyNetMode = safetyMode;
+        AiPrivacy = privacy;
+        AiTrailerId = trailerId;
+        _ai = gateway;
+        StructureChanged?.Invoke();
+    }
+
     public WorktreeFileStatus? Selected => _selected;
     public FileDiffView? SelectedDiff => _selectedDiff;
 
@@ -98,23 +155,23 @@ public sealed class ChangesViewModel
 
     /// <summary>状态条文案。"已提交"前缀是提交成功的 UIA 断言锚点。</summary>
     public string StatusText =>
-        _error is not null ? $"错误: {_error}"
-        : _isCommitting ? "正在提交…"
-        : _isLoading ? "加载中…"
-        : _workDir is null ? "未打开仓库"
-        : _transient is not null && CountSummary() == "工作区干净" ? _transient
+        _error is not null ? string.Format(Strings.Common_ErrorPrefix, _error)
+        : _isCommitting ? Strings.Changes_Committing
+        : _isLoading ? Strings.Common_Loading
+        : _workDir is null ? Strings.Common_NoRepoOpen
+        : _transient is not null && CountSummary() == Strings.Changes_CleanTree ? _transient
         : _transient is not null ? $"{_transient} · {CountSummary()}"
         : CountSummary();
 
     private string CountSummary()
     {
         var parts = new List<string>();
-        if (_changes.Count > 0) parts.Add($"{_changes.Count} 项变更");
-        if (_staged.Count > 0) parts.Add($"{_staged.Count} 项已暂存");
-        if (_unversioned.Count > 0) parts.Add($"{_unversioned.Count} 项未跟踪");
-        if (_conflicts.Count > 0) parts.Add($"{_conflicts.Count} 项冲突");
-        if (parts.Count == 0) return "工作区干净";
-        parts.Add($"已勾选 {CheckedCount} 项");
+        if (_changes.Count > 0) parts.Add(string.Format(Strings.Changes_CountChanges, _changes.Count));
+        if (_staged.Count > 0) parts.Add(string.Format(Strings.Changes_CountStaged, _staged.Count));
+        if (_unversioned.Count > 0) parts.Add(string.Format(Strings.Changes_CountUntracked, _unversioned.Count));
+        if (_conflicts.Count > 0) parts.Add(string.Format(Strings.Changes_CountConflicts, _conflicts.Count));
+        if (parts.Count == 0) return Strings.Changes_CleanTree;
+        parts.Add(string.Format(Strings.Changes_CheckedCount, CheckedCount));
         return string.Join(" · ", parts);
     }
 
@@ -171,6 +228,12 @@ public sealed class ChangesViewModel
         _transient = null;
         _lastOutcome = null;
         _lastPushedMessage = null;
+        _lastFindings = Array.Empty<RuleFinding>();
+        _pendingAiTrailer = null;
+        _riskFindings = new Dictionary<string, List<RuleFinding>>(StringComparer.Ordinal);
+        AgentFeedback = null;
+        Explanation = null;
+        IsExplaining = false;
         StructureChanged?.Invoke();
         SelectionChanged?.Invoke();
     }
@@ -382,7 +445,7 @@ public sealed class ChangesViewModel
     {
         if (string.IsNullOrWhiteSpace(message))
         {
-            _error = "提交消息不能为空";
+            _error = Strings.Changes_EmptyMessage;
             ErrorDetail = null;
             StructureChanged?.Invoke();
             return null;
@@ -413,7 +476,7 @@ public sealed class ChangesViewModel
             if (FilesOf(StatusCategory.Conflict).Any(IsChecked))
             {
                 _isCommitting = false;
-                _error = "存在未解决的冲突文件，请先解决冲突再提交";
+                _error = Strings.Changes_UnresolvedConflicts;
                 ErrorDetail = null;
                 StructureChanged?.Invoke();
                 return null;
@@ -426,7 +489,20 @@ public sealed class ChangesViewModel
                 {
                     if (toStage.Count > 0) _repo.Stage(workDir, toStage);
                     if (toUnstage.Count > 0) _repo.Unstage(workDir, toUnstage);
-                    return _repo.Commit(workDir, message);
+
+                    // 提交前安全网（ai-native-redesign.md §4.2）：staged 内容规则扫描，
+                    // Block 模式命中阻止级即拒绝提交（index 保持已暂存状态，处理后再提交）。
+                    var fullMessage = _pendingAiTrailer is not null && !message.Contains("Assisted-by:", StringComparison.Ordinal)
+                        ? message.TrimEnd() + "\n\nAssisted-by: " + _pendingAiTrailer
+                        : message;
+                    var blocked = RunSafetyNet(workDir, CommittedPaths(toStage, toUnstage));
+                    if (blocked is not null)
+                    {
+                        _lastFindings = blocked.Value.Findings;
+                        throw new SafetyNetBlockedException(blocked.Value.Summary);
+                    }
+
+                    return _repo.Commit(workDir, fullMessage);
                 });
 
                 PushFailure? failure = null;
@@ -445,10 +521,20 @@ public sealed class ChangesViewModel
 
                 outcome = new CommitOutcome(sha, failure);
                 _lastOutcome = outcome;
-                _transient = $"已提交 {sha[..Math.Min(7, sha.Length)]}";
+                _transient = string.Format(Strings.Changes_Committed, sha[..Math.Min(7, sha.Length)]);
+                if (_lastFindings.Count > 0 && SafetyNetMode == CommitSafetyMode.Warn)
+                    _transient += " · " + string.Format(Strings.Changes_SafetyWarnings, _lastFindings.Count);
                 // 提交消费了 index 里的部分暂存状态；工作区剩余改动是全新的未暂存内容，
                 // 标记必须清除，否则下次勾选整文件提交会被跳过（known-issues 1.1）
                 _partiallyStaged.Clear();
+                // Warn 模式的安全网发现保留展示（transient 已带计数）；下次提交时重新扫描
+                _pendingAiTrailer = null;
+            }
+            catch (SafetyNetBlockedException ex)
+            {
+                _error = ex.Message;
+                ErrorDetail = FormatFindings(_lastFindings);
+                _transient = null;
             }
             catch (InvalidOperationException ex)
             {
@@ -487,7 +573,7 @@ public sealed class ChangesViewModel
             {
                 await Task.Run(() => _repo.Push(workDir, null, null));
                 _lastOutcome = _lastOutcome with { PushFailure = null };
-                _transient = $"已提交 {_lastOutcome.Sha[..Math.Min(7, _lastOutcome.Sha.Length)]} · 推送成功";
+                _transient = string.Format(Strings.Changes_Committed, _lastOutcome.Sha[..Math.Min(7, _lastOutcome.Sha.Length)]) + Strings.Changes_PushedSuffix;
             }
             catch (PushException pex)
             {
@@ -501,6 +587,420 @@ public sealed class ChangesViewModel
         {
             _gate.Release();
         }
+    }
+
+    // ---- 提交前安全网（ai-native-redesign.md §4.2）----
+
+    /// <summary>本次提交实际会进入 index 的文件路径（勾选 staged + 待暂存 + 部分暂存且勾选）。</summary>
+    private List<string> CommittedPaths(List<string> toStage, List<string> toUnstage) =>
+        toStage
+            .Concat(FilesOf(StatusCategory.Staged).Where(IsChecked).Select(e => e.Path))
+            .Concat(FilesOf(StatusCategory.Changes).Concat(FilesOf(StatusCategory.Unversioned))
+                .Where(e => IsChecked(e) && _partiallyStaged.Contains(e.Path))
+                .Select(e => e.Path))
+            .Where(p => !toUnstage.Contains(p))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
+    /// 扫描 staged 内容。返回非 null = Block 模式命中阻止级（值含全部发现与摘要）；
+    /// 返回 null = 通过（Warn 模式的发现已记入 <see cref="LastFindings"/>，Off 模式直接跳过）。
+    /// 必须在 Stage/Unstage 之后调用，index 才反映提交内容。
+    /// </summary>
+    private (IReadOnlyList<RuleFinding> Findings, string Summary)? RunSafetyNet(string workDir, IReadOnlyList<string> paths)
+    {
+        if (SafetyNetMode == CommitSafetyMode.Off)
+        {
+            _lastFindings = Array.Empty<RuleFinding>();
+            return null;
+        }
+
+        var numstat = _repo.GetNumStat(workDir, staged: true);
+        var inputs = new List<StagedFileInput>(paths.Count);
+        foreach (var path in paths)
+        {
+            var patch = _repo.GetIndexPatch(workDir, path);
+            if (patch is null) continue;
+            DiffNumStat? stat = numstat.TryGetValue(path, out var n) ? n : null;
+            var binary = stat is { AddedLines: null, DeletedLines: null }
+                || patch.Contains("GIT binary patch", StringComparison.Ordinal)
+                || patch.Contains("Binary files ", StringComparison.Ordinal);
+            inputs.Add(new StagedFileInput(
+                path, patch, binary,
+                IsNew: patch.Contains("new file mode", StringComparison.Ordinal),
+                stat?.AddedLines ?? 0,
+                stat?.DeletedLines ?? 0));
+        }
+
+        var findings = CommitSafetyScanner.Scan(inputs, _safetyOptions ?? CommitSafetyOptions.Default);
+        _lastFindings = findings;
+
+        var blocking = CommitSafetySummarizer.Blocking(findings);
+        return SafetyNetMode == CommitSafetyMode.Block && blocking.Count > 0
+            ? (findings, string.Format(Strings.Changes_SafetyBlocked, blocking.Count))
+            : null;
+    }
+
+    private static string FormatFindings(IReadOnlyList<RuleFinding> findings) =>
+        string.Join(Environment.NewLine, findings.Select(f =>
+            $"{f.FilePath}:{f.Line?.ToString(CultureInfo.InvariantCulture) ?? "-"} [{f.RuleId}] {f.Message}"));
+
+    /// <summary>AI 生成提交信息草稿（ai-native-redesign.md §4.1）。失败写入 Error 并返回 null；成功置 trailer 待提交时追加。</summary>
+    public async Task<string?> GenerateCommitMessageAsync(CancellationToken ct = default)
+    {
+        if (!IsAiAvailable || _ai is null)
+        {
+            _error = Strings.Changes_AiNotConfigured;
+            ErrorDetail = null;
+            StructureChanged?.Invoke();
+            return null;
+        }
+        var workDir = _workDir;
+        if (workDir is null) return null;
+
+        await _gate.WaitAsync();
+        try
+        {
+            try
+            {
+                var input = await Task.Run(() => BuildAiInput(workDir)).ConfigureAwait(false);
+
+                // FullDiff 档发送前过 secrets 规则，命中即阻断（§8.2）
+                if (AiPrivacy == AiPrivacyLevel.FullDiff)
+                {
+                    var findings = CommitSafetyScanner.Scan(input.ScanInputs);
+                    if (CommitSafetySummarizer.Blocking(findings).Count > 0)
+                    {
+                        _lastFindings = findings;
+                        _error = Strings.Changes_AiBlockedBySecrets;
+                        ErrorDetail = FormatFindings(findings);
+                        StructureChanged?.Invoke();
+                        return null;
+                    }
+                }
+
+                var recent = _repo.GetRecentCommitSubjects(workDir, 20);
+                var prompt = CommitMessagePromptBuilder.Build(
+                    new CommitMessageInput(recent, input.Files, input.DiffText), AiPrivacy);
+
+                var draft = await _ai.CompleteAsync(prompt, ct).ConfigureAwait(false);
+                var cleaned = CommitMessagePromptBuilder.CleanDraft(draft);
+                if (cleaned.Length == 0)
+                {
+                    _error = Strings.Changes_AiEmptyDraft;
+                    ErrorDetail = null;
+                    StructureChanged?.Invoke();
+                    return null;
+                }
+                // trailer 关闭（AiTrailerId = null）时不署名
+                _pendingAiTrailer = AiTrailerId;
+                _error = null; ErrorDetail = null;
+                StructureChanged?.Invoke();
+                return cleaned;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                SetError(ex);
+                StructureChanged?.Invoke();
+                return null;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private (List<CommitMessageFile> Files, string? DiffText, List<StagedFileInput> ScanInputs) BuildAiInput(string workDir)
+    {
+        var stagedStats = _repo.GetNumStat(workDir, staged: true);
+        var workStats = _repo.GetNumStat(workDir, staged: false);
+        var paths = FilesOf(StatusCategory.Staged).Where(IsChecked).Select(e => e.Path)
+            .Concat(FilesOf(StatusCategory.Changes).Where(IsChecked).Select(e => e.Path))
+            .Concat(FilesOf(StatusCategory.Unversioned).Where(IsChecked).Select(e => e.Path))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var files = new List<CommitMessageFile>(paths.Count);
+        var scanInputs = new List<StagedFileInput>(paths.Count);
+        var diffs = new List<string>(paths.Count);
+        foreach (var path in paths)
+        {
+            var isStaged = stagedStats.ContainsKey(path);
+            DiffNumStat? stat = (isStaged ? stagedStats : workStats).TryGetValue(path, out var n) ? n : null;
+            var added = stat?.AddedLines ?? 0;
+            var deleted = stat?.DeletedLines ?? 0;
+            files.Add(new CommitMessageFile(path, added, deleted));
+
+            string? patch = null;
+            try { patch = isStaged ? _repo.GetIndexPatch(workDir, path) : _repo.GetWorktreePatch(workDir, path); }
+            catch { /* 单文件 patch 失败不阻塞生成（降级为元数据） */ }
+            if (patch is not null)
+            {
+                scanInputs.Add(new StagedFileInput(path, patch,
+                    IsBinary: stat is { AddedLines: null, DeletedLines: null }
+                        || patch.Contains("GIT binary patch", StringComparison.Ordinal)
+                        || patch.Contains("Binary files ", StringComparison.Ordinal),
+                    IsNew: patch.Contains("new file mode", StringComparison.Ordinal),
+                    added, deleted));
+                diffs.Add(patch);
+            }
+        }
+
+        var diffText = diffs.Count > 0 ? string.Join("\n", diffs) : null;
+        return (files, diffText, scanInputs);
+    }
+
+    /// <summary>安全网阻止级异常：把发现摘要带到错误横幅（详情走 ErrorDetail 复制）。</summary>
+    private sealed class SafetyNetBlockedException : Exception
+    {
+        public SafetyNetBlockedException(string summary) : base(summary) { }
+    }
+
+    // ---- 验收台 v1（ai-native-redesign.md §三）----
+
+    /// <summary>风险扫描单次最多处理的文件数（超出部分不出徽标，防超大变更集拖垮 UI）。</summary>
+    private const int MaxRiskScanFiles = 300;
+
+    private Dictionary<string, List<RuleFinding>> _riskFindings = new(StringComparer.Ordinal);
+
+    /// <summary>AI 解释进行中（页面据此禁用按钮、显示生成中）。</summary>
+    public bool IsExplaining { get; private set; }
+
+    /// <summary>最近一次 AI 解释/批注文本；null = 尚无。</summary>
+    public string? Explanation { get; private set; }
+
+    public ExplainScope Scope { get; set; } = ExplainScope.SelectedFile;
+
+    public enum ExplainScope
+    {
+        SelectedFile = 0,
+        CheckedFiles = 1,
+    }
+
+    /// <summary>清除 AI 批注（面板关闭按钮）。</summary>
+    public void ClearExplanation()
+    {
+        if (Explanation is null) return;
+        Explanation = null;
+        StructureChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 风险信号扫描（§3.3，纯规则零 AI）：对三层列表文件的 staged/worktree patch 跑安全网规则，
+    /// 按路径归组。失败的单文件跳过；整体失败静默（保留上次结果）。
+    /// </summary>
+    public async Task ScanRisksAsync()
+    {
+        var workDir = _workDir;
+        if (workDir is null) return;
+        var snapshot = _changes.Concat(_staged).Concat(_unversioned).ToList();
+
+        var map = await Task.Run(() =>
+        {
+            var result = new Dictionary<string, List<RuleFinding>>(StringComparer.Ordinal);
+            IReadOnlyDictionary<string, DiffNumStat> stagedStats, workStats;
+            try
+            {
+                stagedStats = _repo.GetNumStat(workDir, staged: true);
+                workStats = _repo.GetNumStat(workDir, staged: false);
+            }
+            catch
+            {
+                return result;
+            }
+
+            foreach (var entry in snapshot.Take(MaxRiskScanFiles))
+            {
+                try
+                {
+                    var isStaged = entry.Category == StatusCategory.Staged;
+                    var stats = isStaged ? stagedStats : workStats;
+                    var patch = isStaged
+                        ? _repo.GetIndexPatch(workDir, entry.Path)
+                        : _repo.GetWorktreePatch(workDir, entry.Path);
+                    if (patch is null) continue;
+
+                    DiffNumStat? stat = stats.TryGetValue(entry.Path, out var n) ? n : null;
+                    var input = new StagedFileInput(
+                        entry.Path, patch,
+                        IsBinary: stat is { AddedLines: null, DeletedLines: null }
+                            || patch.Contains("GIT binary patch", StringComparison.Ordinal)
+                            || patch.Contains("Binary files ", StringComparison.Ordinal),
+                        IsNew: patch.Contains("new file mode", StringComparison.Ordinal),
+                        stat?.AddedLines ?? 0,
+                        stat?.DeletedLines ?? 0);
+                    var findings = CommitSafetyScanner.Scan(new[] { input }, _safetyOptions ?? CommitSafetyOptions.Default);
+                    if (findings.Count > 0) result[entry.Path] = findings.ToList();
+                }
+                catch
+                {
+                    // 单文件失败不影响整体扫描
+                }
+            }
+            return result;
+        });
+
+        _riskFindings = map;
+        // agent 反馈（review.submit_feedback 落盘，§7.2）：随扫描一并读出展示
+        AgentFeedback = GitUI.Core.Mcp.AgentFeedbackStore.Read(workDir);
+        StructureChanged?.Invoke();
+    }
+
+    /// <summary>agent 留下的人审反馈（无则 null）。人查看后可清除。</summary>
+    public GitUI.Core.Mcp.AgentFeedbackStore.Feedback? AgentFeedback { get; private set; }
+
+    /// <summary>清除 agent 反馈（人已处理）。</summary>
+    public void ClearAgentFeedback()
+    {
+        var workDir = _workDir;
+        if (workDir is null) return;
+        GitUI.Core.Mcp.AgentFeedbackStore.Clear(workDir);
+        AgentFeedback = null;
+        StructureChanged?.Invoke();
+    }
+
+    /// <summary>文件的风险级别：null = 无发现。</summary>
+    public SafetySeverity? RiskLevelFor(string path) =>
+        _riskFindings.TryGetValue(path, out var findings)
+            ? findings.Any(f => f.Severity == SafetySeverity.Blocked) ? SafetySeverity.Blocked : SafetySeverity.Warning
+            : null;
+
+    /// <summary>文件的风险发现明细（无发现返回空）。</summary>
+    public IReadOnlyList<RuleFinding> FindingsFor(string path) =>
+        _riskFindings.TryGetValue(path, out var findings) ? findings : Array.Empty<RuleFinding>();
+
+    /// <summary>
+    /// 拒绝选中 hunk（§3.4 审查三态之"拒绝"）：反向应用该块到工作区 = 丢弃工作区改动。
+    /// 仅工作区视图（Staged 视图的对应动作是"撤销暂存"）。
+    /// </summary>
+    public async Task RejectHunksAsync(IReadOnlyList<int> hunkIndices)
+    {
+        ArgumentNullException.ThrowIfNull(hunkIndices);
+        if (hunkIndices.Count == 0) return;
+        var view = _selectedDiff;
+        var workDir = _workDir;
+        if (view is null || !view.CanStageHunks || workDir is null || view.IsStagedView) return;
+
+        await _gate.WaitAsync();
+        try
+        {
+            try
+            {
+                var patch = string.Concat(hunkIndices.Select(i => view.PatchChunks[i]));
+                await Task.Run(() => _repo.ApplyWorktreePatch(workDir, patch, reverse: true));
+                _error = null; ErrorDetail = null;
+            }
+            catch (Exception ex)
+            {
+                SetError(ex);
+            }
+            await LoadCoreAsync();
+            ReloadSelectedDiff(workDir);
+            SelectionChanged?.Invoke();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// "退回重做"反馈 prompt（§3.4）：选中 hunk + 批注 → 结构化修改指令。
+    /// v1 由页面复制到剪贴板；H2 起可经 harness 直投。当前无选中 diff 时返回 null。
+    /// </summary>
+    public string? BuildRetakeFeedback(IReadOnlyList<int> hunkIndices, string? note)
+    {
+        ArgumentNullException.ThrowIfNull(hunkIndices);
+        var view = _selectedDiff;
+        if (view is null || hunkIndices.Count == 0) return null;
+        return ReviewFeedbackBuilder.Build(
+            new[] { new ReviewFeedbackFile(view.Path, view.PatchChunks, hunkIndices) },
+            note);
+    }
+
+    /// <summary>
+    /// AI 解释/批注（§3.5）：非阻塞，结果进 <see cref="Explanation"/>。
+    /// FullDiff 档发送前过 secrets 规则，命中即阻断（与生成同策略）。
+    /// </summary>
+    public async Task ExplainAsync(ExplainIntent intent, CancellationToken ct)
+    {
+        if (!IsAiAvailable || _ai is null)
+        {
+            _error = Strings.Changes_AiNotConfigured;
+            ErrorDetail = null;
+            StructureChanged?.Invoke();
+            return;
+        }
+        var workDir = _workDir;
+        if (workDir is null) return;
+
+        IsExplaining = true;
+        StructureChanged?.Invoke();
+        try
+        {
+            var (files, diffText, scanInputs) = Scope == ExplainScope.CheckedFiles
+                ? await Task.Run(() => BuildAiInput(workDir)).ConfigureAwait(false)
+                : await Task.Run(() => BuildSelectedExplainInput(workDir)).ConfigureAwait(false);
+
+            if (AiPrivacy == AiPrivacyLevel.FullDiff)
+            {
+                var findings = CommitSafetyScanner.Scan(scanInputs);
+                if (CommitSafetySummarizer.Blocking(findings).Count > 0)
+                {
+                    _lastFindings = findings;
+                    _error = Strings.Changes_AiBlockedBySecrets;
+                    ErrorDetail = FormatFindings(findings);
+                    return;
+                }
+            }
+
+            var prompt = ExplainPromptBuilder.Build(new ExplainInput(files, diffText), AiPrivacy, intent);
+            var text = await _ai.CompleteAsync(prompt, ct).ConfigureAwait(false);
+            Explanation = text.Trim();
+            _error = null; ErrorDetail = null;
+        }
+        catch (OperationCanceledException)
+        {
+            // 用户取消：保留旧解释
+        }
+        catch (Exception ex)
+        {
+            SetError(ex);
+        }
+        finally
+        {
+            IsExplaining = false;
+            StructureChanged?.Invoke();
+        }
+    }
+
+    private (List<CommitMessageFile> Files, string? DiffText, List<StagedFileInput> ScanInputs) BuildSelectedExplainInput(string workDir)
+    {
+        var entry = _selected;
+        if (entry is null)
+            return (new List<CommitMessageFile>(), null, new List<StagedFileInput>());
+
+        var isStaged = entry.Category == StatusCategory.Staged;
+        string? patch = null;
+        try { patch = isStaged ? _repo.GetIndexPatch(workDir, entry.Path) : _repo.GetWorktreePatch(workDir, entry.Path); }
+        catch { /* 降级为元数据 */ }
+
+        var files = new List<CommitMessageFile> { new(entry.Path, entry.AddedLines ?? 0, entry.DeletedLines ?? 0) };
+        var scanInputs = new List<StagedFileInput>();
+        if (patch is not null)
+        {
+            scanInputs.Add(new StagedFileInput(entry.Path, patch,
+                IsBinary: patch.Contains("GIT binary patch", StringComparison.Ordinal)
+                    || patch.Contains("Binary files ", StringComparison.Ordinal),
+                IsNew: patch.Contains("new file mode", StringComparison.Ordinal),
+                entry.AddedLines ?? 0, entry.DeletedLines ?? 0));
+        }
+        return (files, patch, scanInputs);
     }
 
     /// <summary>提交消息的 conventional 前缀建议（design.md §6.5）。</summary>
@@ -604,6 +1104,21 @@ public sealed class ChangesViewModel
             _error = ex.Message;
             StructureChanged?.Invoke();
         }
+        KickRiskScan();
+    }
+
+    private int _riskScanBusy;
+
+    /// <summary>数据变化后自动重扫风险（去抖：扫描中则跳过本轮，下一轮数据变化再触发）。</summary>
+    private void KickRiskScan()
+    {
+        if (_workDir is null) return;
+        if (Interlocked.Exchange(ref _riskScanBusy, 1) != 0) return;
+        _ = Task.Run(async () =>
+        {
+            try { await ScanRisksAsync(); }
+            finally { Interlocked.Exchange(ref _riskScanBusy, 0); }
+        });
     }
 
     /// <summary>统一错误写入：保留完整详情供复制（known-issues 1.7）。</summary>

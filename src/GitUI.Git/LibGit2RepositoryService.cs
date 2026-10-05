@@ -19,9 +19,13 @@ using CoreStatusCategory = GitUI.Core.Models.StatusCategory;
 using CoreIRepositoryService = GitUI.Core.Services.IRepositoryService;
 using CoreRepositoryNotFoundException = GitUI.Core.Services.RepositoryNotFoundException;
 using CoreGitOperationException = GitUI.Core.Services.GitOperationException;
+using GitUI.Core.Resources;
 using CorePushFailureKind = GitUI.Core.Models.PushFailureKind;
 using CorePushException = GitUI.Core.Services.PushException;
 using CoreDiffNumStat = GitUI.Core.Models.DiffNumStat;
+using CoreWorktreeInfo = GitUI.Core.Models.WorktreeInfo;
+using CoreResetMode = GitUI.Core.Models.ResetMode;
+using GitUI.Core.Models;
 
 namespace GitUI.Git
 {
@@ -155,7 +159,7 @@ namespace GitUI.Git
             // S4.1（known-issues 2.1）：author/日期过滤也可下推（-i --author / --since / --until，
             // topic 的 .NET 正则语义无法安全映射 git --grep，仍走慢路径），一次流式调用
             // 同时得到精确 TotalCount 与分页窗口，10 万提交的过滤查询从 ~1.3s 降到 ~300ms。
-            if (f.Topic is null && f.Limit > 0 && HasLargePack(workDir))
+            if (f.Topic is null && f.Agent is null && f.Limit > 0 && HasLargePack(workDir))
             {
                 var refName = f.Branch ?? "HEAD";
                 if (f.Author is null && f.After is null && f.Before is null)
@@ -195,6 +199,7 @@ namespace GitUI.Git
             {
                 if (!MatchesTime(c, f)) continue;
                 if (!MatchesAuthor(c, f.Author)) continue;
+                if (!MatchesAgent(c, f.Agent)) continue;
                 if (!MatchesTopic(c, f.Topic)) continue;
                 buffer.Add((c.Committer.When, c.Author.When, c.Sha, c));
             }
@@ -255,8 +260,8 @@ namespace GitUI.Git
             ArgumentException.ThrowIfNullOrEmpty(aSha);
             ArgumentException.ThrowIfNullOrEmpty(bSha);
             using var repo = OpenRepo(workDir);
-            var a = repo.Lookup<Commit>(aSha) ?? throw new InvalidOperationException($"找不到提交 {aSha}");
-            var b = repo.Lookup<Commit>(bSha) ?? throw new InvalidOperationException($"找不到提交 {bSha}");
+            var a = repo.Lookup<Commit>(aSha) ?? throw new InvalidOperationException(string.Format(Strings.Git_CommitNotFound, aSha));
+            var b = repo.Lookup<Commit>(bSha) ?? throw new InvalidOperationException(string.Format(Strings.Git_CommitNotFound, bSha));
 
             var patch = repo.Diff.Compare<Patch>(a.Tree, b.Tree);
             return patch.Select(ToDiffResult).ToList();
@@ -352,7 +357,7 @@ namespace GitUI.Git
             ValidatePaths(paths);
             var r = RunGit(workDir, new[] { "add", "-A", "--" }.Concat(paths).ToArray());
             if (r.ExitCode != 0)
-                throw new CoreGitOperationException("暂存", r.StdError, r.ExitCode);
+                throw new CoreGitOperationException(Strings.Op_Stage, r.StdError, r.ExitCode);
         }
 
         public void Unstage(string workDir, IReadOnlyList<string> paths)
@@ -364,7 +369,7 @@ namespace GitUI.Git
                 // unborn HEAD（还没有任何提交）时 reset HEAD 不可用，退化为从 index 移除
                 var rm = RunGit(workDir, new[] { "rm", "--cached", "-q", "--" }.Concat(paths).ToArray());
                 if (rm.ExitCode != 0)
-                    throw new CoreGitOperationException("撤销暂存", r.StdError, r.ExitCode);
+                    throw new CoreGitOperationException(Strings.Op_Unstage, r.StdError, r.ExitCode);
             }
         }
 
@@ -377,13 +382,13 @@ namespace GitUI.Git
             if (repo.Info.IsHeadUnborn)
             {
                 if (!repo.Index.Any())
-                    throw new InvalidOperationException("没有已暂存的变更，无法提交");
+                    throw new InvalidOperationException(Strings.Git_NothingStaged);
             }
             else
             {
                 var changes = repo.Diff.Compare<TreeChanges>(repo.Head.Tip!.Tree, DiffTargets.Index);
                 if (!changes.Any())
-                    throw new InvalidOperationException("没有已暂存的变更，无法提交");
+                    throw new InvalidOperationException(Strings.Git_NothingStaged);
             }
 
             try
@@ -411,7 +416,19 @@ namespace GitUI.Git
             args.Add("-");
             var r = RunGit(workDir, args, stdin: patch);
             if (r.ExitCode != 0)
-                throw new CoreGitOperationException(reverse ? "撤销暂存块" : "暂存块", r.StdError, r.ExitCode);
+                throw new CoreGitOperationException(reverse ? Strings.Op_UnstageHunk : Strings.Op_StageHunk, r.StdError, r.ExitCode);
+        }
+
+        public void ApplyWorktreePatch(string workDir, string patch, bool reverse)
+        {
+            // 工作区侧（验收台"拒绝此块" = 丢弃该 hunk 的工作区改动，ai-native-redesign.md §3.4）：
+            // git apply（不带 --cached）作用于工作区，reverse 时 -R。
+            var args = new List<string> { "apply", "--whitespace=nowarn" };
+            if (reverse) args.Add("--reverse");
+            args.Add("-");
+            var r = RunGit(workDir, args, stdin: patch);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("apply", r.StdError, r.ExitCode);
         }
 
         public void Push(string workDir, string? remote, string? branch)
@@ -482,12 +499,12 @@ namespace GitUI.Git
             {
                 var tip = fromSha is null ? repo.Head.Tip : repo.Lookup<Commit>(fromSha);
                 if (tip is null)
-                    throw new CoreGitOperationException("创建分支", $"找不到起点提交 {fromSha}", 1);
+                    throw new CoreGitOperationException(Strings.Op_CreateBranch, string.Format(Strings.Git_StartNotFound, fromSha), 1);
                 repo.Branches.Add(name, tip);
             }
             catch (LibGit2SharpException ex)
             {
-                throw new CoreGitOperationException("创建分支", ex.Message, 1);
+                throw new CoreGitOperationException(Strings.Op_CreateBranch, ex.Message, 1);
             }
         }
 
@@ -497,14 +514,14 @@ namespace GitUI.Git
             ArgumentException.ThrowIfNullOrWhiteSpace(newName);
             using var repo = OpenRepo(workDir);
             var branch = repo.Branches[oldName]
-                ?? throw new CoreGitOperationException("重命名分支", $"分支 {oldName} 不存在", 1);
+                ?? throw new CoreGitOperationException(Strings.Op_RenameBranch, string.Format(Strings.Git_BranchNotFound, oldName), 1);
             try
             {
                 repo.Branches.Rename(branch, newName);
             }
             catch (LibGit2SharpException ex)
             {
-                throw new CoreGitOperationException("重命名分支", ex.Message, 1);
+                throw new CoreGitOperationException(Strings.Op_RenameBranch, ex.Message, 1);
             }
         }
 
@@ -515,7 +532,7 @@ namespace GitUI.Git
             // S6 实测抓出），直接走 CLI（§3.1 兜底授权）：-d 未合并拒绝 / -D 强制
             var r = RunGit(workDir, new[] { "branch", force ? "-D" : "-d", name });
             if (r.ExitCode != 0)
-                throw new CoreGitOperationException("删除分支", r.StdError, r.ExitCode);
+                throw new CoreGitOperationException(Strings.Op_DeleteBranch, r.StdError, r.ExitCode);
         }
 
         public void Checkout(string workDir, string name)
@@ -523,14 +540,14 @@ namespace GitUI.Git
             ArgumentException.ThrowIfNullOrWhiteSpace(name);
             using var repo = OpenRepo(workDir);
             var branch = repo.Branches[name]
-                ?? throw new CoreGitOperationException("检出", $"分支 {name} 不存在", 1);
+                ?? throw new CoreGitOperationException(Strings.Op_Checkout, string.Format(Strings.Git_BranchNotFound, name), 1);
             try
             {
                 LibGit2Sharp.Commands.Checkout(repo, branch);
             }
             catch (LibGit2SharpException ex)
             {
-                throw new CoreGitOperationException("检出", ex.Message, 1);
+                throw new CoreGitOperationException(Strings.Op_Checkout, ex.Message, 1);
             }
         }
 
@@ -572,6 +589,31 @@ namespace GitUI.Git
                 throw new CoreGitOperationException(rebase ? "pull --rebase" : "pull", r.StdError, r.ExitCode);
         }
 
+        public IReadOnlyList<string> GetRemotes(string workDir)
+        {
+            var r = RunGit(workDir, new[] { "remote" });
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("remote", r.StdError, r.ExitCode);
+            return r.StdOut
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        public void Fetch(string workDir, string? remote)
+        {
+            var remotes = GetRemotes(workDir);
+            if (remotes.Count == 0) return; // 无远程不是错误（本地仓库 / 空仓库）
+
+            var target = remote is not null && remotes.Contains(remote, StringComparer.Ordinal)
+                ? remote
+                : remotes.FirstOrDefault(r => r.Equals("origin", StringComparison.OrdinalIgnoreCase)) ?? remotes[0];
+
+            var r = RunGit(workDir, new[] { "fetch", "--quiet", "--", target }, timeoutMs: 120_000);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("fetch", r.StdError, r.ExitCode);
+        }
+
         public string? MergeBase(string workDir, string aSha, string bSha)
         {
             using var repo = OpenRepo(workDir);
@@ -579,6 +621,145 @@ namespace GitUI.Git
             var b = repo.Lookup<Commit>(bSha);
             if (a is null || b is null) return null;
             return repo.ObjectDatabase.FindMergeBase(a, b)?.Sha;
+        }
+
+        // ---------- P3 并行工作台（ai-native-redesign.md §六，全部 git CLI） ----------
+
+        public IReadOnlyList<CoreWorktreeInfo> GetWorktrees(string workDir)
+        {
+            var r = RunGit(workDir, new[] { "worktree", "list", "--porcelain" });
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("worktree list", r.StdError, r.ExitCode);
+
+            var result = new List<CoreWorktreeInfo>();
+            string? path = null, head = null, branch = null;
+            bool bare = false, detached = false;
+            void Flush()
+            {
+                if (path is null) return;
+                string? branchName = null;
+                if (!bare && !detached && branch is not null)
+                    branchName = branch.StartsWith("refs/heads/", StringComparison.Ordinal) ? branch["refs/heads/".Length..] : branch;
+                result.Add(new CoreWorktreeInfo(path, branchName, head ?? "", bare, IsMain: result.Count == 0, detached));
+                path = head = branch = null;
+                bare = detached = false;
+            }
+
+            foreach (var raw in r.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var line = raw.TrimEnd('\r');
+                if (line.StartsWith("worktree ", StringComparison.Ordinal))
+                {
+                    Flush();
+                    path = line["worktree ".Length..];
+                }
+                else if (line.StartsWith("HEAD ", StringComparison.Ordinal)) head = line["HEAD ".Length..];
+                else if (line.StartsWith("branch ", StringComparison.Ordinal)) branch = line["branch ".Length..];
+                else if (line == "bare") bare = true;
+                else if (line == "detached") detached = true;
+            }
+            Flush();
+            return result;
+        }
+
+        public void CreateWorktree(string workDir, string path, string branchName, string? startPoint)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(path);
+            ArgumentException.ThrowIfNullOrWhiteSpace(branchName);
+            var args = new List<string> { "worktree", "add", "-b", branchName, "--", path };
+            args.Add(startPoint is null ? DefaultBranchName(workDir) ?? "HEAD" : startPoint);
+            var r = RunGit(workDir, args, timeoutMs: 120_000);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("worktree add", r.StdError, r.ExitCode);
+        }
+
+        public void RemoveWorktree(string workDir, string path)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(path);
+            // normalize：主仓库路径常带尾分隔符/大小写差异，交给 git 自行匹配；不存在时 prune 兜底
+            var r = RunGit(workDir, new[] { "worktree", "remove", "--", path });
+            if (r.ExitCode != 0 && !r.StdError.Contains("not a working tree", StringComparison.OrdinalIgnoreCase))
+                throw new CoreGitOperationException("worktree remove", r.StdError, r.ExitCode);
+            PruneWorktrees(workDir);
+        }
+
+        public void PruneWorktrees(string workDir)
+        {
+            var r = RunGit(workDir, new[] { "worktree", "prune" });
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("worktree prune", r.StdError, r.ExitCode);
+        }
+
+        public string? DefaultBranchName(string workDir)
+        {
+            // origin/HEAD → main → master → null（调用方回退 HEAD）
+            var r = RunGit(workDir, new[] { "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD" });
+            if (r.ExitCode == 0)
+            {
+                var name = r.StdOut.Trim();
+                if (name.StartsWith("origin/", StringComparison.Ordinal)) return name["origin/".Length..];
+            }
+            foreach (var candidate in new[] { "main", "master" })
+            {
+                var check = RunGit(workDir, new[] { "show-ref", "--verify", "-q", "refs/heads/" + candidate });
+                if (check.ExitCode == 0) return candidate;
+            }
+            return null;
+        }
+
+        public void CherryPick(string workDir, string sha)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(sha);
+            var r = RunGit(workDir, new[] { "cherry-pick", "--", sha }, timeoutMs: 120_000);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("cherry-pick", r.StdError, r.ExitCode);
+        }
+
+        public void ResetTo(string workDir, string sha, CoreResetMode mode)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(sha);
+            var flag = mode switch
+            {
+                CoreResetMode.Soft => "--soft",
+                CoreResetMode.Hard => "--hard",
+                _ => "--mixed",
+            };
+            var r = RunGit(workDir, new[] { "reset", flag, sha });
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("reset", r.StdError, r.ExitCode);
+        }
+
+        public void CreateTag(string workDir, string name, string? sha)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            var args = new List<string> { "tag", "--", name };
+            if (sha is not null) args.Add(sha);
+            var r = RunGit(workDir, args);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("tag", r.StdError, r.ExitCode);
+        }
+
+        public bool Stash(string workDir, string? message)
+        {
+            var args = new List<string> { "stash", "push", "-q", "--include-untracked" };
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                args.Add("-m");
+                args.Add(message);
+            }
+            var r = RunGit(workDir, args);
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("stash", r.StdError, r.ExitCode);
+            // git stash push 无变更时退出码 0 但不产生条目：用 stash list 判断
+            var list = RunGit(workDir, new[] { "stash", "list" });
+            return list.StdOut.Trim().Length > 0;
+        }
+
+        public void StashPop(string workDir)
+        {
+            var r = RunGit(workDir, new[] { "stash", "pop" });
+            if (r.ExitCode != 0)
+                throw new CoreGitOperationException("stash pop", r.StdError, r.ExitCode);
         }
 
         public IReadOnlyList<CoreCommitNode> UniqueCommits(string workDir, string tipSha, string? baseSha)
@@ -652,14 +833,17 @@ namespace GitUI.Git
                 process.StandardInput.Close();
             }
 
-            var stdout = process.StandardOutput.ReadToEnd();
-            var stderr = process.StandardError.ReadToEnd();
+            // stdout/stderr 必须并发排空：串行先读 stdout 时，若 git 先向 stderr 写满
+            // 管道缓冲区（~4KB，如 autocrlf 的 "LF will be replaced by CRLF" 警告洪水），
+            // git 阻塞在写 stderr、本方阻塞在读 stdout，互锁死等（changes 页空白根因）。
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
             if (!process.WaitForExit(timeoutMs))
             {
                 try { process.Kill(); } catch { /* 已退出则忽略 */ }
-                throw new CoreGitOperationException(args.FirstOrDefault("git"), "执行超时", -1);
+                throw new CoreGitOperationException(args.FirstOrDefault("git"), Strings.Git_Timeout, -1);
             }
-            return (process.ExitCode, stdout, stderr);
+            return (process.ExitCode, stdoutTask.GetAwaiter().GetResult(), stderrTask.GetAwaiter().GetResult());
         }
 
         private string? TryDiffPatch(string workDir, IReadOnlyList<string> args)
@@ -907,6 +1091,18 @@ namespace GitUI.Git
             if (f.After is { } after && c.Committer.When < after) return false;
             if (f.Before is { } before && c.Committer.When > before) return false;
             return true;
+        }
+
+        /// <summary>
+        /// AI 署名过滤（ai-native-redesign.md §5.2）：null 不过滤；"*" = 任意 Assisted-by trailer；
+        /// 其他值 = Assisted-by 含该子串（大小写不敏感）。走 trailer 解析（只看 message 末段）。
+        /// </summary>
+        private static bool MatchesAgent(Commit c, string? agent)
+        {
+            if (agent is null) return true;
+            var meta = CommitTrailers.Read(c.Message);
+            if (agent == "*") return meta.AssistedBy is not null;
+            return meta.AssistedBy?.Contains(agent, StringComparison.OrdinalIgnoreCase) == true;
         }
 
         private static bool MatchesAuthor(Commit c, string? author)

@@ -203,6 +203,17 @@ namespace GitUI.Git
             return path;
         }
 
+        /// <summary>删除目录（先清只读属性——bare 仓库的 git 对象文件是只读的，Directory.Delete 会失败）。</summary>
+        public static void DeleteDirectory(string path)
+        {
+            if (!Directory.Exists(path)) return;
+            foreach (var f in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            {
+                try { File.SetAttributes(f, FileAttributes.Normal); } catch { /* 竞态删除：忽略 */ }
+            }
+            Directory.Delete(path, recursive: true);
+        }
+
         /// <summary>添加远程仓库。</summary>
         public void AddRemote(string name, string url)
             => Run(_workDir, _homeDir, "remote", "add", name, url);

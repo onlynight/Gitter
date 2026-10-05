@@ -9,6 +9,9 @@ public sealed class AppSettings
 {
     public ThemePreference Theme { get; set; } = ThemePreference.System;
 
+    /// <summary>界面语言：system / en / zh-Hans（docs/i18n.md），默认英文；未知值 Normalize 回退 system。</summary>
+    public string Language { get; set; } = LanguagePreference.English;
+
     /// <summary>主题包 id（theme-framework.md）；null/空 = 按基座使用内置深/浅主题包。</summary>
     public string? ThemePackageId { get; set; }
 
@@ -57,6 +60,38 @@ public sealed class AppSettings
     /// <summary>变更页两栏分割条位置（左栏占宿主宽度比例）；null = 未调整过。</summary>
     public double? ChangesSplitterFraction { get; set; }
 
+    // ---- 实时基座（ai-native-redesign.md §7.1）----
+
+    /// <summary>是否监视工作区文件变化（FileSystemWatcher + 焦点轮询，驱动自动刷新）。</summary>
+    public bool WatchWorktree { get; set; } = true;
+
+    /// <summary>是否后台定时 fetch（有 remote 才生效）。</summary>
+    public bool AutoFetch { get; set; } = true;
+
+    /// <summary>后台 fetch 间隔（分钟），Normalize 夹在 [1, 120]。</summary>
+    public int AutoFetchIntervalMinutes { get; set; } = 5;
+
+    /// <summary>GUI 内置 MCP 命名管道服务（agent 桥；写操作逐次人工确认，ai-native-redesign.md §7.2）。</summary>
+    public bool McpPipeEnabled { get; set; } = true;
+
+    // ---- AI 接入（ai-native-redesign.md §八）----
+
+    /// <summary>AI provider 配置；Kind = Off 时全部 AI 功能禁用。</summary>
+    public AiSettings Ai { get; set; } = new();
+
+    /// <summary>提交前安全网模式：Off 关闭 / Warn 警告（提交继续） / Block 拦截（发现阻止级问题时不提交）。</summary>
+    public CommitSafetyMode SafetyNetMode { get; set; } = CommitSafetyMode.Warn;
+
+    /// <summary>归一化设置（反序列化后调用；越界/未知值回退默认）。</summary>
+    public void Normalize()
+    {
+        NormalizeTerminalShell();
+        if (AutoFetchIntervalMinutes is < 1 or > 120) AutoFetchIntervalMinutes = 5;
+        if (SafetyNetMode is not (CommitSafetyMode.Off or CommitSafetyMode.Warn or CommitSafetyMode.Block))
+            SafetyNetMode = CommitSafetyMode.Warn;
+        Ai.Normalize();
+    }
+
     /// <summary>归一化终端 shell 值（未知值回退 PowerShell）。</summary>
     public void NormalizeTerminalShell()
     {
@@ -76,4 +111,72 @@ public enum DiffViewMode
 {
     SideBySide = 0,
     Inline = 1,
+}
+
+public enum CommitSafetyMode
+{
+    Off = 0,
+    Warn = 1,
+    Block = 2,
+}
+
+/// <summary>AI 隐私分级（ai-native-redesign.md §8.2）：发送给云端 provider 的内容范围。</summary>
+public enum AiPrivacyLevel
+{
+    /// <summary>不发送任何内容（AI 功能整体禁用，等价 ProviderKind = Off）。</summary>
+    Disabled = 0,
+    /// <summary>仅元数据：文件路径 + 增删行数，不含代码内容。</summary>
+    MetadataOnly = 1,
+    /// <summary>完整 diff（发送前过 secrets 规则，命中即阻断）。</summary>
+    FullDiff = 2,
+}
+
+/// <summary>AI provider 设置（本地优先：Gitter 不托管 key）。</summary>
+public sealed class AiSettings
+{
+    /// <summary>provider 类型：off / openai（OpenAI 兼容端点，含 Ollama）/ anthropic / cli（命令行桥）。未知值 Normalize 回退 off。</summary>
+    public string ProviderKind { get; set; } = AiProviderKind.Off;
+
+    /// <summary>OpenAI 兼容端点基础地址（如 https://api.xxx.com/v1 或 Ollama http://127.0.0.1:11434/v1）。</summary>
+    public string? Endpoint { get; set; }
+
+    /// <summary>模型名（如 deepseek-chat、qwen2.5-coder:7b）。</summary>
+    public string? Model { get; set; }
+
+    /// <summary>API key（DPAPI 保护后的 Base64；null = 未设置。CliBridge/Ollama 通常不需要）。</summary>
+    public string? ApiKeyProtected { get; set; }
+
+    /// <summary>命令行桥：可执行文件路径（prompt 经 stdin 传入，stdout 取结果）。</summary>
+    public string? CliCommand { get; set; }
+
+    /// <summary>隐私分级（云端 provider 生效；本地端点不受限）。</summary>
+    public AiPrivacyLevel Privacy { get; set; } = AiPrivacyLevel.MetadataOnly;
+
+    /// <summary>AI 生成的提交信息是否自动追加 Assisted-by trailer（ai-native-redesign.md §5.2）。</summary>
+    public bool AppendTrailer { get; set; } = true;
+
+    public bool IsEnabled => NormalizeProvider(ProviderKind) != AiProviderKind.Off;
+
+    public void Normalize()
+    {
+        ProviderKind = NormalizeProvider(ProviderKind);
+        if (Privacy is not (AiPrivacyLevel.Disabled or AiPrivacyLevel.MetadataOnly or AiPrivacyLevel.FullDiff))
+            Privacy = AiPrivacyLevel.MetadataOnly;
+    }
+
+    public static string NormalizeProvider(string? kind) => (kind ?? string.Empty).Trim().ToLowerInvariant() switch
+    {
+        AiProviderKind.OpenAi => AiProviderKind.OpenAi,
+        AiProviderKind.Anthropic => AiProviderKind.Anthropic,
+        AiProviderKind.Cli => AiProviderKind.Cli,
+        _ => AiProviderKind.Off,
+    };
+}
+
+public static class AiProviderKind
+{
+    public const string Off = "off";
+    public const string OpenAi = "openai";
+    public const string Anthropic = "anthropic";
+    public const string Cli = "cli";
 }

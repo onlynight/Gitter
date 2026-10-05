@@ -1,4 +1,5 @@
 using GitUI.Core.Models;
+using GitUI.Core.Resources;
 using GitUI.Controls.Theme;
 using GitUI.Diff.Highlighting;
 using GitUI.Core.Settings;
@@ -64,10 +65,33 @@ public sealed class DiffCanvas : Grid
     public void SetSelectedHunks(IReadOnlyList<int> hunkIndices)
     {
         _selectedHunks.Clear();
+        ClearRiskHunks();
         foreach (var h in hunkIndices)
             if (!_selectedHunks.Contains(h)) _selectedHunks.Add(h);
         _selectedHunks.Sort();
         _canvas.Invalidate();
+    }
+
+    // ---- 风险标记（ai-native-redesign.md §3.3）：hunk 左缘色条，红 = 阻止级，琥珀 = 警告 ----
+
+    private readonly List<int> _blockedHunks = new();
+    private readonly List<int> _warningHunks = new();
+
+    /// <summary>设置风险 hunk 集合（覆盖上次）。不改变选中态。</summary>
+    public void SetRiskHunks(IReadOnlyList<int> blockedHunks, IReadOnlyList<int> warningHunks)
+    {
+        _blockedHunks.Clear();
+        _blockedHunks.AddRange(blockedHunks);
+        _warningHunks.Clear();
+        _warningHunks.AddRange(warningHunks);
+        _canvas.Invalidate();
+    }
+
+    private void ClearRiskHunks()
+    {
+        if (_blockedHunks.Count == 0 && _warningHunks.Count == 0) return;
+        _blockedHunks.Clear();
+        _warningHunks.Clear();
     }
 
     public DiffCanvas()
@@ -143,7 +167,7 @@ public sealed class DiffCanvas : Grid
         BuildAccelerators();
         _palette = ResolvePalette();
         _syntaxStyles = BuildSyntaxStyles();
-        AutomationProperties.SetName(this, "Diff 视图");
+        AutomationProperties.SetName(this, Strings.Common_DiffViewAutomation);
     }
 
     private DiffViewMode _mode = DiffViewMode.SideBySide;
@@ -199,6 +223,7 @@ public sealed class DiffCanvas : Grid
         _oldEndsWithNewline = oldEndsWithNewline;
         _newEndsWithNewline = newEndsWithNewline;
         _selectedHunks.Clear();
+        ClearRiskHunks();
         RebuildModel(resetScroll: true);
     }
 
@@ -210,6 +235,7 @@ public sealed class DiffCanvas : Grid
         _message = message ?? string.Empty;
         _currentBlock = -1;
         _selectedHunks.Clear();
+        ClearRiskHunks();
         _vScroll.Maximum = 0;
         _hScroll.Maximum = 0;
         _canvas.Invalidate();
@@ -237,6 +263,7 @@ public sealed class DiffCanvas : Grid
         {
             if (!ctrl && _selectedHunks.Count > 0)
                 _selectedHunks.Clear();
+        ClearRiskHunks();
         }
         else if (ctrl)
         {
@@ -249,6 +276,7 @@ public sealed class DiffCanvas : Grid
             if (_selectedHunks.Count != 1 || _selectedHunks[0] != hunk.Value)
             {
                 _selectedHunks.Clear();
+        ClearRiskHunks();
                 _selectedHunks.Add(hunk.Value);
             }
         }
@@ -457,6 +485,37 @@ public sealed class DiffCanvas : Grid
         }
 
         DrawHunkSelectionOverlay(session, sender, viewport);
+        DrawRiskMarksOverlay(session, sender, viewport);
+    }
+
+    /// <summary>风险 hunk 左缘 3px 色条（§3.3 画布标记），与滚动同步。</summary>
+    private void DrawRiskMarksOverlay(
+        Microsoft.Graphics.Canvas.CanvasDrawingSession session, CanvasControl sender, DiffViewport viewport)
+    {
+        if (_model is null || (_blockedHunks.Count == 0 && _warningHunks.Count == 0)) return;
+
+        var blockedColor = Windows.UI.Color.FromArgb(0xE0, 0xE8, 0x11, 0x23);
+        var warningColor = Windows.UI.Color.FromArgb(0xD0, 0xFF, 0xB9, 0x00);
+        int firstRow = (int)Math.Round(_vScroll.Value);
+
+        foreach (var (hunks, color) in new[] { (_blockedHunks, blockedColor), (_warningHunks, warningColor) })
+        {
+            foreach (var hunk in hunks)
+            {
+                if (_selectedHunks.Contains(hunk)) continue; // 选中态已有覆盖层，避免叠色
+                var range = _model.TryGetHunkRowRange(hunk);
+                if (range is null) continue;
+
+                double y = (range.FirstRow - firstRow) * _metrics.LineHeight;
+                double height = (range.LastRow - range.FirstRow + 1) * _metrics.LineHeight;
+                if (y >= sender.ActualHeight || y + height <= 0) continue;
+
+                session.FillRectangle(
+                    0, (float)Math.Max(0, y),
+                    3f, (float)Math.Min(height, sender.ActualHeight - Math.Max(0, y)),
+                    color);
+            }
+        }
     }
 
     /// <summary>选中 hunk 的半透明覆盖层（S5 选块反馈，known-issues 1.5 起支持多块），与滚动同步。</summary>

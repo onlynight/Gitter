@@ -103,6 +103,29 @@ public static class Ui
         return btn;
     }
 
+    /// <summary>字形+文本工具按钮：字形必须经 FontIcon 渲染——直接把码位当文本会用默认字体
+    /// 显示为方框（Segoe UI 不含 PUA 字形）。</summary>
+    public static Button IconToolButton(string glyph, string text, string? automationName = null)
+    {
+        var btn = ToolButton(automationName ?? text, automationName);
+        btn.Content = IconTextContent(glyph, text);
+        return btn;
+    }
+
+    /// <summary>字形+文本内容块；按钮 Content 被整体替换（状态/语言切换）时用同一工厂重建。</summary>
+    public static StackPanel IconTextContent(string glyph, string text)
+        => new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children =
+            {
+                new FontIcon { Glyph = glyph, FontSize = 13 },
+                new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center },
+            },
+        };
+
     /// <summary>提交行 SHA / 时间等展示型等宽 TextBlock。</summary>
     public static TextBlock MonoText(string text, double size, SolidColorBrush brush)
         => new() { Text = text, FontFamily = Mono, FontSize = size, Foreground = brush };

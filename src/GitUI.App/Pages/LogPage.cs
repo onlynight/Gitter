@@ -1,5 +1,6 @@
 ﻿using GitUI.Controls;
 using GitUI.Core.Models;
+using GitUI.Core.Resources;
 using GitUI.Core.Services;
 using GitUI.Core.Settings;
 using GitUI.ViewModels;
@@ -43,6 +44,10 @@ public sealed class LogPage : UserControl
     private readonly Button _pinCompareBtn;
     private readonly Button _clearCompareBtn;
     private readonly TextBlock _compareIndicator;
+    private readonly Button _switchBtn;
+    private readonly Button _searchBtn;
+    private readonly Button _refreshBtn;
+    private readonly StackPanel _detailHeader;
 
     private bool _suppressBranchEvent;
     private string? _branchRepoKey;
@@ -60,7 +65,7 @@ public sealed class LogPage : UserControl
         // ---- 工具条（仓库路径唯一入口在「项目」页；此处只读展示当前项目）----
         _projectLabel = new TextBlock
         {
-            Text = "未选择项目",
+            Text = Strings.Common_NoProjectSelected,
             FontFamily = Ui.Mono,
             FontSize = 11,
             Foreground = Ui.Text2,
@@ -68,12 +73,12 @@ public sealed class LogPage : UserControl
             MaxWidth = 340,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        var switchBtn = BuildToolButton("切换项目");
+        var switchBtn = _switchBtn = BuildToolButton(Strings.Common_SwitchProject);
         switchBtn.Click += (_, _) => navigate?.Invoke("projects");
         if (navigate is null) switchBtn.IsEnabled = false;
 
-        _branchBox = new ComboBox { MinWidth = 130, PlaceholderText = "分支" };
-        AutomationProperties.SetName(_branchBox, "分支选择");
+        _branchBox = new ComboBox { MinWidth = 130, PlaceholderText = Strings.Log_BranchPlaceholder };
+        AutomationProperties.SetName(_branchBox, Strings.Log_BranchPickerAutomation);
         _branchBox.SelectionChanged += (_, _) =>
         {
             if (_suppressBranchEvent || _branchBox.SelectedIndex < 0) return;
@@ -82,17 +87,17 @@ public sealed class LogPage : UserControl
             _ = _vm.SetBranchAsync(name == HeadItem ? null : name);
         };
 
-        _searchBox = new TextBox { MinWidth = 200, PlaceholderText = "author: branch: after: before: topic: 自由词" };
-        AutomationProperties.SetName(_searchBox, "Log 搜索");
+        _searchBox = new TextBox { MinWidth = 200, PlaceholderText = Strings.Log_SearchPlaceholder };
+        AutomationProperties.SetName(_searchBox, Strings.Log_SearchAutomation);
         _searchBox.KeyDown += (_, e) =>
         {
             if (e.Key == VirtualKey.Enter) { DoSearch(); e.Handled = true; }
         };
 
-        var searchBtn = BuildToolButton("搜索");
+        var searchBtn = _searchBtn = BuildToolButton(Strings.Common_Search);
         searchBtn.Click += (_, _) => DoSearch();
 
-        var refreshBtn = BuildToolButton("\uE72C", "刷新");
+        var refreshBtn = _refreshBtn = Ui.IconButton("\uE72C", Strings.Common_Refresh);
         refreshBtn.Click += (_, _) =>
         {
             _scrollToTopPending = true;
@@ -120,7 +125,7 @@ public sealed class LogPage : UserControl
             Margin = new Thickness(14, 0, 14, 0),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Text = "未打开仓库",
+            Text = Strings.Common_NoRepoOpen,
         };
         // 注意：不设置 AutomationProperties.Name——显式 Name 会覆盖 TextBlock 的动态文本，
         // UIA 冒烟依赖该元素的 Name 即状态内容（"已加载 N / 共 M"）。
@@ -184,7 +189,7 @@ public sealed class LogPage : UserControl
             Visibility = Visibility.Collapsed,
         };
         // S7 通用 git diff：比较基准栏（任意两点比较，design.md §4.2 P1）
-        _pinCompareBtn = Ui.ToolButton("设为比较基准");
+        _pinCompareBtn = Ui.ToolButton(Strings.Log_SetCompareBase);
         _pinCompareBtn.Padding = new Thickness(7, 2, 7, 3);
         _pinCompareBtn.FontSize = 11;
         _pinCompareBtn.Click += (_, _) =>
@@ -192,7 +197,7 @@ public sealed class LogPage : UserControl
             if (_vm.Selected is not null) _vm.SetCompareBase(_vm.Selected);
         };
 
-        _clearCompareBtn = Ui.ToolButton("清除比较基准");
+        _clearCompareBtn = Ui.ToolButton(Strings.Log_ClearCompareBase);
         _clearCompareBtn.Padding = new Thickness(7, 2, 7, 3);
         _clearCompareBtn.FontSize = 11;
         _clearCompareBtn.Visibility = Visibility.Collapsed;
@@ -205,7 +210,7 @@ public sealed class LogPage : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Text = "未设置基准：显示与父提交的差异",
+            Text = Strings.Log_CompareNoBase,
         };
 
         var compareRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 2, 12, 2) };
@@ -213,8 +218,8 @@ public sealed class LogPage : UserControl
         compareRow.Children.Add(_clearCompareBtn);
         compareRow.Children.Add(_compareIndicator);
 
-        var detailHeader = new StackPanel { Orientation = Orientation.Vertical };
-        AutomationProperties.SetName(detailHeader, "提交详情");
+        var detailHeader = _detailHeader = new StackPanel { Orientation = Orientation.Vertical };
+        AutomationProperties.SetName(detailHeader, Strings.Log_CommitDetailsAutomation);
         detailHeader.Children.Add(_detailSubject);
         detailHeader.Children.Add(_detailMeta);
         detailHeader.Children.Add(_detailMessage);
@@ -228,11 +233,11 @@ public sealed class LogPage : UserControl
             FontFamily = Ui.Mono,
             FontSize = 11.5,
         };
-        AutomationProperties.SetName(_fileList, "文件列表");
+        AutomationProperties.SetName(_fileList, Strings.Common_FileListAutomation);
         _fileList.SelectionChanged += File_Selected;
 
         _canvas = new DiffCanvas { Mode = settings.Current.DiffMode };
-        _canvas.Clear("选择提交与文件查看差异");
+        _canvas.Clear(Strings.Log_CanvasIdle);
 
         var detailHost = new Grid();
         detailHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -288,18 +293,6 @@ public sealed class LogPage : UserControl
 
         Rebind();
 
-        // 诊断钩子（GITTER_SPLITTERTEST=1）：6s 后程序化拖动分割条 +150px——
-        // 鼠标注入被环境策略拦截时的布局联动验证路径（与 GITTER_TERM_AUTOTYPE 同类）
-        if (Environment.GetEnvironmentVariable("GITTER_SPLITTERTEST") == "1")
-        {
-            var d = divider;
-            _ = DispatcherQueue.TryEnqueue(async () =>
-            {
-                await Task.Delay(6000);
-                d.DiagDrag(150); // 程序化拖动（鼠标注入被环境拦截时的替代路径）
-            });
-        }
-
         // 诊断钩子（GITTER_LOGMENUTEST=1）：8s 后程序化弹出首个提交行的复制菜单——
         // 右键注入被环境策略拦截时的菜单链路验证路径（与 GITTER_TERM_AUTOTYPE 同类）
         if (Environment.GetEnvironmentVariable("GITTER_LOGMENUTEST") == "1")
@@ -350,12 +343,119 @@ public sealed class LogPage : UserControl
     private static Button BuildToolButton(string text, string? automationName = null)
         => Ui.ToolButton(text, automationName);
 
+    /// <summary>对话框宿主（同 BranchesPage/ChangesPage：XamlRoot 尚未传播时回退 Content 的）。</summary>
+    private Microsoft.UI.Xaml.XamlRoot? DialogXamlRoot => XamlRoot ?? Content.XamlRoot;
+
     private UIElement BuildRow(object data) => data switch
     {
         LogGroupHeaderRow h => BuildHeaderRow(h),
+        LogSessionRow sess => BuildSessionRow(sess),
         LogCommitRow r => BuildCommitRow(r),
         _ => new TextBlock { Text = string.Empty },
     };
+
+    /// <summary>
+    /// agent 会话卡（ai-native-redesign.md §5.1）：紫 chip 风格，点击展开/折叠成员提交，
+    /// 右侧"整理为一次提交"入口（session squash，确认后执行）。
+    /// </summary>
+    private UIElement BuildSessionRow(LogSessionRow sess)
+    {
+        var chevron = new FontIcon
+        {
+            Glyph = sess.IsCollapsed ? "\uE76B" : "\uE70D",
+            FontSize = 9,
+            Foreground = Ui.Text3,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var chip = new Border
+        {
+            Background = Ui.ChipPurpleBg,
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(5, 0, 5, 1),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = "AI",
+                FontSize = 10,
+                Foreground = Ui.ChipPurpleFg,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+        var title = new TextBlock
+        {
+            Text = sess.Title,
+            FontSize = 11.5,
+            FontWeight = new Windows.UI.Text.FontWeight(600),
+            Foreground = Ui.Text,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(6, 0, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        var meta = new TextBlock
+        {
+            Text = sess.MetaText,
+            FontFamily = Ui.Mono,
+            FontSize = 10.5,
+            Foreground = Ui.Text3,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var squashBtn = Ui.ToolButton(Strings.Log_Squash, Strings.Log_SquashAutomation);
+        squashBtn.Margin = new Thickness(6, 0, 0, 0);
+        squashBtn.Click += (_, _) => _ = ConfirmSquashAsync(sess.Session);
+
+        var content = new Grid();
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(chevron, 0);
+        content.Children.Add(chevron);
+        Grid.SetColumn(chip, 1);
+        content.Children.Add(chip);
+        Grid.SetColumn(title, 2);
+        content.Children.Add(title);
+        Grid.SetColumn(meta, 3);
+        content.Children.Add(meta);
+        Grid.SetColumn(squashBtn, 4);
+        content.Children.Add(squashBtn);
+
+        var btn = new Button
+        {
+            Content = content,
+            Height = 26,
+            Margin = new Thickness(4, 2, 4, 2),
+            Padding = new Thickness(8, 1, 8, 2),
+            Background = Ui.AccentSoft,
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(Ui.CornerRadius),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        AutomationProperties.SetName(btn, sess.Title);
+        // 点击卡片本体 = 折叠切换；squash 按钮点击不会冒泡触发（Button 之间独立）
+        btn.Click += (_, _) => _vm.ToggleSession(sess.Session.SessionId);
+        return btn;
+    }
+
+    private async Task ConfirmSquashAsync(AgentSession session)
+    {
+        if (DialogXamlRoot is null) return;
+        var dialog = new ContentDialog
+        {
+            Title = Strings.Log_Squash,
+            Content = new TextBlock
+            {
+                Text = string.Format(Strings.Log_SquashConfirm, session.Commits.Count, session.AgentId),
+                TextWrapping = TextWrapping.Wrap,
+            },
+            PrimaryButtonText = Strings.Log_Squash,
+            CloseButtonText = Strings.Common_Cancel,
+            XamlRoot = DialogXamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        await _vm.SquashSessionAsync(session);
+    }
 
     private UIElement BuildHeaderRow(LogGroupHeaderRow h)
     {
@@ -377,7 +477,7 @@ public sealed class LogPage : UserControl
         };
         var count = new TextBlock
         {
-            Text = $"{h.CommitCount} 个提交",
+            Text = h.CommitCount == 1 ? Strings.Log_CommitsOne : string.Format(Strings.Log_CommitsMany, h.CommitCount),
             FontFamily = Ui.Mono,
             FontSize = 10.5,
             Foreground = Ui.Text3,
@@ -407,7 +507,7 @@ public sealed class LogPage : UserControl
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
-        AutomationProperties.SetName(btn, $"分组 {h.Title}");
+        AutomationProperties.SetName(btn, string.Format(Strings.Log_GroupAutomation, h.Title));
         btn.Click += (_, _) => _vm.ToggleCollapse(h.Day);
         return btn;
     }
@@ -493,7 +593,7 @@ public sealed class LogPage : UserControl
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
-        AutomationProperties.SetName(btn, $"提交 {r.Commit.ShortSha} {r.Commit.Subject}");
+        AutomationProperties.SetName(btn, string.Format(Strings.Log_CommitRowAutomation, r.Commit.ShortSha, r.Commit.Subject));
         if (isSelected) _selectedRowButton = btn;
         btn.Click += (_, _) => SelectCommit(r, btn);
         // 右键 / 菜单键：复制提交 ID、消息、作者等（标准列表 UX：右键同时选中该行）
@@ -520,15 +620,15 @@ public sealed class LogPage : UserControl
         }
 
         var menu = new MenuFlyout();
-        menu.Items.Add(Item("复制提交 ID（完整）", c.Sha));
-        menu.Items.Add(Item("复制短 ID", c.ShortSha));
-        menu.Items.Add(Item("复制提交消息", c.Subject));
+        menu.Items.Add(Item(Strings.Log_CopyShaFull, c.Sha));
+        menu.Items.Add(Item(Strings.Log_CopyShaShort, c.ShortSha));
+        menu.Items.Add(Item(Strings.Log_CopySubject, c.Subject));
         if (c.Message.Length > 0 && !string.Equals(c.Message, c.Subject, StringComparison.Ordinal))
         {
-            menu.Items.Add(Item("复制完整提交消息（含正文）", c.Message));
+            menu.Items.Add(Item(Strings.Log_CopyFullMessage, c.Message));
         }
-        menu.Items.Add(Item("复制作者", c.AuthorEmail.Length > 0 ? $"{c.Author} <{c.AuthorEmail}>" : c.Author));
-        menu.Items.Add(Item("复制单行摘要（短 ID + 标题）", $"{c.ShortSha} {c.Subject}"));
+        menu.Items.Add(Item(Strings.Log_CopyAuthor, c.AuthorEmail.Length > 0 ? $"{c.Author} <{c.AuthorEmail}>" : c.Author));
+        menu.Items.Add(Item(Strings.Log_CopySummaryLine, $"{c.ShortSha} {c.Subject}"));
         return menu;
     }
 
@@ -561,6 +661,30 @@ public sealed class LogPage : UserControl
 
     /// <summary>F5 / 命令面板刷新入口（S7）。</summary>
     public Task RefreshAsync() => _vm.RefreshAsync();
+
+    /// <summary>语言热切换：静态文案重取值 + 缓存行重建（docs/i18n.md §四；由 MainWindow 驱动）。</summary>
+    internal void OnLanguageChanged()
+    {
+        _switchBtn.Content = Strings.Common_SwitchProject;
+        _searchBtn.Content = Strings.Common_Search;
+        AutomationProperties.SetName(_refreshBtn, Strings.Common_Refresh);
+        _branchBox.PlaceholderText = Strings.Log_BranchPlaceholder;
+        AutomationProperties.SetName(_branchBox, Strings.Log_BranchPickerAutomation);
+        _searchBox.PlaceholderText = Strings.Log_SearchPlaceholder;
+        AutomationProperties.SetName(_searchBox, Strings.Log_SearchAutomation);
+        AutomationProperties.SetName(_detailHeader, Strings.Log_CommitDetailsAutomation);
+        AutomationProperties.SetName(_fileList, Strings.Common_FileListAutomation);
+        _pinCompareBtn.Content = Strings.Log_SetCompareBase;
+        _clearCompareBtn.Content = Strings.Log_ClearCompareBase;
+        _projectLabel.Text = _context.WorkDir ?? Strings.Common_NoProjectSelected;
+        if (_vm.Selected is null && _vm.SelectedError is null)
+        {
+            _canvas.Clear(Strings.Log_CanvasIdle);
+        }
+
+        _vm.RefreshRows(); // 行 MetaText/分组标题/自动化名按新文化重建
+        Rebind();
+    }
 
     private void DoSearch()
     {
@@ -610,12 +734,12 @@ public sealed class LogPage : UserControl
         var refs = string.Join(' ', c.BranchNames.Select(n => $"[{n}]").Concat(c.TagNames.Select(n => $"#{n}")));
         _detailMeta.Text = $"{c.ShortSha} · {c.Author} · {c.CommitterDate.LocalDateTime:yyyy-MM-dd HH:mm}"
                            + (refs.Length > 0 ? $" · {refs}" : string.Empty)
-                           + (c.IsMerge ? " · 合并提交" : string.Empty);
+                           + (c.IsMerge ? " · " + Strings.Log_MergeCommitSuffix : string.Empty);
         var body = ExtractMessageBody(c.Message);
         _detailMessage.Text = body;
         _detailMessage.Visibility = body.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        _canvas.Clear("加载变更中…");
+        _canvas.Clear(Strings.Log_LoadingChanges);
         _fileList.Items.Clear();
         UpdateCompareBar();
         _ = _vm.SelectAsync(c);
@@ -630,8 +754,8 @@ public sealed class LogPage : UserControl
         _pinCompareBtn.IsEnabled = _vm.Selected is not null
             && (!hasBase || _vm.Selected.Sha != baseCommit!.Sha);
         _compareIndicator.Text = hasBase
-            ? $"基准 {baseCommit!.ShortSha}：所选提交显示与基准的差异"
-            : "未设置基准：显示与父提交的差异";
+            ? string.Format(Strings.Log_CompareWithBase, baseCommit!.ShortSha)
+            : Strings.Log_CompareNoBase;
     }
 
     /// <summary>提交全文去掉首行主题后的正文（无正文时返回空串）。</summary>
@@ -650,28 +774,28 @@ public sealed class LogPage : UserControl
         foreach (var f in files)
         {
             var label = f.IsBinary
-                ? $"B  {f.Path}  (二进制)"
+                ? $"B  {f.Path}  {Strings.Common_BinarySuffix}"
                 : $"{StatusCode(f)}  {f.Path}  +{f.AddedLines} −{f.DeletedLines}";
             var item = new ListViewItem { Content = label, Tag = f, Padding = new Thickness(10, 2, 10, 2) };
-            AutomationProperties.SetName(item, $"文件 {f.Path}");
+            AutomationProperties.SetName(item, string.Format(Strings.Log_FileAutomation, f.Path));
             _fileList.Items.Add(item);
         }
 
         if (_vm.Selected is null)
         {
-            _canvas.Clear("选择提交与文件查看差异");
+            _canvas.Clear(Strings.Log_CanvasIdle);
         }
         else if (_vm.SelectedError is not null)
         {
-            _canvas.Clear("读取变更失败: " + _vm.SelectedError);
+            _canvas.Clear(string.Format(Strings.Log_ReadChangesFailed, _vm.SelectedError));
         }
         else if (files.Count == 0)
         {
-            _canvas.Clear(_vm.Selected.IsRoot ? "根提交没有父提交，无差异" : "选择上方文件查看差异");
+            _canvas.Clear(_vm.Selected.IsRoot ? Strings.Log_RootNoDiff : Strings.Log_SelectFileAbove);
         }
         else
         {
-            _canvas.Clear("选择上方文件查看差异");
+            _canvas.Clear(Strings.Log_SelectFileAbove);
         }
     }
 
@@ -686,8 +810,8 @@ public sealed class LogPage : UserControl
     private void LoadFile(DiffResult f)
     {
         _canvas.SourcePath = f.IsBinary ? null : f.Path; // 语法高亮按扩展名解析（code-highlight-framework P1）
-        if (f.IsBinary) _canvas.Clear("二进制文件已修改，无法比较");
-        else if (f.Hunks.Count == 0) _canvas.Clear("无差异");
+        if (f.IsBinary) _canvas.Clear(Strings.Common_BinaryNoDiff);
+        else if (f.Hunks.Count == 0) _canvas.Clear(Strings.Common_NoDiff);
         else _canvas.Load(f.Hunks, f.OldEndsWithNewline, f.NewEndsWithNewline);
     }
 
@@ -729,14 +853,14 @@ public sealed class LogPage : UserControl
         if (!_vm.IsRepoOpen)
         {
             text = _vm.Error is not null
-                ? "打开仓库失败：" + _vm.Error
-                : "未选择项目：在左侧「项目」页添加并双击选择（Ctrl+1）";
+                ? string.Format(Strings.Log_OpenRepoFailed, _vm.Error)
+                : Strings.Log_EmptyNoProject;
         }
         else if (!_vm.IsLoading && _vm.Groups.Count == 0)
         {
             text = _vm.Query.Length > 0 || _vm.Branch is not null
-                ? "没有匹配的提交（调整搜索词，或清空搜索）"
-                : "空仓库：还没有任何提交";
+                ? Strings.Log_EmptyNoMatches
+                : Strings.Log_EmptyRepo;
         }
 
         _emptyState.Text = text ?? string.Empty;

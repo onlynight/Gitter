@@ -2,6 +2,7 @@ using GitUI.Core.Models;
 using GitUI.Core.Services;
 using GitUI.Git;
 using Xunit;
+using GitUI.Core.Resources;
 
 namespace GitUI.ViewModels.Tests;
 
@@ -50,7 +51,9 @@ public sealed class ChangesViewModelTests : IDisposable
         Assert.Equal(1, _vm.Changes[0].AddedLines);
         Assert.Equal(1, _vm.Changes[0].DeletedLines);
 
-        Assert.StartsWith("1 项变更 · 1 项已暂存 · 1 项未跟踪", _vm.StatusText);
+        Assert.StartsWith(string.Format("{0} · {1} · {2}",
+            string.Format(Strings.Changes_CountChanges, 1), string.Format(Strings.Changes_CountStaged, 1),
+            string.Format(Strings.Changes_CountUntracked, 1)), _vm.StatusText);
     }
 
     [Fact]
@@ -96,7 +99,7 @@ public sealed class ChangesViewModelTests : IDisposable
         Assert.Equal("2", _builder.ShowFile("HEAD", "b.txt"));
 
         // 提交成功标记（刷新会清除 transient，先断言）
-        Assert.Contains("已提交", _vm.StatusText);
+        Assert.Contains(Strings.Changes_Committed.Split()[0], _vm.StatusText);
         Assert.NotNull(_vm.LastOutcome);
 
         // 提交后工作区仍保留 b.txt 的未提交修改

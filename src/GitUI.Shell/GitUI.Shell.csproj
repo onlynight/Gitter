@@ -18,4 +18,5 @@
     <InternalsVisibleTo Include="GitUI.Shell.Tests" />
   </ItemGroup>
 
+
 </Project>

@@ -1,6 +1,8 @@
 using System;
+using GitUI.App.Platform;
 using GitUI.Controls.Theme;
 using GitUI.Core.Extensions;
+using GitUI.Core.Resources;
 using GitUI.Core.Settings;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
@@ -68,6 +70,21 @@ public sealed partial class SettingsPage : UserControl
         _settings.Save();
     }
 
+    /// <summary>语言切换（docs/i18n.md §四）：热切换，立即生效。</summary>
+    private void Language_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        var language = btn == LangSystemBtn ? LanguagePreference.System
+                     : btn == LangEnglishBtn ? LanguagePreference.English
+                     : LanguagePreference.SimplifiedChinese;
+        // 顺序关键：先 Apply 切资源文化并广播各窗口重绘，再 Update 触发
+        // settings.Changed → RefreshAppearance——反了会让设置页自身在旧文化下渲染
+        //（表现为"切走再切回页面才变成新语言"）。
+        LanguageService.Apply(language);
+        _settings.Update(s => s.Language = language);
+        _settings.Save();
+    }
+
     /// <summary>主题包行点击：选定包（显式选择优先于基座偏好），settings.Changed → 宿主应用。</summary>
     private void ThemePackage_Click(object sender, RoutedEventArgs e)
     {
@@ -87,7 +104,7 @@ public sealed partial class SettingsPage : UserControl
     {
         if (_importThemePackage is null)
         {
-            ShowThemeStatus("当前窗口不支持导入（缺少宿主句柄）");
+            ShowThemeStatus(Strings.Settings_ImportUnavailable);
             return;
         }
 
@@ -119,6 +136,112 @@ public sealed partial class SettingsPage : UserControl
         new DiffPreviewWindow(_settings).Activate();
     }
 
+    // ---- 实时监视与后台 fetch（ai-native-redesign.md §7.1）----
+
+    private bool _suppressSettingEvents; // RefreshAppearance 回填控件时抑制写回
+
+    private void WatchWorktree_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingEvents || WatchWorktreeCheck is null) return;
+        _settings.Update(s => s.WatchWorktree = WatchWorktreeCheck.IsChecked == true);
+        _settings.Save();
+    }
+
+    private void AutoFetch_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingEvents || AutoFetchCheck is null) return;
+        _settings.Update(s => s.AutoFetch = AutoFetchCheck.IsChecked == true);
+        _settings.Save();
+    }
+
+    private void McpPipe_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingEvents || McpPipeCheck is null) return;
+        _settings.Update(s => s.McpPipeEnabled = McpPipeCheck.IsChecked == true);
+        _settings.Save();
+    }
+
+    private void FetchInterval_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_suppressSettingEvents) return;
+        var v = (int)Math.Clamp(Math.Round(sender.Value), 1, 120);
+        _settings.Update(s => s.AutoFetchIntervalMinutes = v);
+        _settings.Save();
+    }
+
+    // ---- AI 助手（ai-native-redesign.md §八；provider 与档位热生效）----
+
+    private static readonly string[] AiProviderKinds =
+    {
+        AiProviderKind.Off, "ollama", AiProviderKind.OpenAi, AiProviderKind.Anthropic, AiProviderKind.Cli,
+    };
+
+    private void AiProvider_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSettingEvents || AiProviderBox is null) return;
+        var idx = Math.Max(0, AiProviderBox.SelectedIndex);
+        _settings.Update(s =>
+        {
+            s.Ai.ProviderKind = AiProviderKinds[idx];
+            if (idx == 1 && string.IsNullOrWhiteSpace(s.Ai.Endpoint))
+                s.Ai.Endpoint = "http://127.0.0.1:11434/v1"; // Ollama 预设
+        });
+        _settings.Save();
+        RefreshAppearance();
+    }
+
+    private void AiEndpoint_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressSettingEvents || AiEndpointBox is null) return;
+        _settings.Update(s => s.Ai.Endpoint = BlankToNull(AiEndpointBox.Text));
+        _settings.Save();
+    }
+
+    private void AiModel_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressSettingEvents || AiModelBox is null) return;
+        _settings.Update(s => s.Ai.Model = BlankToNull(AiModelBox.Text));
+        _settings.Save();
+    }
+
+    private void AiApiKey_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingEvents || AiApiKeyBox is null) return;
+        var plain = AiApiKeyBox.Password;
+        _settings.Update(s => s.Ai.ApiKeyProtected = string.IsNullOrEmpty(plain) ? null : SecretProtector.Protect(plain));
+        _settings.Save();
+    }
+
+    private void AiCli_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressSettingEvents || AiCliBox is null) return;
+        _settings.Update(s => s.Ai.CliCommand = BlankToNull(AiCliBox.Text));
+        _settings.Save();
+    }
+
+    private void AiPrivacy_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSettingEvents || AiPrivacyBox is null) return;
+        _settings.Update(s => s.Ai.Privacy = (AiPrivacyLevel)Math.Max(0, AiPrivacyBox.SelectedIndex));
+        _settings.Save();
+    }
+
+    private void AiTrailer_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingEvents || AiTrailerCheck is null) return;
+        _settings.Update(s => s.Ai.AppendTrailer = AiTrailerCheck.IsChecked == true);
+        _settings.Save();
+    }
+
+    private void SafetyNet_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSettingEvents || SafetyNetBox is null) return;
+        _settings.Update(s => s.SafetyNetMode = (CommitSafetyMode)Math.Max(0, SafetyNetBox.SelectedIndex));
+        _settings.Save();
+    }
+
+    private static string? BlankToNull(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
     private void RefreshAppearance()
     {
         if (ThemeSystemBtn == null) return;
@@ -127,9 +250,99 @@ public sealed partial class SettingsPage : UserControl
         var selected = new Windows.UI.Text.FontWeight(600);
         var normal = new Windows.UI.Text.FontWeight(400);
 
+        // ---- 静态文案（语言重启生效，此处取当前文化的资源值）----
+        SettingsTitle.Text = Strings.Settings_Title;
+        ThemeCardTitle.Text = Strings.Settings_Theme;
+        BaseLabel.Text = Strings.Settings_Base;
+        ThemeSystemBtn.Content = Strings.Common_FollowSystem;
+        ThemeLightBtn.Content = Strings.Common_Light;
+        ThemeDarkBtn.Content = Strings.Common_Dark;
+        ThemePackageLabel.Text = Strings.Settings_ThemePackages;
+        ThemeFollowBaseBtn.Content = Strings.Settings_FollowBaseBuiltin;
+        ImportThemeBtn.Content = Strings.Settings_ImportThemePackage;
+        LanguageTitle.Text = Strings.Settings_Language;
+        LanguageHint.Text = Strings.Settings_LanguageHint;
+        // 语言名按惯例以自身语言显示，不随当前 UI 文化翻译
+        LangSystemBtn.Content = Strings.Common_FollowSystem;
+        LangEnglishBtn.Content = "English";
+        LangChineseBtn.Content = "简体中文";
+        ExtensionsTitle.Text = Strings.Settings_Extensions;
+        ExtensionsHint.Text = Strings.Settings_ExtensionsHint;
+        DiffModeTitle.Text = Strings.Settings_DiffMode;
+        DiffSideBySideBtn.Content = Strings.Common_SideBySide;
+        DiffInlineBtn.Content = Strings.Common_Inline;
+        DevToolsTitle.Text = Strings.Settings_DevTools;
+        DiffPreviewBtn.Content = Strings.Settings_OpenDiffPreview;
+        SettingsFileTitle.Text = Strings.Settings_SettingsFile;
+        ExportBtn.Content = Strings.Settings_Export;
+        ImportBtn.Content = Strings.Settings_Import;
+
+        // ---- 实时监视与后台 fetch（ai-native-redesign.md §7.1）----
+        MonitorTitle.Text = Strings.Settings_MonitorSection;
+        WatchWorktreeCheck.Content = Strings.Settings_WatchWorktree;
+        McpPipeCheck.Content = Strings.Settings_McpPipe;
+        AutoFetchCheck.Content = Strings.Settings_AutoFetch;
+        FetchIntervalLabel.Text = Strings.Settings_FetchIntervalMinutes;
+
+        // ---- AI 助手（ai-native-redesign.md §八）----
+        AiTitle.Text = Strings.Settings_AiSection;
+        AiHint.Text = Strings.Settings_AiHint;
+        AiProviderLabel.Text = Strings.Settings_AiProvider;
+        AiEndpointLabel.Text = Strings.Settings_AiEndpoint;
+        AiModelLabel.Text = Strings.Settings_AiModel;
+        AiApiKeyLabel.Text = Strings.Settings_AiApiKey;
+        AiCliLabel.Text = Strings.Settings_AiCliCommand;
+        AiPrivacyLabel.Text = Strings.Settings_AiPrivacy;
+        AiTrailerCheck.Content = Strings.Settings_AiAppendTrailer;
+        SafetyNetLabel.Text = Strings.Settings_SafetyNetMode;
+
+        // 回填控件值：抑制事件写回（Text/Selection/IsChecked 赋值会触发对应 handler）
+        _suppressSettingEvents = true;
+        try
+        {
+            var providerTexts = new[]
+            {
+                Strings.Settings_AiProviderOff, Strings.Settings_AiProviderOllama, Strings.Settings_AiProviderOpenAi,
+                Strings.Settings_AiProviderAnthropic, Strings.Settings_AiProviderCli,
+            };
+            AiProviderBox.ItemsSource = providerTexts;
+            var kindIndex = Array.IndexOf(AiProviderKinds, AiSettings.NormalizeProvider(s.Ai.ProviderKind));
+            AiProviderBox.SelectedIndex = kindIndex < 0 ? 0 : kindIndex;
+            AiEndpointBox.Text = s.Ai.Endpoint ?? string.Empty;
+            AiModelBox.Text = s.Ai.Model ?? string.Empty;
+            AiCliBox.Text = s.Ai.CliCommand ?? string.Empty;
+            AiPrivacyBox.ItemsSource = new[]
+            {
+                Strings.Settings_PrivacyDisabled, Strings.Settings_PrivacyMetadata, Strings.Settings_PrivacyFullDiff,
+            };
+            AiPrivacyBox.SelectedIndex = (int)s.Ai.Privacy;
+            SafetyNetBox.ItemsSource = new[]
+            {
+                Strings.Settings_SafetyOff, Strings.Settings_SafetyWarn, Strings.Settings_SafetyBlock,
+            };
+            SafetyNetBox.SelectedIndex = (int)s.SafetyNetMode;
+            AiTrailerCheck.IsChecked = s.Ai.AppendTrailer;
+            WatchWorktreeCheck.IsChecked = s.WatchWorktree;
+            McpPipeCheck.IsChecked = s.McpPipeEnabled;
+            AutoFetchCheck.IsChecked = s.AutoFetch;
+            FetchIntervalBox.Value = s.AutoFetchIntervalMinutes;
+            // 密码框不随刷新覆盖用户输入；仅在为空且有存量密文时回填
+            if (AiApiKeyBox.Password.Length == 0 && s.Ai.ApiKeyProtected is not null)
+                AiApiKeyBox.Password = SecretProtector.Unprotect(s.Ai.ApiKeyProtected) ?? string.Empty;
+        }
+        finally
+        {
+            _suppressSettingEvents = false;
+        }
+
         ThemeSystemBtn.FontWeight = s.Theme == ThemePreference.System ? selected : normal;
         ThemeLightBtn.FontWeight = s.Theme == ThemePreference.Light ? selected : normal;
         ThemeDarkBtn.FontWeight = s.Theme == ThemePreference.Dark ? selected : normal;
+
+        var lang = LanguageService.Normalize(s.Language);
+        LangSystemBtn.FontWeight = lang == LanguagePreference.System ? selected : normal;
+        LangEnglishBtn.FontWeight = lang == LanguagePreference.English ? selected : normal;
+        LangChineseBtn.FontWeight = lang == LanguagePreference.SimplifiedChinese ? selected : normal;
 
         DiffSideBySideBtn.FontWeight = s.DiffMode == DiffViewMode.SideBySide ? selected : normal;
         DiffInlineBtn.FontWeight = s.DiffMode == DiffViewMode.Inline ? selected : normal;
@@ -139,7 +352,8 @@ public sealed partial class SettingsPage : UserControl
         foreach (var pkg in ThemeService.Packages)
         {
             var isSelected = pkg.Id == s.ThemePackageId;
-            var origin = pkg.IsBuiltin ? "内置" : "自定义";
+            var origin = pkg.IsBuiltin ? Strings.Common_Builtin : Strings.Common_Custom;
+            var baseKind = pkg.BaseKind == ThemeBase.Light ? Strings.ThemePkg_Light : Strings.ThemePkg_Dark;
             var rowContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             if (pkg.PreviewPath is not null)
             {
@@ -154,7 +368,7 @@ public sealed partial class SettingsPage : UserControl
 
             rowContent.Children.Add(new TextBlock
             {
-                Text = $"{pkg.Name}（{(pkg.BaseKind == ThemeBase.Light ? "亮色" : "深色")} · {origin}）",
+                Text = string.Format(Strings.Settings_ThemePackageRowFormat, pkg.Name, baseKind, origin),
                 VerticalAlignment = VerticalAlignment.Center,
             });
 
@@ -169,7 +383,7 @@ public sealed partial class SettingsPage : UserControl
                 Tag = pkg.Id,
             };
             row.Background = isSelected ? ThemeServiceActiveBrush() : null;
-            AutomationProperties.SetName(row, $"主题包 {pkg.Name}");
+            AutomationProperties.SetName(row, string.Format(Strings.Settings_ThemePackageAutomation, pkg.Name));
             row.Click += ThemePackage_Click;
             ThemePackageList.Children.Add(row);
         }
@@ -206,8 +420,8 @@ public sealed partial class SettingsPage : UserControl
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var origin = pkg.IsBuiltin ? "内置" : "自定义";
-            var kindsText = string.Join("/", pkg.Manifest.Kinds.Select(k => k == "theme" ? "主题" : k == "syntax" ? "语法" : k));
+            var origin = pkg.IsBuiltin ? Strings.Common_Builtin : Strings.Common_Custom;
+            var kindsText = string.Join("/", pkg.Manifest.Kinds.Select(KindDisplayName));
             var name = new TextBlock
             {
                 Text = $"{pkg.Name} · {origin} · v{pkg.Manifest.Version} · {kindsText}",
@@ -221,18 +435,18 @@ public sealed partial class SettingsPage : UserControl
             var kindsHost = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
             foreach (var kind in pkg.Manifest.Kinds)
             {
-                var kindCn = kind == "theme" ? "主题" : kind == "syntax" ? "语法" : kind;
+                var kindLabel = KindDisplayName(kind);
                 var enabled = GitUI.Core.Extensions.PackageRegistryState.IsEnabled(pkg.Id, kind);
                 var cb = new CheckBox
                 {
-                    Content = kindCn,
+                    Content = kindLabel,
                     IsChecked = enabled,
                     MinWidth = 0,
                     Padding = new Thickness(0),
                     FontSize = 11,
                     Tag = pkg.Id + ":" + kind,
                 };
-                AutomationProperties.SetName(cb, $"启用 {pkg.Name} {kindCn}");
+                AutomationProperties.SetName(cb, string.Format(Strings.Settings_EnableKindAutomation, pkg.Name, kindLabel));
                 cb.Checked += PackageKindToggle_Changed;
                 cb.Unchecked += PackageKindToggle_Changed;
                 kindsHost.Children.Add(cb);
@@ -245,13 +459,13 @@ public sealed partial class SettingsPage : UserControl
             {
                 var uninstallBtn = new Button
                 {
-                    Content = "卸载",
+                    Content = Strings.Settings_Uninstall,
                     FontSize = 11,
                     Padding = new Thickness(8, 2, 8, 3),
                     CornerRadius = new CornerRadius(4),
                     Tag = pkg.Id,
                 };
-                AutomationProperties.SetName(uninstallBtn, $"卸载 {pkg.Name}");
+                AutomationProperties.SetName(uninstallBtn, string.Format(Strings.Settings_UninstallAutomation, pkg.Name));
                 uninstallBtn.Click += UninstallPackage_Click;
                 Grid.SetColumn(uninstallBtn, 2);
                 row.Children.Add(uninstallBtn);
@@ -260,6 +474,14 @@ public sealed partial class SettingsPage : UserControl
             ExtensionPackageList.Children.Add(row);
         }
     }
+
+    /// <summary>扩展包种类显示名（未知种类原样展示）。</summary>
+    private static string KindDisplayName(string kind) => kind switch
+    {
+        "theme" => Strings.Kind_Theme,
+        "syntax" => Strings.Kind_Syntax,
+        _ => kind,
+    };
 
     /// <summary>kind 启停：更新共享注册状态 + 持久化；主题即时经 settings.Changed 重载，语法即时重扫描。</summary>
     private void PackageKindToggle_Changed(object sender, RoutedEventArgs e)
@@ -278,7 +500,9 @@ public sealed partial class SettingsPage : UserControl
             GitUI.Diff.Highlighting.HighlighterRegistry.Rescan();
         }
 
-        ShowExtensionStatus($"已{(cb.IsChecked == true ? "启用" : "禁用")}：{entry.Replace(':', '·')}");
+        ShowExtensionStatus(string.Format(
+            cb.IsChecked == true ? Strings.Settings_EnabledStatus : Strings.Settings_DisabledStatus,
+            entry.Replace(':', '·')));
     }
 
     /// <summary>卸载用户扩展包（含其全部种类）：主题立即回退内置，语法回退 plain。</summary>
@@ -290,7 +514,7 @@ public sealed partial class SettingsPage : UserControl
         var ok = ThemeService.UninstallPackage(id);
         if (!ok)
         {
-            ShowExtensionStatus("卸载失败（内置包或目录不可删）");
+            ShowExtensionStatus(Strings.Settings_UninstallFailed);
             return;
         }
 
@@ -306,7 +530,7 @@ public sealed partial class SettingsPage : UserControl
             }
         });
         _settings.Save();
-        ShowExtensionStatus($"已卸载：{id}");
+        ShowExtensionStatus(string.Format(Strings.Settings_Uninstalled, id));
     }
 
     private void ShowExtensionStatus(string message)

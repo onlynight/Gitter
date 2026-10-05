@@ -50,6 +50,7 @@ New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
 $escA = $repoA.Replace('\', '\\')
 @"
 {
+  "language": "zh-Hans",
   "projects": [ { "path": "$escA" } ],
   "currentProjectPath": "$escA"
 }

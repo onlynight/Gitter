@@ -1,7 +1,17 @@
-$exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe'
+﻿$exe = 'D:\Code\Gitter\src\GitUI.App\bin\Debug\net8.0-windows10.0.19041.0\GitUI.App.exe'
 $settingsPath = Join-Path $env:APPDATA 'GitUI\settings.json'
 New-Item -ItemType Directory -Force -Path (Split-Path $settingsPath) | Out-Null
 if (Test-Path $settingsPath) { Remove-Item $settingsPath -Force }
+
+# i18n（docs/i18n.md）：钉扎中文，保证 UIA 转储与冒烟脚本同一语言语境
+@'
+{"language":"zh-Hans"}
+'@ | Set-Content -Path $settingsPath -Encoding UTF8
+
+# i18n（docs/i18n.md）：中文卫星资源必须随构建落盘
+$satellite = Join-Path (Split-Path $exe) 'zh-Hans\GitUI.Core.resources.dll'
+if (-not (Test-Path $satellite)) { Write-Output ('FAIL: 缺少中文卫星资源 ' + $satellite); exit 1 }
+Write-Output ('OK: zh-Hans satellite: ' + $satellite)
 
 $p = Start-Process -FilePath $exe -PassThru
 Start-Sleep -Seconds 8

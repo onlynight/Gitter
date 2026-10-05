@@ -1,4 +1,5 @@
 using GitUI.Core.Models;
+using GitUI.Core.Resources;
 using GitUI.Core.Services;
 using GitUI.Core.Settings;
 using GitUI.ViewModels;
@@ -35,6 +36,8 @@ public sealed class BranchesPage : UserControl
     private readonly ItemsRepeater _repeater;
     private readonly ScrollViewer _listScroll;
 
+    private readonly Button _switchBtn;
+    private readonly Button _refreshBtn;
     private readonly Button _checkoutBtn;
     private readonly Button _createBtn;
     private readonly Button _renameBtn;
@@ -53,18 +56,18 @@ public sealed class BranchesPage : UserControl
         // ---- 工具条（仓库路径唯一入口在「项目」页；此处只读展示当前项目）----
         _projectLabel = new TextBlock
         {
-            Text = "未选择项目",
+            Text = Strings.Common_NoProjectSelected,
             FontSize = 12,
             Opacity = 0.8,
             VerticalAlignment = VerticalAlignment.Center,
             MaxWidth = 340,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        var switchBtn = BuildToolButton("切换项目");
+        var switchBtn = _switchBtn = BuildToolButton(Strings.Common_SwitchProject);
         switchBtn.Click += (_, _) => navigate?.Invoke("projects");
         if (navigate is null) switchBtn.IsEnabled = false;
 
-        var refreshBtn = BuildToolButton("\uE72C", "刷新");
+        var refreshBtn = _refreshBtn = Ui.IconButton("\uE72C", Strings.Common_Refresh);
         refreshBtn.Click += (_, _) => _ = _vm.RefreshAsync();
 
         // 顶部三按钮（IDEA 同款，明确区分 merge 与 rebase，§4.5）
@@ -98,7 +101,7 @@ public sealed class BranchesPage : UserControl
             Visibility = Visibility.Collapsed,
         };
 
-        _copyErrBtn = BuildToolButton("复制错误详情");
+        _copyErrBtn = BuildToolButton(Strings.Common_CopyErrorDetail);
         _copyErrBtn.Visibility = Visibility.Collapsed;
         _copyErrBtn.Click += (_, _) => CopyErrorDetail();
 
@@ -107,19 +110,19 @@ public sealed class BranchesPage : UserControl
         bannerRow.Children.Add(_copyErrBtn);
 
         // ---- 操作栏（对选中分支）----
-        _checkoutBtn = BuildToolButton("检出");
+        _checkoutBtn = BuildToolButton(Strings.Branches_Checkout);
         _checkoutBtn.Click += (_, _) => { if (Sel() is { } b && !b.IsRemote) _ = _vm.CheckoutAsync(b.Name); };
-        _createBtn = BuildToolButton("创建");
+        _createBtn = BuildToolButton(Strings.Branches_Create);
         _createBtn.Click += (_, _) => _ = ShowCreateDialogAsync();
-        _renameBtn = BuildToolButton("重命名");
+        _renameBtn = BuildToolButton(Strings.Branches_Rename);
         _renameBtn.Click += (_, _) => _ = ShowRenameDialogAsync();
-        _deleteBtn = BuildToolButton("删除");
+        _deleteBtn = BuildToolButton(Strings.Branches_Delete);
         _deleteBtn.Click += (_, _) => _ = ShowDeleteDialogAsync();
-        _mergeBtn = BuildToolButton("合并到当前分支");
+        _mergeBtn = BuildToolButton(Strings.Branches_MergeIntoCurrent);
         _mergeBtn.Click += (_, _) => { if (Sel() is { } b && !b.IsRemote && !b.IsHead) _ = _vm.MergeAsync(b.Name, noFastForward: false, message: null); };
-        _rebaseBtn = BuildToolButton("变基到该分支");
+        _rebaseBtn = BuildToolButton(Strings.Branches_RebaseOntoThis);
         _rebaseBtn.Click += (_, _) => { if (Sel() is { } b && !b.IsRemote && !b.IsHead) _ = _vm.RebaseAsync(b.Name); };
-        _ffBtn = BuildToolButton("快进");
+        _ffBtn = BuildToolButton(Strings.Branches_FastForward);
         _ffBtn.Click += (_, _) => { if (Sel() is { } b && !b.IsRemote && !b.IsHead) _ = _vm.FastForwardAsync(b.Name); };
 
         var ops = new StackPanel
@@ -155,7 +158,7 @@ public sealed class BranchesPage : UserControl
             Margin = new Thickness(14, 0, 14, 0),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Text = "未打开仓库",
+            Text = Strings.Common_NoRepoOpen,
         };
         // 不设 AutomationProperties.Name（显式 Name 覆盖动态文本，UIA 冒烟依赖 Name=内容）
         var statusRow = new Grid { Height = 22 };
@@ -255,6 +258,24 @@ public sealed class BranchesPage : UserControl
     /// <summary>F5 / 命令面板刷新入口（S7）。</summary>
     public Task RefreshAsync() => _vm.RefreshAsync();
 
+    /// <summary>语言热切换：静态文案重取值 + 行重建（组头标题在 VM 行里，docs/i18n.md §四）。</summary>
+    internal void OnLanguageChanged()
+    {
+        _switchBtn.Content = Strings.Common_SwitchProject;
+        AutomationProperties.SetName(_refreshBtn, Strings.Common_Refresh);
+        AutomationProperties.SetName(_copyErrBtn, Strings.Common_CopyErrorDetail);
+        _checkoutBtn.Content = Strings.Branches_Checkout;
+        _createBtn.Content = Strings.Branches_Create;
+        _renameBtn.Content = Strings.Branches_Rename;
+        _deleteBtn.Content = Strings.Branches_Delete;
+        _mergeBtn.Content = Strings.Branches_MergeIntoCurrent;
+        _rebaseBtn.Content = Strings.Branches_RebaseOntoThis;
+        _ffBtn.Content = Strings.Branches_FastForward;
+        _projectLabel.Text = _context.WorkDir ?? Strings.Common_NoProjectSelected;
+        Rebind();
+        _ = RefreshAsync(); // 重建 VM 行（本地/远程组头标题）
+    }
+
     // ---- 命令面板入口（v2）：MainWindow 经页面缓存对象调用；未开仓库/无选中时由 MainWindow 置灰 ----
 
     /// <summary>仓库是否已打开（提交/同步类命令的置灰依据）。</summary>
@@ -315,10 +336,10 @@ public sealed class BranchesPage : UserControl
     private async Task ShowCreateDialogAsync()
     {
         if (DialogXamlRoot is null) return;
-        var input = new TextBox { PlaceholderText = "新分支名" };
-        AutomationProperties.SetName(input, "新分支名");
-        var from = new TextBox { PlaceholderText = "起点（留空 = HEAD）" };
-        AutomationProperties.SetName(from, "起点");
+        var input = new TextBox { PlaceholderText = Strings.Branches_NewBranchName };
+        AutomationProperties.SetName(input, Strings.Branches_NewBranchName);
+        var from = new TextBox { PlaceholderText = Strings.Branches_StartPointPlaceholder };
+        AutomationProperties.SetName(from, Strings.Branches_StartPointAutomation);
 
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(input);
@@ -326,10 +347,10 @@ public sealed class BranchesPage : UserControl
 
         var dialog = new ContentDialog
         {
-            Title = "创建分支",
+            Title = Strings.Branches_CreateTitle,
             Content = panel,
-            PrimaryButtonText = "确认创建",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Strings.Branches_CreateConfirm,
+            CloseButtonText = Strings.Common_Cancel,
             XamlRoot = DialogXamlRoot,
         };
         var result = await dialog.ShowAsync();
@@ -342,14 +363,14 @@ public sealed class BranchesPage : UserControl
     {
         if (DialogXamlRoot is null) return;
         if (Sel() is not { } b || b.IsRemote) return;
-        var input = new TextBox { PlaceholderText = "新名称", Text = b.Name };
-        AutomationProperties.SetName(input, "新名称");
+        var input = new TextBox { PlaceholderText = Strings.Branches_NewName, Text = b.Name };
+        AutomationProperties.SetName(input, Strings.Branches_NewName);
         var dialog = new ContentDialog
         {
-            Title = $"重命名分支 {b.Name}",
+            Title = string.Format(Strings.Branches_RenameTitle, b.Name),
             Content = input,
-            PrimaryButtonText = "确认重命名",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Strings.Branches_RenameConfirm,
+            CloseButtonText = Strings.Common_Cancel,
             XamlRoot = DialogXamlRoot,
         };
         var result = await dialog.ShowAsync();
@@ -375,7 +396,7 @@ public sealed class BranchesPage : UserControl
         });
         body.Children.Add(new TextBlock
         {
-            Text = "恢复方式：删除后可从 reflog 或本对话框列出的提交 SHA 重建分支。",
+            Text = Strings.Branches_DeleteRecoverHint,
             FontSize = 11.5,
             Opacity = 0.7,
             TextWrapping = TextWrapping.Wrap,
@@ -383,11 +404,11 @@ public sealed class BranchesPage : UserControl
 
         var dialog = new ContentDialog
         {
-            Title = $"删除分支 {b.Name}",
+            Title = string.Format(Strings.Branches_DeleteTitle, b.Name),
             Content = body,
             // 按钮文案带"确认"前缀：与页面操作栏的"删除"按钮在 UIA 里不重名
-            PrimaryButtonText = "确认删除",
-            CloseButtonText = "取消",
+            PrimaryButtonText = Strings.Branches_DeleteConfirm,
+            CloseButtonText = Strings.Common_Cancel,
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = DialogXamlRoot,
         };
@@ -421,7 +442,7 @@ public sealed class BranchesPage : UserControl
             CornerRadius = new CornerRadius(Ui.CornerRadius),
             Margin = new Thickness(8, 6, 8, 2),
         };
-        AutomationProperties.SetName(border, g.IsRemote ? "远程分支组" : "本地分支组");
+        AutomationProperties.SetName(border, g.IsRemote ? Strings.Branches_RemoteGroupAutomation : Strings.Branches_LocalGroupAutomation);
         return border;
     }
 
@@ -491,7 +512,9 @@ public sealed class BranchesPage : UserControl
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             MinHeight = 34,
         };
-        AutomationProperties.SetName(btn, $"分支 {b.Name}{(b.IsHead ? " 当前" : "")}{(isSelected ? " 已选中" : "")}");
+        AutomationProperties.SetName(btn, string.Format(Strings.Branches_RowAutomation, b.Name)
+            + (b.IsHead ? Strings.Branches_CurrentSuffix : string.Empty)
+            + (isSelected ? Strings.Branches_SelectedSuffix : string.Empty));
         btn.Click += (_, _) => _vm.Select(b);
         return btn;
     }
@@ -504,7 +527,7 @@ public sealed class BranchesPage : UserControl
 
         if (_vm.Error is not null)
         {
-            _banner.Text = "错误: " + _vm.Error;
+            _banner.Text = string.Format(Strings.Common_ErrorPrefix, _vm.Error);
             _banner.Visibility = Visibility.Visible;
         }
         else

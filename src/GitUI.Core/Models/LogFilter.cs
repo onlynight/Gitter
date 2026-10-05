@@ -9,6 +9,8 @@ namespace GitUI.Core.Models;
 /// <param name="Branch">限定只走某个 ref 可达的提交，如 <c>main</c>。null 表示从 HEAD 走。</param>
 /// <param name="After">仅包含此时刻之后的提交。null 表示不限。</param>
 /// <param name="Before">仅包含此时刻之前的提交。null 表示不限。</param>
+/// <param name="Agent">AI 署名过滤（ai-native-redesign.md §5.2）：null 不过滤；"*" = 任意
+/// Assisted-by trailer；其他值 = Assisted-by 含该子串（大小写不敏感）。</param>
 /// <param name="Limit">本页最多返回条数，默认 50。&lt;=0 表示不限制。</param>
 /// <param name="Skip">跳过的提交数，用于分页。</param>
 public sealed record LogFilter(
@@ -17,6 +19,7 @@ public sealed record LogFilter(
     string? Branch = null,
     DateTimeOffset? After = null,
     DateTimeOffset? Before = null,
+    string? Agent = null,
     int Limit = 50,
     int Skip = 0)
 {

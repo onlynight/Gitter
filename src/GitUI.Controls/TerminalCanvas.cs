@@ -1,5 +1,6 @@
 using System.Text;
 using GitUI.Controls.Theme;
+using GitUI.Core.Resources;
 using GitUI.Shell;
 using GitUI.Shell.Render;
 using Microsoft.Graphics.Canvas.Text;
@@ -107,7 +108,7 @@ public sealed class TerminalCanvas : Grid
         ThemeService.Applied += _ => { _palette = ResolvePalette(); _canvas.Invalidate(); };
 
         _palette = ResolvePalette();
-        AutomationProperties.SetName(this, "终端输出区");
+        AutomationProperties.SetName(this, Strings.Common_TerminalOutputAutomation);
     }
 
     private TerminalPalette ResolvePalette()

@@ -2,6 +2,7 @@ using GitUI.Core.Models;
 using GitUI.Core.Services;
 using GitUI.Git;
 using Xunit;
+using GitUI.Core.Resources;
 
 namespace GitUI.ViewModels.Tests;
 
@@ -48,7 +49,7 @@ public sealed class KnownIssuesFixTests : IDisposable
         Assert.NotNull(second);
         Assert.Contains("L2", _builder.ShowFile("HEAD", "f.txt"));
         await vm.RefreshAsync();
-        Assert.Equal("工作区干净", vm.StatusText);
+        Assert.Equal(Strings.Changes_CleanTree, vm.StatusText);
     }
 
     [Fact]
@@ -122,11 +123,11 @@ public sealed class KnownIssuesFixTests : IDisposable
         await vm.OpenRepositoryAsync(_builder.WorkDir);
         await vm.CheckoutAsync("side");
         Assert.NotNull(vm.TransientMessage);
-        Assert.StartsWith("已检出 side", vm.StatusText);
+        Assert.StartsWith(string.Format(Strings.Branches_CheckedOut, "side"), vm.StatusText);
 
         vm.ClearTransient();
         Assert.Null(vm.TransientMessage);
-        Assert.Equal("共 2 个分支", vm.StatusText);
+        Assert.Equal(string.Format(Strings.Branches_TotalCountMany, 2), vm.StatusText);
     }
 
     // ---- 1.2 分支列表联动 ----

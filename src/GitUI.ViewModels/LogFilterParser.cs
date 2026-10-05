@@ -17,7 +17,7 @@ public static class LogFilterParser
     /// <summary>把搜索文本解析为 <see cref="LogFilter"/>（分页参数由调用方补充）。</summary>
     public static LogFilter Parse(string? query, int limit = 50, int skip = 0)
     {
-        string? author = null, branch = null, topic = null;
+        string? author = null, branch = null, topic = null, agent = null;
         DateTimeOffset? after = null, before = null;
         var freeWords = new List<string>();
 
@@ -26,6 +26,8 @@ public static class LogFilterParser
             if (TakePrefixed(token, "author:", out var v)) author = v;
             else if (TakePrefixed(token, "branch:", out v)) branch = v;
             else if (TakePrefixed(token, "topic:", out v)) topic = v;
+            else if (TakePrefixed(token, "agent:", out v)) agent = v;
+            else if (token.Equals("is:ai", StringComparison.OrdinalIgnoreCase)) agent = "*";
             else if (TakePrefixed(token, "after:", out v))
             {
                 if (TryParseDate(v, out var t)) after = t; else freeWords.Add(token);
@@ -52,7 +54,10 @@ public static class LogFilterParser
                      parts.Select(p => "(?=.*" + (p.Literal ? Regex.Escape(p.Pattern) : p.Pattern) + ")")),
         };
 
-        return new LogFilter(author, topicFilter, branch, after, before, limit, skip).Normalize();
+        return new LogFilter(
+            Author: author, Topic: topicFilter, Branch: branch,
+            After: after, Before: before, Agent: agent,
+            Limit: limit, Skip: skip).Normalize();
     }
 
     /// <summary>按空白分词，双引号/单引号包裹的段视为一个词（引号剥除）。</summary>

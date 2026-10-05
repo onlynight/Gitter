@@ -5,7 +5,7 @@ $settingsBackup = Join-Path $env:APPDATA 'GitUI\settings.verify-backup'
 $hadUserSettings = Test-Path $settingsPath
 if ($hadUserSettings) { Copy-Item $settingsPath $settingsBackup -Force }
 $proj = @{ path = 'D:\Code\Gitter'; name = 'Gitter'; addedAt = (Get-Date).ToString('o'); lastOpenedAt = (Get-Date).ToString('o') }
-@{ currentProjectPath = 'D:\Code\Gitter'; theme = 2; projects = @($proj); terminalShell = 'PowerShell' } | ConvertTo-Json -Depth 4 | Set-Content $settingsPath -Encoding UTF8
+@{ language = 'zh-Hans'; currentProjectPath = 'D:\Code\Gitter'; theme = 2; projects = @($proj); terminalShell = 'PowerShell' } | ConvertTo-Json -Depth 4 | Set-Content $settingsPath -Encoding UTF8
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName System.Windows.Forms
 

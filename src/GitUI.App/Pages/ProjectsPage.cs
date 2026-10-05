@@ -1,5 +1,6 @@
 using GitUI.App.Platform;
 using GitUI.Core.Models;
+using GitUI.Core.Resources;
 using GitUI.Core.Services;
 using GitUI.Core.Settings;
 using Microsoft.UI.Xaml;
@@ -28,6 +29,11 @@ public sealed class ProjectsPage : UserControl
 
     private readonly TextBlock _title;
     private readonly TextBlock _banner;
+    private readonly Button _addBtn;
+    // 在 BuildEmptyState（ctor 调用的方法）中赋值：非 readonly + null! 抑制流分析
+    private Button _emptyAddBtn = null!;
+    private TextBlock _emptyTitle = null!;
+    private TextBlock _emptySub = null!;
     private readonly ItemsRepeater _repeater;
     private readonly ScrollViewer _listScroll;
     private readonly FrameworkElement _emptyState;
@@ -54,13 +60,13 @@ public sealed class ProjectsPage : UserControl
         // ---- 工具条：标题 + 右上角添加按钮 ----
         _title = new TextBlock
         {
-            Text = "项目",
+            Text = Strings.Nav_Projects,
             FontSize = 13,
             FontWeight = new Windows.UI.Text.FontWeight(600),
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        var addBtn = BuildToolButton("+ 添加项目", "添加项目");
+        var addBtn = _addBtn = BuildToolButton(Strings.Projects_AddProject, Strings.Projects_AddProjectAutomation);
         addBtn.Click += (_, _) => _ = AddProjectAsync();
 
         var toolbar = new StackPanel
@@ -110,7 +116,7 @@ public sealed class ProjectsPage : UserControl
             Margin = new Thickness(14, 0, 14, 0),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Text = "共 0 个项目",
+            Text = string.Format(Strings.Projects_StatusNoCurrentMany, 0),
         };
         // 不设 AutomationProperties.Name（显式 Name 覆盖动态文本，UIA 冒烟依赖 Name=内容）
         var statusRow = new Grid { Height = 22 };
@@ -184,23 +190,23 @@ public sealed class ProjectsPage : UserControl
             Opacity = 0.35,
             HorizontalAlignment = HorizontalAlignment.Center,
         };
-        var title = new TextBlock
+        var title = _emptyTitle = new TextBlock
         {
-            Text = "还没有项目",
+            Text = Strings.Projects_EmptyTitle,
             FontSize = 14,
             FontWeight = new Windows.UI.Text.FontWeight(600),
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 10, 0, 0),
         };
-        var sub = new TextBlock
+        var sub = _emptySub = new TextBlock
         {
-            Text = "点击右上角「添加项目」选择本地文件夹，或从下方开始",
+            Text = Strings.Projects_EmptyHint,
             FontSize = 12.5,
             Opacity = 0.6,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 4, 0, 0),
         };
-        var addBtn = BuildToolButton("+ 添加项目", "添加项目");
+        var addBtn = _emptyAddBtn = BuildToolButton(Strings.Projects_AddProject, Strings.Projects_AddProjectAutomation);
         addBtn.HorizontalAlignment = HorizontalAlignment.Center;
         addBtn.Margin = new Thickness(0, 14, 0, 0);
         addBtn.Click += addBtn_Click;
@@ -211,7 +217,7 @@ public sealed class ProjectsPage : UserControl
         panel.Children.Add(sub);
         panel.Children.Add(addBtn);
 
-        AutomationProperties.SetName(panel, "项目空状态");
+        AutomationProperties.SetName(panel, Strings.Projects_EmptyAutomation);
         return panel;
     }
 
@@ -280,7 +286,9 @@ public sealed class ProjectsPage : UserControl
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             MinHeight = 40,
         };
-        AutomationProperties.SetName(btn, $"项目 {entry.Name}{(isCurrent ? " 当前" : "")}{(isHighlighted ? " 已选中" : "")}");
+        AutomationProperties.SetName(btn, string.Format(Strings.Projects_RowAutomation, entry.Name)
+            + (isCurrent ? Strings.Branches_CurrentSuffix : string.Empty)
+            + (isHighlighted ? Strings.Branches_SelectedSuffix : string.Empty));
         btn.Click += (_, _) => RowClick(entry);
         btn.DoubleTapped += (_, _) => CommitProject(entry);
         btn.ContextFlyout = BuildRowMenu(entry);
@@ -291,19 +299,19 @@ public sealed class ProjectsPage : UserControl
     {
         var menu = new MenuFlyout();
 
-        var openItem = new MenuFlyoutItem { Text = "设为当前项目" };
+        var openItem = new MenuFlyoutItem { Text = Strings.Projects_SetCurrent };
         openItem.Click += (_, _) => CommitProject(entry);
-        AutomationProperties.SetName(openItem, "设为当前项目");
+        AutomationProperties.SetName(openItem, Strings.Projects_SetCurrent);
         menu.Items.Add(openItem);
 
-        var explorerItem = new MenuFlyoutItem { Text = "在资源管理器中打开" };
+        var explorerItem = new MenuFlyoutItem { Text = Strings.Projects_OpenInExplorer };
         explorerItem.Click += (_, _) => OpenInExplorer(entry);
-        AutomationProperties.SetName(explorerItem, "在资源管理器中打开");
+        AutomationProperties.SetName(explorerItem, Strings.Projects_OpenInExplorer);
         menu.Items.Add(explorerItem);
 
-        var removeItem = new MenuFlyoutItem { Text = "移除项目" };
+        var removeItem = new MenuFlyoutItem { Text = Strings.Projects_Remove };
         removeItem.Click += (_, _) => _ = RemoveProjectAsync(entry);
-        AutomationProperties.SetName(removeItem, "移除项目");
+        AutomationProperties.SetName(removeItem, Strings.Projects_Remove);
         menu.Items.Add(removeItem);
 
         return menu;
@@ -349,11 +357,11 @@ public sealed class ProjectsPage : UserControl
         {
             // 初始定位到最近一次添加的项目所在目录，减少导航成本
             var startDir = _settings.Current.Projects.Count > 0 ? _settings.Current.Projects[0].Path : null;
-            picked = FolderPicker.PickFolder(_getHwnd(), "选择项目文件夹", startDir);
+            picked = FolderPicker.PickFolder(_getHwnd(), Strings.Projects_PickFolderTitle, startDir);
         }
         catch (Exception ex)
         {
-            _error = "打开目录选择器失败: " + ex.Message;
+            _error = string.Format(Strings.Projects_PickerFailed, ex.Message);
             Rebind();
             return;
         }
@@ -367,7 +375,7 @@ public sealed class ProjectsPage : UserControl
         var existing = _settings.Current.Projects.FirstOrDefault(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase));
         if (existing is not null)
         {
-            ShowTransient($"「{existing.Name}」已在列表中");
+            ShowTransient(string.Format(Strings.Projects_AlreadyInList, existing.Name));
             _highlighted = existing.Path;
             Rebind();
             return;
@@ -412,10 +420,10 @@ public sealed class ProjectsPage : UserControl
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "不是 Git 仓库",
-            Content = $"「{name}」不包含 Git 仓库。\n\n仍要添加为项目吗？（之后可在此目录初始化仓库）",
-            PrimaryButtonText = "仍要添加",
-            CloseButtonText = "取消",
+            Title = Strings.Projects_NotRepoTitle,
+            Content = string.Format(Strings.Projects_NotRepoBody, name),
+            PrimaryButtonText = Strings.Projects_AddAnyway,
+            CloseButtonText = Strings.Common_Cancel,
             DefaultButton = ContentDialogButton.Close,
         };
         var result = await dialog.ShowAsync();
@@ -430,10 +438,10 @@ public sealed class ProjectsPage : UserControl
             var dialog = new ContentDialog
             {
                 XamlRoot = XamlRoot,
-                Title = "移除当前项目",
-                Content = $"「{entry.Name}」是当前打开的项目，移除后各页面将回到未选择项目状态。\n\n（仅从列表移除，不会删除磁盘文件）",
-                PrimaryButtonText = "移除",
-                CloseButtonText = "取消",
+                Title = Strings.Projects_RemoveCurrentTitle,
+                Content = string.Format(Strings.Projects_RemoveCurrentBody, entry.Name),
+                PrimaryButtonText = Strings.Projects_RemoveConfirm,
+                CloseButtonText = Strings.Common_Cancel,
                 DefaultButton = ContentDialogButton.Close,
             };
             if (await dialog.ShowAsync() != ContentDialogResult.Primary)
@@ -467,7 +475,7 @@ public sealed class ProjectsPage : UserControl
         }
         catch (Exception ex)
         {
-            ShowTransient("打开资源管理器失败: " + ex.Message);
+            ShowTransient(string.Format(Strings.Projects_ExplorerFailed, ex.Message));
         }
     }
 
@@ -481,10 +489,23 @@ public sealed class ProjectsPage : UserControl
 
     // ---- 绑定 ----
 
+    /// <summary>语言热切换：空态/按钮文案重取值（docs/i18n.md §四；由 MainWindow 驱动）。</summary>
+    internal void OnLanguageChanged()
+    {
+        _addBtn.Content = Strings.Projects_AddProject;
+        AutomationProperties.SetName(_addBtn, Strings.Projects_AddProjectAutomation);
+        _emptyAddBtn.Content = Strings.Projects_AddProject;
+        AutomationProperties.SetName(_emptyAddBtn, Strings.Projects_AddProjectAutomation);
+        _emptyTitle.Text = Strings.Projects_EmptyTitle;
+        _emptySub.Text = Strings.Projects_EmptyHint;
+        AutomationProperties.SetName(_emptyState, Strings.Projects_EmptyAutomation);
+        Rebind();
+    }
+
     private void Rebind()
     {
         var projects = _settings.Current.Projects;
-        _title.Text = $"项目 ({projects.Count})";
+        _title.Text = string.Format(Strings.Projects_TitleFormat, projects.Count);
 
         _repeater.ItemsSource = projects.ToList();
         _listScroll.Visibility = projects.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -492,7 +513,7 @@ public sealed class ProjectsPage : UserControl
 
         if (_error is not null)
         {
-            _banner.Text = "错误: " + _error;
+            _banner.Text = string.Format(Strings.Common_ErrorPrefix, _error);
             _banner.Visibility = Visibility.Visible;
         }
         else
@@ -512,8 +533,8 @@ public sealed class ProjectsPage : UserControl
                 : projects.FirstOrDefault(p => string.Equals(p.Path, _context.WorkDir, StringComparison.OrdinalIgnoreCase))?.Name
                     ?? System.IO.Path.GetFileName(_context.WorkDir.TrimEnd('/', '\\'));
             _status.Text = currentName is null
-                ? $"共 {projects.Count} 个项目 · 双击设为当前项目"
-                : $"共 {projects.Count} 个项目 · 双击设为当前项目 · 当前：{currentName}";
+                ? string.Format(projects.Count == 1 ? Strings.Projects_StatusNoCurrentOne : Strings.Projects_StatusNoCurrentMany, projects.Count)
+                : string.Format(projects.Count == 1 ? Strings.Projects_StatusCurrentOne : Strings.Projects_StatusCurrentMany, projects.Count, currentName);
         }
     }
 

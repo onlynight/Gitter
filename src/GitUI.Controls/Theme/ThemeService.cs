@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using GitUI.Core.Extensions;
+using GitUI.Core.Resources;
 using GitUI.Diff.Highlighting;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -87,7 +88,7 @@ public static class ThemeService
             ActiveTerminal = new Dictionary<string, string>();
             TokenRuntime.Load(fallbackBase, TokenRuntime.BuiltinDefaults(fallbackBase));
             Applied?.Invoke(info ?? new ThemePackageInfo(fallbackBase == ThemeBase.Light ? LightPackageId : DarkPackageId,
-                fallbackBase == ThemeBase.Light ? "亮色" : "深色", fallbackBase, true, "", new PackageManifest(), new ThemeDocument()));
+                fallbackBase == ThemeBase.Light ? Strings.ThemePkg_Light : Strings.ThemePkg_Dark, fallbackBase, true, "", new PackageManifest(), new ThemeDocument()));
             return false;
         }
 
@@ -171,7 +172,7 @@ public static class ThemeService
         {
             if (!File.Exists(gpkPath))
             {
-                return (false, "文件不存在：" + gpkPath, null);
+                return (false, string.Format(Strings.Import_FileNotFound, gpkPath), null);
             }
 
             temp = Path.Combine(Path.GetTempPath(), "gitui-pkg-" + Guid.NewGuid().ToString("N"));
@@ -181,14 +182,14 @@ public static class ThemeService
             if (!File.Exists(manifestPath))
             {
                 CleanupTemp(temp);
-                return (false, "包内缺少 manifest.json", null);
+                return (false, Strings.Import_MissingManifest, null);
             }
 
             var manifest = ThemePackageJson.ParseManifest(File.ReadAllText(manifestPath));
             if (manifest is null || string.IsNullOrWhiteSpace(manifest.Id))
             {
                 CleanupTemp(temp);
-                return (false, "manifest 无效（缺少 id）", null);
+                return (false, Strings.Import_InvalidManifest, null);
             }
 
             var hasTheme = manifest.Kinds.Contains("theme", StringComparer.OrdinalIgnoreCase);
@@ -196,19 +197,19 @@ public static class ThemeService
             if (!hasTheme && !hasSyntax)
             {
                 CleanupTemp(temp);
-                return (false, "该包未声明受支持的种类（kinds 需含 theme 或 syntax）", null);
+                return (false, Strings.Import_NoKinds, null);
             }
 
             if (hasTheme && !File.Exists(Path.Combine(temp, "theme", "theme.json")))
             {
                 CleanupTemp(temp);
-                return (false, "包内缺少 theme/theme.json", null);
+                return (false, Strings.Import_MissingTheme, null);
             }
 
             if (hasSyntax && !File.Exists(Path.Combine(temp, "syntax", "highlighters.json")))
             {
                 CleanupTemp(temp);
-                return (false, "包内缺少 syntax/highlighters.json", null);
+                return (false, Strings.Import_MissingSyntax, null);
             }
 
             Directory.CreateDirectory(UserPackagesRoot);
@@ -228,8 +229,8 @@ public static class ThemeService
 
             string? themeId = hasTheme ? manifest.Id : null;
             var status = hasTheme
-                ? "已导入并应用主题包：" + manifest.Id
-                : "已导入语法高亮包：" + manifest.Id;
+                ? string.Format(Strings.Import_AppliedTheme, manifest.Id)
+                : string.Format(Strings.Import_AppliedSyntax, manifest.Id);
             return (true, status, themeId);
         }
         catch (Exception ex)
@@ -239,7 +240,7 @@ public static class ThemeService
                 CleanupTemp(temp);
             }
 
-            return (false, "导入失败：" + ex.Message, null);
+            return (false, string.Format(Strings.Import_Failed, ex.Message), null);
         }
     }
 

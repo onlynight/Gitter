@@ -1,4 +1,4 @@
-using GitUI.Core.Models;
+﻿using GitUI.Core.Models;
 using GitUI.Core.Settings;
 using Xunit;
 
@@ -143,20 +143,20 @@ public sealed class ProjectSettingsTests : IDisposable
         {
             s.RecentCommands = new List<string>
             {
-                "新建窗口",
+                CommandIds.NewWindow,
                 "   ",
-                "刷新当前页",
-                "新建窗口",   // 重复：保留首次出现位置
+                CommandIds.RefreshPage,
+                CommandIds.NewWindow,   // 重复：保留首次出现位置
                 null!,
             };
-            for (int i = 1; i <= 7; i++) s.RecentCommands.Add($"命令{i:D2}");
+            // 未知 id（含历史版本以标题文本存储的条目）：Normalize 一并清洗
+            for (int i = 1; i <= 7; i++) s.RecentCommands.Add($"cmd.unknown.{i:D2}");
         });
 
         var result = store.Current.RecentCommands;
-        Assert.Equal(8, result.Count);
-        Assert.Equal("新建窗口", result[0]);
-        Assert.Equal("刷新当前页", result[1]);
-        Assert.DoesNotContain("命令07", result); // 去 2 空项后 9 条，超 8 删尾
+        Assert.Equal(2, result.Count);
+        Assert.Equal(CommandIds.NewWindow, result[0]);
+        Assert.Equal(CommandIds.RefreshPage, result[1]);
         Assert.Equal(result.Count, result.Distinct().Count());
     }
 

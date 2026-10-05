@@ -2,6 +2,7 @@ using GitUI.Core.Models;
 using GitUI.Core.Services;
 using GitUI.Git;
 using Xunit;
+using GitUI.Core.Resources;
 
 namespace GitUI.ViewModels.Tests;
 
@@ -59,7 +60,7 @@ public sealed class PushFlowTests : IDisposable
 
         // 工作区干净
         await _vm.RefreshAsync();
-        Assert.Equal("工作区干净", _vm.StatusText);
+        Assert.Equal(Strings.Changes_CleanTree, _vm.StatusText);
     }
 
     [Fact]

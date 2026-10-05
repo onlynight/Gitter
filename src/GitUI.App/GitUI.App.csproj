@@ -25,12 +25,16 @@
     <!-- GitUI.Controls 引入 Win2D（原生 dll 按 RID 解析）；RID 固定 x64，输出路径形状不变 -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <!-- i18n（docs/i18n.md）：仅随发 zh-Hans 卫星资源，避免 self-contained 发布带出全语言包 -->
+    <SatelliteResourceLanguages>en;zh-Hans</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+    <!-- AI API key 的 DPAPI 保护（ai-native-redesign.md §8.1；仅 Windows TFM 运行时使用） -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>

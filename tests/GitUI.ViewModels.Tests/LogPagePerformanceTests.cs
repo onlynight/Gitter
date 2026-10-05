@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using GitUI.Git;
 using Xunit;
+using GitUI.Core.Resources;
 
 namespace GitUI.ViewModels.Tests;
 
@@ -55,7 +56,7 @@ public sealed class LogPagePerformanceTests : IDisposable
 
         var loaded = _vm.Groups.SelectMany(g => g.Commits).Count();
         Assert.Equal(50, loaded);
-        Assert.StartsWith("已加载 50 / 共 100000", _vm.StatusText);
+        Assert.StartsWith(string.Format(Strings.Log_LoadedStatus, 50, 100000), _vm.StatusText);
         Log($"100k first screen (open, 50 items) = {sw.ElapsedMilliseconds} ms (budget 500)");
         Assert.True(sw.ElapsedMilliseconds < 500, $"首屏 {sw.ElapsedMilliseconds} ms 超过 500ms 预算");
 
@@ -77,7 +78,7 @@ public sealed class LogPagePerformanceTests : IDisposable
         await _vm.SetQueryAsync("author:Fixture");
         sw.Stop();
 
-        Assert.StartsWith("已加载 50 / 共 100000", _vm.StatusText);
+        Assert.StartsWith(string.Format(Strings.Log_LoadedStatus, 50, 100000), _vm.StatusText);
         Log($"100k author-filtered first page = {sw.ElapsedMilliseconds} ms (budget 2000)");
         Assert.True(sw.ElapsedMilliseconds < 2000, $"过滤首屏 {sw.ElapsedMilliseconds} ms 超过 2000ms 宽预算");
     }

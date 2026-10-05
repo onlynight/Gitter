@@ -1,6 +1,7 @@
 using GitUI.Git;
 using GitUI.ViewModels;
 using Xunit;
+using GitUI.Core.Resources;
 
 namespace GitUI.ViewModels.Tests;
 
@@ -39,7 +40,7 @@ public sealed class LogViewModelTests : IDisposable
         Assert.True(_vm.IsRepoOpen);
         Assert.Equal(_builder.WorkDir, _vm.WorkDir);
         Assert.Single(_vm.Groups.SelectMany(g => g.Commits));
-        Assert.StartsWith("已加载 1 / 共 1", _vm.StatusText);
+        Assert.StartsWith(string.Format(Strings.Log_LoadedStatus, 1, 1), _vm.StatusText);
     }
 
     [Fact]
@@ -63,7 +64,7 @@ public sealed class LogViewModelTests : IDisposable
         await _vm.OpenRepositoryAsync(_builder.WorkDir);
         Assert.True(_vm.IsRepoOpen);
         Assert.Empty(_vm.Groups);
-        Assert.StartsWith("已加载 0 / 共 0", _vm.StatusText);
+        Assert.StartsWith(string.Format(Strings.Log_LoadedStatus, 0, 0), _vm.StatusText);
     }
 
     [Fact]
@@ -74,7 +75,7 @@ public sealed class LogViewModelTests : IDisposable
 
         Assert.Equal(50, _vm.Groups.SelectMany(g => g.Commits).Count());
         Assert.True(_vm.HasMore);
-        Assert.Contains("已加载 50 / 共 120", _vm.StatusText);
+        Assert.Contains(string.Format(Strings.Log_LoadedStatus, 50, 120), _vm.StatusText);
 
         await _vm.LoadNextPageAsync();
         Assert.Equal(100, _vm.Groups.SelectMany(g => g.Commits).Count());
@@ -164,7 +165,7 @@ public sealed class LogViewModelTests : IDisposable
         // 不存在的作者 → 0 条 + 空态
         await _vm.SetQueryAsync("author:nonexistent-xyz");
         Assert.Equal(0, _vm.TotalCountShown());
-        Assert.StartsWith("已加载 0 / 共 0", _vm.StatusText);
+        Assert.StartsWith(string.Format(Strings.Log_LoadedStatus, 0, 0), _vm.StatusText);
     }
 
     [Fact]
@@ -303,6 +304,14 @@ public sealed class LogViewModelTests : IDisposable
 
 file static class LogViewModelTestExtensions
 {
+    /// <summary>按资源模板形状定位分隔符后的连续数字（文化无关解析）。</summary>
+    private static int TailDigits(string text, string separator)
+    {
+        var idx = text.IndexOf(separator, StringComparison.Ordinal);
+        var tail = text.Substring(idx + separator.Length);
+        return int.Parse(new string(tail.TakeWhile(char.IsDigit).ToArray()), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     public static int TotalCountShown(this LogViewModel vm) =>
-        int.Parse(vm.StatusText.Split("共 ")[1].Split(' ')[0]);
+        TailDigits(vm.StatusText, string.Format(Strings.Log_LoadedStatus, 0, 0).Split('0')[1]);
 }

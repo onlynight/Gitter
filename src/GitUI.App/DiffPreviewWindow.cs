@@ -1,5 +1,6 @@
 using GitUI.Controls;
 using GitUI.Core.Models;
+using GitUI.Core.Resources;
 using GitUI.Core.Services;
 using GitUI.Core.Settings;
 using GitUI.Git;
@@ -25,6 +26,7 @@ public sealed class DiffPreviewWindow : Window
     private readonly TextBlock _status;
     private readonly Button _sideBySideBtn;
     private readonly Button _inlineBtn;
+    private readonly Action<string> _languageApplied;
 
     private string _workDir = string.Empty;
     private IReadOnlyList<CommitNode> _commits = Array.Empty<CommitNode>();
@@ -32,7 +34,7 @@ public sealed class DiffPreviewWindow : Window
 
     public DiffPreviewWindow(ISettingsStore settings)
     {
-        Title = "Diff 渲染预览（S3 验证）";
+        Title = Strings.Preview_Title;
 
         _canvas = new DiffCanvas { Mode = settings.Current.DiffMode };
         _pathBox = new TextBox
@@ -40,18 +42,18 @@ public sealed class DiffPreviewWindow : Window
             PlaceholderText = @"D:\path\to\repo",
             MinWidth = 420,
         };
-        AutomationProperties.SetName(_pathBox, "仓库路径");
+        AutomationProperties.SetName(_pathBox, Strings.Preview_RepoPathAutomation);
 
-        var openBtn = new Button { Content = "打开仓库" };
-        AutomationProperties.SetName(openBtn, "打开仓库");
+        var openBtn = new Button { Content = Strings.Preview_OpenRepo };
+        AutomationProperties.SetName(openBtn, Strings.Preview_OpenRepo);
         openBtn.Click += Open_Click;
 
-        _sideBySideBtn = new Button { Content = "并排" };
-        _inlineBtn = new Button { Content = "内联" };
+        _sideBySideBtn = new Button { Content = Strings.Common_SideBySide };
+        _inlineBtn = new Button { Content = Strings.Common_Inline };
         _sideBySideBtn.Click += (_, _) => SetMode(DiffViewMode.SideBySide);
         _inlineBtn.Click += (_, _) => SetMode(DiffViewMode.Inline);
-        AutomationProperties.SetName(_sideBySideBtn, "并排模式");
-        AutomationProperties.SetName(_inlineBtn, "内联模式");
+        AutomationProperties.SetName(_sideBySideBtn, Strings.Preview_SideBySideAutomation);
+        AutomationProperties.SetName(_inlineBtn, Strings.Preview_InlineAutomation);
 
         _status = new TextBlock
         {
@@ -67,7 +69,7 @@ public sealed class DiffPreviewWindow : Window
             Spacing = 8,
             Margin = new Thickness(12, 8, 12, 8),
         };
-        toolbar.Children.Add(new TextBlock { Text = "仓库:", VerticalAlignment = VerticalAlignment.Center });
+        toolbar.Children.Add(new TextBlock { Text = Strings.Preview_RepoLabel, VerticalAlignment = VerticalAlignment.Center });
         toolbar.Children.Add(_pathBox);
         toolbar.Children.Add(openBtn);
         toolbar.Children.Add(_sideBySideBtn);
@@ -80,7 +82,7 @@ public sealed class DiffPreviewWindow : Window
             Margin = new Thickness(12, 0, 12, 0),
             SelectionMode = ListViewSelectionMode.Single,
         };
-        AutomationProperties.SetName(_commitList, "提交列表");
+        AutomationProperties.SetName(_commitList, Strings.Preview_CommitsAutomation);
         _commitList.SelectionChanged += Commit_Selected;
 
         _fileList = new ListView
@@ -89,7 +91,7 @@ public sealed class DiffPreviewWindow : Window
             Margin = new Thickness(12, 8, 12, 8),
             SelectionMode = ListViewSelectionMode.Single,
         };
-        AutomationProperties.SetName(_fileList, "文件列表");
+        AutomationProperties.SetName(_fileList, Strings.Common_FileListAutomation);
         _fileList.SelectionChanged += File_Selected;
 
         var root = new Grid();
@@ -112,7 +114,21 @@ public sealed class DiffPreviewWindow : Window
         var appWindow = AppWindow;
         appWindow?.Resize(new Windows.Graphics.SizeInt32(1200, 800));
 
+        LanguageService.Applied += _languageApplied = _ => DispatcherQueue.TryEnqueue(RefreshTexts);
+        this.Closed += (_, _) => LanguageService.Applied -= _languageApplied;
+
         SetMode(settings.Current.DiffMode);
+    }
+
+    /// <summary>语言热切换：静态文案重取值（docs/i18n.md §四）。</summary>
+    private void RefreshTexts()
+    {
+        Title = Strings.Preview_Title;
+        AutomationProperties.SetName(_pathBox, Strings.Preview_RepoPathAutomation);
+        AutomationProperties.SetName(_commitList, Strings.Preview_CommitsAutomation);
+        AutomationProperties.SetName(_fileList, Strings.Common_FileListAutomation);
+        AutomationProperties.SetName(_sideBySideBtn, Strings.Preview_SideBySideAutomation);
+        AutomationProperties.SetName(_inlineBtn, Strings.Preview_InlineAutomation);
     }
 
     private void SetMode(DiffViewMode mode)
@@ -135,17 +151,17 @@ public sealed class DiffPreviewWindow : Window
             _commitList.Items.Clear();
             _fileList.Items.Clear();
             _files = Array.Empty<DiffResult>();
-            _canvas.Clear("选择一个提交");
+            _canvas.Clear(Strings.Preview_SelectCommit);
             foreach (var c in _commits)
             {
                 AddListItem(_commitList, $"{c.ShortSha}  {c.Subject}  ({c.Author} {c.AuthorDate.LocalDateTime:yyyy-MM-dd})", c.Sha);
             }
 
-            _status.Text = $"{_workDir} — {page.TotalCount} 个提交（显示最近 {_commits.Count} 个）";
+            _status.Text = string.Format(Strings.Preview_OpenedStatus, _workDir, page.TotalCount, _commits.Count);
         }
         catch (Exception ex)
         {
-            _status.Text = "打开失败: " + ex.Message;
+            _status.Text = string.Format(Strings.Preview_OpenFailed, ex.Message);
         }
     }
 
@@ -158,20 +174,20 @@ public sealed class DiffPreviewWindow : Window
         {
             _files = _repo.GetCommitDiff(_workDir, _commits[idx].Sha);
             _fileList.Items.Clear();
-            _canvas.Clear("选择一个文件");
+            _canvas.Clear(Strings.Preview_SelectFile);
             foreach (var f in _files)
             {
                 var label = f.IsBinary
-                    ? $"B  {f.Path}  (二进制)"
+                    ? $"B  {f.Path}  {Strings.Common_BinarySuffix}"
                     : $"{f.StatusCode}  {f.Path}  +{f.AddedLines} −{f.DeletedLines}";
                 AddListItem(_fileList, label, f.Path);
             }
 
-            _status.Text = $"{_commits[idx].ShortSha} — {_files.Count} 个文件";
+            _status.Text = string.Format(Strings.Preview_FilesStatus, _commits[idx].ShortSha, _files.Count);
         }
         catch (Exception ex)
         {
-            _status.Text = "读取提交失败: " + ex.Message;
+            _status.Text = string.Format(Strings.Preview_ReadFailed, ex.Message);
         }
     }
 
@@ -183,11 +199,11 @@ public sealed class DiffPreviewWindow : Window
         var file = _files[idx];
         if (file.IsBinary)
         {
-            _canvas.Clear("二进制文件已修改，无法比较");
+            _canvas.Clear(Strings.Common_BinaryNoDiff);
         }
         else if (file.Hunks.Count == 0)
         {
-            _canvas.Clear("无差异");
+            _canvas.Clear(Strings.Common_NoDiff);
         }
         else
         {

@@ -1,4 +1,5 @@
 using GitUI.Core.Models;
+using GitUI.Core.Resources;
 using GitUI.Core.Services;
 
 namespace GitUI.ViewModels;
@@ -25,10 +26,22 @@ public sealed record BranchItemRow(
 public sealed record BranchDeletePreview(string BranchName, bool ForceRequired, IReadOnlyList<CommitNode> LostCommits)
 {
     /// <summary>确认对话框主文案。N 值与实际影响必须一致（S6 通过标准）。</summary>
-    public string ConfirmationText => LostCommits.Count == 0
-        ? $"分支 {BranchName} 的全部提交在其他分支上仍然可达，删除分支不会丢弃任何提交。"
-        : $"将丢弃 {LostCommits.Count} 个提交：{string.Join("、", LostCommits.Take(3).Select(c => c.ShortSha))}" +
-          (LostCommits.Count > 3 ? $" 等（共 {LostCommits.Count} 个）" : "");
+    public string ConfirmationText
+    {
+        get
+        {
+            if (LostCommits.Count == 0)
+            {
+                return string.Format(Strings.Branches_DeleteSafe, BranchName);
+            }
+
+            var shas = string.Join(", ", LostCommits.Take(3).Select(c => c.ShortSha));
+            var head = LostCommits.Count == 1
+                ? string.Format(Strings.Branches_DeleteLoseOne, shas)
+                : string.Format(Strings.Branches_DeleteLoseMany, LostCommits.Count, shas);
+            return head + (LostCommits.Count > 3 ? string.Format(Strings.Branches_DeleteLoseMore, LostCommits.Count) : "");
+        }
+    }
 }
 
 /// <summary>
@@ -84,12 +97,18 @@ public sealed class BranchesViewModel
 
     /// <summary>状态条文案。"已创建/已检出/已删除/已合并/已变基/已推送/已拉取"前缀是各操作的 UIA 断言锚点。</summary>
     public string StatusText =>
-        _error is not null ? $"错误: {_error}"
-        : _isBusy ? "执行中…"
-        : _isLoading ? "加载中…"
-        : _workDir is null ? "未打开仓库"
+        _error is not null ? string.Format(Strings.Common_ErrorPrefix, _error)
+        : _isBusy ? Strings.Branches_Busy
+        : _isLoading ? Strings.Common_Loading
+        : _workDir is null ? Strings.Common_NoRepoOpen
         : _transient is not null ? _transient
-        : $"共 {_rows.OfType<BranchItemRow>().Count()} 个分支";
+        : BranchCountText();
+
+    private string BranchCountText()
+    {
+        var count = _rows.OfType<BranchItemRow>().Count();
+        return count == 1 ? Strings.Branches_TotalCountOne : string.Format(Strings.Branches_TotalCountMany, count);
+    }
 
     // ---- 打开 / 刷新 ----
 
@@ -163,39 +182,39 @@ public sealed class BranchesViewModel
 
     // ---- 分支操作 ----
 
-    public Task CheckoutAsync(string branch) => RunWrite($"已检出 {branch}", () => _repo.Checkout(_workDir!, branch));
+    public Task CheckoutAsync(string branch) => RunWrite(string.Format(Strings.Branches_CheckedOut, branch), () => _repo.Checkout(_workDir!, branch));
 
     public Task CreateAsync(string name, string? fromSha) =>
-        RunWrite($"已创建 {name}", () => _repo.CreateBranch(_workDir!, name, fromSha),
+        RunWrite(string.Format(Strings.Branches_Created, name), () => _repo.CreateBranch(_workDir!, name, fromSha),
             affectsBranchList: true);
 
     public Task RenameAsync(string oldName, string newName) =>
-        RunWrite($"已重命名 {oldName} → {newName}", () => _repo.RenameBranch(_workDir!, oldName, newName),
+        RunWrite(string.Format(Strings.Branches_Renamed, oldName, newName), () => _repo.RenameBranch(_workDir!, oldName, newName),
             affectsBranchList: true);
 
     /// <summary>删除分支。UI 必须先 <see cref="RequestDeletePreview"/> 并在影响 &gt; 0 时取得用户确认。</summary>
     public Task DeleteAsync(string branch, bool force) =>
-        RunWrite($"已删除 {branch}", () => _repo.DeleteBranch(_workDir!, branch, force),
+        RunWrite(string.Format(Strings.Branches_Deleted, branch), () => _repo.DeleteBranch(_workDir!, branch, force),
             affectsBranchList: true);
 
     /// <summary>合并到当前分支（noFastForward = 强制产生合并提交）。</summary>
     public Task MergeAsync(string branch, bool noFastForward, string? message) =>
-        RunWrite($"已合并 {branch}", () => _repo.MergeBranch(_workDir!, branch, noFastForward, message));
+        RunWrite(string.Format(Strings.Branches_Merged, branch), () => _repo.MergeBranch(_workDir!, branch, noFastForward, message));
 
     /// <summary>把当前分支变基到 <paramref name="upstream"/> 之上。</summary>
     public Task RebaseAsync(string upstream) =>
-        RunWrite($"已变基到 {upstream}", () => _repo.Rebase(_workDir!, upstream));
+        RunWrite(string.Format(Strings.Branches_Rebased, upstream), () => _repo.Rebase(_workDir!, upstream));
 
     /// <summary>快进当前分支到 <paramref name="branch"/>（merge --ff-only，分叉即失败）。</summary>
     public Task FastForwardAsync(string branch) =>
-        RunWrite($"已快进到 {branch}",
+        RunWrite(string.Format(Strings.Branches_FastForwarded, branch),
             () => _repo.FastForward(_workDir!, branch),
             validateFastForward: true, fastForwardTarget: branch);
 
     public Task PullAsync(bool rebase) =>
-        RunWrite(rebase ? "已拉取（rebase）" : "已拉取", () => _repo.Pull(_workDir!, rebase));
+        RunWrite(rebase ? Strings.Branches_PulledRebase : Strings.Branches_Pulled, () => _repo.Pull(_workDir!, rebase));
 
-    public Task PushAsync() => RunWrite("已推送", () => _repo.Push(_workDir!, null, null));
+    public Task PushAsync() => RunWrite(Strings.Branches_Pushed, () => _repo.Push(_workDir!, null, null));
 
     // ---- 内部 ----
 
@@ -215,13 +234,13 @@ public sealed class BranchesViewModel
             var locals = branches.Where(b => b.IsLocal).ToList();
             var remotes = branches.Where(b => b.IsRemote).ToList();
 
-            rows.Add(new BranchGroupRow($"本地分支 ({locals.Count})", locals.Count, IsRemote: false));
+            rows.Add(new BranchGroupRow(string.Format(Strings.Branches_LocalGroup, locals.Count), locals.Count, IsRemote: false));
             foreach (var b in locals)
                 rows.Add(ToItemRow(b, tips));
 
             if (remotes.Count > 0)
             {
-                rows.Add(new BranchGroupRow($"远程分支 ({remotes.Count})", remotes.Count, IsRemote: true));
+                rows.Add(new BranchGroupRow(string.Format(Strings.Branches_RemoteGroup, remotes.Count), remotes.Count, IsRemote: true));
                 foreach (var b in remotes)
                     rows.Add(ToItemRow(b, tips));
             }
@@ -243,7 +262,7 @@ public sealed class BranchesViewModel
         string meta;
         if (b.Sha is null)
         {
-            meta = "（空分支）";
+            meta = Strings.Branches_EmptyBranch;
         }
         else
         {
@@ -303,7 +322,7 @@ public sealed class BranchesViewModel
         var branches = await Task.Run(() => _repo.GetBranches(workDir));
         var tip = branches.FirstOrDefault(b => b.Name == target)?.Sha;
         if (head != tip)
-            throw new GitOperationException("fast-forward", $"当前分支无法快进到 {target}（存在分叉或目标无效）", 1);
+            throw new GitOperationException("fast-forward", string.Format(Strings.Branches_FastForwardInvalid, target), 1);
     }
 
     private async Task RunExclusive(Func<Task> action)

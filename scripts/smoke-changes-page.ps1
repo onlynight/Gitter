@@ -39,6 +39,7 @@ New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
 $escapedRepo = $repo.Replace('\', '\\')
 @"
 {
+  "language": "zh-Hans",
   "projects": [ { "path": "$escapedRepo" } ],
   "currentProjectPath": "$escapedRepo"
 }

@@ -1,5 +1,6 @@
 using GitUI.Controls;
 using GitUI.Core.Models;
+using GitUI.Core.Resources;
 using GitUI.Core.Services;
 using GitUI.Core.Settings;
 using GitUI.ViewModels;
@@ -9,6 +10,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using Windows.System;
 using Windows.UI;
 
@@ -49,23 +51,44 @@ public sealed class ChangesPage : UserControl
     private readonly Button _retryPushBtn;
     private readonly Button _copyErrBtn;
     private readonly Button _openEditorBtn;
+    private readonly Button _switchBtn;
+    private readonly Button _refreshBtn;
+    private readonly Button _aiMsgBtn;
+    private readonly Button _rejectHunkBtn;
+    private readonly Button _retakeBtn;
+    private readonly Button _explainBtn;
+    private readonly Button _explainCloseBtn;
+    private readonly Border _explainPanel;
+    private readonly TextBlock _explainText;
+    private readonly StackPanel _agentFeedbackBlock;
+    private readonly TextBlock _agentFeedbackText;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _transientTimer;
 
     private bool _scrollToTopPending;
+    private bool _aiGenerating;
+    private System.Threading.CancellationTokenSource? _explainCts;
+    private readonly Func<bool>? _canSendToTerminal;
+    private readonly Action<string>? _sendToTerminal;
     private Button? _selectedRowButton;
 
     /// <param name="navigate">跳转到指定页签（切换项目按钮用）；null 时按钮禁用。</param>
-    public ChangesPage(ISettingsStore settings, IRepositoryService repoService, RepositoryContext context, Action<string>? navigate = null)
+    /// <param name="canSendToTerminal">终端直投可用性（会话存活 + agent 已识别，§3.4 cli-pty 直投）；null 隐藏入口。</param>
+    /// <param name="sendToTerminal">把反馈 prompt 直投终端（MainWindow 路由到终端页）。</param>
+    public ChangesPage(ISettingsStore settings, IRepositoryService repoService, RepositoryContext context, Action<string>? navigate = null,
+        Func<bool>? canSendToTerminal = null, Action<string>? sendToTerminal = null)
     {
+        _canSendToTerminal = canSendToTerminal;
+        _sendToTerminal = sendToTerminal;
         _settings = settings;
         _repoService = repoService;
         _context = context;
-        _vm = new ChangesViewModel(repoService);
-
+        _vm = new ChangesViewModel(repoService, new GitUI.Core.Rules.CommitSafetyOptions(), AiGatewayFactory.FromSettings(settings.Current.Ai));
+        ApplyAiSettings(settings.Current);
+        _settings.Changed += (_, _) => ApplyAiSettings(_settings.Current);
         // ---- 工具条（仓库路径唯一入口在「项目」页；此处只读展示当前项目）----
         _projectLabel = new TextBlock
         {
-            Text = "未选择项目",
+            Text = Strings.Common_NoProjectSelected,
             FontFamily = Ui.Mono,
             FontSize = 11,
             Foreground = Ui.Text2,
@@ -73,11 +96,11 @@ public sealed class ChangesPage : UserControl
             MaxWidth = 340,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        var switchBtn = BuildToolButton("切换项目");
+        var switchBtn = _switchBtn = BuildToolButton(Strings.Common_SwitchProject);
         switchBtn.Click += (_, _) => navigate?.Invoke("projects");
         if (navigate is null) switchBtn.IsEnabled = false;
 
-        var refreshBtn = BuildToolButton("\uE72C", "刷新");
+        var refreshBtn = _refreshBtn = Ui.IconButton("\uE72C", Strings.Common_Refresh);
         refreshBtn.Click += (_, _) => { _scrollToTopPending = true; _ = _vm.RefreshAsync(); };
 
         var toolbar = new StackPanel
@@ -101,11 +124,11 @@ public sealed class ChangesPage : UserControl
             Visibility = Visibility.Collapsed,
         };
 
-        _copyErrBtn = BuildToolButton("复制错误详情");
+        _copyErrBtn = BuildToolButton(Strings.Common_CopyErrorDetail);
         _copyErrBtn.Visibility = Visibility.Collapsed;
         _copyErrBtn.Click += (_, _) => CopyErrorDetail();
 
-        _openEditorBtn = BuildToolButton("在编辑器打开");
+        _openEditorBtn = BuildToolButton(Strings.Changes_OpenInEditor);
         _openEditorBtn.IsEnabled = false;
         _openEditorBtn.Click += (_, _) => _ = OpenSelectedInEditorAsync();
 
@@ -134,26 +157,111 @@ public sealed class ChangesPage : UserControl
             Margin = new Thickness(12, 8, 12, 2),
         };
 
-        _stageFileBtn = BuildToolButton("\uE8E5", "暂存文件");
+        _stageFileBtn = Ui.IconToolButton("\uE8E5", Strings.Changes_StageFile);
         _stageFileBtn.Click += (_, _) =>
         {
             if (_vm.Selected is not null && _vm.Selected.Category != StatusCategory.Staged)
                 _ = _vm.StageFileAsync(_vm.Selected);
         };
-        _unstageFileBtn = BuildToolButton("\uE74B", "撤销暂存文件");
+        // E738=Remove（减号语义）；原 E74B 实为 Down 箭头，语义不符
+        _unstageFileBtn = Ui.IconToolButton("\uE738", Strings.Changes_UnstageFile);
         _unstageFileBtn.Click += (_, _) =>
         {
             if (_vm.Selected is not null && _vm.Selected.Category == StatusCategory.Staged)
                 _ = _vm.StageFileAsync(_vm.Selected);
         };
 
-        _stageHunkBtn = BuildToolButton("暂存此块");
+        _stageHunkBtn = BuildToolButton(Strings.Changes_StageHunk);
         _stageHunkBtn.IsEnabled = false;
         _stageHunkBtn.Click += (_, _) => StageSelectedHunks(reverse: false);
 
-        _unstageHunkBtn = BuildToolButton("撤销此块");
+        _unstageHunkBtn = BuildToolButton(Strings.Changes_UnstageHunk);
         _unstageHunkBtn.IsEnabled = false;
         _unstageHunkBtn.Click += (_, _) => StageSelectedHunks(reverse: true);
+
+        // 验收台 v1（ai-native-redesign.md §3.4/§3.5）：拒绝此块 / 退回重做 / AI 解释与审查
+        _rejectHunkBtn = BuildToolButton(Strings.Changes_RejectHunk);
+        _rejectHunkBtn.IsEnabled = false;
+        _rejectHunkBtn.Click += (_, _) => RejectSelectedHunks();
+
+        _retakeBtn = BuildToolButton(Strings.Changes_Retake);
+        _retakeBtn.IsEnabled = false;
+        _retakeBtn.Click += (_, _) => _ = ShowRetakeDialogAsync();
+
+        _explainBtn = BuildToolButton(Strings.Changes_AiExplain);
+        _explainBtn.IsEnabled = false;
+        _explainBtn.Click += (_, _) => StartExplain(GitUI.Core.Ai.ExplainIntent.Explain);
+
+        // opsRow 上只放解释；"审查风险"放在 AI 批注栏头部，避免工具条拥挤
+        _explainCloseBtn = Ui.IconToolButton("\uE711", Strings.Common_Close);
+        _explainCloseBtn.Click += (_, _) =>
+        {
+            _explainCts?.Cancel();
+            _vm.ClearExplanation();
+            Rebind();
+        };
+
+        _explainText = new TextBlock
+        {
+            FontSize = 12,
+            IsTextSelectionEnabled = true,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = Ui.Text,
+        };
+        var explainHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        explainHeader.Children.Add(new TextBlock
+        {
+            Text = Strings.Changes_ExplainPanelTitle,
+            FontSize = 11.5,
+            FontWeight = new Windows.UI.Text.FontWeight(600),
+            Foreground = Ui.Text2,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var reviewBtn = BuildToolButton(Strings.Changes_AiReview);
+        reviewBtn.Click += (_, _) => StartExplain(GitUI.Core.Ai.ExplainIntent.Review);
+        explainHeader.Children.Add(reviewBtn);
+        explainHeader.Children.Add(_explainCloseBtn);
+        // agent 反馈（§7.2 review.submit_feedback）：面板顶部固定段，带清除按钮
+        _agentFeedbackText = new TextBlock
+        {
+            FontSize = 12,
+            IsTextSelectionEnabled = true,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = Ui.Text,
+        };
+        var feedbackRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        feedbackRow.Children.Add(new TextBlock
+        {
+            Text = Strings.Changes_AgentFeedback,
+            FontSize = 11.5,
+            FontWeight = new Windows.UI.Text.FontWeight(600),
+            Foreground = Ui.ChipPurpleFg,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var feedbackClear = BuildToolButton(Strings.Common_Close);
+        feedbackClear.Click += (_, _) => _vm.ClearAgentFeedback();
+        feedbackRow.Children.Add(feedbackClear);
+        _agentFeedbackBlock = new StackPanel { Spacing = 4, Visibility = Visibility.Collapsed };
+        _agentFeedbackBlock.Children.Add(feedbackRow);
+        _agentFeedbackBlock.Children.Add(_agentFeedbackText);
+        var explainHost = new StackPanel { Spacing = 4 };
+        explainHost.Children.Add(explainHeader);
+        explainHost.Children.Add(_agentFeedbackBlock);
+        explainHost.Children.Add(_explainText);
+        _explainPanel = new Border
+        {
+            Background = Ui.Panel,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(8, 2, 8, 4),
+            Child = new ScrollViewer
+            {
+                MaxHeight = 180,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = explainHost,
+            },
+            Visibility = Visibility.Collapsed,
+        };
 
         var opsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(8, 2, 8, 2) };
         opsRow.Children.Add(_openEditorBtn);
@@ -162,13 +270,17 @@ public sealed class ChangesPage : UserControl
         opsRow.Children.Add(new TextBlock { Text = "  ", Width = 8 });
         opsRow.Children.Add(_stageHunkBtn);
         opsRow.Children.Add(_unstageHunkBtn);
+        opsRow.Children.Add(_rejectHunkBtn);
+        opsRow.Children.Add(_retakeBtn);
+        opsRow.Children.Add(_explainBtn);
 
         _canvas = new DiffCanvas { Mode = settings.Current.DiffMode };
-        _canvas.Clear("选择左侧文件查看差异");
+        _canvas.Clear(Strings.Changes_CanvasIdle);
         _canvas.HunkSelectionChanged += (_, _) => UpdateHunkButtons();
 
 
         var diffHost = new Grid();
+        diffHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         diffHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         diffHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         diffHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -176,7 +288,9 @@ public sealed class ChangesPage : UserControl
         diffHost.Children.Add(_fileHeader);
         Grid.SetRow(opsRow, 1);
         diffHost.Children.Add(opsRow);
-        Grid.SetRow(_canvas, 2);
+        Grid.SetRow(_explainPanel, 2);
+        diffHost.Children.Add(_explainPanel);
+        Grid.SetRow(_canvas, 3);
         diffHost.Children.Add(_canvas);
 
         var content = new Grid();
@@ -203,9 +317,9 @@ public sealed class ChangesPage : UserControl
         _messageBox = new TextBox
         {
             AcceptsReturn = false,
-            PlaceholderText = "提交消息（Ctrl+Enter 提交）",
+            PlaceholderText = Strings.Changes_MessagePlaceholder,
         };
-        AutomationProperties.SetName(_messageBox, "提交消息");
+        AutomationProperties.SetName(_messageBox, Strings.Changes_MessageAutomation);
         _messageBox.KeyDown += (_, e) =>
         {
             if (e.Key == VirtualKey.Enter
@@ -217,8 +331,8 @@ public sealed class ChangesPage : UserControl
             }
         };
 
-        _prefixBox = new ComboBox { MinWidth = 90, PlaceholderText = "前缀" };
-        AutomationProperties.SetName(_prefixBox, "提交前缀");
+        _prefixBox = new ComboBox { MinWidth = 90, PlaceholderText = Strings.Changes_PrefixPlaceholder };
+        AutomationProperties.SetName(_prefixBox, Strings.Changes_PrefixAutomation);
         _prefixBox.SelectionChanged += (_, _) =>
         {
             if (_prefixBox.SelectedItem is string p && p.Length > 0)
@@ -228,8 +342,8 @@ public sealed class ChangesPage : UserControl
             }
         };
 
-        _recentMsgBox = new ComboBox { MinWidth = 220, PlaceholderText = "最近提交消息（作模板）" };
-        AutomationProperties.SetName(_recentMsgBox, "最近消息");
+        _recentMsgBox = new ComboBox { MinWidth = 220, PlaceholderText = Strings.Changes_RecentPlaceholder };
+        AutomationProperties.SetName(_recentMsgBox, Strings.Changes_RecentAutomation);
         _recentMsgBox.SelectionChanged += (_, _) =>
         {
             if (_recentMsgBox.SelectedItem is string m && m.Length > 0)
@@ -248,21 +362,27 @@ public sealed class ChangesPage : UserControl
             Margin = new Thickness(8, 0, 0, 0),
         };
 
-        _commitBtn = Ui.PrimaryButton("提交");
+        _commitBtn = Ui.PrimaryButton(Strings.Changes_Commit);
         _commitBtn.MinWidth = 84;
         _commitBtn.Click += (_, _) => _ = CommitAsync(push: false);
 
-        _commitPushBtn = BuildToolButton("提交并推送");
+        _commitPushBtn = BuildToolButton(Strings.Changes_CommitAndPush);
         _commitPushBtn.Click += (_, _) => _ = CommitAsync(push: true);
 
-        _retryPushBtn = BuildToolButton("重试推送");
+        _retryPushBtn = BuildToolButton(Strings.Changes_RetryPush);
         _retryPushBtn.Visibility = Visibility.Collapsed;
         _retryPushBtn.Click += (_, _) => _ = _vm.RetryPushAsync();
+
+        // AI 提交信息草稿（ai-native-redesign.md §4.1）：网关未配置时禁用（不隐藏，提示可发现性）
+        _aiMsgBtn = BuildToolButton(Strings.Changes_AiGenerate);
+        AutomationProperties.SetName(_aiMsgBtn, Strings.Changes_AiGenerate);
+        _aiMsgBtn.Click += (_, _) => _ = GenerateMessageAsync();
 
         var commitBar = new Grid { Margin = new Thickness(10, 4, 10, 4) };
         commitBar.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         commitBar.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var assistRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 0, 0, 4) };
+        assistRow.Children.Add(_aiMsgBtn);
         assistRow.Children.Add(_prefixBox);
         assistRow.Children.Add(_recentMsgBox);
         var commitRow = new Grid();
@@ -288,7 +408,7 @@ public sealed class ChangesPage : UserControl
             Margin = new Thickness(14, 0, 14, 0),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Text = "未打开仓库",
+            Text = Strings.Common_NoRepoOpen,
         };
         // 不设 AutomationProperties.Name（显式 Name 覆盖动态文本，UIA 冒烟依赖 Name=内容）
         var statusRow = new Grid { Height = 22 };
@@ -420,6 +540,86 @@ public sealed class ChangesPage : UserControl
         _canvas.SetSelectedHunks(Array.Empty<int>());
     }
 
+    private void RejectSelectedHunks()
+    {
+        // 验收台"拒绝"（§3.4）：丢弃选中 hunk 的工作区改动
+        var hunks = _canvas.SelectedHunks;
+        if (hunks.Count == 0) return;
+        _ = _vm.RejectHunksAsync(hunks);
+        _canvas.SetSelectedHunks(Array.Empty<int>());
+    }
+
+    /// <summary>对话框宿主（同 BranchesPage：页面刚入树时自身 XamlRoot 可能尚未传播，回退 Content 的）。</summary>
+    private Microsoft.UI.Xaml.XamlRoot? DialogXamlRoot => XamlRoot ?? Content.XamlRoot;
+
+    private async Task ShowRetakeDialogAsync()
+    {
+        var hunks = _canvas.SelectedHunks;
+        if (hunks.Count == 0) return;
+        if (DialogXamlRoot is null) return;
+
+        var note = new TextBox
+        {
+            PlaceholderText = Strings.Changes_RetakeNotePlaceholder,
+            AcceptsReturn = true,
+            Height = 96,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        AutomationProperties.SetName(note, Strings.Changes_RetakeNotePlaceholder);
+        var canDirect = _canSendToTerminal?.Invoke() == true && _sendToTerminal is not null;
+        var dialog = new ContentDialog
+        {
+            Title = Strings.Changes_RetakeTitle,
+            Content = note,
+            PrimaryButtonText = Strings.Changes_RetakeCopy,
+            SecondaryButtonText = canDirect ? Strings.Changes_RetypeSendToTerminal : null,
+            CloseButtonText = Strings.Common_Cancel,
+            XamlRoot = DialogXamlRoot,
+        };
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.None) return;
+
+        var prompt = _vm.BuildRetakeFeedback(hunks, string.IsNullOrWhiteSpace(note.Text) ? null : note.Text.Trim());
+        if (prompt is null) return;
+
+        if (result == ContentDialogResult.Secondary && _sendToTerminal is not null)
+        {
+            // cli-pty 直投（§12.7）：prompt 送入运行中 agent CLI 的 PTY（回车提交）
+            _sendToTerminal(prompt);
+        }
+        else
+        {
+            try
+            {
+                var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                dp.SetText(prompt);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+            }
+            catch { /* 剪贴板被占用等：静默 */ }
+        }
+        _canvas.SetSelectedHunks(Array.Empty<int>());
+    }
+
+    private void StartExplain(GitUI.Core.Ai.ExplainIntent intent)
+    {
+        if (_vm.IsExplaining || !_vm.IsAiAvailable) return;
+        _explainCts?.Cancel();
+        _explainCts = new System.Threading.CancellationTokenSource();
+        var ct = _explainCts.Token;
+        _ = _vm.ExplainAsync(intent, ct);
+    }
+
+    /// <summary>AI 与安全网设置热更新（ai-native-redesign.md §四/§八；设置页变更即时生效）。</summary>
+    private void ApplyAiSettings(GitUI.Core.Settings.AppSettings s)
+    {
+        _vm.UpdateAi(
+            s.SafetyNetMode,
+            s.Ai.Privacy,
+            s.Ai.AppendTrailer ? AiGatewayFactory.TrailerId(s.Ai) : null,
+            AiGatewayFactory.FromSettings(s.Ai));
+        Rebind();
+    }
+
     private async Task CommitAsync(bool push)
     {
         await _vm.CommitAsync(_messageBox.Text, push);
@@ -427,8 +627,63 @@ public sealed class ChangesPage : UserControl
         UpdateRecentMessages();
     }
 
+    /// <summary>AI 生成提交信息草稿填入输入框（必经人工确认后才提交，原则 1.2-2）。</summary>
+    private async Task GenerateMessageAsync()
+    {
+        if (_aiGenerating || !_vm.IsAiAvailable) return;
+        _aiGenerating = true;
+        _aiMsgBtn.Content = Strings.Changes_AiGenerating;
+        _aiMsgBtn.IsEnabled = false;
+        try
+        {
+            var draft = await _vm.GenerateCommitMessageAsync();
+            if (!string.IsNullOrEmpty(draft)) _messageBox.Text = draft;
+        }
+        finally
+        {
+            _aiGenerating = false;
+            _aiMsgBtn.Content = Strings.Changes_AiGenerate;
+            _aiMsgBtn.IsEnabled = _vm.IsAiAvailable;
+        }
+    }
+
     /// <summary>F5 / 命令面板刷新入口（S7）。</summary>
     public Task RefreshAsync() => _vm.RefreshAsync();
+
+    /// <summary>语言热切换：静态文案重取值（docs/i18n.md §四；由 MainWindow 驱动）。</summary>
+    internal void OnLanguageChanged()
+    {
+        _switchBtn.Content = Strings.Common_SwitchProject;
+        AutomationProperties.SetName(_refreshBtn, Strings.Common_Refresh);
+        _copyErrBtn.Content = Strings.Common_CopyErrorDetail;
+        _openEditorBtn.Content = Strings.Changes_OpenInEditor;
+        _aiMsgBtn.Content = Strings.Changes_AiGenerate;
+        AutomationProperties.SetName(_aiMsgBtn, Strings.Changes_AiGenerate);
+        _rejectHunkBtn.Content = Strings.Changes_RejectHunk;
+        _retakeBtn.Content = Strings.Changes_Retake;
+        _explainBtn.Content = Strings.Changes_AiExplain;
+        _explainCloseBtn.Content = Strings.Common_Close;
+        AutomationProperties.SetName(_explainCloseBtn, Strings.Common_Close);
+        _stageHunkBtn.Content = Strings.Changes_StageHunk;
+        _unstageHunkBtn.Content = Strings.Changes_UnstageHunk;
+        _messageBox.PlaceholderText = Strings.Changes_MessagePlaceholder;
+        AutomationProperties.SetName(_messageBox, Strings.Changes_MessageAutomation);
+        _prefixBox.PlaceholderText = Strings.Changes_PrefixPlaceholder;
+        AutomationProperties.SetName(_prefixBox, Strings.Changes_PrefixAutomation);
+        _recentMsgBox.PlaceholderText = Strings.Changes_RecentPlaceholder;
+        AutomationProperties.SetName(_recentMsgBox, Strings.Changes_RecentAutomation);
+        _commitBtn.Content = Strings.Changes_Commit;
+        _commitPushBtn.Content = Strings.Changes_CommitAndPush;
+        _retryPushBtn.Content = Strings.Changes_RetryPush;
+        _projectLabel.Text = _context.WorkDir ?? Strings.Common_NoProjectSelected;
+        if (_vm.Selected is null)
+        {
+            _canvas.Clear(Strings.Changes_CanvasIdle);
+        }
+
+        UpdateSelection(); // 重转译 _stageFileBtn 的冲突文案与画布提示
+        Rebind();
+    }
 
     // ---- 命令面板入口（v2）：MainWindow 经页面缓存对象调用；未开仓库时由 MainWindow 置灰 ----
 
@@ -516,7 +771,7 @@ public sealed class ChangesPage : UserControl
             IsChecked = _vm.IsChecked(entry),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        AutomationProperties.SetName(checkBox, $"勾选 {entry.Path}");
+        AutomationProperties.SetName(checkBox, string.Format(Strings.Changes_CheckAutomation, entry.Path));
         checkBox.Click += (_, _) =>
         {
             if (checkBox.IsChecked is { } v) _vm.SetChecked(entry, v);
@@ -557,13 +812,35 @@ public sealed class ChangesPage : UserControl
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(checkBox, 0);
         row.Children.Add(checkBox);
         Grid.SetColumn(statusLetter, 1);
         row.Children.Add(statusLetter);
         Grid.SetColumn(path, 2);
         row.Children.Add(path);
-        Grid.SetColumn(stats, 3);
+
+        // 风险徽标（§3.3）：红点 = 有阻止级发现，琥珀点 = 仅警告；tooltip 带计数
+        var risk = _vm.RiskLevelFor(entry.Path);
+        if (risk is not null)
+        {
+            var blocked = risk == GitUI.Core.Rules.SafetySeverity.Blocked;
+            var count = _vm.FindingsFor(entry.Path).Count;
+            var dot = new Ellipse
+            {
+                Width = 7,
+                Height = 7,
+                Fill = blocked ? Ui.Red : Ui.Amber,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0),
+            };
+            ToolTipService.SetToolTip(dot, string.Format(
+                blocked ? Strings.Changes_RiskBlockedTooltip : Strings.Changes_RiskWarningTooltip, count));
+            Grid.SetColumn(dot, 3);
+            row.Children.Add(dot);
+        }
+
+        Grid.SetColumn(stats, 4);
         row.Children.Add(stats);
 
         // 用 Button 承载行（UIA InvokePattern 可驱动冒烟），样式对齐 Border 外观
@@ -601,13 +878,13 @@ public sealed class ChangesPage : UserControl
         var failure = _vm.LastOutcome?.PushFailure;
         if (failure is not null)
         {
-            _banner.Text = "推送失败: " + failure.Message + "\n" + failure.Hint;
+            _banner.Text = string.Format(Strings.Changes_PushFailed, failure.Message, failure.Hint);
             _banner.Visibility = Visibility.Visible;
             _retryPushBtn.Visibility = Visibility.Visible;
         }
         else if (_vm.Error is not null)
         {
-            _banner.Text = "错误: " + _vm.Error;
+            _banner.Text = string.Format(Strings.Common_ErrorPrefix, _vm.Error);
             _banner.Visibility = Visibility.Visible;
             _retryPushBtn.Visibility = Visibility.Collapsed;
         }
@@ -643,14 +920,39 @@ public sealed class ChangesPage : UserControl
 
         _commitBtn.IsEnabled = !_vm.IsCommitting && _vm.IsRepoOpen;
         _commitPushBtn.IsEnabled = _commitBtn.IsEnabled;
+        _aiMsgBtn.IsEnabled = !_aiGenerating && _vm.IsAiAvailable && _vm.IsRepoOpen && _vm.CheckedCount > 0;
+
+        // AI 批注栏（§3.5）：非阻塞展示，关闭按钮收起
+        _explainBtn.IsEnabled = !_vm.IsExplaining && _vm.IsAiAvailable && _vm.Selected is not null;
+        if (_vm.Explanation is { } explanation)
+        {
+            _explainText.Text = _vm.IsExplaining ? Strings.Changes_AiGenerating : explanation;
+            _explainPanel.Visibility = Visibility.Visible;
+            // 反馈段与解释共存时一并展示
+            _agentFeedbackText.Text = _vm.AgentFeedback?.Note ?? string.Empty;
+            _agentFeedbackBlock.Visibility = _vm.AgentFeedback is null ? Visibility.Collapsed : Visibility.Visible;
+        }
+        else if (_vm.AgentFeedback is { } fb)
+        {
+            // agent 反馈（§7.2）：无 AI 解释时也展示反馈段
+            _agentFeedbackText.Text = fb.Note;
+            _agentFeedbackBlock.Visibility = Visibility.Visible;
+            _explainText.Text = string.Empty;
+            _explainPanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            _agentFeedbackBlock.Visibility = Visibility.Collapsed;
+            _explainPanel.Visibility = Visibility.Collapsed;
+        }
 
         // 文件预览：勾选文件列表（最多 5 条 + 省略）
         var previewPaths = _vm.Changes.Concat(_vm.Staged).Concat(_vm.Unversioned)
             .Where(_vm.IsChecked)
             .Select(e => e.Path).ToList();
         _preview.Text = previewPaths.Count == 0
-            ? "未勾选任何文件"
-            : string.Join(", ", previewPaths.Take(5)) + (previewPaths.Count > 5 ? $" 等 {previewPaths.Count} 个文件" : "");
+            ? Strings.Changes_NoFilesChecked
+            : string.Join(", ", previewPaths.Take(5)) + (previewPaths.Count > 5 ? string.Format(Strings.Changes_PreviewMore, previewPaths.Count) : "");
     }
 
     private IReadOnlyList<object> BuildFlatRows()
@@ -665,16 +967,16 @@ public sealed class ChangesPage : UserControl
                 rows.Add(new FileRowData(e, statusLetter, statsOf(e), $"{automationName} {e.Path}"));
         }
 
-        AddSection($"冲突 ({_vm.Conflicts.Count})", "冲突", _vm.Conflicts, "C",
+        AddSection(string.Format(Strings.Changes_SectionConflicts, _vm.Conflicts.Count), Strings.Changes_SectionConflictsAutomation, _vm.Conflicts, "C",
             Array.Empty<(string, Action)>(), _ => string.Empty);
-        AddSection($"Changes ({_vm.Changes.Count})", "变更", _vm.Changes, "M",
-            new[] { ("全部暂存 +", (Action)(() => _vm.SetAllChecked(StatusCategory.Changes, true))) },
+        AddSection(string.Format(Strings.Changes_SectionChanges, _vm.Changes.Count), Strings.Changes_SectionChangesAutomation, _vm.Changes, "M",
+            new[] { (Strings.Changes_StageAll, (Action)(() => _vm.SetAllChecked(StatusCategory.Changes, true))) },
             e => StatsLabel(e.AddedLines, e.DeletedLines));
-        AddSection($"Staged for Commit ({_vm.Staged.Count})", "已暂存", _vm.Staged, "S",
-            new[] { ("全部撤销 −", (Action)(() => _vm.SetAllChecked(StatusCategory.Staged, false))) },
+        AddSection(string.Format(Strings.Changes_SectionStaged, _vm.Staged.Count), Strings.Changes_SectionStagedAutomation, _vm.Staged, "S",
+            new[] { (Strings.Changes_UnstageAll, (Action)(() => _vm.SetAllChecked(StatusCategory.Staged, false))) },
             e => StatsLabel(e.AddedLines, e.DeletedLines));
-        AddSection($"Unversioned ({_vm.Unversioned.Count})", "未跟踪", _vm.Unversioned, "U",
-            new[] { ("全部暂存 +", (Action)(() => _vm.SetAllChecked(StatusCategory.Unversioned, true))) },
+        AddSection(string.Format(Strings.Changes_SectionUntracked, _vm.Unversioned.Count), Strings.Changes_SectionUntrackedAutomation, _vm.Unversioned, "U",
+            new[] { (Strings.Changes_StageAll, (Action)(() => _vm.SetAllChecked(StatusCategory.Unversioned, true))) },
             _ => string.Empty);
         return rows;
     }
@@ -701,7 +1003,7 @@ public sealed class ChangesPage : UserControl
         {
             _fileHeader.Text = string.Empty;
             _openEditorBtn.IsEnabled = false;
-            _canvas.Clear("选择左侧文件查看差异");
+            _canvas.Clear(Strings.Changes_CanvasIdle);
             UpdateHunkButtons();
             return;
         }
@@ -711,18 +1013,37 @@ public sealed class ChangesPage : UserControl
         _openEditorBtn.IsEnabled = true;
         // 冲突文件下"暂存文件"即"标记已解决"（git add 移除冲突条目），换标签提示语义
         var isConflict = selected.IsConflict;
-        _stageFileBtn.Content = isConflict ? "标记已解决" : "暂存文件";
-        AutomationProperties.SetName(_stageFileBtn, isConflict ? "标记已解决" : "暂存文件");
+        _stageFileBtn.Content = Ui.IconTextContent("\uE8E5",
+            isConflict ? Strings.Changes_MarkResolved : Strings.Changes_StageFile);
+        AutomationProperties.SetName(_stageFileBtn, isConflict ? Strings.Changes_MarkResolved : Strings.Changes_StageFile);
         if (view is null)
         {
-            _canvas.Clear(selected.IsConflict ? "冲突文件：解决后点击标记已解决" : "无差异");
+            _canvas.Clear(selected.IsConflict ? Strings.Changes_ConflictHint : Strings.Common_NoDiff);
             UpdateHunkButtons();
             return;
         }
 
-        if (view.Hunks.Count == 0) _canvas.Clear("无差异");
+        if (view.Hunks.Count == 0) _canvas.Clear(Strings.Common_NoDiff);
         else _canvas.Load(view.Hunks, view.OldEndsWithNewline, view.NewEndsWithNewline);
+        UpdateRiskMarks(view);
         UpdateHunkButtons();
+    }
+
+    /// <summary>风险发现映射到 hunk（§3.3 画布标记）：行号 → hunk 序号，红/琥珀分级。</summary>
+    private void UpdateRiskMarks(FileDiffView view)
+    {
+        var findings = _vm.FindingsFor(view.Path);
+        if (findings.Count == 0)
+        {
+            _canvas.SetRiskHunks(Array.Empty<int>(), Array.Empty<int>());
+            return;
+        }
+
+        var blocked = findings.Where(f => f.Severity == GitUI.Core.Rules.SafetySeverity.Blocked).ToList();
+        var warning = findings.Where(f => f.Severity == GitUI.Core.Rules.SafetySeverity.Warning).ToList();
+        _canvas.SetRiskHunks(
+            GitUI.Core.Rules.RiskHunkMapper.Map(blocked, view.Hunks),
+            GitUI.Core.Rules.RiskHunkMapper.Map(warning, view.Hunks));
     }
 
     private void UpdateHunkButtons()
@@ -731,6 +1052,9 @@ public sealed class ChangesPage : UserControl
         var canStage = view is { CanStageHunks: true } && _canvas.SelectedHunks.Count > 0;
         _stageHunkBtn.IsEnabled = canStage && view!.IsStagedView == false;
         _unstageHunkBtn.IsEnabled = canStage && view!.IsStagedView;
+        // 验收台三态（§3.4）：拒绝/退回仅作用于工作区改动（Staged 视图的对应动作是撤销暂存）
+        _rejectHunkBtn.IsEnabled = canStage && view!.IsStagedView == false;
+        _retakeBtn.IsEnabled = canStage && view!.IsStagedView == false;
     }
 
     private void UpdateRecentMessages()

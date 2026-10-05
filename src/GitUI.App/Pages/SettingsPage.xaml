@@ -3,23 +3,24 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:Microsoft.UI.Xaml.Controls">
+    <!-- 文案一律 code-behind 赋值（docs/i18n.md：WinUI 无自定义 MarkupExtension，resx 单一体系） -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" VerticalScrollMode="Enabled">
         <StackPanel Spacing="16" Margin="24">
-            <TextBlock Text="设置" FontSize="22" FontWeight="SemiBold"/>
+            <TextBlock x:Name="SettingsTitle" FontSize="22" FontWeight="SemiBold"/>
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="主题" FontSize="13" FontWeight="SemiBold"/>
-                    <TextBlock Text="基座" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="ThemeCardTitle" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="BaseLabel" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <controls:Button x:Name="ThemeSystemBtn" Content="跟随系统" Padding="12,6" CornerRadius="6" Click="Theme_Click"/>
-                        <controls:Button x:Name="ThemeLightBtn" Content="浅色" Padding="12,6" CornerRadius="6" Click="Theme_Click"/>
-                        <controls:Button x:Name="ThemeDarkBtn" Content="深色" Padding="12,6" CornerRadius="6" Click="Theme_Click"/>
+                        <controls:Button x:Name="ThemeSystemBtn" Padding="12,6" CornerRadius="6" Click="Theme_Click"/>
+                        <controls:Button x:Name="ThemeLightBtn" Padding="12,6" CornerRadius="6" Click="Theme_Click"/>
+                        <controls:Button x:Name="ThemeDarkBtn" Padding="12,6" CornerRadius="6" Click="Theme_Click"/>
                     </StackPanel>
-                    <TextBlock Text="主题包" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="ThemePackageLabel" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <StackPanel x:Name="ThemePackageList" Spacing="2"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <controls:Button x:Name="ThemeFollowBaseBtn" Content="跟随基座（内置）" Padding="12,6" CornerRadius="6" Click="ThemeFollowBase_Click"/>
-                        <controls:Button x:Name="ImportThemeBtn" Content="导入主题包 .gpk…" Padding="12,6" CornerRadius="6" Click="ImportTheme_Click"/>
+                        <controls:Button x:Name="ThemeFollowBaseBtn" Padding="12,6" CornerRadius="6" Click="ThemeFollowBase_Click"/>
+                        <controls:Button x:Name="ImportThemeBtn" Padding="12,6" CornerRadius="6" Click="ImportTheme_Click"/>
                     </StackPanel>
                     <TextBlock x:Name="ThemeStatusText" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                TextWrapping="Wrap" Visibility="Collapsed"/>
@@ -27,9 +28,21 @@
             </Border>
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="扩展" FontSize="13" FontWeight="SemiBold"/>
-                    <TextBlock Text="按种类启用/禁用扩展包（主题 / 语法高亮）；卸载仅对自定义包可用。" FontSize="11"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="LanguageTitle" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="LanguageHint" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <controls:Button x:Name="LangSystemBtn" Padding="12,6" CornerRadius="6" Click="Language_Click"/>
+                        <controls:Button x:Name="LangEnglishBtn" Padding="12,6" CornerRadius="6" Click="Language_Click"/>
+                        <controls:Button x:Name="LangChineseBtn" Padding="12,6" CornerRadius="6" Click="Language_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="ExtensionsTitle" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="ExtensionsHint" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     <StackPanel x:Name="ExtensionPackageList" Spacing="2"/>
                     <TextBlock x:Name="ExtensionStatusText" FontSize="11"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -38,25 +51,73 @@
             </Border>
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="Diff 模式" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="DiffModeTitle" FontSize="13" FontWeight="SemiBold"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <controls:Button x:Name="DiffSideBySideBtn" Content="并排" Padding="12,6" CornerRadius="6" Click="DiffMode_Click"/>
-                        <controls:Button x:Name="DiffInlineBtn" Content="内联" Padding="12,6" CornerRadius="6" Click="DiffMode_Click"/>
+                        <controls:Button x:Name="DiffSideBySideBtn" Padding="12,6" CornerRadius="6" Click="DiffMode_Click"/>
+                        <controls:Button x:Name="DiffInlineBtn" Padding="12,6" CornerRadius="6" Click="DiffMode_Click"/>
                     </StackPanel>
                 </StackPanel>
             </Border>
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="开发工具" FontSize="13" FontWeight="SemiBold"/>
-                    <controls:Button x:Name="DiffPreviewBtn" Content="打开 Diff 渲染预览（S3 验证）" Padding="12,6" CornerRadius="6" Click="DiffPreview_Click"/>
+                    <TextBlock x:Name="DevToolsTitle" FontSize="13" FontWeight="SemiBold"/>
+                    <controls:Button x:Name="DiffPreviewBtn" Padding="12,6" CornerRadius="6" Click="DiffPreview_Click"/>
                 </StackPanel>
             </Border>
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="设置文件" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="MonitorTitle" FontSize="13" FontWeight="SemiBold"/>
+                    <CheckBox x:Name="WatchWorktreeCheck" Checked="WatchWorktree_Changed" Unchecked="WatchWorktree_Changed"/>
+                    <CheckBox x:Name="AutoFetchCheck" Checked="AutoFetch_Changed" Unchecked="AutoFetch_Changed"/>
+                    <CheckBox x:Name="McpPipeCheck" Checked="McpPipe_Changed" Unchecked="McpPipe_Changed"/>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <controls:Button x:Name="ExportBtn" Content="导出到文件…" Padding="12,6" CornerRadius="6" Click="Export_Click"/>
-                        <controls:Button x:Name="ImportBtn" Content="从文件导入…" Padding="12,6" CornerRadius="6" Click="Import_Click"/>
+                        <TextBlock x:Name="FetchIntervalLabel" FontSize="12" VerticalAlignment="Center"/>
+                        <controls:NumberBox x:Name="FetchIntervalBox" MinWidth="120" Minimum="1" Maximum="120"
+                                            SpinButtonPlacementMode="Compact" ValueChanged="FetchInterval_ValueChanged"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="AiTitle" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="AiHint" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="AiProviderLabel" FontSize="12" VerticalAlignment="Center" MinWidth="90"/>
+                        <ComboBox x:Name="AiProviderBox" MinWidth="180" SelectionChanged="AiProvider_SelectionChanged"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="AiEndpointLabel" FontSize="12" VerticalAlignment="Center" MinWidth="90"/>
+                        <TextBox x:Name="AiEndpointBox" MinWidth="340" TextChanged="AiEndpoint_TextChanged"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="AiModelLabel" FontSize="12" VerticalAlignment="Center" MinWidth="90"/>
+                        <TextBox x:Name="AiModelBox" MinWidth="340" TextChanged="AiModel_TextChanged"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="AiApiKeyLabel" FontSize="12" VerticalAlignment="Center" MinWidth="90"/>
+                        <PasswordBox x:Name="AiApiKeyBox" MinWidth="340" PasswordChanged="AiApiKey_PasswordChanged"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="AiCliLabel" FontSize="12" VerticalAlignment="Center" MinWidth="90"/>
+                        <TextBox x:Name="AiCliBox" MinWidth="340" TextChanged="AiCli_TextChanged"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="AiPrivacyLabel" FontSize="12" VerticalAlignment="Center" MinWidth="90"/>
+                        <ComboBox x:Name="AiPrivacyBox" MinWidth="340" SelectionChanged="AiPrivacy_SelectionChanged"/>
+                    </StackPanel>
+                    <CheckBox x:Name="AiTrailerCheck" Checked="AiTrailer_Changed" Unchecked="AiTrailer_Changed"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="SafetyNetLabel" FontSize="12" VerticalAlignment="Center" MinWidth="90"/>
+                        <ComboBox x:Name="SafetyNetBox" MinWidth="180" SelectionChanged="SafetyNet_SelectionChanged"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10" Padding="16">
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="SettingsFileTitle" FontSize="13" FontWeight="SemiBold"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <controls:Button x:Name="ExportBtn" Padding="12,6" CornerRadius="6" Click="Export_Click"/>
+                        <controls:Button x:Name="ImportBtn" Padding="12,6" CornerRadius="6" Click="Import_Click"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

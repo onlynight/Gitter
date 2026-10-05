@@ -1,4 +1,5 @@
 using GitUI.Core.Models;
+using GitUI.Core.Resources;
 using GitUI.Core.Services;
 
 namespace GitUI.ViewModels;
@@ -22,6 +23,7 @@ public sealed class LogViewModel
     private List<LogDayGroup> _groups = new();
     private IReadOnlyList<LogRow> _rows = Array.Empty<LogRow>();
     private readonly HashSet<DateTime> _collapsedDays = new();
+    private readonly HashSet<string> _collapsedSessions = new(StringComparer.Ordinal);
 
     private int _totalCount;
     private bool _hasMore;
@@ -63,12 +65,12 @@ public sealed class LogViewModel
 
     /// <summary>状态条文案。UIA 冒烟以 "已加载 N / 共 M" 模式断言条目数。</summary>
     public string StatusText =>
-        _error is not null ? $"错误: {_error}"
-        : _isLoading ? "加载中…"
-        : WorkDir is null ? "未打开仓库"
-        : $"已加载 {_items.Count} / 共 {_totalCount}"
-          + (_hasMore ? " · 滚动加载更多" : "")
-          + (_groups.Count > 0 ? $" · {_groups.Count} 个分组" : "");
+        _error is not null ? string.Format(Strings.Common_ErrorPrefix, _error)
+        : _isLoading ? Strings.Common_Loading
+        : WorkDir is null ? Strings.Common_NoRepoOpen
+        : string.Format(Strings.Log_LoadedStatus, _items.Count, _totalCount)
+          + (_hasMore ? Strings.Log_ScrollMore : "")
+          + (_groups.Count > 0 ? string.Format(Strings.Log_GroupsSuffix, _groups.Count) : "");
 
     // ---- 命令 ----
 
@@ -111,6 +113,7 @@ public sealed class LogViewModel
                 _selectedFiles = Array.Empty<DiffResult>();
                 _selectedError = null;
                 _collapsedDays.Clear();
+                _collapsedSessions.Clear();
                 ApplyPage(page, reset: true);
                 SelectionChanged?.Invoke();
             }
@@ -151,6 +154,7 @@ public sealed class LogViewModel
         _selectedFiles = Array.Empty<DiffResult>();
         _selectedError = null;
         _collapsedDays.Clear();
+        _collapsedSessions.Clear();
         RebuildRows();
         SelectionChanged?.Invoke();
         StructureChanged?.Invoke();
@@ -229,6 +233,101 @@ public sealed class LogViewModel
         RebuildRows();
         StructureChanged?.Invoke();
     }
+
+    /// <summary>展开/折叠一个 agent 会话卡（ai-native-redesign.md §5.1）。跨分页保留。</summary>
+    public void ToggleSession(string sessionId)
+    {
+        if (!_collapsedSessions.Remove(sessionId)) _collapsedSessions.Add(sessionId);
+        RebuildRows();
+        StructureChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 会话整理（session squash，ai-native-redesign.md §4.3）：soft reset 到会话最老提交的父，
+    /// 以聚合 message 重新提交。仅当会话 tip 是当前 HEAD（避免移动别的分支）。
+    /// 失败写 Error；成功后刷新（原提交链在 reflog 可回退）。
+    /// </summary>
+    public async Task SquashSessionAsync(AgentSession session)
+    {
+        var workDir = WorkDir;
+        if (workDir is null || session.Commits.Count == 0) return;
+
+        await _gate.WaitAsync();
+        try
+        {
+            SetLoading(true);
+            try
+            {
+                var (newSha, error) = await Task.Run(() =>
+                {
+                    try
+                    {
+                        var head = _repo.HeadSha(workDir);
+                        var tip = session.Commits[0];
+                        if (head is null || head != tip.Sha)
+                            return ((string?)null, (string?)Strings.Log_SquashNotHead);
+                        var oldest = session.Commits[^1];
+                        if (oldest.ParentShas.Length == 0)
+                            return ((string?)null, (string?)Strings.Log_SquashRootCommit);
+                        _repo.ResetTo(workDir, oldest.ParentShas[0], ResetMode.Soft);
+                        var sha = _repo.Commit(workDir, session.SquashMessage());
+                        return ((string?)sha, (string?)null);
+                    }
+                    catch (Exception ex)
+                    {
+                        return ((string?)null, (string?)ex.Message);
+                    }
+                });
+                if (error is not null)
+                {
+                    _error = error;
+                }
+                else
+                {
+                    _error = null;
+                    _selected = null;
+                    _selectedFiles = Array.Empty<DiffResult>();
+                    SelectionChanged?.Invoke();
+                    await ReloadCoreAsync();
+                }
+            }
+            finally
+            {
+                SetLoading(false);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>同参数重载当前页（squash 后调用；持有 _gate）。</summary>
+    private async Task ReloadCoreAsync()
+    {
+        var workDir = WorkDir;
+        if (workDir is null) return;
+        try
+        {
+            var page = await Task.Run(() => _repo.GetLog(workDir, BuildFilter(Query, Branch, skip: 0)));
+            _error = null;
+            _totalCount = page.TotalCount;
+            _items = page.Items.ToList();
+            _hasMore = page.TotalCount > 0 && _items.Count < page.TotalCount;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        RebuildRows();
+        StructureChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 以当前语言/文化重建行与分组标题（语言热切换用，docs/i18n.md §四）。
+    /// 不触发事件——调用方（页面）随后自行 Rebind，避免重入。
+    /// </summary>
+    public void RefreshRows() => RebuildRows();
 
     /// <summary>选中提交并加载其变更文件（design.md §8-S4"点击提交 → 右侧文件列表"）。
     /// 设置了比较基准时（S7 通用 git diff），加载的是所选提交对基准提交的树 diff。</summary>
@@ -355,7 +454,15 @@ public sealed class LogViewModel
     private void RebuildRows()
     {
         _groups = LogDayGrouping.Group(_items);
-        var rows = new List<LogRow>(_items.Count + _groups.Count);
+        var sessions = LogSessionGrouping.Group(_items);
+
+        var rows = new List<LogRow>(_items.Count + _groups.Count + sessions.Count);
+        var sessionBySha = new Dictionary<string, AgentSession>(StringComparer.Ordinal);
+        foreach (var sess in sessions)
+            foreach (var c in sess.Commits)
+                sessionBySha[c.Sha] = sess;
+        var emittedSessions = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var g in _groups)
         {
             var collapsed = _collapsedDays.Contains(g.Day);
@@ -363,9 +470,32 @@ public sealed class LogViewModel
             if (collapsed) continue;
             foreach (var c in g.Commits)
             {
+                // 会话卡（§5.1）：成员提交首次出现时先发卡片行；折叠则吞掉整个会话
+                // （跨天会话的后段天里不再重复发卡、也不再发成员行）
+                if (sessionBySha.TryGetValue(c.Sha, out var session))
+                {
+                    var isCollapsedSession = _collapsedSessions.Contains(session.SessionId);
+                    if (emittedSessions.Add(session.SessionId))
+                    {
+                        rows.Add(new LogSessionRow(
+                            session,
+                            isCollapsedSession,
+                            string.Format(Strings.Log_SessionTitle, session.AgentId, session.Commits.Count),
+                            $"{LogFormatting.Relative(session.Start, DateTimeOffset.Now)}"));
+                        if (isCollapsedSession) continue;
+                    }
+                    else if (isCollapsedSession)
+                    {
+                        continue;
+                    }
+                }
+
+                var meta = CommitTrailers.Read(c.Message);
                 var badges = c.BranchNames.Select(n => new LogBadge(n, IsTag: false))
                     .Concat(c.TagNames.Select(n => new LogBadge(n, IsTag: true)))
                     .ToList();
+                if (meta.IsAi && !sessionBySha.ContainsKey(c.Sha))
+                    badges.Add(new LogBadge(Strings.Log_AiBadge, IsTag: true)); // 孤立 AI 提交打徽标
                 rows.Add(new LogCommitRow(
                     c,
                     IsSelected: c == _selected,

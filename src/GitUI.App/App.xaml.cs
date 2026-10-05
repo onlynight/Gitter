@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using GitUI.Core.Settings;
+using GitUI.Git;
 using Microsoft.UI.Xaml;
 
 namespace GitUI.App;
@@ -28,6 +29,13 @@ public partial class App : Application
     }
 
     private static void LogCrash(string source, string message, Exception? ex)
+        => LogEvent(source, message, ex, "crash.log");
+
+    /// <summary>非致命异常留痕（如语言热切换单步刷新失败），与 crash.log 同目录分流。</summary>
+    internal static void LogRecoverable(string source, string message, Exception? ex)
+        => LogEvent(source, message, ex, "recoverable.log");
+
+    private static void LogEvent(string source, string message, Exception? ex, string fileName)
     {
         try
         {
@@ -46,7 +54,7 @@ public partial class App : Application
                     inner = inner.InnerException;
                 }
             }
-            File.AppendAllText(Path.Combine(dir, "crash.log"), sb.ToString());
+            File.AppendAllText(Path.Combine(dir, fileName), sb.ToString());
         }
         catch
         {
@@ -67,6 +75,16 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // MCP 无头模式（ai-native-redesign.md §7.2）：`GitUI.App.exe --mcp <repoPath>` 以
+        // stdio JSON-RPC 提供 git 工具（agent 桥），不建窗口。stdin EOF 即退出。
+        var cliArgs = Environment.GetCommandLineArgs().Skip(1).ToArray();
+        var mcpIndex = Array.FindIndex(cliArgs, a => a.Equals("--mcp", StringComparison.OrdinalIgnoreCase));
+        if (mcpIndex >= 0 && cliArgs.Length > mcpIndex + 1)
+        {
+            RunMcpHeadless(cliArgs[mcpIndex + 1]);
+            return;
+        }
+
         // 加载设置；失败时使用默认值，不阻断启动
         Settings.Load();
         MigrateRecentReposToProjects();
@@ -78,7 +96,37 @@ public partial class App : Application
         // MainWindow 的 RootGrid.RequestedTheme 承担。
         ApplyApplicationTheme(Settings.Current.Theme);
 
+        // i18n（docs/i18n.md §三）：首窗创建前应用语言偏好（资源查找 + 日期数字格式跟随）
+        GitUI.Core.Settings.LanguageService.Apply(Settings.Current.Language);
+
         OpenNewWindow();
+    }
+
+    /// <summary>stdio MCP 服务循环：读一行处理一行；stdin 关闭后退出进程。</summary>
+    private void RunMcpHeadless(string repoPath)
+    {
+        var dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        Task.Run(async () =>
+        {
+            try
+            {
+                var repo = new LibGit2RepositoryService();
+                var workDir = repo.Open(repoPath);
+                var server = new GitUI.Git.Mcp.GitterMcpServer(repo, workDir);
+                var output = Console.Out;
+                while (await Console.In.ReadLineAsync() is { } line)
+                {
+                    var response = await server.HandleAsync(line);
+                    if (response is not null)
+                        await output.WriteLineAsync(response);
+                    await output.FlushAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("gitter mcp: " + ex.Message);
+            }
+        }).ContinueWith(_ => dispatcherQueue.TryEnqueue(Exit));
     }
 
     /// <summary>Application 级主题预设（仅可在首窗创建前调用；失败降级为跟随系统）。</summary>
@@ -135,6 +183,7 @@ public partial class App : Application
         _windows.Add(window);
         window.AppWindow.Closing += (_, _) =>
         {
+            window.DetachLanguageHandler(); // i18n：解除语言热切换订阅（docs/i18n.md §四）
             _windows.Remove(window);
             if (_windows.Count == 0)
             {
@@ -142,5 +191,23 @@ public partial class App : Application
             }
         };
         window.Activate();
+    }
+
+    /// <summary>打开新窗口并直接加载指定仓库/任务 worktree（P3 任务卡"新窗口"，ai-native-redesign.md §6.2）。</summary>
+    public static void OpenNewWindow(string workDir)
+    {
+        var window = new MainWindow(Settings);
+        _windows.Add(window);
+        window.AppWindow.Closing += (_, _) =>
+        {
+            window.DetachLanguageHandler();
+            _windows.Remove(window);
+            if (_windows.Count == 0)
+            {
+                Settings.Save();
+            }
+        };
+        window.Activate();
+        window.OpenRepoPath(workDir);
     }
 }

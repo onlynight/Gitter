@@ -153,7 +153,7 @@ public sealed class BashLocatorTests
         Assert.False(found);
         Assert.Equal(string.Empty, bashPath);
         Assert.NotNull(error);
-        Assert.Contains("bash.exe", error, StringComparison.Ordinal);
+        Assert.Equal(GitUI.Shell.BashLocateFailureKind.NotFound, error.Kind);
     }
 
     [Fact]
@@ -169,7 +169,8 @@ public sealed class BashLocatorTests
 
         Assert.False(found);
         Assert.NotNull(error);
-        Assert.Contains(@"E:\custom\bash.exe", error, StringComparison.Ordinal);
+        Assert.Equal(GitUI.Shell.BashLocateFailureKind.CustomPathMissing, error.Kind);
+        Assert.Equal(@"E:\custom\bash.exe", error.Detail);
     }
 
     [Fact]

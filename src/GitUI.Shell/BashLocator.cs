@@ -1,5 +1,18 @@
 namespace GitUI.Shell;
 
+/// <summary>定位失败原因（语言中立；UI 层负责转本地化文案，docs/i18n.md §五-5）。</summary>
+public enum BashLocateFailureKind
+{
+    /// <summary>手动指定的路径不存在（Detail = 规范化后的路径）。</summary>
+    CustomPathMissing,
+
+    /// <summary>三级回退全部落空，未找到 bash.exe。</summary>
+    NotFound,
+}
+
+/// <summary>定位失败的详细信息。</summary>
+public sealed record BashLocateError(BashLocateFailureKind Kind, string? Detail);
+
 /// <summary>
 /// bash.exe 定位器，三级回退（design.md §4.7.5 / S0c）：
 /// 1. settings.BashPath 手动指定路径；
@@ -12,7 +25,7 @@ public static class BashLocator
     /// <summary>安装目录下 bash.exe 的相对路径。</summary>
     private const string GitRelativePath = "bin\\bash.exe";
 
-    public static bool TryLocate(string? overridePath, out string bashPath, out string? error)
+    public static bool TryLocate(string? overridePath, out string bashPath, out BashLocateError? error)
     {
         return TryLocate(
             overridePath,
@@ -33,10 +46,10 @@ public static class BashLocator
         IReadOnlyList<string> gitInstallRoots,
         Func<string, bool> fileExists,
         out string bashPath,
-        out string? error)
+        out BashLocateError? error)
     {
         bashPath = string.Empty;
-        string? lastError = null;
+        BashLocateError? lastError = null;
 
         // ---- 一级：手动指定路径 ----
         var trimmed = overridePath?.Trim().Trim('"');
@@ -49,7 +62,7 @@ public static class BashLocator
             }
 
             // 手动路径失效时记录原因，继续向下回退而不是直接失败
-            lastError = $"手动指定的 bash 路径不存在：{trimmed}";
+            lastError = new BashLocateError(BashLocateFailureKind.CustomPathMissing, trimmed);
         }
 
         // ---- 二级：PATH 扫描（等价 where bash.exe）----
@@ -76,7 +89,7 @@ public static class BashLocator
         }
 
         bashPath = string.Empty;
-        error = lastError ?? "未找到 Git for Windows 的 bash.exe。请安装 Git for Windows，或在设置中手动指定 bash 路径。";
+        error = lastError ?? new BashLocateError(BashLocateFailureKind.NotFound, null);
         return false;
     }
 
