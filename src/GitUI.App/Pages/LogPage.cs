@@ -26,6 +26,7 @@ public sealed class LogPage : UserControl
 {
     private readonly RepositoryContext _context;
     private readonly LogViewModel _vm;
+    private readonly ISettingsStore _settings;
 
     private readonly TextBlock _projectLabel;
     private readonly ComboBox _branchBox;
@@ -52,6 +53,7 @@ public sealed class LogPage : UserControl
     /// <param name="navigate">跳转到指定页签（切换项目按钮用）；null 时按钮禁用。</param>
     public LogPage(ISettingsStore settings, IRepositoryService repo, RepositoryContext context, Action<string>? navigate = null)
     {
+        _settings = settings;
         _context = context;
         _vm = new LogViewModel(repo);
 
@@ -250,7 +252,15 @@ public sealed class LogPage : UserControl
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(11, GridUnitType.Star) });
         Grid.SetColumn(listHost, 0);
         content.Children.Add(listHost);
-        var divider = new PaneDivider(content.ColumnDefinitions[0], () => content.ActualWidth, DividerBrush);
+        var divider = new PaneDivider(content.ColumnDefinitions[0], () => content.ActualWidth, DividerBrush)
+        {
+            InitialFraction = _settings.Current.LogSplitterFraction,
+        };
+        divider.FractionChanged += f =>
+        {
+            _settings.Update(s => s.LogSplitterFraction = f);
+            _settings.Save();
+        };
         Grid.SetColumn(divider, 1);
         content.Children.Add(divider);
         Grid.SetColumn(detailHost, 2);
@@ -277,6 +287,18 @@ public sealed class LogPage : UserControl
         ActualThemeChanged += (_, _) => Rebind();
 
         Rebind();
+
+        // 诊断钩子（GITTER_SPLITTERTEST=1）：6s 后程序化拖动分割条 +150px——
+        // 鼠标注入被环境策略拦截时的布局联动验证路径（与 GITTER_TERM_AUTOTYPE 同类）
+        if (Environment.GetEnvironmentVariable("GITTER_SPLITTERTEST") == "1")
+        {
+            var d = divider;
+            _ = DispatcherQueue.TryEnqueue(async () =>
+            {
+                await Task.Delay(6000);
+                d.DiagDrag(150); // 程序化拖动（鼠标注入被环境拦截时的替代路径）
+            });
+        }
 
         // 诊断钩子（GITTER_LOGMENUTEST=1）：8s 后程序化弹出首个提交行的复制菜单——
         // 右键注入被环境策略拦截时的菜单链路验证路径（与 GITTER_TERM_AUTOTYPE 同类）

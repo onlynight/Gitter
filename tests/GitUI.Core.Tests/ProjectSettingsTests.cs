@@ -165,11 +165,39 @@ public sealed class ProjectSettingsTests : IDisposable
     {
         var store = new JsonSettingsStore(_path);
         store.Load();
-        store.Update(s => s.RecentCommands = new List<string> { "提交", "Push", "转到分支" });
+        store.Update(s => s.RecentCommands = new List<string> { CommandIds.Commit, CommandIds.Push, CommandIds.GotoBranches });
         Assert.True(store.Save());
 
         var store2 = new JsonSettingsStore(_path);
         Assert.True(store2.Load());
-        Assert.Equal(new[] { "提交", "Push", "转到分支" }, store2.Current.RecentCommands);
+        Assert.Equal(new[] { CommandIds.Commit, CommandIds.Push, CommandIds.GotoBranches }, store2.Current.RecentCommands);
+    }
+
+    [Fact]
+    public void SplitterFraction_NormalizesOutOfRange()
+    {
+        var store = new JsonSettingsStore(_path);
+        store.Load();
+        store.Update(s =>
+        {
+            s.LogSplitterFraction = 1.7;      // 越界 → 夹回 0.9
+            s.ChangesSplitterFraction = double.NaN; // 非有限 → null（未调整）
+        });
+
+        Assert.Equal(0.9, store.Current.LogSplitterFraction);
+        Assert.Null(store.Current.ChangesSplitterFraction);
+    }
+
+    [Fact]
+    public void SplitterFraction_SaveThenLoad_RoundTrips()
+    {
+        var store = new JsonSettingsStore(_path);
+        store.Load();
+        store.Update(s => s.LogSplitterFraction = 0.633);
+        Assert.True(store.Save());
+
+        var store2 = new JsonSettingsStore(_path);
+        Assert.True(store2.Load());
+        Assert.Equal(0.633, store2.Current.LogSplitterFraction);
     }
 }

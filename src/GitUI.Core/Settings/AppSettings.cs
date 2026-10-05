@@ -51,6 +51,12 @@ public sealed class AppSettings
     /// <summary>命令面板最近执行的命令（命令标题作 key），最多 8 条，最新在前。空查询时置顶显示。</summary>
     public List<string> RecentCommands { get; set; } = new();
 
+    /// <summary>Log 页两栏分割条位置（左栏占宿主宽度比例，Normalize 夹在 0.1..0.9）；null = 未调整过，保持 star 初始布局。</summary>
+    public double? LogSplitterFraction { get; set; }
+
+    /// <summary>变更页两栏分割条位置（左栏占宿主宽度比例）；null = 未调整过。</summary>
+    public double? ChangesSplitterFraction { get; set; }
+
     /// <summary>归一化终端 shell 值（未知值回退 PowerShell）。</summary>
     public void NormalizeTerminalShell()
     {

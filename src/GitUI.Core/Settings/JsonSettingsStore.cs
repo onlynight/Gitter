@@ -180,8 +180,15 @@ public sealed class JsonSettingsStore : ISettingsStore
 
         NormalizeProjects(s);
 
+        // 分割条比例：非有限值置空（未调整），越界夹回 [0.1, 0.9]
+        s.LogSplitterFraction = NormalizeFraction(s.LogSplitterFraction);
+        s.ChangesSplitterFraction = NormalizeFraction(s.ChangesSplitterFraction);
+
         return s;
     }
+
+    private static double? NormalizeFraction(double? f)
+        => f is { } v && double.IsFinite(v) ? Math.Clamp(v, 0.1, 0.9) : null;
 
     /// <summary>项目列表上限（用户显式管理，软上限防配置文件失控）。</summary>
     internal const int MaxProjects = 50;

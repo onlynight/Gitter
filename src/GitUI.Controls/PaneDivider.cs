@@ -1,4 +1,5 @@
 ﻿using Microsoft.UI.Input;
+using GitUI.Core.Resources;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -11,6 +12,8 @@ namespace GitUI.Controls;
 /// 可拖拽的两栏分割条（水平布局，拖动改写左侧列宽）：替代 1px 死分割线。
 /// 视觉仍是 1px 竖线（居中于 10px 命中区），悬停显示东西向调整光标；
 /// 拖动把左列改为像素宽，右列保持 Star 吸收剩余空间。
+/// 位置以比例记忆：<see cref="InitialFraction"/> 启动回放（宿主首次布局时应用），
+/// 拖动结束经 <see cref="FractionChanged"/> 上报，宿主持久化到设置。
 /// 列实例由宿主传入——页面实例跨导航缓存（??=），拖出的宽度在会话内保持。
 /// （基类用 Grid：WinUI 的 Border 是密封类。）
 /// </summary>
@@ -25,9 +28,16 @@ public sealed class PaneDivider : Grid
     private readonly Func<double> _hostWidth;
     private FrameworkElement? _host;  // 拖动坐标基准：宿主 Grid（拖动中不移动）
     private double? _fraction;        // 左栏占宿主宽度的比例；null = 未拖过，保持 star 初始布局
+    private bool _initialApplied;     // InitialFraction 只应用一次（此后以拖动/回放为准）
     private bool _dragging;
     private double _dragStartX;
     private double _dragStartLeft;
+
+    /// <summary>启动时的初始比例（来自持久化设置；null = 未调整过）。</summary>
+    public double? InitialFraction { get; init; }
+
+    /// <summary>拖动结束（含诊断钩子拖动）后上报最终比例，宿主据此持久化。</summary>
+    public event Action<double>? FractionChanged;
 
     /// <param name="leftColumn">拖动时改写宽度的左列（列定义）。</param>
     /// <param name="hostWidth">宿主 Grid 的实际宽度（计算右栏下限时用）。</param>
@@ -54,7 +64,7 @@ public sealed class PaneDivider : Grid
         PointerExited += (_, _) => ProtectedCursor = null;
         Loaded += (_, _) => EnsureHost();
         LayoutUpdated += (_, _) => EnsureHost(); // Loaded 在部分挂载路径下不触发：布局帧兜底解析
-        AutomationProperties.SetName(this, "调整左右面板宽度");
+        AutomationProperties.SetName(this, Strings.Common_PaneDividerAutomation);
     }
 
     private void OnPressed(object sender, PointerRoutedEventArgs e)
@@ -90,6 +100,7 @@ public sealed class PaneDivider : Grid
         if (!_dragging) return;
         _dragging = false;
         ReleasePointerCapture(e.Pointer);
+        if (_fraction is { } f) FractionChanged?.Invoke(f);
         e.Handled = true;
     }
 
@@ -103,6 +114,7 @@ public sealed class PaneDivider : Grid
         if (hostW > 0)
         {
             _fraction = left / hostW;
+            FractionChanged?.Invoke(_fraction.Value);
         }
     }
 
@@ -110,15 +122,29 @@ public sealed class PaneDivider : Grid
     {
         if (_host is not null || Parent is not FrameworkElement fe) return;
         _host = fe;
-        fe.SizeChanged += (_, args) =>
+        fe.SizeChanged += (_, args) => ApplyToWidth(args.NewSize.Width);
+        // 立即应用一次：订阅时宿主可能已处于最终尺寸（启动布局先于本控件 Loaded），
+        // 若只等 SizeChanged，持久化的 InitialFraction 在无缩放的普通启动下永不生效
+        ApplyToWidth(fe.ActualWidth);
+    }
+
+    private void ApplyToWidth(double hostWidth)
+    {
+        if (!_initialApplied)
         {
-            if (_fraction is { } f && args.NewSize.Width > MinLeftWidth + RightMinWidth + GutterWidth)
+            // 首次拿到宿主宽度：应用持久化的初始比例（此后 SizeChanged 走回放分支）
+            _initialApplied = true;
+            if (_fraction is null && InitialFraction is { } f0)
             {
-                _leftColumn.Width = new GridLength(
-                    Math.Clamp(f * args.NewSize.Width, MinLeftWidth,
-                        Math.Max(MinLeftWidth, args.NewSize.Width - RightMinWidth - GutterWidth)),
-                    GridUnitType.Pixel);
+                _fraction = f0;
             }
-        };
+        }
+
+        if (_fraction is { } f && hostWidth > MinLeftWidth + RightMinWidth + GutterWidth)
+        {
+            var w = Math.Clamp(f * hostWidth, MinLeftWidth,
+                Math.Max(MinLeftWidth, hostWidth - RightMinWidth - GutterWidth));
+            _leftColumn.Width = new GridLength(w, GridUnitType.Pixel);
+        }
     }
 }

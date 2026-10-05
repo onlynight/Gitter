@@ -185,7 +185,15 @@ public sealed class ChangesPage : UserControl
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(11, GridUnitType.Star) });
         Grid.SetColumn(_listScroll, 0);
         content.Children.Add(_listScroll);
-        var divider = new PaneDivider(content.ColumnDefinitions[0], () => content.ActualWidth, DividerBrush);
+        var divider = new PaneDivider(content.ColumnDefinitions[0], () => content.ActualWidth, DividerBrush)
+        {
+            InitialFraction = _settings.Current.ChangesSplitterFraction,
+        };
+        divider.FractionChanged += f =>
+        {
+            _settings.Update(s => s.ChangesSplitterFraction = f);
+            _settings.Save();
+        };
         Grid.SetColumn(divider, 1);
         content.Children.Add(divider);
         Grid.SetColumn(diffHost, 2);
