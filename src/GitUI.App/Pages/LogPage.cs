@@ -246,17 +246,11 @@ public sealed class LogPage : UserControl
         // ---- 内容区两列 ----
         var content = new Grid();
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10, GridUnitType.Star) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(11, GridUnitType.Star) });
         Grid.SetColumn(listHost, 0);
         content.Children.Add(listHost);
-        var divider = new Border
-        {
-            Width = 1,
-            Background = DividerBrush,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Stretch,
-        };
+        var divider = new PaneDivider(content.ColumnDefinitions[0], () => content.ActualWidth, DividerBrush);
         Grid.SetColumn(divider, 1);
         content.Children.Add(divider);
         Grid.SetColumn(detailHost, 2);
@@ -288,6 +282,18 @@ public sealed class LogPage : UserControl
         if (_context.WorkDir is not null)
         {
             OnContextChanged();
+        }
+
+        // 诊断钩子（GITTER_SPLITTERTEST=1）：6s 后程序化拖动分割条 +150px——
+        // 鼠标注入被环境策略拦截时的布局联动验证路径（与 GITTER_TERM_AUTOTYPE 同类）
+        if (Environment.GetEnvironmentVariable("GITTER_SPLITTERTEST") == "1")
+        {
+            var d = divider;
+            _ = DispatcherQueue.TryEnqueue(async () =>
+            {
+                await Task.Delay(6000);
+                d.DiagDrag(150);
+            });
         }
     }
 

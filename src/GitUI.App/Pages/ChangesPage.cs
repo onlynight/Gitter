@@ -181,17 +181,11 @@ public sealed class ChangesPage : UserControl
 
         var content = new Grid();
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(9, GridUnitType.Star) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(11, GridUnitType.Star) });
         Grid.SetColumn(_listScroll, 0);
         content.Children.Add(_listScroll);
-        var divider = new Border
-        {
-            Width = 1,
-            Background = DividerBrush,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Stretch,
-        };
+        var divider = new PaneDivider(content.ColumnDefinitions[0], () => content.ActualWidth, DividerBrush);
         Grid.SetColumn(divider, 1);
         content.Children.Add(divider);
         Grid.SetColumn(diffHost, 2);
