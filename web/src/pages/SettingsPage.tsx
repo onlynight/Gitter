@@ -29,6 +29,7 @@ export function SettingsPage() {
   const [noRepo, setNoRepo] = useState(false);
   const [remotes, setRemotes] = useState<RemoteDTO[]>([]);
   const [newRemote, setNewRemote] = useState({ name: "", url: "" });
+  const [cfgError, setCfgError] = useState<string | null>(null);
 
   useEffect(() => {
     void call<ThemePackageDTO[]>("themes.list").then(setThemes);
@@ -67,7 +68,11 @@ export function SettingsPage() {
   };
 
   // ---- Git 配置区辅助 ----
-  const cfgInherited = (key: string): string | null => (localCfg[key] === undefined ? globalCfg[key] ?? null : null);
+  // git config 键大小写不敏感，listConfig 统一小写存储——查找必须同样小写，
+  // 否则 push.autoSetupRemote 这类混合大小写键永远查不到（表现为"无法设置"）
+  const cfgGet = (map: CfgMap, key: string): string | undefined => map[key.toLowerCase()];
+  const cfgInherited = (key: string): string | null =>
+    (cfgGet(localCfg, key) === undefined ? globalCfg[key.toLowerCase()] ?? null : null);
 
   const reloadGitConfig = async () => {
     const [l, g, r] = await Promise.all([
@@ -82,8 +87,14 @@ export function SettingsPage() {
   };
 
   const saveConfig = async (key: string, value: string | null) => {
-    await call("gitconfig.set", { key, value, scope: configScope });
-    await reloadGitConfig();
+    setCfgError(null);
+    try {
+      await call("gitconfig.set", { key, value, scope: configScope });
+      await reloadGitConfig();
+    } catch (e) {
+      setCfgError((e as Error).message);
+      await reloadGitConfig();
+    }
   };
 
   const cfgTextLabel = (key: string) => {
@@ -93,7 +104,7 @@ export function SettingsPage() {
         <input
           className="input"
           style={{ width: 260 }}
-          value={configScope === "repo" ? localCfg[key] ?? "" : globalCfg[key] ?? ""}
+          value={configScope === "repo" ? cfgGet(localCfg, key) ?? "" : cfgGet(globalCfg, key) ?? ""}
           placeholder={inherited ?? ""}
           title={inherited !== null ? t("Settings_GitInheritGlobal", inherited) : undefined}
           onChange={(e) => void saveConfig(key, e.target.value === "" ? null : e.target.value)}
@@ -105,7 +116,7 @@ export function SettingsPage() {
   };
 
   const cfgSelect = (key: string, options: string[]) => {
-    const value = configScope === "repo" ? localCfg[key] ?? "" : globalCfg[key] ?? "";
+    const value = configScope === "repo" ? cfgGet(localCfg, key) ?? "" : cfgGet(globalCfg, key) ?? "";
     const inherited = cfgInherited(key);
     return (
       <>
@@ -226,6 +237,12 @@ export function SettingsPage() {
 
       <div className="settings-section" id="settings-git">
         <h4>{t("Settings_GitSection")}</h4>
+        {cfgError && (
+          <div className="banner error" style={{ marginBottom: 8 }}>
+            <span className="banner-text">{cfgError}</span>
+            <button className="tool-btn" onClick={() => setCfgError(null)}>✕</button>
+          </div>
+        )}
         <div className="settings-row">
           <label>{t("Settings_GitScope")}</label>
           <Radio
@@ -268,7 +285,11 @@ export function SettingsPage() {
                 <span className="hint" style={{ fontFamily: "var(--mono)", userSelect: "text", flex: 1, wordBreak: "break-all" }}>{r.url}</span>
                 <button
                   className="tool-btn"
-                  onClick={async () => { await call("remote.remove", { name: r.name }); await reloadGitConfig(); }}
+                  onClick={async () => {
+                    setCfgError(null);
+                    try { await call("remote.remove", { name: r.name }); await reloadGitConfig(); }
+                    catch (e) { setCfgError((e as Error).message); }
+                  }}
                 >
                   {t("Projects_Remove")}
                 </button>
@@ -282,12 +303,13 @@ export function SettingsPage() {
                 className="tool-btn"
                 disabled={!newRemote.name.trim() || !newRemote.url.trim() || noRepo}
                 onClick={async () => {
+                  setCfgError(null);
                   try {
                     await call("remote.add", { name: newRemote.name.trim(), url: newRemote.url.trim() });
                     setNewRemote({ name: "", url: "" });
                     await reloadGitConfig();
                   } catch (e) {
-                    alert((e as Error).message);
+                    setCfgError((e as Error).message);
                   }
                 }}
               >

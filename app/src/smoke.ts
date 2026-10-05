@@ -181,6 +181,8 @@ async function main() {
   await gc.setConfig(cfgRepo, "push.autoSetupRemote", "true", "repo");
   const localMap = await gc.listConfig(cfgRepo, "repo");
   check("gitconfig 写读（repo）", localMap["user.name"] === "测试者" && localMap["push.autosetupremote"] === "true");
+  // 回归：混合大小写键写入后必须能以小写查到（设置页 UI 曾因大小写失配"无法设置"）
+  check("gitconfig 大小写归一", (await gc.effectiveConfig(cfgRepo, "PUSH.AutoSetupRemote")) === "true");
   check("gitconfig 有效值", (await gc.effectiveConfig(cfgRepo, "user.name")) === "测试者");
   await gc.setConfig(cfgRepo, "push.autoSetupRemote", null, "repo");
   check("gitconfig unset", (await gc.effectiveConfig(cfgRepo, "push.autoSetupRemote")) === null);
