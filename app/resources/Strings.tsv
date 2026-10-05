@@ -699,3 +699,14 @@ Changes.ConflictCompareHint	Conflict file: showing current (ours) vs incoming (t
 Diff.NoContentChange	No content change (rename or attribute only)	无内容差异（仅重命名或属性变更）
 Changes.CheckAll	Select all in group	全选本组
 Changes.UncheckAll	Deselect all in group	取消全选本组
+Log.ResetToHere	Reset Current Branch to Here...	重置当前分支到此提交…
+Log.ResetTitle	Reset Current Branch	重置当前分支
+Log.ResetBranchInfo	Branch {0} will be reset to	分支 {0} 将被重置到
+Log.ResetMode_soft	Soft	软重置 (Soft)
+Log.ResetMode_mixed	Mixed	混合重置 (Mixed)
+Log.ResetMode_hard	Hard	硬重置 (Hard)
+Log.ResetDesc_soft	Keep all changes, keep them staged	保留所有改动，且保持已暂存
+Log.ResetDesc_mixed	Keep all changes, unstage them	保留所有改动，但取消暂存
+Log.ResetDesc_hard	Discard all changes	丢弃所有改动
+Log.ResetHardWarning	Hard reset discards ALL uncommitted changes (including staged). This cannot be undone.	硬重置将丢弃所有未提交改动（含暂存区），不可恢复。
+Log.ResetConfirm	Reset	重置

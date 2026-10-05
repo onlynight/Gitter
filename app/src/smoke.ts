@@ -100,6 +100,32 @@ async function main() {
     check("非首条提交详情+diff 往返", !!d2 && (d2.hunks.length > 0 || d2.isBinary || files2.length === 0), `${c2nd.shortSha} ${files2.length}files`);
   }
 
+  // Reset 三模式（Android Studio 语义，合成仓库验证状态效果）
+  const rs = await import("./services/gitstatus");
+  const rRepo = fs.mkdtempSync(path.join(os.tmpdir(), "gitter-reset-"));
+  await tryGit(rRepo, ["init"]);
+  fs.writeFileSync(path.join(rRepo, "a.txt"), "v1\n");
+  await tryGit(rRepo, ["add", "a.txt"]);
+  await tryGit(rRepo, ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "v1"]);
+  fs.writeFileSync(path.join(rRepo, "a.txt"), "v2\n");
+  fs.writeFileSync(path.join(rRepo, "b.txt"), "staged\n");
+  await tryGit(rRepo, ["add", "a.txt", "b.txt"]);
+  await tryGit(rRepo, ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "v2"]);
+  const head1 = (await tryGit(rRepo, ["rev-parse", "HEAD~1"])).stdout.trim();
+  await rs.resetTo(rRepo, head1, "soft");
+  const softStaged = (await tryGit(rRepo, ["diff", "--cached", "--name-only"])).stdout.trim();
+  check("reset soft：改动保留且保持暂存", softStaged.includes("a.txt") && softStaged.includes("b.txt"));
+  await rs.resetTo(rRepo, head1, "mixed");
+  const mixedStaged = (await tryGit(rRepo, ["diff", "--cached", "--name-only"])).stdout.trim();
+  const mixedWt = fs.readFileSync(path.join(rRepo, "a.txt"), "utf8");
+  check("reset mixed：改动保留但取消暂存", mixedStaged === "" && mixedWt === "v2\n");
+  await rs.resetTo(rRepo, head1, "hard");
+  const hardWt = fs.readFileSync(path.join(rRepo, "a.txt"), "utf8");
+  const hardB = fs.existsSync(path.join(rRepo, "b.txt"));
+  const hardWtNorm = hardWt.replace(/\r\n/g, "\n");
+  check("reset hard：tracked 内容回滚（untracked 保留）", hardWtNorm === "v1\n" && hardB);
+  fs.rmSync(rRepo, { recursive: true, force: true });
+
   // ---- v2 移植面：安全网 / 会话聚合 / 高亮 / 反馈 / CLI 解析 ----
   const { scan } = await import("./services/safety");
   const findings = scan([

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { call } from "../bridge/client";
-import { Banner, useContextMenu } from "../components/Dialogs";
+import { Banner, Modal, useContextMenu } from "../components/Dialogs";
 import { DiffView } from "../components/DiffView";
 import { SplitPane } from "../components/SplitPane";
 import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge/types";
@@ -51,6 +51,9 @@ export function LogPage() {
   const [fileDiff, setFileDiff] = useState<DiffDTO | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [compareBase, setCompareBase] = useState<CommitDTO | null>(null);
+  // 重置分支对话框（Android Studio 语义：soft/mixed/hard）
+  const [resetTarget, setResetTarget] = useState<CommitDTO | null>(null);
+  const [resetMode, setResetMode] = useState<"soft" | "mixed" | "hard">("mixed");
   const { showMenu, menuElement } = useContextMenu();
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -213,6 +216,18 @@ export function LogPage() {
     }
   };
 
+  const doReset = async () => {
+    if (!resetTarget) return;
+    try {
+      await call("log.reset", { sha: resetTarget.sha, mode: resetMode });
+      setError(null);
+      setResetTarget(null);
+      refreshCurrent();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   if (!repo) {
     return <div className="empty-state"><div className="big">⏱</div>{t("Common_NoProjectSelected")}</div>;
   }
@@ -324,6 +339,7 @@ export function LogPage() {
                         label: t("Log_CompareWithSelected"),
                         action: () => setCompareBase((cur) => (cur?.sha === c.sha ? null : c)),
                       },
+                      { label: t("Log_ResetToHere"), action: () => { setResetMode("mixed"); setResetTarget(c); } },
                     ])
                   }
                 >
@@ -384,6 +400,38 @@ export function LogPage() {
             <div className="empty-state">{detailError ?? t("Log_SelectCommitHint")}</div>
           )}
         </div>} />
+      {resetTarget && (
+        <Modal
+          title={t("Log_ResetTitle")}
+          confirmText={t("Log_ResetConfirm")}
+          danger={resetMode === "hard"}
+          onClose={() => setResetTarget(null)}
+          onConfirm={() => void doReset()}
+        >
+          <div style={{ userSelect: "text" }}>
+            <div>
+              {t("Log_ResetBranchInfo", branches.current ?? "?")} → <span className="mono">{resetTarget.shortSha}</span> {resetTarget.subject}
+            </div>
+            {(["soft", "mixed", "hard"] as const).map((m) => (
+              <label key={m} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 8, cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  checked={resetMode === m}
+                  onChange={() => setResetMode(m)}
+                  style={{ marginTop: 2 }}
+                />
+                <span>
+                  <b style={{ color: m === "hard" ? "var(--c-red)" : undefined }}>{t(`Log_ResetMode_${m}`)}</b>
+                  <div style={{ fontSize: 11, color: "var(--c-text2)" }}>{t(`Log_ResetDesc_${m}`)}</div>
+                </span>
+              </label>
+            ))}
+            {resetMode === "hard" && (
+              <div style={{ color: "var(--c-red)", fontSize: 11.5, marginTop: 8 }}>{t("Log_ResetHardWarning")}</div>
+            )}
+          </div>
+        </Modal>
+      )}
       {menuElement}
     </>
   );

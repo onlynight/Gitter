@@ -445,6 +445,11 @@ export class Bridge {
       return {};
     });
 
+    R("log.reset", (args: { sha: string; mode: "soft" | "mixed" | "hard" }) => {
+      const wd = this.needRepo();
+      return status.resetTo(wd, args.sha, args.mode ?? "mixed");
+    });
+
     // ---- 非代码文件预览（图片等二进制直接出内容，不走 diff）----
     R("file.preview", (args: { path: string; staged?: boolean; maxBytes?: number }) =>
       preview.readPreview(this.needRepo(), args.path, !!args.staged, args.maxBytes));

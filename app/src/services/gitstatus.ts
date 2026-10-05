@@ -197,6 +197,15 @@ export async function commit(workDir: string, message: string, alsoPush: boolean
   return { sha, pushError };
 }
 
+export type ResetMode = "soft" | "mixed" | "hard";
+
+/** 分支重置（Android Studio 语义）：soft 保留改动且保持暂存；mixed 保留改动取消暂存；hard 丢弃全部。 */
+export async function resetTo(workDir: string, targetSha: string, mode: ResetMode): Promise<void> {
+  if (!["soft", "mixed", "hard"].includes(mode)) throw new GitError(["reset"], { code: -1, stdout: "", stderr: `非法模式: ${mode}` });
+  const r = await tryGit(workDir, ["reset", `--${mode}`, targetSha]);
+  if (r.code !== 0) throw new GitError(["reset", `--${mode}`, targetSha], r);
+}
+
 export async function retryPush(workDir: string, onProgress?: SyncProgress): Promise<string | null> {
   const r = await push(workDir, onProgress);
   return r.code === 0 ? null : classifyPushError(r.stderr + r.stdout);
