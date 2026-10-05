@@ -36,6 +36,7 @@ public static class TerminalInputEncoder
     /// <summary>
     /// 特殊键编码：方向键（应用光标键模式用 SS3）、回车/退格/Tab/Esc、Ctrl+字母 → 控制字符。
     /// 非特殊键返回 null（交由 <see cref="EncodePrintable"/>）。
+    /// AltGr（Ctrl+Alt 同按，欧语布局产出替代符号）不算 Ctrl：否则 AltGr+Q 会错发 DC1。
     /// </summary>
     public static byte[]? EncodeSpecial(int key, bool appCursorKeys, in Modifiers mods)
     {
@@ -54,13 +55,24 @@ public static class TerminalInputEncoder
             _ => null,
         };
 
-        if (seq is null && mods.Ctrl && key is >= VkA and <= VkZ)
+        if (seq is null && mods.Ctrl && !mods.Alt && key is >= VkA and <= VkZ)
         {
             seq = [(byte)(key - VkA + 1)];
         }
 
         return seq;
     }
+
+    /// <summary>
+    /// 可打印键范围（画布按键分发用；最终字符由 <see cref="EncodePrintable"/> 的 ToUnicode
+    /// 按布局决定，此处只做粗筛）：
+    /// 0x20..0x6F = Space、数字、字母、小键盘区；
+    /// 0xBA..0xE2 = OEM 标点区（; = , - . / ` [ \ ] ' 等）——
+    /// 此前漏掉整个 OEM 区，- ; . / 等符号全部无法输入（VirtualKey.Divide=0x6F 是小键盘除号，
+    /// 不是 OEM 上界）。
+    /// </summary>
+    public static bool IsPrintableKey(int key)
+        => key is >= 0x20 and <= 0x6F or >= 0xBA and <= 0xE2;
 
     /// <summary>
     /// 可打印键 → 实际字符（ToUnicode 解码，遵循 Shift/CapsLock/NumLock/键盘布局）。

@@ -57,6 +57,35 @@ public sealed class TerminalInputEncoderTests
         Assert.Null(TerminalInputEncoder.EncodeSpecial(65, appCursorKeys: false, M())); // 无修饰的 A 走可打印路径
     }
 
+    [Fact]
+    public void EncodeSpecial_AltGrLetter_DoesNotSendControlChar()
+    {
+        // AltGr（Ctrl+Alt 同按）在欧语布局产出替代符号，不是 Ctrl 组合——
+        // 此前误发 0x11 (DC1)
+        Assert.Null(TerminalInputEncoder.EncodeSpecial(65, appCursorKeys: false, M(ctrl: true, alt: true)));
+    }
+
+    // ---- 可打印键范围 ----
+
+    [Theory]
+    [InlineData(0x20, true)]   // Space
+    [InlineData(0x30, true)]   // 0
+    [InlineData(0x41, true)]   // A
+    [InlineData(0x5A, true)]   // Z
+    [InlineData(0x6F, true)]   // 小键盘 Divide
+    [InlineData(0xBA, true)]   // ; OEM_1（此前被范围判断漏掉）
+    [InlineData(0xBD, true)]   // - OEM_MINUS（ls -al 的 -，此前无法输入）
+    [InlineData(0xBE, true)]   // . OEM_PERIOD
+    [InlineData(0xDC, true)]   // \ OEM_5
+    [InlineData(0xE2, true)]   // OEM_102
+    [InlineData(0x11, false)]  // Ctrl
+    [InlineData(0x70, false)]  // F1
+    [InlineData(0xE3, false)]  // 保留区
+    public void IsPrintableKey_CoversOemBlock(int key, bool expected)
+    {
+        Assert.Equal(expected, TerminalInputEncoder.IsPrintableKey(key));
+    }
+
     // ---- 可打印字符（ToUnicode，美式布局）----
 
     [Fact]

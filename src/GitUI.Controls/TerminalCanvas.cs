@@ -418,13 +418,9 @@ public sealed class TerminalCanvas : Grid
 
         // 可打印字符：ToUnicode 按当前键盘状态解码（Shift 区分大小写、OEM 键按布局出真实符号；
         // 中文 IME 输入由宿主 TextBox 旁路，v1 不支持直接上屏）
-        var key = (int)e.Key;
-        var printable =
-            (key >= (int)VirtualKey.Space && key <= (int)VirtualKey.Divide) // Space..0-9..A-Z.. OEM 区
-            || key == (int)VirtualKey.Decimal;
-        if (printable)
+        if (TerminalInputEncoder.IsPrintableKey((int)e.Key))
         {
-            var text = TerminalInputEncoder.EncodePrintable(key, e.KeyStatus.ScanCode, mods);
+            var text = TerminalInputEncoder.EncodePrintable((int)e.Key, e.KeyStatus.ScanCode, mods);
             if (text is not null)
             {
                 KeyPressed?.Invoke(Encoding.UTF8.GetBytes(text));
@@ -458,7 +454,15 @@ public sealed class TerminalCanvas : Grid
     private void OnWheel(object sender, PointerRoutedEventArgs e)
     {
         var delta = e.GetCurrentPoint(this).Properties.MouseWheelDelta;
-        _vScroll.Value -= delta / 120.0 * WheelRowsPerNotch;
+        WheelBy((int)Math.Round(delta / 120.0 * WheelRowsPerNotch));
         e.Handled = true;
+    }
+
+    /// <summary>滚轮滚动 N 格：改 Value 并显式重绘（WinUI 的 ScrollBar.Scroll 只在用户
+    /// 拖拽滑块时触发，程序改 Value 不触发 —— 不显式重绘就要等下一次闪烁绘制，≤500ms）。</summary>
+    private void WheelBy(int notches)
+    {
+        _vScroll.Value -= notches;
+        _canvas.Invalidate();
     }
 }
