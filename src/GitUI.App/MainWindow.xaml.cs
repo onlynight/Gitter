@@ -600,15 +600,30 @@ public sealed partial class MainWindow : Window
         btn.Click += NavItem_Click;
         AutomationProperties.SetName(btn, label);
 
-        // 压掉默认 Button 模板的 PointerOver/Pressed 视觉状态：模板用 ThemeResource
-        // ButtonBackgroundPointerOver/Pressed 覆盖 Background 属性 —— 我们删掉 hover
-        // 订阅只去掉了自绘的 hover，模板内置的悬停加深与点击闪深仍在。
-        // 逐控件资源覆盖为透明；RefreshOne 会让它们始终跟随当前逻辑背景（选中项
-        // 悬停/按下时保持选中背景不消失）。
-        btn.Resources["ButtonBackgroundPointerOver"] = ClearBrush;
-        btn.Resources["ButtonBackgroundPressed"] = ClearBrush;
+        // 压掉默认 Button 模板的 PointerOver/Pressed 视觉状态。注意：模板内的
+        // {ThemeResource} 只查 ThemeDictionaries（Light/Dark/Default），不查控件
+        // 普通 Resources —— 上一版往 Resources 塞覆盖完全无效（悬停照旧）。
+        // RefreshOne 会随选中态同步这里的值（选中项悬停/按下保持选中背景）。
+        SetNavChrome(btn, ClearBrush);
 
         return btn;
+    }
+
+    /// <summary>把导航按钮模板的悬停/按下背景与前景钉到指定画刷。Light/Dark/Default
+    /// 三份必须是独立实例 —— 同一字典实例挂多个主题键会 XAML failfast（0xc000027b 实证）。</summary>
+    private static void SetNavChrome(Button btn, Brush background)
+    {
+        var themes = btn.Resources.ThemeDictionaries;
+        foreach (var key in new[] { "Default", "Light", "Dark" })
+        {
+            themes[key] = new ResourceDictionary
+            {
+                ["ButtonBackgroundPointerOver"] = background,
+                ["ButtonBackgroundPressed"] = background,
+                ["ButtonForegroundPointerOver"] = Ui.Text,
+                ["ButtonForegroundPressed"] = Ui.Text,
+            };
+        }
     }
 
     /// <summary>
@@ -1510,11 +1525,11 @@ public sealed partial class MainWindow : Window
         var isSelected = button.Tag as string == _currentKey;
 
         // 无悬停高亮：背景只在选中时出现（PointerEntered/Exited 订阅已移除）；
-        // 模板的 PointerOver/Pressed 画刷已由 BuildNavItem 的资源覆盖压平，
-        // 这里同步资源值 —— 悬停/按下时保持当前逻辑背景（选中项不闪不消失）
+        // 模板的 PointerOver/Pressed 画刷经 ThemeDictionaries 钉住（模板的
+        // ThemeResource 查找不读普通 Resources），这里随选中态同步 —— 悬停/按下
+        // 时保持当前逻辑背景（选中项不闪不消失）
         button.Background = isSelected ? Ui.Selected : ClearBrush;
-        button.Resources["ButtonBackgroundPointerOver"] = button.Background;
-        button.Resources["ButtonBackgroundPressed"] = button.Background;
+        SetNavChrome(button, button.Background);
         button.Opacity = 1.0;
 
         // 选中态：图标染强调色（原 2px 竖条指示已移除）。row 子项顺序 = [icon, label]。
