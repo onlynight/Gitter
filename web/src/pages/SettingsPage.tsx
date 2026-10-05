@@ -150,6 +150,91 @@ export function SettingsPage() {
       </div>
 
       <div className="settings-section">
+        <h4>{t("Settings_AiSection")}</h4>
+        <div className="settings-row">
+          <label>{t("Settings_AiProvider")}</label>
+          <Radio
+            value={s.aiProvider}
+            options={[
+              { value: "off", label: t("Settings_AiOff") },
+              { value: "openai", label: "OpenAI 兼容" },
+              { value: "anthropic", label: "Anthropic" },
+              { value: "cli", label: "CLI 桥" },
+            ]}
+            onChange={(v) => void patch({ aiProvider: v })}
+          />
+        </div>
+        {s.aiProvider === "openai" && (
+          <div className="settings-row">
+            <label>Endpoint / Model</label>
+            <input className="input" style={{ width: 220 }} placeholder="https://api.xx.com/v1" value={s.aiEndpoint ?? ""} onChange={(e) => void patch({ aiEndpoint: e.target.value || null })} />
+            <input className="input" style={{ width: 160 }} placeholder="model" value={s.aiModel ?? ""} onChange={(e) => void patch({ aiModel: e.target.value || null })} />
+          </div>
+        )}
+        {s.aiProvider === "anthropic" && (
+          <div className="settings-row">
+            <label>Endpoint / Model</label>
+            <input className="input" style={{ width: 220 }} placeholder="https://api.anthropic.com" value={s.aiEndpoint ?? ""} onChange={(e) => void patch({ aiEndpoint: e.target.value || null })} />
+            <input className="input" style={{ width: 160 }} placeholder="claude-…" value={s.aiModel ?? ""} onChange={(e) => void patch({ aiModel: e.target.value || null })} />
+          </div>
+        )}
+        {s.aiProvider === "cli" && (
+          <div className="settings-row">
+            <label>{t("Settings_AiCliCommand")}</label>
+            <input className="input" style={{ width: 320 }} placeholder={`claude -p / codex exec`} value={s.aiCliCommand ?? ""} onChange={(e) => void patch({ aiCliCommand: e.target.value || null })} />
+          </div>
+        )}
+        {(s.aiProvider === "openai" || s.aiProvider === "anthropic") && (
+          <div className="settings-row">
+            <label>{t("Settings_AiApiKey")}</label>
+            <input className="input" type="password" style={{ width: 260 }} placeholder={s.aiApiKeyProtected ? "••••••（已保存）" : "sk-…"} onChange={(e) => {
+              const key = e.target.value;
+              if (key.length >= 8) void call("settings.setAiKey", { key });
+            }} />
+            <span className="hint">{t("Settings_AiKeyHint")}</span>
+          </div>
+        )}
+        <div className="settings-row">
+          <label>{t("Settings_AiPrivacy")}</label>
+          <Radio
+            value={s.aiPrivacy}
+            options={[
+              { value: "metadataOnly", label: t("Settings_AiMetadata") },
+              { value: "fullDiff", label: t("Settings_AiFullDiff") },
+              { value: "disabled", label: t("Settings_AiDisabled") },
+            ]}
+            onChange={(v) => void patch({ aiPrivacy: v })}
+          />
+        </div>
+        <div className="settings-row">
+          <label>{t("Settings_AiTrailer")}</label>
+          <input type="checkbox" checked={s.aiAppendTrailer} onChange={(e) => void patch({ aiAppendTrailer: e.target.checked })} />
+          <span className="hint">Assisted-by: Gitter</span>
+        </div>
+        <div className="settings-row">
+          <label>{t("Settings_SafetyNet")}</label>
+          <Radio
+            value={s.safetyNet}
+            options={[
+              { value: "off", label: t("Settings_SafetyOff") },
+              { value: "warn", label: t("Settings_SafetyWarn") },
+              { value: "block", label: t("Settings_SafetyBlock") },
+            ]}
+            onChange={(v) => void patch({ safetyNet: v })}
+          />
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h4>{t("Settings_McpSection")}</h4>
+        <div className="settings-row">
+          <label>{t("Settings_McpEnabled")}</label>
+          <input type="checkbox" checked={s.mcpEnabled} onChange={(e) => void patch({ mcpEnabled: e.target.checked })} />
+          <span className="hint">{t("Settings_McpHint")}</span>
+        </div>
+      </div>
+
+      <div className="settings-section">
         <h4>{t("Settings_AboutSection")}</h4>
         <div className="settings-row">
           <label>Gitter</label>

@@ -41,6 +41,12 @@ const BUILTIN: Record<"dark" | "light", Record<string, string>> = {
   },
 };
 
+/** 内置 syntax 配色兜底（与旧栈深色主题包 syntax 段一致）。 */
+const BUILTIN_SYNTAX: Record<string, string> = {
+  keyword: "#569CD6", string: "#6A9955", comment: "#6A9955", number: "#B5CEA8",
+  type: "#4EC9B0", function: "#DCDCAA", variable: "#9CDCFE", operator: "#D4D4D4", punctuation: "#D4D4D4",
+};
+
 export class ThemeService {
   private packages = new Map<string, { info: ThemePackageDTO; dir: string }>();
 
@@ -107,10 +113,12 @@ export class ThemeService {
     const tokens: Record<string, string> = { ...BUILTIN[base] };
     let diff: Record<string, string> = {};
     let terminal: Record<string, string> = {};
+    let syntax: Record<string, string> = { ...BUILTIN_SYNTAX };
     for (const doc of chain) {
       Object.assign(tokens, doc.tokens ?? {});
       diff = { ...diff, ...(doc.diff ?? {}) };
       terminal = { ...terminal, ...(doc.terminal ?? {}) };
+      syntax = { ...syntax, ...(doc.syntax ?? {}) };
     }
     return {
       base,
@@ -118,6 +126,7 @@ export class ThemeService {
       tokens,
       diff,
       terminal,
+      syntax,
     };
   }
 }

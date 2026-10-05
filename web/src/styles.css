@@ -194,6 +194,15 @@ body {
 .d-del { background: color-mix(in srgb, var(--c-red) 12%, var(--c-base)); }
 .d-add .code { color: var(--c-text); } .d-del .code { color: var(--c-text); }
 .d-pad { background: color-mix(in srgb, var(--c-panel) 55%, var(--c-base)); }
+.wd-emph { border-radius: 2px; }
+.d-del .wd-emph { background: color-mix(in srgb, var(--c-red) 38%, transparent); }
+.d-add .wd-emph { background: color-mix(in srgb, var(--c-green) 38%, transparent); }
+.d-ctx .wd-emph { background: var(--c-hover); }
+
+.session-card { font-weight: 600; }
+.session-card .mono { color: var(--c-chip-purple-fg); }
+
+.ai-modal-text { white-space: pre-wrap; max-height: 340px; overflow: auto; user-select: text; font-size: 12.5px; line-height: 1.5; }
 .hunk-header {
   grid-column: 1 / -1;
   display: flex; align-items: center; gap: 8px;

@@ -1,7 +1,7 @@
-import { BrowserWindow, dialog, shell } from "electron";
+import { BrowserWindow, dialog, shell, safeStorage } from "electron";
 import * as fs from "fs";
 import * as path from "path";
-import { looksLikeRepo } from "./services/gitexec";
+import { tryGit, looksLikeRepo } from "./services/gitexec";
 import { commitFilesWithCounts, fileDiff, getCommit, listBranches, queryLog } from "./services/gitlog";
 import * as status from "./services/gitstatus";
 import * as branches from "./services/gitbranches";
@@ -10,12 +10,19 @@ import { SettingsStore } from "./services/settings";
 import { I18nService, resolveLanguage } from "./services/i18n";
 import { ThemeService } from "./services/themes";
 import { TerminalManager } from "./services/terminal";
+import { HighlightService } from "./services/highlight";
+import { McpPipeHost, pendingApprovals } from "./services/mcp";
+import * as aiSvc from "./services/ai";
+import * as safety from "./services/safety";
+import { groupSessions, squashMessage } from "./services/sessions";
+import * as feedbackStore from "./services/feedback";
 import type { SettingsDTO } from "./shared/types";
 
 export interface SharedServices {
   settings: SettingsStore;
   i18n: I18nService;
   themes: ThemeService;
+  highlight: HighlightService;
   /** 新窗口创建（命令面板"新窗口"用；由 main 注入，避免循环 require）。 */
   createWindow: (repoPath?: string) => void;
 }
@@ -36,6 +43,7 @@ export class BridgeError extends Error {
 export class Bridge {
   private handlers = new Map<string, Handler>();
   private terminals: TerminalManager;
+  private mcpHost: McpPipeHost | null = null;
   /** 当前仓库（渲染层 repo.open 驱动，对齐 RepositoryContext 单仓库语义）。 */
   repo: string | null = null;
 
@@ -53,6 +61,7 @@ export class Bridge {
 
   dispose() {
     this.terminals.disposeAll();
+    this.mcpHost?.stop();
   }
 
   async handle(method: string, args: unknown): Promise<{ ok: true; data: unknown } | { ok: false; error: { message: string; detail?: string } }> {
@@ -87,10 +96,13 @@ export class Bridge {
         throw new BridgeError("不是有效的 git 仓库", full);
       }
       this.repo = full;
+      this.ensureMcp();
       return { workDir: full, name: path.basename(full) };
     });
     R("repo.close", () => {
       this.repo = null;
+      this.mcpHost?.stop();
+      this.mcpHost = null;
       return {};
     });
     R("repo.state", () => ({ workDir: this.repo }));
@@ -121,8 +133,30 @@ export class Bridge {
       status.unstageHunks(this.needRepo(), args.path, args.indices));
     R("changes.commit", async (args: { message: string; push?: boolean; toStage?: string[]; toUnstage?: string[] }) => {
       const wd = this.needRepo();
+      const s = this.shared.settings.current;
       if (args.toStage?.length) await status.stageFiles(wd, args.toStage);
       if (args.toUnstage?.length) await status.unstageFiles(wd, args.toUnstage);
+      // 安全网 block 模式：有 Blocked 级发现即拦截（先扫描后落盘，ai-native-redesign.md §4.2）
+      if (s.safetyNet === "block") {
+        const st = await status.getStatus(wd);
+        const files: safety.ScannableFile[] = [];
+        for (const f of st.staged) {
+          const patch = (await tryGit(wd, ["diff", "--cached", "--no-color", "--", f.path])).stdout;
+          files.push({
+            path: f.path, patch: patch || null,
+            isBinary: patch.includes("GIT binary patch") || patch.includes("Binary files"),
+            isNew: patch.includes("new file mode"),
+            addedLines: f.added ?? 0, deletedLines: f.deleted ?? 0,
+          });
+        }
+        const blocked = safety.scan(files).filter((x) => x.severity === "blocked");
+        if (blocked.length > 0) {
+          throw new BridgeError(
+            `安全网拦截：${blocked.length} 个阻塞级发现（${blocked[0].filePath}:${blocked[0].line ?? "?"} ${blocked[0].message}…）`,
+            JSON.stringify(blocked),
+          );
+        }
+      }
       return status.commit(wd, args.message, !!args.push);
     });
     R("changes.push", () => status.retryPush(this.needRepo()));
@@ -262,5 +296,190 @@ export class Bridge {
       const r = await tryGit(process.env.USERPROFILE ?? ".", ["--version"]);
       return r.stdout.trim() || null;
     });
+
+    // ---- AI 网关（ai-native-redesign.md §8.1 移植）----
+    R("ai.state", () => {
+      const s = settings.current;
+      const config = this.aiConfig();
+      return {
+        provider: s.aiProvider,
+        privacy: s.aiPrivacy,
+        appendTrailer: s.aiAppendTrailer,
+        hasKey: !!s.aiApiKeyProtected,
+        configured: aiSvc.isConfigured(config),
+      };
+    });
+    R("settings.setAiKey", (args: { key: string }) => {
+      if (!safeStorage.isEncryptionAvailable()) {
+        throw new BridgeError("系统不支持密钥加密（safeStorage 不可用）");
+      }
+      const encrypted = safeStorage.encryptString(args.key);
+      settings.update({ aiApiKeyProtected: encrypted.toString("base64") });
+      return {};
+    });
+    R("ai.generateCommitMessage", async () => {
+      const wd = this.needRepo();
+      const s = settings.current;
+      if (s.aiPrivacy === "disabled") throw new BridgeError("AI 隐私档位为 Disabled，已禁用 AI 功能");
+      const config = this.aiConfig();
+      const st = await status.getStatus(wd);
+      const stagedFiles = st.staged;
+      if (stagedFiles.length === 0) throw new BridgeError("没有已暂存的变更");
+      const recent = await queryLog(wd, { limit: 20 });
+      const diffText = s.aiPrivacy === "fullDiff"
+        ? (await tryGit(wd, ["diff", "--cached", "--no-color"])).stdout
+        : null;
+      const prompt = aiSvc.buildCommitMessagePrompt(
+        { recentSubjects: recent.commits.map((c) => c.subject), files: aiSvc.filesOf(stagedFiles), diffText },
+        s.aiPrivacy,
+      );
+      const raw = await aiSvc.complete(prompt, config);
+      let draft = aiSvc.cleanDraft(raw);
+      if (!draft) throw new BridgeError("AI 返回了空草稿");
+      if (s.aiAppendTrailer) {
+        draft += /\n/.test(draft) ? "\n\nAssisted-by: Gitter" : "\n\nAssisted-by: Gitter";
+      }
+      return { message: draft };
+    });
+    R("ai.explain", async (args: { intent: "explain" | "review"; path?: string | null }) => {
+      const wd = this.needRepo();
+      const s = settings.current;
+      if (s.aiPrivacy === "disabled") throw new BridgeError("AI 隐私档位为 Disabled，已禁用 AI 功能");
+      const st = await status.getStatus(wd);
+      const target = args.path
+        ? st.staged.filter((f) => f.path === args.path)
+        : st.staged;
+      if (target.length === 0) throw new BridgeError("没有可解释的已暂存变更");
+      const diffText = s.aiPrivacy === "fullDiff"
+        ? (await tryGit(wd, ["diff", "--cached", "--no-color", ...(args.path ? ["--", args.path] : [])])).stdout
+        : null;
+      const prompt = aiSvc.buildExplainPrompt(aiSvc.filesOf(target), diffText, s.aiPrivacy, args.intent);
+      const raw = await aiSvc.complete(prompt, this.aiConfig());
+      return { text: raw.trim() };
+    });
+
+    // ---- 安全网（规则引擎）----
+    R("changes.safetyScan", async () => {
+      const wd = this.needRepo();
+      const s = settings.current;
+      if (s.safetyNet === "off") return { findings: [], mode: s.safetyNet };
+      const st = await status.getStatus(wd);
+      const files: safety.ScannableFile[] = [];
+      for (const f of st.staged) {
+        const patch = (await tryGit(wd, ["diff", "--cached", "--no-color", "--", f.path])).stdout;
+        files.push({
+          path: f.path,
+          patch: patch || null,
+          isBinary: patch.includes("GIT binary patch") || patch.includes("Binary files"),
+          isNew: patch.includes("new file mode"),
+          addedLines: f.added ?? 0,
+          deletedLines: f.deleted ?? 0,
+        });
+      }
+      return { findings: safety.scan(files), mode: s.safetyNet };
+    });
+
+    // ---- agent 反馈（review.submit_feedback 的消费侧）----
+    R("changes.feedback", (_args) => feedbackStore.readFeedback(this.needRepo()));
+    R("changes.clearFeedback", () => {
+      feedbackStore.clearFeedback(this.needRepo());
+      return {};
+    });
+
+    // ---- Log 会话（squash + 聚合预览）----
+    R("log.squash", (args: { topSha: string; bottomParentSha: string; message: string }) => {
+      const wd = this.needRepo();
+      return this.squashSession(wd, args.topSha, args.bottomParentSha, args.message);
+    });
+
+    // ---- 语法高亮 ----
+    R("highlight.file", (args: { path: string; text: string }) => {
+      const h = this.shared.highlight.forFile(args.path);
+      const theme = this.shared.themes.resolve(
+        this.shared.settings.current.themePackageId,
+        this.shared.settings.current.theme === "light" ? "light" : "dark",
+      );
+      if (!h) return { language: null, lines: [], syntaxColors: theme.syntax };
+      const lines = args.text.split("\n");
+      const { lines: runs } = this.shared.highlight.highlightLines(h, lines);
+      return { language: h.language, lines: runs, syntaxColors: theme.syntax };
+    });
+
+    // ---- MCP 宿主 ----
+    R("mcp.state", () => ({
+      enabled: settings.current.mcpEnabled,
+      running: !!this.mcpHost?.running,
+      pipeName: this.mcpHost?.name ?? null,
+      repo: this.repo,
+    }));
+    R("mcp.approve", (args: { id: string; ok: boolean }) => {
+      const p = pendingApprovals.get(args.id);
+      if (p) {
+        pendingApprovals.delete(args.id);
+        p.resolve(!!args.ok);
+      }
+      return {};
+    });
+    R("mcp.setPipeName", () => ({ pipeName: this.mcpHost?.name ?? null }));
+  }
+
+  /** 组装 AI 配置（密钥 safeStorage 解密，只在内存，不回传渲染层明文）。 */
+  private aiConfig(): aiSvc.AiConfig {
+    const s = this.shared.settings.current;
+    let apiKey: string | null = null;
+    if (s.aiApiKeyProtected && safeStorage.isEncryptionAvailable()) {
+      try {
+        apiKey = safeStorage.decryptString(Buffer.from(s.aiApiKeyProtected, "base64"));
+      } catch {
+        apiKey = null;
+      }
+    }
+    return {
+      provider: s.aiProvider,
+      endpoint: s.aiEndpoint,
+      model: s.aiModel,
+      cliCommand: s.aiCliCommand,
+      apiKey,
+    };
+  }
+
+  /** 会话 squash（C# SquashSessionAsync 语义）：HEAD 必须 == top；reset --soft 到 bottom 父提交后重提交。 */
+  private async squashSession(wd: string, topSha: string, bottomParentSha: string, message: string) {
+    const head = (await tryGit(wd, ["rev-parse", "HEAD"])).stdout.trim();
+    if (head !== topSha) {
+      throw new BridgeError("会话顶端不是 HEAD，无法 squash", "NOT_HEAD");
+    }
+    const parentOfBottom = (await tryGit(wd, ["rev-parse", bottomParentSha + "^"])).stdout.trim();
+    if (!parentOfBottom) throw new BridgeError("会话底端为根提交，无法 squash", "ROOT_COMMIT");
+    const r1 = await tryGit(wd, ["reset", "--soft", parentOfBottom]);
+    if (r1.code !== 0) throw new BridgeError("reset 失败", r1.stderr);
+    const r2 = await tryGit(wd, ["commit", "-m", message]);
+    if (r2.code !== 0) throw new BridgeError("squash 提交失败", r2.stderr);
+    return { sha: (await tryGit(wd, ["rev-parse", "HEAD"])).stdout.trim() };
+  }
+
+  /** 主题 syntax 配色（高亮 style → 颜色）。 */
+  private activeSyntaxColors(): Record<string, string> {
+    return this.shared.themes.resolve(
+      this.shared.settings.current.themePackageId,
+      this.shared.settings.current.theme === "light" ? "light" : "dark",
+    ).syntax;
+  }
+
+  /** MCP 管道宿主随仓库启停（settings.mcpEnabled 门控）。 */
+  private ensureMcp() {
+    if (!this.shared.settings.current.mcpEnabled || !this.repo) {
+      this.mcpHost?.stop();
+      this.mcpHost = null;
+      return;
+    }
+    if (this.mcpHost?.running && this.mcpHost.currentDir === this.repo) return;
+    this.mcpHost?.stop();
+    this.mcpHost = new McpPipeHost(this.repo, {
+      send: (channel: string, payload: unknown) => {
+        if (!this.win.isDestroyed()) this.win.webContents.send(channel, payload);
+      },
+    });
+    this.mcpHost.start();
   }
 }

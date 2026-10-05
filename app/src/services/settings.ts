@@ -36,6 +36,17 @@ export class SettingsStore {
       autoFetch: true,
       autoFetchIntervalMinutes: 5,
       recentCommands: [],
+      aiProvider: "off",
+      aiEndpoint: null,
+      aiModel: null,
+      aiCliCommand: null,
+      aiPrivacy: "metadataOnly",
+      aiAppendTrailer: true,
+      aiApiKeyProtected: null,
+      safetyNet: "warn",
+      mcpEnabled: true,
+      logSplitterFraction: null,
+      changesSplitterFraction: null,
     };
   }
 
@@ -55,6 +66,9 @@ export class SettingsStore {
       "externalEditor", "diffMode", "sidebarCollapsed", "bashPath",
       "terminalFontFamily", "terminalFontSize", "terminalFollowRepo", "terminalShell",
       "watchWorktree", "autoFetch", "autoFetchIntervalMinutes", "recentCommands",
+      "aiProvider", "aiEndpoint", "aiModel", "aiCliCommand", "aiPrivacy", "aiAppendTrailer",
+      "aiApiKeyProtected", "safetyNet", "mcpEnabled",
+      "logSplitterFraction", "changesSplitterFraction",
     ];
     for (const key of allowed) {
       if (patch[key] !== undefined) {

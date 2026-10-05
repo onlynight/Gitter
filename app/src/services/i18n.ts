@@ -49,5 +49,6 @@ export function resourcePaths(appRoot: string) {
   return {
     stringsTsv: path.join(appRoot, "resources", "Strings.tsv"),
     themesRoot: path.join(appRoot, "resources", "themes"),
+    syntaxRulesPath: path.join(appRoot, "resources", "syntax", "highlighters.json"),
   };
 }

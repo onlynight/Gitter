@@ -251,10 +251,10 @@ src/（C#）                 冻结：不参与产品构建，留作行为对照
 
 ### 13.3 验证结果（本机实测）
 
-- 主进程 `npm run smoke`：**13/13 通过**——git 定位、log 首页 50 条（34ms）、500 条全量（33ms，对比旧栈 libgit2 revwalk 冷启动 ~600ms 是显著改善）、提交字段、分支列表、提交文件+行数、单文件 diff hunk 解析、工作区四分类、unified diff 解析（rename/EOF 标志单测）、worktree、getCommit。
+- 主进程 `npm run smoke`：**19/19 通过**——git 定位、log 首页 50 条（34ms）、500 条全量（33ms，对比旧栈 libgit2 revwalk 冷启动 ~600ms 是显著改善）、提交字段、分支列表、提交文件+行数、单文件 diff hunk 解析、工作区四分类、unified diff 解析（rename/EOF 标志单测）、worktree、getCommit，以及 v2 批次：安全网 secret/调试残留检出、会话聚合（同 session 成组/人写不聚/孤立不成组）、trailer 解析、高亮引擎（语言识别 + 注释/关键词着色）、CLI 桥命令解析、agent 反馈读写清除。
 - node-pty 原生绑定：真实 ConPTY 会话 spawn 验证通过（`@electron/rebuild` 对齐 Electron 44 ABI）。
-- 渲染层：tsc 严格 + vite 构建通过（bundle ~518KB，gzip 143KB）。
-- 端到端：`npm start`（app/）启动 Electron 窗口加载 web/dist。
+- 渲染层：tsc 严格 + vite 构建通过；i18n key 覆盖检查 0 缺失（206 个 web 侧 key 全部入 Strings.tsv）。
+- 端到端：`npm start`（app/）启动 Electron 窗口，Chromium 日志零未捕获异常。
 
 ### 13.4 对等账本（旧栈功能 → 新栈落地状态）
 
@@ -270,15 +270,21 @@ src/（C#）                 冻结：不参与产品构建，留作行为对照
 | 设置：主题/语言/差异模式/终端/外部编辑器 | ✅ | 设置导入导出延后 |
 | 主题：语义令牌 + 主题包（继承链）+ 亮暗 | ✅ | 数据格式与 .gpk theme 包兼容；.gpk 归档导入延后（目录形态可用） |
 | i18n：zh-Hans/en + system 跟随 + 热切换 | ✅ | 同一份 Strings.tsv |
-| **AI 全套（网关/提交信息/解释/风险）/ MCP 管道宿主 / Agent Harness / 规则引擎** | ⛔ v1 未移植 | 需在 TS 重写 HTTP 网关与 JSON-RPC（MCP 语义已有 C# 参照） |
-| 语法高亮（TextMate 子集 + 插件契约） | ⛔ v1 未移植 | diff/预览为纯文本着色；Shiki 是候选终局 |
-| 字级 diff / DiffPreviewWindow / 分割条位置持久化 | ⛔ v1 未移植 | 分割条比例 v1 固定 |
+| **AI 全套（网关/提交信息/解释/审查）/ 规则引擎（安全网）** | ✅ v2 | `app/src/services/ai.ts`（OpenAI 兼容/Anthropic/CLI 桥三传输 + prompt 构造 + cleanDraft）；密钥 safeStorage 加密存储；隐私分级（metadataOnly/fullDiff/disabled）在主进程执行；CommitSafety 四规则移植（secret.leak/debug.residue/large.file/binary.incoming），block 模式在 changes.commit 落盘前拦截 |
+| **MCP 管道宿主** | ✅ v2 | `app/src/services/mcp.ts`：命名管道 `\\.\pipe\gitter-mcp-<hash8>`、stdio 按行 JSON-RPC、tools 面与 C# 版对齐（repo.status/log/diff/branches/worktrees + review.submit_feedback）；写工具（stage/commit）人审门 = 渲染层弹卡（超时 60s 拒绝）；随仓库启停（mcpEnabled 门控） |
+| **会话折叠卡 + squash** | ✅ v2 | Assisted-By/Gitter-Session trailer 解析进 CommitDTO；Log 页会话卡（连续同署名 ≥2 聚合、30 分钟窗）+ squash（reset --soft + 重提交，HEAD 校验）；agent 徽标 |
+| agent 反馈（review.submit_feedback 消费侧） | ✅ v2 | feedback.json（与 C# 格式互通）→ 变更页横幅 + 清除 |
+| 语法高亮（声明式引擎） | ✅ v2 | `highlight.ts` 单遍状态机 + 同一份 highlighters.json（csharp/json/powershell/markdown/xml）；主题 syntax 段配色；并排 diff 两侧着色（内联模式 v2 纯文本） |
+| 字级 diff | ✅ v2 | 并排配对行 token-LCS 强调（wordDiff.ts）；内联模式未做 |
+| 终端 agent 活动感知（AgentActivityMatcher） | ⛔ 未移植 | 终端状态提示的辅助特性 |
+| Agent Harness（harness kind 四级传输） | ⛔ 未移植 | 接口冻结于 docs/agent-harness-codex.md，待 MCP 生态验证后移植 |
+| DiffPreviewWindow / 分割条持久化 / 设置导入导出 | ⛔ 未移植 | 分割条 settings 字段已就位（logSplitterFraction 等），UI 接线待做 |
+| 多 tab 终端 / Playwright 套件 / 打包签名 | ⛔ 未移植 | 见 §13.5 |
 
 ### 13.5 后续项（按优先级）
 
-1. MCP 管道宿主移植（agent 生态接口已冻结于 docs/agent-harness-codex.md，语义照 C# 参照实现）。
-2. AI 网关 + 提交信息生成（HTTP 调用在 Node 侧直写，密钥用 Electron safeStorage 替代 DPAPI）。
-3. 会话分组折叠卡 + agent 活动感知（数据已具备：Assisted-By trailer 已解析进 CommitDTO）。
-4. Shiki 语法高亮 + 字级 diff。
-5. Playwright 无头测试套件（替代 22 个 UIA 脚本的对等场景面）。
-6. electron-builder 打包签名 + 安装器。
+1. Agent Harness（harness kind + 四级传输）移植——接口冻结于 docs/agent-harness-codex.md。
+2. 终端 agent 活动感知（AgentActivityMatcher → 终端状态条）。
+3. 分割条拖动持久化 UI 接线（settings 字段已就位）、多 tab 终端、设置导入导出。
+4. Playwright 无头测试套件（替代 22 个 UIA 脚本的对等场景面）。
+5. electron-builder 打包签名 + 安装器。

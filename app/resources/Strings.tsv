@@ -463,3 +463,211 @@ Changes.RetypeSendToTerminal	Send to terminal	发送到终端
 Terminal.NewTab	New terminal	新建终端
 Terminal.TabDefault	shell	shell
 Terminal.TabAutomation	Terminal tab: {0}	终端页：{0}
+Cat_Nav	Navigation	导航
+Cat_Repo	Repository	仓库
+Cat_Commit	Commit	提交
+Cat_Branch	Branch	分支
+Cat_Sync	Sync	同步
+Cat_View	View	视图
+Cmd_GotoProjects	Go to Projects	转到项目
+Cmd_GotoLog	Go to Log	转到 Log
+Cmd_GotoChanges	Go to Changes	转到变更
+Cmd_GotoBranches	Go to Branches	转到分支
+Cmd_GotoTasks	Go to Tasks	转到任务
+Cmd_GotoTerminal	Go to Terminal	转到终端
+Cmd_GotoSettings	Go to Settings	转到设置
+Cmd_RefreshPage	Refresh page	刷新当前页
+Cmd_NewWindow	New window	新窗口
+Cmd_Commit	Commit…	提交…
+Cmd_CommitPush	Commit & push…	提交并推送…
+Cmd_StageAll	Stage all	全部暂存
+Cmd_UnstageAll	Unstage all	全部撤销暂存
+Cmd_CheckoutBranch	Checkout branch…	检出分支…
+Cmd_CreateBranch	Create branch…	创建分支…
+Cmd_Pull	Pull	拉取
+Cmd_PullRebase	Pull with rebase	变基式拉取
+Cmd_Push	Push	推送
+Cmd_DiffSideBySide	Diff: side by side	差异：并排
+Cmd_DiffInline	Diff: inline	差异：内联
+Cmd_ThemeSystem	Theme: system	主题：跟随系统
+Cmd_ThemeLight	Theme: light	主题：浅色
+Cmd_ThemeDark	Theme: dark	主题：深色
+Common_Cancel	Cancel	取消
+Common_Close	Close	关闭
+Common_CopyDetails	Copy details	复制详情
+Common_Create	Create	创建
+Common_Delete	Delete	删除
+Common_Loading	Loading…	加载中…
+Common_Merge	Merge	合并
+Common_NoProjectSelected	No project selected	未选择项目
+Common_Rename	Rename	重命名
+Common_ToggleSidebar	Toggle sidebar	收起/展开侧边栏
+Main_StatusHint	Ctrl+Shift+P: command palette	Ctrl+Shift+P：命令面板
+Main_WindowTitle	GitUI — {0}	GitUI — {0}
+Palette_Title	Command Palette	命令面板
+Palette_InputPlaceholder	Type a command or search…	输入命令或搜索…
+Palette_NoMatches	No matching commands	没有匹配的命令
+Palette_Recent	Recent	最近使用
+Palette_FooterKeys	↑↓ navigate · Enter run · Esc close	↑↓ 选择 · Enter 执行 · Esc 关闭
+Palette_FooterAt	> prefixes command mode	> 前缀进入命令模式
+Log_Today	Today	今天
+Log_Yesterday	Yesterday	昨天
+Log_JustNow	just now	刚刚
+Log_MinutesAgo	{0} min ago	{0} 分钟前
+Log_HoursAgo	{0} h ago	{0} 小时前
+Log_DaysAgo	{0} d ago	{0} 天前
+Log_BranchFilter	Branch	分支
+Log_SearchPlaceholder	Search (author:/agent:/text)	搜索（author:/agent:/文本）
+Log_LoadMoreHint	Scroll to load more	滚动加载更多
+Log_NoFiles	No changed files	没有变更文件
+Log_SelectCommitHint	Select a commit to view details	选择一个提交查看详情
+Log_CompareWithSelected	Set/unset as compare base	设为/取消比较基准
+Log_ComparingWith	Comparing against {0}	正在对比基准 {0}
+Log_CopySha	Copy SHA	复制 SHA
+Log_CopySubject	Copy subject	复制主题
+Log_CopyAuthor	Copy author	复制作者
+Log_CopyAgent	Copy agent id	复制 agent 名
+Log_SquashSession	Squash session ({0} checkpoints)	Squash 会话（{0} 个 checkpoint）
+Log_NoFiles2	No files	无文件
+Changes_Fetch	Fetch	抓取
+Changes_Fetched	Fetched	已抓取
+Changes_Pull	Pull	拉取
+Changes_Pulled	Pulled	已拉取
+Changes_PullRebase	Pull (rebase)	拉取（变基）
+Changes_PulledRebase	Pulled (rebase)	已拉取（变基）
+Changes_Push	Push	推送
+Changes_Pushed	Pushed	已推送
+Changes_PushFailed	Push failed: {0}	推送失败：{0}
+Changes_Conflicts	Conflicts	冲突
+Changes_StagedGroup	Staged for Commit	已暂存
+Changes_ChangesGroup	Changes	变更
+Changes_UnversionedGroup	Unversioned	未版本控制
+Changes_WorktreeClean	Working tree is clean	工作区是干净的
+Changes_SelectFileHint	Select a file to view its diff	选择文件查看差异
+Changes_StageFile	Stage file	暂存文件
+Changes_Staged	Staged	已暂存
+Changes_StagedAll	All staged	已全部暂存
+Changes_UnstageFile	Unstage file	撤销暂存
+Changes_Unstaged	Unstaged	已撤销暂存
+Changes_UnstagedAll	All unstaged	已全部撤销暂存
+Changes_StageHunk	Stage hunk	暂存此块
+Changes_StageHunkSelected	Stage {0} hunks	暂存所选 {0} 块
+Changes_StagedHunks	Hunks staged	已暂存所选块
+Changes_UnstageHunk	Unstage hunk	撤销此块
+Changes_UnstageHunkSelected	Unstage {0} hunks	撤销所选 {0} 块
+Changes_UnstagedHunks	Hunks unstaged	已撤销所选块
+Changes_ToggleHunkHint	Click to toggle hunk selection (Ctrl+click to multi-select in the canvas)	点击勾选 hunk；多选后可批量暂存/撤销
+Changes_MarkResolved	Mark resolved	标记已解决
+Changes_MarkedResolved	Marked resolved	已标记解决
+Changes_OpenInEditor	Open in editor	在编辑器打开
+Changes_RevealInExplorer	Reveal in Explorer	在资源管理器中显示
+Changes_Commit	Commit	提交
+Changes_CommitAndPush	Commit & Push	提交并推送
+Changes_Committed	Committed	已提交
+Changes_CommittedAndPushed	Committed and pushed	已提交并推送
+Changes_CommitMessagePlaceholder	Commit message (Ctrl+Enter to commit)	提交信息（Ctrl+Enter 提交）
+Changes_AiGenerate	AI message	AI 生成
+Changes_AiExplain	AI explain	AI 解释
+Changes_AiReview	AI review	AI 审查
+Changes_AgentFeedback	Agent feedback: {0}	Agent 反馈：{0}
+Changes_MoreFindings	…and {0} more findings	…还有 {0} 条发现
+Branches_Create	Create branch	创建分支
+Branches_Created	Branch created: {0}	分支已创建：{0}
+Branches_CreateTitle	Create Branch	创建分支
+Branches_NamePlaceholder	Branch name	分支名
+Branches_Checkout	Checkout	检出
+Branches_CheckedOut	Checked out {0}	已检出 {0}
+Branches_Rename	Rename…	重命名…
+Branches_RenameTitle	Rename Branch	重命名分支
+Branches_Renamed	Branch renamed	分支已重命名
+Branches_Delete	Delete…	删除…
+Branches_DeleteTitle	Delete branch {0}	删除分支 {0}
+Branches_Deleted	Branch deleted: {0}	分支已删除：{0}
+Branches_DeleteSafe	Branch {0} is fully merged; deletion is safe.	分支 {0} 已完全合并，删除安全。
+Branches_DeleteLoseWarning	This branch is NOT merged; deleting discards {0} commit(s):	该分支未合并，删除将丢弃 {0} 个提交：
+Branches_FastForward	Fast-forward	快进
+Branches_FastForwarded	Fast-forwarded	已快进
+Branches_Merge	Merge…	合并…
+Branches_MergeNoFf	Merge (--no-ff)…	合并（--no-ff）…
+Branches_MergeTitle	Merge {0}	合并 {0}
+Branches_Merged	Merged {0}	已合并 {0}
+Branches_MergeMessagePlaceholder	Merge message (optional)	合并信息（可选）
+Branches_NoFastForward	Create a merge commit even if fast-forward is possible	即使可以快进也创建合并提交
+Branches_Rebase	Rebase onto this	变基到此
+Branches_Rebased	Rebased onto {0}	已变基到 {0}
+Branches_Pull	Pull	拉取
+Branches_Pulled	Pulled	已拉取
+Branches_PullRebase	Pull (rebase)	拉取（变基）
+Branches_PulledRebase	Pulled (rebase)	已拉取（变基）
+Branches_Push	Push	推送
+Branches_Pushed	Pushed	已推送
+Branches_LocalGroup	Local	本地分支
+Branches_RemoteGroup	Remote	远程分支
+Projects_AddProject	Add Project	添加项目
+Projects_Open	Open	打开
+Projects_Opened	Opened	已打开
+Projects_NewWindow	New window	新窗口
+Projects_Remove	Remove	移除
+Projects_Current	Current	当前
+Projects_EmptyHint	Add a repository to get started	添加一个仓库开始使用
+Tasks_Create	New task	新建任务
+Tasks_CreateTitle	Create Task Worktree	创建任务 worktree
+Tasks_Created	Task created	任务已创建
+Tasks_NamePlaceholder	Task name	任务名
+Tasks_Open	Open	打开
+Tasks_Remove	Remove	移除
+Tasks_Removed	Task removed	任务已移除
+Tasks_MainWorktree	Main	主工作树
+Tasks_Current	Current	当前
+Tasks_EmptyHint	No task worktrees yet	还没有任务 worktree
+Terminal_Restart	Restart	重启
+Terminal_CopyHint	Ctrl+Shift+C copy · Ctrl+Shift+V paste	Ctrl+Shift+C 复制 · Ctrl+Shift+V 粘贴
+Diff_BinaryFile	Binary file (not shown)	二进制文件（不显示）
+Diff_NoNewlineAtEof	No newline at end of file	文件末尾无换行符
+Settings_AppearanceSection	Appearance	外观
+Settings_Theme	Theme	主题
+Settings_ThemeSystem	System	跟随系统
+Settings_ThemeLight	Light	浅色
+Settings_ThemeDark	Dark	深色
+Settings_ThemeDefault	Default (built-in)	默认（内置）
+Settings_ThemePackage	Theme package	主题包
+Settings_Language	Language	语言
+Settings_LangSystem	System	跟随系统
+Settings_DiffSection	Diff	差异
+Settings_DiffMode	Diff view	差异视图
+Settings_DiffSide	Side by side	并排
+Settings_DiffInline	Inline	内联
+Settings_TerminalSection	Terminal	终端
+Settings_Shell	Default shell	默认 shell
+Settings_TerminalFont	Font	字体
+Settings_TerminalFollowRepo	Follow repository	跟随仓库
+Settings_BashPath	Git Bash path	Git Bash 路径
+Settings_BashPathHint	Auto-detect when empty	留空自动探测
+Settings_MonitorSection	Monitoring	监视
+Settings_AutoFetch	Background fetch	后台 fetch
+Settings_AutoFetchHint	Periodically fetch remotes	定期抓取远程
+Settings_EditorSection	Editor	编辑器
+Settings_ExternalEditor	External editor	外部编辑器
+Settings_PickEditor	Pick editor executable	选择编辑器可执行文件
+Settings_AiSection	AI	AI
+Settings_AiProvider	Provider	提供方
+Settings_AiOff	Off	关闭
+Settings_AiCliCommand	CLI command	CLI 命令
+Settings_AiApiKey	API key	API 密钥
+Settings_AiKeyHint	Encrypted with OS keychain (safeStorage)	经系统密钥链加密存储（safeStorage）
+Settings_AiPrivacy	Privacy	隐私档位
+Settings_AiMetadata	Metadata only	仅元数据
+Settings_AiFullDiff	Full diff	完整 diff
+Settings_AiDisabled	Disabled	禁用
+Settings_AiTrailer	Append trailer	追加署名 trailer
+Settings_SafetyNet	Safety net	提交安全网
+Settings_SafetyOff	Off	关闭
+Settings_SafetyWarn	Warn	警告
+Settings_SafetyBlock	Block	阻止
+Settings_McpSection	MCP Server	MCP 服务
+Settings_McpEnabled	Pipe host enabled	启用管道宿主
+Settings_McpHint	Expose git tools to local agents (\\\\.\\pipe\\gitter-mcp-*)	向本机 agent 暴露 git 工具（\\\\.\\pipe\\gitter-mcp-*）
+Settings_AboutSection	About	关于
+Settings_GitNotFound	git not found	未找到 git
+Settings_Dark	dark	深色
+Settings_Light	light	浅色

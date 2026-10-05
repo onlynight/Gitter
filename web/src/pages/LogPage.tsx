@@ -4,13 +4,15 @@ import { call } from "../bridge/client";
 import { Banner, useContextMenu } from "../components/Dialogs";
 import { DiffView } from "../components/DiffView";
 import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge/types";
-import { refreshCurrent, setState, t, useApp } from "../state/store";
+import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
+import { refreshCurrent, t, useApp } from "../state/store";
 
-// ---- 行模型（对齐 LogRow：按天组头 / 提交行；会话折叠卡延后，见对等账本）----
+// ---- 行模型（对齐 LogRow：按天组头 / 会话卡 / 提交行）----
 
 type Row =
   | { kind: "group"; key: string; title: string; count: number; collapsed: boolean }
-  | { kind: "commit"; key: string; commit: CommitDTO; selected: boolean; meta: string };
+  | { kind: "session"; key: string; session: AgentSession; collapsed: boolean }
+  | { kind: "commit"; key: string; commit: CommitDTO; selected: boolean; meta: string; ai?: string };
 
 function dayTitle(day: Date): string {
   const today = new Date();
@@ -41,6 +43,7 @@ export function LogPage() {
   const [branch, setBranch] = useState<string>("");
   const [query, setQuery] = useState("");
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+  const [collapsedSessions, setCollapsedSessions] = useState<Set<string>>(new Set());
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
   const [detail, setDetail] = useState<CommitDetailDTO | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -117,6 +120,15 @@ export function LogPage() {
   }, [repo, selectedSha, compareBase]);
 
   const rows: Row[] = useMemo(() => {
+    const sessions = groupSessions(commits);
+    const sessionOfSha = new Map<string, AgentSession>();
+    const sessionHeadSha = new Set<string>();
+    for (const s of sessions) {
+      for (const c of s.commits) sessionOfSha.set(c.sha, s);
+      sessionHeadSha.add(s.commits[0].sha);
+    }
+    const emittedSessions = new Set<string>();
+
     const out: Row[] = [];
     let curDay = "";
     let count = 0;
@@ -135,23 +147,39 @@ export function LogPage() {
       const day = new Date(c.committerDate * 1000).toISOString().slice(0, 10);
       if (day !== curDay) { pushGroup(); curDay = day; count = 0; }
       count++;
-      if (collapsedDays.has(day)) continue;
+
+      const session = sessionOfSha.get(c.sha);
+      if (session) {
+        // 会话成员：只在头部位置插卡；折叠时成员行不出现
+        if (sessionHeadSha.has(c.sha) && !emittedSessions.has(session.sessionId)) {
+          emittedSessions.add(session.sessionId);
+          out.push({
+            kind: "session",
+            key: "sess-" + session.sessionId,
+            session,
+            collapsed: collapsedSessions.has(session.sessionId),
+          });
+        }
+        if (collapsedSessions.has(session.sessionId)) continue;
+      }
+
       out.push({
         kind: "commit",
         key: c.sha,
         commit: c,
         selected: c.sha === selectedSha,
         meta: `${c.author} · ${relativeTime(c.committerDate)}`,
+        ai: c.assistedBy[0],
       });
     }
     pushGroup();
     return out;
-  }, [commits, collapsedDays, selectedSha]);
+  }, [commits, collapsedDays, collapsedSessions, selectedSha]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => listRef.current,
-    estimateSize: (i) => (rows[i].kind === "group" ? 26 : 44),
+    estimateSize: (i) => (rows[i].kind === "group" ? 26 : rows[i].kind === "session" ? 34 : 44),
     overscan: 12,
   });
 
@@ -169,6 +197,20 @@ export function LogPage() {
   }, [hasMore, loading, commits.length, loadPage]);
 
   const copy = (text: string) => navigator.clipboard.writeText(text);
+
+  const squash = async (s: AgentSession) => {
+    try {
+      await call("log.squash", {
+        topSha: s.commits[0].sha,
+        bottomParentSha: s.commits[s.commits.length - 1].sha,
+        message: squashMessage(s),
+      });
+      setError(null);
+      refreshCurrent();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   if (!repo) {
     return <div className="empty-state"><div className="big">⏱</div>{t("Common_NoProjectSelected")}</div>;
@@ -232,6 +274,38 @@ export function LogPage() {
                   </div>
                 );
               }
+              if (row.kind === "session") {
+                const s = row.session;
+                return (
+                  <div
+                    key={row.key}
+                    className="list-row session-card"
+                    style={{ position: "absolute", top: vi.start, left: 0, right: 0, height: vi.size, background: "var(--c-chip-purple-bg)" }}
+                    onClick={() =>
+                      setCollapsedSessions((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(s.sessionId)) next.delete(s.sessionId);
+                        else next.add(s.sessionId);
+                        return next;
+                      })
+                    }
+                    onContextMenu={(e) =>
+                      showMenu(e, [
+                        {
+                          label: t("Log_SquashSession", s.commits.length),
+                          action: () => void squash(s),
+                        },
+                        { label: t("Log_CopyAgent"), action: () => copy(s.agentId) },
+                      ])
+                    }
+                  >
+                    <span>{row.collapsed ? "▸" : "▾"}</span>
+                    <span className="badge" style={{ background: "var(--c-chip-purple-bg)", color: "var(--c-chip-purple-fg)" }}>AI · {s.agentId}</span>
+                    <span className="trim" style={{ flex: 1, fontWeight: 600 }}>{s.commits[0].subject}</span>
+                    <span className="mono">{s.commits.length} checkpoints</span>
+                  </div>
+                );
+              }
               const c = row.commit;
               return (
                 <div
@@ -257,6 +331,7 @@ export function LogPage() {
                   {c.refs.slice(0, 3).map((r) => (
                     <span key={r.name} className={"badge" + (r.isTag ? " tag" : "")}>{r.name}</span>
                   ))}
+                  {row.ai && <span className="badge tag">AI · {row.ai}</span>}
                   <span className="trim" style={{ color: "var(--c-text3)", fontSize: 11, maxWidth: 180 }}>{row.meta}</span>
                 </div>
               );

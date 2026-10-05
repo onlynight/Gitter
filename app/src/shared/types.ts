@@ -13,6 +13,7 @@ export interface CommitDTO {
   parents: string[];
   refs: RefDTO[]; // 分支/标签徽章（git log %D 解析）
   assistedBy: string[]; // Assisted-By trailer（会话分组/agent 过滤）
+  sessionId: string | null; // Gitter-Session trailer（会话分组键）
 }
 
 export interface RefDTO {
@@ -137,6 +138,7 @@ export interface ThemeStateDTO {
   tokens: Record<string, string>; // 令牌名 → #RRGGBB(AA)
   diff: Record<string, string>;
   terminal: Record<string, string>;
+  syntax: Record<string, string>; // 高亮 style → 颜色
 }
 
 export interface SettingsDTO {
@@ -157,6 +159,21 @@ export interface SettingsDTO {
   autoFetch: boolean;
   autoFetchIntervalMinutes: number;
   recentCommands: string[];
+  /** AI 网关（ai-native-redesign.md §8.1 的 TS 移植） */
+  aiProvider: "off" | "openai" | "anthropic" | "cli";
+  aiEndpoint: string | null;
+  aiModel: string | null;
+  aiCliCommand: string | null;
+  aiPrivacy: "metadataOnly" | "fullDiff" | "disabled";
+  aiAppendTrailer: boolean;
+  aiApiKeyProtected: string | null; // safeStorage 密文 base64
+  /** 提交安全网（规则引擎，纯规则零 AI 依赖） */
+  safetyNet: "off" | "warn" | "block";
+  /** MCP 管道宿主（随仓库启停） */
+  mcpEnabled: boolean;
+  /** 页面分割条位置（比例）持久化 */
+  logSplitterFraction: number | null;
+  changesSplitterFraction: number | null;
 }
 
 export interface I18nDTO {

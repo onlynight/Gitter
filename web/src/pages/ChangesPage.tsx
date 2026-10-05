@@ -7,6 +7,20 @@ import { refreshCurrent, t, useApp } from "../state/store";
 
 const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
 
+interface SafetyFindingDTO {
+  ruleId: string;
+  severity: "warning" | "blocked";
+  filePath: string;
+  line: number | null;
+  message: string;
+}
+
+interface AgentFeedbackDTO {
+  note: string;
+  path: string | null;
+  createdAt: string;
+}
+
 export function ChangesPage() {
   const app = useApp();
   const repo = app.repo;
@@ -20,7 +34,11 @@ export function ChangesPage() {
   const [selectedHunks, setSelectedHunks] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [createBranch, setCreateBranch] = useState<string | null>(null); // "名称"对话框开关
+  const [findings, setFindings] = useState<SafetyFindingDTO[]>([]);
+  const [feedback, setFeedback] = useState<AgentFeedbackDTO | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [explainText, setExplainText] = useState<{ title: string; text: string } | null>(null);
+  const [createBranch, setCreateBranch] = useState<string | null>(null);
   const { showMenu, menuElement } = useContextMenu();
   const transientTimer = useRef<number | null>(null);
 
@@ -31,6 +49,14 @@ export function ChangesPage() {
       setStateDto(s);
       setError(null);
       setErrorDetail(null);
+      // 安全网扫描 + agent 反馈（辅助信息，失败不阻断列表）
+      try {
+        const r = await call<{ findings: SafetyFindingDTO[] }>("changes.safetyScan");
+        setFindings(r.findings);
+      } catch {
+        setFindings([]);
+      }
+      setFeedback(await call<AgentFeedbackDTO | null>("changes.feedback"));
     } catch (e) {
       setError((e as Error).message);
       setErrorDetail((e as { detail?: string }).detail ?? null);
@@ -126,10 +152,37 @@ export function ChangesPage() {
       }
       await reload();
     } catch (e) {
-      setError((e as Error).message);
-      setErrorDetail((e as { detail?: string }).detail ?? null);
+      const err = e as Error & { detail?: string };
+      setError(err.message);
+      setErrorDetail(err.detail ?? null);
     } finally {
       setBusy(false);
+    }
+  };
+
+  // AI 生成提交信息（隐私分级在主进程执行）
+  const generateMessage = async () => {
+    setAiBusy(true);
+    try {
+      const r = await call<{ message: string }>("ai.generateCommitMessage");
+      setMessage((m) => (m.trim() ? m : r.message));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  // AI 解释 / 审查（所选文件优先，无选择 = 全部 staged）
+  const explain = async (intent: "explain" | "review") => {
+    setAiBusy(true);
+    try {
+      const r = await call<{ text: string }>("ai.explain", { intent, path: selected?.staged ? selected.path : null });
+      setExplainText({ title: intent === "review" ? t("Changes_AiReview") : t("Changes_AiExplain"), text: r.text });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAiBusy(false);
     }
   };
 
@@ -222,6 +275,26 @@ export function ChangesPage() {
         />
       )}
       {transient && <Banner text={transient} onClose={() => setTransient(null)} />}
+      {feedback && (
+        <Banner
+          text={t("Changes_AgentFeedback", feedback.note)}
+          detail={feedback.path ?? undefined}
+          onClose={async () => { await call("changes.clearFeedback", {}); setFeedback(null); }}
+        />
+      )}
+      {findings.length > 0 && (
+        <div
+          className={"banner" + (findings.some((f) => f.severity === "blocked") ? " error" : "")}
+          style={{ flexDirection: "column", alignItems: "stretch", gap: 2 }}
+        >
+          {findings.slice(0, 6).map((f, i) => (
+            <div key={i} className="banner-text">
+              {f.severity === "blocked" ? "⛔" : "⚠️"} <span style={{ fontFamily: "var(--mono)" }}>{f.filePath}{f.line ? `:${f.line}` : ""}</span> — {f.message}
+            </div>
+          ))}
+          {findings.length > 6 && <div className="banner-text" style={{ color: "var(--c-text2)" }}>{t("Changes_MoreFindings", findings.length - 6)}</div>}
+        </div>
+      )}
 
       <div className="split split-v" style={{ ["--split-a" as string]: "minmax(260px, 1fr)", ["--split-b" as string]: "1.6fr" }}>
         <div className="split-pane" style={{ display: "flex", flexDirection: "column" }}>
@@ -242,6 +315,16 @@ export function ChangesPage() {
               {PREFIXES.map((p) => (
                 <button key={p} className="prefix-chip" onClick={() => setMessage((m) => (m.trim() ? m : p + " "))}>{p}</button>
               ))}
+              <span className="grow" style={{ flex: 1 }} />
+              <button className="tool-btn" disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void generateMessage()}>
+                {aiBusy ? t("Common_Loading") : t("Changes_AiGenerate")}
+              </button>
+              <button className="tool-btn" disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("explain")}>
+                {t("Changes_AiExplain")}
+              </button>
+              <button className="tool-btn" disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("review")}>
+                {t("Changes_AiReview")}
+              </button>
             </div>
             <textarea
               placeholder={t("Changes_CommitMessagePlaceholder")}
@@ -342,6 +425,13 @@ export function ChangesPage() {
         </div>
       </div>
 
+      {explainText && (
+        <Modal title={explainText.title} confirmText={t("Common_Close")} onClose={() => setExplainText(null)} onConfirm={() => setExplainText(null)}>
+          <div style={{ whiteSpace: "pre-wrap", maxHeight: 340, overflow: "auto", userSelect: "text", fontSize: 12.5, lineHeight: 1.5 }}>
+            {explainText.text}
+          </div>
+        </Modal>
+      )}
       {createBranch !== null && (
         <Modal
           title={t("Branches_CreateTitle")}

@@ -11,6 +11,7 @@ export interface CommitDTO {
   parents: string[];
   refs: { name: string; isTag: boolean }[];
   assistedBy: string[];
+  sessionId: string | null;
 }
 
 export interface FileMetaDTO {
@@ -130,6 +131,7 @@ export interface ThemeStateDTO {
   tokens: Record<string, string>;
   diff: Record<string, string>;
   terminal: Record<string, string>;
+  syntax: Record<string, string>;
 }
 
 export interface SettingsDTO {
@@ -150,6 +152,17 @@ export interface SettingsDTO {
   autoFetch: boolean;
   autoFetchIntervalMinutes: number;
   recentCommands: string[];
+  aiProvider: "off" | "openai" | "anthropic" | "cli";
+  aiEndpoint: string | null;
+  aiModel: string | null;
+  aiCliCommand: string | null;
+  aiPrivacy: "metadataOnly" | "fullDiff" | "disabled";
+  aiAppendTrailer: boolean;
+  aiApiKeyProtected: string | null;
+  safetyNet: "off" | "warn" | "block";
+  mcpEnabled: boolean;
+  logSplitterFraction: number | null;
+  changesSplitterFraction: number | null;
 }
 
 export interface I18nDTO {

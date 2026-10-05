@@ -172,6 +172,14 @@ function parseAssistedBy(body: string): string[] {
   return found;
 }
 
+/** Gitter-Session trailer（会话分组键，只看最后一段落）。 */
+function parseSessionId(body: string): string | null {
+  if (!body) return null;
+  const blocks = body.trimEnd().split(/\r\n\r\n|\n\n/);
+  const m = /^gitter-session:[ \t]*(.+)$/im.exec(blocks[blocks.length - 1]);
+  return m ? m[1].trim() : null;
+}
+
 function parseCommitRecord(rec: string): CommitDTO | null {
   const cols = rec.split(SEP);
   if (cols.length < 10) return null;
@@ -188,6 +196,7 @@ function parseCommitRecord(rec: string): CommitDTO | null {
     parents: parents ? parents.split(" ").filter(Boolean) : [],
     refs: parseRefs(refs ?? ""),
     assistedBy: parseAssistedBy(body ?? ""),
+    sessionId: parseSessionId(body ?? ""),
   };
 }
 

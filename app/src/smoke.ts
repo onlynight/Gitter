@@ -3,6 +3,8 @@
  * 不起窗口，直接对本仓库跑通 git 服务层主链路，失败非零退出。
  * 运行：npm run smoke（app/ 下）
  */
+import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { tryGit, looksLikeRepo } from "./services/gitexec";
 import { queryLog, listBranches, getCommit, commitFilesWithCounts, parseUnifiedDiff } from "./services/gitlog";
@@ -87,6 +89,79 @@ async function main() {
   // 提交读取
   const got = await getCommit(repo, c.sha);
   check("getCommit", !!got && got.sha === c.sha);
+
+  // ---- v2 移植面：安全网 / 会话聚合 / 高亮 / 反馈 / CLI 解析 ----
+  const { scan } = await import("./services/safety");
+  const findings = scan([
+    {
+      path: "leak.js",
+      patch: [
+        "diff --git a/leak.js b/leak.js",
+        "--- a/leak.js",
+        "+++ b/leak.js",
+        "@@ -1,3 +1,4 @@",
+        " ctx",
+        "+const apiKey = \"sk-abc123def456ghijklmno\";",
+        "+console.log(\"debug\");",
+      ].join("\n"),
+      isBinary: false,
+      isNew: false,
+      addedLines: 2,
+      deletedLines: 0,
+    },
+  ]);
+  const blocked = findings.filter((f) => f.severity === "blocked");
+  const warned = findings.filter((f) => f.ruleId === "debug.residue");
+  check("安全网：secret 泄露检出", blocked.length >= 1, blocked.map((f) => `${f.filePath}:${f.line}`).join(","));
+  check("安全网：调试残留检出", warned.length === 1);
+
+  const { groupSessions, readTrailers } = await import("./services/sessions");
+  const mk = (sha: string, body: string, date: number): any => ({
+    sha, shortSha: sha.slice(0, 7), subject: "s", body, author: "a", authorEmail: "e",
+    authorDate: date, committerDate: date, parents: [], refs: [],
+    assistedBy: body.match(/^assisted-by:\s*(.+)$/im)?.[1]?.trim() ? [body.match(/^assisted-by:\s*(.+)$/im)![1].trim()] : [],
+    sessionId: /^gitter-session:\s*(.+)$/im.exec(body)?.[1]?.trim() ?? null,
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const sessions = groupSessions([
+    mk("c1", "s\n\nAssisted-by: claude\nGitter-Session: s1", now),
+    mk("c2", "s\n\nAssisted-by: claude\nGitter-Session: s1", now - 60),
+    mk("c3", "human commit", now - 120),
+    mk("c4", "s\n\nAssisted-by: claude", now - 86400),
+  ]);
+  check(
+    "会话聚合：同 session 成组、人写不聚、孤立不成组",
+    sessions.length === 1 && sessions[0].commits.length === 2 && sessions[0].sessionId === "s1",
+    `${sessions.length} 组`,
+  );
+  const tr = readTrailers("msg\n\nAssisted-by: codex\nGitter-Session: abc");
+  check("trailer 解析", tr.assistedBy === "codex" && tr.sessionId === "abc");
+
+  const { HighlightService } = await import("./services/highlight");
+  const hs = new HighlightService(path.join(__dirname, "..", "resources", "syntax", "highlighters.json"));
+  const hl = hs.forFile("Test.cs");
+  check("高亮：语言识别（.cs）", !!hl, hl?.id);
+  if (hl) {
+    const r = hs.highlightLines(hl, ["// hello", "const int x = 1;"]);
+    check(
+      "高亮：注释/关键词着色",
+      r.lines[0][0]?.style === "comment" && r.lines[1].some((x) => x.style === "keyword"),
+      JSON.stringify(r.lines[1]?.slice(0, 3)),
+    );
+  }
+
+  const { parseCliCommand } = await import("./services/ai");
+  const [exe, args] = parseCliCommand('"C:\\Program Files\\tool\\ai.exe" -p --stdin');
+  check("CLI 桥命令解析", exe.endsWith("ai.exe") && args.length === 2, `${exe} ${args.join(" ")}`);
+
+  const fb = await import("./services/feedback");
+  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "gitter-fb-"));
+  fb.writeFeedback(tmpRepo, "check line 42", "a.ts");
+  const gotFb = fb.readFeedback(tmpRepo);
+  check("agent 反馈读写", !!gotFb && gotFb.note === "check line 42" && gotFb.path === "a.ts");
+  fb.clearFeedback(tmpRepo);
+  check("agent 反馈清除", fb.readFeedback(tmpRepo) === null);
+  fs.rmSync(tmpRepo, { recursive: true, force: true });
 
   console.log(failures === 0 ? "\n全部通过 ✅" : `\n${failures} 项失败 ❌`);
   process.exit(failures === 0 ? 0 : 1);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { call, onEvent } from "./bridge/client";
 import { CommandPalette } from "./components/CommandPalette";
+import { Modal } from "./components/Dialogs";
 import { Sidebar, StatusBar, TitleBar } from "./components/Shell";
 import { applyDiffModeToDom, applyThemeToDom, getState, navigate, reapplyLanguage, reapplyTheme, refreshCurrent, setState, useApp } from "./state/store";
 import { BranchesPage } from "./pages/BranchesPage";
@@ -40,6 +41,16 @@ function useShortcuts(openPalette: (prefill?: string) => void) {
 export function App() {
   const app = useApp();
   const [palette, setPalette] = useState<{ prefill?: string; ts: number } | null>(null);
+  const [mcpApproval, setMcpApproval] = useState<{ id: string; description: string; repo: string } | null>(null);
+
+  // MCP 写操作人审卡（McpPipeHost.requestApproval 的 GUI 侧）
+  useEffect(
+    () =>
+      onEvent("mcp.approval", (p: { id: string; description: string; repo: string }) => {
+        setMcpApproval(p);
+      }),
+    [],
+  );
 
   // 启动装配：设置 → 主题 → 语言 → 恢复上次仓库
   useEffect(() => {
@@ -130,6 +141,27 @@ export function App() {
       </div>
       <StatusBar />
       {palette && <CommandPalette prefill={palette.prefill} onClose={() => setPalette(null)} />}
+      {mcpApproval && (
+        <Modal
+          title="Agent 写操作确认"
+          confirmText="允许"
+          cancelText="拒绝"
+          danger
+          onClose={() => {
+            void call("mcp.approve", { id: mcpApproval.id, ok: false });
+            setMcpApproval(null);
+          }}
+          onConfirm={() => {
+            void call("mcp.approve", { id: mcpApproval.id, ok: true });
+            setMcpApproval(null);
+          }}
+        >
+          <div style={{ userSelect: "text" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--c-text2)", marginBottom: 6 }}>{mcpApproval.repo}</div>
+            {mcpApproval.description}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

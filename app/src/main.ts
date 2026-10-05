@@ -4,6 +4,7 @@ import { Bridge, SharedServices } from "./bridge";
 import { SettingsStore } from "./services/settings";
 import { I18nService, resourcePaths } from "./services/i18n";
 import { ThemeService } from "./services/themes";
+import { HighlightService } from "./services/highlight";
 
 // 无头烟雾模式：node dist/smoke.js 由 smoke.ts 单独入口承担（本文件不参与）。
 // 判定：electron 主入口被直接要求运行 smoke 时跳过窗口创建。
@@ -80,11 +81,13 @@ app.whenReady().then(() => {
   const settings = new SettingsStore(userData);
   const i18n = new I18nService(res.stringsTsv);
   const themes = new ThemeService(res.themesRoot, path.join(userData, "themes"));
+  const highlightSvc = new HighlightService(res.syntaxRulesPath);
 
   shared = {
     settings,
     i18n,
     themes,
+    highlight: highlightSvc,
     createWindow: (repoPath?: string) => createWindow(repoPath),
   };
 
