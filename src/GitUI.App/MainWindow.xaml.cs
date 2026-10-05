@@ -594,8 +594,6 @@ public sealed partial class MainWindow : Window
         };
 
         btn.Click += NavItem_Click;
-        btn.PointerEntered += NavItem_PointerEntered;
-        btn.PointerExited += NavItem_PointerExited;
         AutomationProperties.SetName(btn, label);
 
         return btn;
@@ -663,16 +661,6 @@ public sealed partial class MainWindow : Window
         {
             ShowPage(key);
         }
-    }
-
-    private void NavItem_PointerEntered(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is Button button) RefreshOne(button);
-    }
-
-    private void NavItem_PointerExited(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is Button button) RefreshOne(button);
     }
 
     private void ShowPage(string key)
@@ -1505,9 +1493,9 @@ public sealed partial class MainWindow : Window
     private void RefreshOne(Button button)
     {
         var isSelected = button.Tag as string == _currentKey;
-        var isActive = isSelected || button.IsPointerOver;
 
-        button.Background = isSelected ? Ui.Selected : isActive ? Ui.Hover : ClearBrush;
+        // 无悬停高亮：背景只在选中时出现（PointerEntered/Exited 订阅已移除）
+        button.Background = isSelected ? Ui.Selected : ClearBrush;
         button.Opacity = 1.0;
 
         // 选中态：图标染强调色（原 2px 竖条指示已移除）。row 子项顺序 = [icon, label]。
