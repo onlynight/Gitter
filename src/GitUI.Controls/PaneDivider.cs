@@ -21,6 +21,7 @@ public sealed class PaneDivider : Grid
 
     private readonly ColumnDefinition _leftColumn;
     private readonly Func<double> _hostWidth;
+    private FrameworkElement? _host;  // 拖动坐标基准：宿主 Grid（拖动中不移动）
     private bool _dragging;
     private double _dragStartX;
     private double _dragStartLeft;
@@ -52,8 +53,12 @@ public sealed class PaneDivider : Grid
 
     private void OnPressed(object sender, PointerRoutedEventArgs e)
     {
+        _host ??= Parent as FrameworkElement;
         _dragging = true;
-        _dragStartX = e.GetCurrentPoint(this).Position.X;
+        // 坐标必须以宿主为基准：分割条自身随拖动平移，若以自身为参照，
+        // dx 构成 d_k = p_k − d_{k−1} 的反馈回路 —— 本次只计入最后一步增量、
+        // 与上次位移交替正负，表现即拖动抖动/来回跳。
+        _dragStartX = e.GetCurrentPoint(_host!).Position.X;
         _dragStartLeft = _leftColumn.ActualWidth;
         CapturePointer(e.Pointer);
         e.Handled = true;
@@ -61,8 +66,8 @@ public sealed class PaneDivider : Grid
 
     private void OnMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (!_dragging) return;
-        var dx = e.GetCurrentPoint(this).Position.X - _dragStartX;
+        if (!_dragging || _host is null) return;
+        var dx = e.GetCurrentPoint(_host).Position.X - _dragStartX;
         var maxLeft = Math.Max(MinLeftWidth, _hostWidth() - RightMinWidth - Width);
         var left = Math.Clamp(_dragStartLeft + dx, MinLeftWidth, maxLeft);
         _leftColumn.Width = new GridLength(left, GridUnitType.Pixel);
