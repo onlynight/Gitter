@@ -528,7 +528,7 @@ public sealed partial class MainWindow : Window
     private Button BuildNavItem(string? glyph, string? svgPath, string label, string key)
     {
         // row = Grid，2 列：Col 0 (icon, Width=20), Col 1 (label, Auto)。
-        // 最左是 2px 选中指示条（RefreshOne 按选中态切换可见性）。
+        // 选中态 = 图标染强调色（RefreshOne），不再用左侧竖条指示。
         var row = new Grid
         {
             VerticalAlignment = VerticalAlignment.Center,
@@ -536,18 +536,6 @@ public sealed partial class MainWindow : Window
         };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var indicator = new Border
-        {
-            Width = 2,
-            Background = Ui.Accent,
-            CornerRadius = new CornerRadius(1),
-            Margin = new Thickness(-10, 5, 0, 5),
-            VerticalAlignment = VerticalAlignment.Stretch,
-            Visibility = Visibility.Collapsed,
-            Tag = "indicator",
-        };
-        row.Children.Add(indicator);
 
         // 图标：SVG path 用 Shapes.Path 渲染（design-mockups 16×16 viewBox → 14×14，
         // Fill 用 TokenRuntime 画刷随主题切换）。
@@ -1522,22 +1510,19 @@ public sealed partial class MainWindow : Window
         button.Background = isSelected ? Ui.Selected : isActive ? Ui.Hover : ClearBrush;
         button.Opacity = 1.0;
 
-        // 选中指示条（BuildNavItem 里 Tag="indicator" 的 2px 强调色竖条）
+        // 选中态：图标染强调色（原 2px 竖条指示已移除）。row 子项顺序 = [icon, label]。
         if (button.Content is Grid row)
         {
             foreach (var child in row.Children)
             {
-                if (child is Border b && b.Tag as string == "indicator")
-                    b.Visibility = isSelected ? Visibility.Visible : Visibility.Collapsed;
+                if (child is FontIcon fi && fi.Tag as string == "icon")
+                    fi.Foreground = isSelected ? Ui.Accent : Ui.Text;
+                else if (child is Microsoft.UI.Xaml.Shapes.Path p && p.Tag as string == "icon")
+                    p.Fill = isSelected ? Ui.Accent : Ui.Text;
             }
-        }
 
-        // 折叠/展开：只切换 label 可见性，row 与 icon 位置固定不变，
-        // icon 始终位于按钮左侧（button.Margin.Left + button.Padding.Left = 20）。
-        if (button.Content is Grid row2 && row2.Children.Count >= 3
-            && row2.Children[2] is TextBlock label)
-        {
-            label.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
+            if (row.Children.Count >= 2 && row.Children[1] is TextBlock label)
+                label.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
         }
     }
 }
