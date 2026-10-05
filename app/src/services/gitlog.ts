@@ -141,7 +141,8 @@ export async function queryLog(workDir: string, q: LogQuery): Promise<{ commits:
   if (q.branch) args.push(q.branch);
 
   const out = await git(workDir, args);
-  const records = out.split(REC).filter((r) => r.trim().length > 0);
+  // git log 每条记录以 \x1e 结尾、后跟换行——split 后从第二条起带前导 \n，必须 trim
+  const records = out.split(REC).map((r) => r.trimStart()).filter((r) => r.length > 0);
   const hasMore = records.length > limit;
   const commits = records.slice(0, limit).map(parseCommitRecord).filter((c): c is CommitDTO => c !== null);
   return { commits, hasMore };
@@ -204,10 +205,9 @@ function parseCommitRecord(rec: string): CommitDTO | null {
 // 提交详情 / 文件 diff
 // ---------------------------------------------------------------------------
 
-/** 提交变更文件列表（对父提交，或 base..sha 树 diff）。 */
+/** 提交变更文件列表（对父提交，或 base..sha 树 diff）。--root 对非根提交无副作用。 */
 export async function commitFiles(workDir: string, sha: string, baseSha?: string | null): Promise<FileMetaDTO[]> {
-  const isRoot = (await git(workDir, ["rev-list", "--max-parents=0", "HEAD"])).split("\n")[0] === sha;
-  const range = baseSha ? [baseSha, sha] : isRoot ? ["--root", sha] : [sha];
+  const range = baseSha ? [baseSha, sha] : ["--root", sha];
   const out = await git(workDir, ["diff-tree", "-r", "--no-commit-id", "--name-status", "-M", "-z", ...range]);
   return parseNameStatusZ(out);
 }
@@ -241,8 +241,7 @@ export async function commitFilesWithCounts(
   baseSha?: string | null,
 ): Promise<FileMetaDTO[]> {
   const files = await commitFiles(workDir, sha, baseSha);
-  const isRoot = (await git(workDir, ["rev-list", "--max-parents=0", "HEAD"])).split("\n")[0] === sha;
-  const range = baseSha ? [baseSha, sha] : isRoot ? ["--root", sha] : [sha];
+  const range = baseSha ? [baseSha, sha] : ["--root", sha];
   const out = await git(workDir, ["diff-tree", "-r", "--no-commit-id", "--numstat", "-M", "-z", ...range]);
   // numstat -z: added\tpath? 实际格式 "added\tdeleted\tpath\0"，重命名为 "added\tdeleted\t{old => new}"
   const map = new Map<string, { added: number | null; deleted: number | null }>();
@@ -265,15 +264,14 @@ export async function commitFilesWithCounts(
   return files;
 }
 
-/** 单文件 diff：提交对父（或 base），或工作区模式由调用方另行走 gitstatus。 */
+/** 单文件 diff：提交对第一父提交（根提交经 diff-tree -p --root，git diff 不认 --root）。 */
 export async function fileDiff(workDir: string, sha: string, path_: string, baseSha?: string | null): Promise<DiffDTO> {
-  const isRoot = (await git(workDir, ["rev-list", "--max-parents=0", "HEAD"])).split("\n")[0] === sha;
-  const args = ["diff", "--no-color"];
-  if (baseSha) args.push(baseSha, sha);
-  else if (isRoot) args.push("--root", sha);
-  else args.push(sha + "^", sha);
-  args.push("--", path_);
-  const patch = await git(workDir, args);
+  let patch: string;
+  if (baseSha) {
+    patch = await git(workDir, ["diff", "--no-color", baseSha, sha, "--", path_]);
+  } else {
+    patch = await git(workDir, ["diff-tree", "--no-color", "-p", "--root", sha, "--", path_]);
+  }
   const files = parseUnifiedDiff(patch);
   return (
     files[0] ?? {

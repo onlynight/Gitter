@@ -7,7 +7,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { tryGit, looksLikeRepo } from "./services/gitexec";
-import { queryLog, listBranches, getCommit, commitFilesWithCounts, parseUnifiedDiff } from "./services/gitlog";
+import { queryLog, listBranches, getCommit, commitFilesWithCounts, parseUnifiedDiff, fileDiff } from "./services/gitlog";
 import { getStatus, worktreeFileDiff } from "./services/gitstatus";
 import { getBranches } from "./services/gitbranches";
 import { listWorktrees } from "./services/worktrees";
@@ -89,6 +89,16 @@ async function main() {
   // 提交读取
   const got = await getCommit(repo, c.sha);
   check("getCommit", !!got && got.sha === c.sha);
+
+  // 回归（用户报告：非首条提交详情全挂）——queryLog 记录分隔解析曾产生带前导 \n 的 sha
+  const badSha = page1.commits.find((x) => !/^[0-9a-f]{40}$/.test(x.sha));
+  check("sha 无前导空白（记录分隔解析）", !badSha, badSha?.sha.slice(0, 12));
+  const c2nd = page1.commits[1];
+  if (c2nd) {
+    const files2 = await commitFilesWithCounts(repo, c2nd.sha, null);
+    const d2 = files2[0] ? await fileDiff(repo, c2nd.sha, files2[0].path, null) : null;
+    check("非首条提交详情+diff 往返", !!d2 && (d2.hunks.length > 0 || d2.isBinary || files2.length === 0), `${c2nd.shortSha} ${files2.length}files`);
+  }
 
   // ---- v2 移植面：安全网 / 会话聚合 / 高亮 / 反馈 / CLI 解析 ----
   const { scan } = await import("./services/safety");

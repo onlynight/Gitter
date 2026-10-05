@@ -124,3 +124,13 @@ export async function reapplyLanguage(settings: SettingsDTO) {
   });
   setState({ i18n });
 }
+
+/** 设置更新的唯一入口：持久化 + 回写 store + 按需重应用主题/语言/差异模式。 */
+export async function updateSettings(patch: Partial<SettingsDTO>) {
+  const next = await call<SettingsDTO>("settings.set", { patch });
+  setState({ settings: next });
+  if (patch.theme !== undefined || patch.themePackageId !== undefined) await reapplyTheme(next);
+  if (patch.language !== undefined) await reapplyLanguage(next);
+  if (patch.diffMode !== undefined) applyDiffModeToDom(next.diffMode);
+  return next;
+}

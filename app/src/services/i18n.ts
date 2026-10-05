@@ -26,10 +26,11 @@ export class I18nService {
         if (!line || line.startsWith("#")) continue;
         const cols = line.split("\t");
         if (cols.length < 3) continue;
-        const [key, en, zh] = cols;
-        // 值内 \n 转义还原（与 gen-localization.ps1 的写法互逆）
-        result["en"][key] = en.replace(/\\n/g, "\n");
-        result["zh-Hans"][key] = zh.replace(/\\n/g, "\n");
+        // 旧栈 tsv 用点分 key（Common.Cancel），C# 生成 Designer 时转下划线——此处同转换，
+        // 使 web 侧统一用下划线 key（后行覆盖先行，语义相同的重名无妨）
+        const key = cols[0].trim().replace(/\./g, "_");
+        result["en"][key] = cols[1].replace(/\\n/g, "\n");
+        result["zh-Hans"][key] = cols[2].replace(/\\n/g, "\n");
       }
     } catch {
       // 缺文件：返回空字典，渲染层回退 key 本身

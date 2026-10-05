@@ -79,7 +79,11 @@ body {
 }
 .nav-item:hover { background: var(--c-hover); }
 .nav-item.active { color: var(--c-accent); font-weight: 600; }
-.nav-item .nav-ico { width: 16px; text-align: center; flex: none; font-size: 14px; }
+.nav-item .nav-ico { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.nav-ico .glyph {
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  font-size: 14px; line-height: 1; font-style: normal;
+}
 .nav-item .nav-label { overflow: hidden; text-overflow: ellipsis; }
 .collapsed .nav-label { display: none; }
 .collapsed .nav-item { justify-content: center; padding: 6px 0; }

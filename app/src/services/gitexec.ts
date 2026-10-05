@@ -18,26 +18,36 @@ export class GitError extends Error {
   }
 }
 
-let resolvedGitPath: string | null | undefined;
+let resolvedGit: Promise<string> | null = null;
 
-/** 定位 git.exe：PATH 优先，退回 Git for Windows 常见安装位。找不到返回 null。 */
-export function locateGit(): string | null {
-  if (resolvedGitPath !== undefined) return resolvedGitPath;
-  const candidates = [
-    "git.exe",
-    "C:\\Program Files\\Git\\cmd\\git.exe",
-    "C:\\Program Files (x86)\\Git\\cmd\\git.exe",
-    path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Git", "cmd", "git.exe"),
-  ];
-  for (const c of candidates) {
-    // 相对名 = 依赖 PATH（spawn 期才能真正验证）；绝对路径先做存在性检查
-    if (!c.includes("\\") || fs.existsSync(c)) {
-      resolvedGitPath = c;
-      return c;
+/**
+ * 定位 git.exe：候选逐个实测（spawn --version），首个可用者胜出并缓存。
+ * PATH 里的 "git.exe" 失败时退回 Git for Windows 常见安装位；全失败抛错。
+ */
+export function locateGit(): Promise<string> {
+  resolvedGit ??= (async () => {
+    const candidates = [
+      "git.exe",
+      "C:\\Program Files\\Git\\cmd\\git.exe",
+      "C:\\Program Files (x86)\\Git\\cmd\\git.exe",
+      path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Git", "cmd", "git.exe"),
+    ];
+    for (const c of candidates) {
+      if (c.includes("\\") && !fs.existsSync(c)) continue;
+      const ok = await new Promise<boolean>((res) => {
+        try {
+          const r = spawn(c, ["--version"], { windowsHide: true });
+          r.on("error", () => res(false));
+          r.on("close", (code) => res(code === 0));
+        } catch {
+          res(false);
+        }
+      });
+      if (ok) return c;
     }
-  }
-  resolvedGitPath = null;
-  return null;
+    throw new Error("未找到 git（PATH 与常见安装位均不可用）——请安装 Git for Windows");
+  })();
+  return resolvedGit;
 }
 
 const BASE_ARGS = [
@@ -55,26 +65,47 @@ export async function git(workDir: string, args: string[], input?: string): Prom
 }
 
 export async function tryGit(workDir: string, args: string[], input?: string): Promise<GitResult> {
-  const exe = locateGit() ?? "git.exe";
+  const exe = await locateGit();
+  // ENOENT 重试：杀软对进程镜像的瞬时锁会让 Windows spawn 间歇性失败（实测本机复现）。
+  // 锁窗口可能超过 100ms，用 5 次指数退避（0/100/250/500/1000ms）。
+  let lastError: Error | null = null;
+  const backoff = [0, 100, 250, 500, 1000];
+  for (let attempt = 0; attempt < backoff.length; attempt++) {
+    if (backoff[attempt] > 0) await new Promise((r) => setTimeout(r, backoff[attempt]));
+    const r = await spawnOnce(exe, workDir, args, input);
+    if (r.stderr !== "SPAWN_ENOENT") return r;
+    lastError = new Error(`spawn ${exe} ENOENT`);
+  }
+  return { code: -1, stdout: "", stderr: lastError?.message ?? "spawn failed" };
+}
+
+function spawnOnce(exe: string, workDir: string, args: string[], input?: string): Promise<GitResult> {
   return new Promise((resolve) => {
-    const child = spawn(exe, [...BASE_ARGS, ...args], {
-      cwd: workDir || undefined,
-      windowsHide: true,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCMInteractive: "never" },
-    });
-    let stdout = "";
-    let stderr = "";
+    let child: import("child_process").ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(exe, [...BASE_ARGS, ...args], {
+        cwd: workDir || undefined,
+        windowsHide: true,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCMInteractive: "never" },
+      });
+    } catch (e) {
+      resolve({ code: -1, stdout: "", stderr: "SPAWN_ENOENT" });
+      return;
+    }
     const outChunks: Buffer[] = [];
     const errChunks: Buffer[] = [];
     child.stdout.on("data", (d: Buffer) => outChunks.push(d));
     child.stderr.on("data", (d: Buffer) => errChunks.push(d));
     child.on("error", (err) => {
-      resolve({ code: -1, stdout: "", stderr: String(err) });
+      const enoent = (err as NodeJS.ErrnoException).code === "ENOENT";
+      resolve({ code: -1, stdout: "", stderr: enoent ? "SPAWN_ENOENT" : String(err) });
     });
     child.on("close", (code) => {
-      stdout = Buffer.concat(outChunks).toString("utf8");
-      stderr = Buffer.concat(errChunks).toString("utf8");
-      resolve({ code: code ?? -1, stdout, stderr });
+      resolve({
+        code: code ?? -1,
+        stdout: Buffer.concat(outChunks).toString("utf8"),
+        stderr: Buffer.concat(errChunks).toString("utf8"),
+      });
     });
     if (input !== undefined) {
       child.stdin.write(input, "utf8");
