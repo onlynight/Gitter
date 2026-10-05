@@ -77,11 +77,16 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null); // 自绘标题栏 + 渲染层快捷键接管
 
   const userData = app.getPath("userData");
-  const res = resourcePaths(process.env.GITTER_RESOURCES ?? app.getAppPath() + "/resources");
+  // resourcePaths(root) 内部自拼 resources/ 子目录——root 必须是 app 根目录，
+  // 不能传 resources 本身（双拼导致 i18n/主题/高亮数据全部 404，曾致词条全显 key）
+  const res = resourcePaths(process.env.GITTER_RESOURCES ?? app.getAppPath());
   const settings = new SettingsStore(userData);
   const i18n = new I18nService(res.stringsTsv);
   const themes = new ThemeService(res.themesRoot, path.join(userData, "themes"));
   const highlightSvc = new HighlightService(res.syntaxRulesPath);
+  if (Object.keys(i18n.get("en").strings).length === 0) {
+    console.warn("[gitter] i18n 字典为空，检查资源路径:", res.stringsTsv);
+  }
 
   shared = {
     settings,
