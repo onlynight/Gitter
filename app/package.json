@@ -1,0 +1,22 @@
+{
+  "name": "gitter-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Gitter — AI 编程时代的 Git 验收台（Electron 主进程：git 服务层 / 终端 / 设置）",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "postbuild": "electron-rebuild -f -w node-pty || echo WARN: electron-rebuild failed, terminal may need manual rebuild",
+    "start": "npm run build && electron .",
+    "smoke": "npm run build && node dist/smoke.js"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/node": "^26.6.4",
+    "electron": "^44.5.1",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0"
+  }
+}

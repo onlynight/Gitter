@@ -1,9 +1,31 @@
-# WinUI 3 → WebView2 + Web 前端迁移方案
+# WinUI 3 → Web 前端迁移方案
 
-> 状态：设计 v1（2026-10-05，dev 分支）—— 仅设计未动代码，动工前需过 §12 开放问题的拍板
+> 状态：**v2（2026-10-05）—— 决策变更：全栈替换，不保留 C#**（见 §零）。v1 的 WebView2 混合方案（保留 .NET 后端）作为被否决的备选保留在正文中；动工结果见 §十三 实现记录与对等账本。
 > 结论输入：WinUI 3 与"信息密集 + 高度定制"的产品形态错配（提交史 21% 为 UI 框架对抗性修复；InfoBar/ConPTY/文件对话框环境性 fail-fast；UIA 冒烟依赖中文文案与独占桌面不可并行；自绘终端/滚动条/TextMate 子集均为框架空白的低配补造）。
-> 定位：**不是重写产品，是更换 UI 执行栈**。git 能力层、规则引擎、AI/MCP、PTY 桥接全部保留；只重写一直在流血的 UI 层（约 8.7k 行 C# + 1.4k 行 XAML）。
+> 定位：**渲染与逻辑全部迁移到新框架**。C# 工程（src/）冻结留作行为对照与移植参照，不再参与产品构建；git 能力层在 TypeScript 重写（git CLI 子进程），终端用 node-pty。
 > 前置阅读：docs/design.md（总设计）、docs/ai-native-redesign.md（AI 原生重设计）、docs/known-issues.md（技术债台账，§五环境黑名单是本方案直接动因之一）
+
+---
+
+## 零、决策变更记录（v2，2026-10-05）
+
+用户在动工时明确：**渲染和逻辑全部使用新框架替换，不保留 C#**。这推翻 v1 的核心前提（"保住 15.6k 行 .NET 域逻辑"），架构从 WebView2 混合改为 **Electron 全栈**：
+
+| 项 | v1 方案（被否决） | v2 方案（已实施） |
+|---|---|---|
+| 宿主 | C# WinUI 瘦宿主 + WebView2 控件 | Electron（Chromium + Node.js） |
+| git 能力层 | LibGit2Sharp + git CLI（C#，原地保留） | **git CLI 子进程（TypeScript 重写）** |
+| 终端 | C# ConPTY 桥接 + xterm.js 渲染 | node-pty（VS Code 同款，Windows 走 ConPTY）+ xterm.js |
+| 设置存储 | JsonSettingsStore（C#） | Electron userData/settings.json（TS） |
+| 主题/语言数据 | ThemeService/Strings.tsv（C# 解析） | 同一份数据文件（theme.json / Strings.tsv），TS 解析 |
+| C# 工程 | 保留并在产品内 | **冻结于仓库（git 历史 + 行为对照），不参与构建** |
+
+选型说明（为什么是 Electron 而不是 Tauri）：桌面形态 + 零 C# 后，宿主候选只有 Electron（Node）与 Tauri（Rust）。git 层/PTY/设置全是 I/O 编排，TypeScript 在 Electron 主进程里是同栈直写，Rust 则引入第二语言与重建成本；GitHub Desktop / GitKraken / VS Code 的先例也全部落在 Electron/Node 一侧。
+
+被放弃的资产（诚实记账）：
+- **449+ 条 C# headless 测试**随域逻辑重写而退役。替代：`app` 的无头烟雾（npm run smoke，13 项主链路断言）+ 渲染层 tsc 严格模式；系统性测试套件（对齐原 C# 测试面）列入 §十三 后续项。
+- MCP 管道宿主 / Agent Harness / AI 网关 / 规则引擎（CommitSafety 等）v1 未移植（见对等账本）。
+- libgit2 的零依赖读取不再成立——新栈依赖系统 git CLI（git 客户端自带，可接受；烟雾实测本机 git 2.55）。
 
 ---
 
@@ -190,4 +212,73 @@ scripts/gen-bridge.ps1  C# DTO → TS 类型
 2. **前端框架**：推荐 React；若在意包体与运行时性能可选 Svelte——需在 P0 前定死，中途换框等于二次迁移。
 3. **语法高亮终局**：服务端 runs（现状平移，.gpk syntax 生态不动）vs 前端 Shiki（全量 TextMate，但 .gpk 语法包需迁移映射）。P5 决策门，不阻塞前面阶段。
 4. **WinUI 侧冻结范围**：建议"修致命 bug、冻结新功能"；若有必须并行交付的产品功能，需单列。
-5. **Monico 取舍**：是否引入 Monaco 作为提交消息编辑器与代码预览窗（约 +5MB 包体）。默认不引入，textarea + 服务端 runs 起步。
+5. **Monaco 取舍**：是否引入 Monaco 作为提交消息编辑器与代码预览窗（约 +5MB 包体）。默认不引入，textarea + 服务端 runs 起步。
+
+---
+
+## 十三、实现记录与对等账本（v2 动工结果，2026-10-05）
+
+### 13.1 仓库形态
+
+```
+app/                       Electron 主进程（TypeScript，CJS）
+  src/main.ts              窗口/单实例/IPC 装配（自定义标题栏 frame:false）
+  src/preload.ts           contextBridge：window.gitter.invoke / onEvent（唯一入口）
+  src/bridge.ts            桥分发：方法表 + 错误封套 + 每窗口仓库态
+  src/services/gitexec.ts  git CLI 运行器（数组参数无注入面 + git 定位）
+  src/services/gitlog.ts   log 查询/提交详情/unified diff 解析器（rename/EOF/二进制）
+  src/services/gitstatus.ts 三层状态分类 + 暂存/撤销 + **hunk 级暂存**（git apply --cached --recount）
+  src/services/gitbranches.ts 分支全家桶（删除前影响预览 = merge-base --is-ancestor + rev-list）
+  src/services/worktrees.ts worktree 列表/创建（任务卡，落盘位对齐旧栈）
+  src/services/terminal.ts node-pty 会话管理（ConPTY、base64 分块事件流）
+  src/services/settings.ts 白名单补丁式设置存储
+  src/services/themes.ts   主题包解析（继承链合并，数据格式与旧栈 theme.json 兼容）
+  src/services/i18n.ts     Strings.tsv 运行时解析（同一份语言源）
+  src/smoke.ts             无头烟雾：本仓库实测 git 服务层主链路
+  resources/               主题包（自旧栈 Packages/ 复制）+ Strings.tsv
+web/                       渲染层（React 18 + TypeScript 严格 + Vite）
+  src/App.tsx              壳装配：启动序（设置→主题→语言→恢复仓库）+ 快捷键 + 事件
+  src/state/store.ts       轻量全局 store（useSyncExternalStore，未引状态库）+ t() + 令牌→CSS 变量
+  src/bridge/client.ts     桥客户端（invoke + 事件总线）
+  src/components/          TitleBar/Sidebar/StatusBar/CommandPalette/DiffView/Modal/ContextMenu
+  src/pages/               七页：Log/Changes/Terminal/Branches/Projects/Tasks/Settings
+src/（C#）                 冻结：不参与产品构建，留作行为对照
+```
+
+### 13.2 桥协议（实际落地版）
+
+渲染层 → 主进程：`ipcRenderer.invoke("rpc", method, params)`，返回 `{ok:true,data} | {ok:false,error:{message,detail}}` 封套（Electron 的 Error 序列化丢自定义字段，故不用异常通道）。主进程 → 渲染层事件：`terminal.data`（base64 32KB 分块）/ `terminal.exit` / `win.maximized` / `app.openRepo`。当前仓库为**每窗口状态**（对齐旧 RepositoryContext 单仓库语义）。无 SecurityWarning：contextIsolation + 零 Node 泄漏（preload 仅三个方法）。
+
+### 13.3 验证结果（本机实测）
+
+- 主进程 `npm run smoke`：**13/13 通过**——git 定位、log 首页 50 条（34ms）、500 条全量（33ms，对比旧栈 libgit2 revwalk 冷启动 ~600ms 是显著改善）、提交字段、分支列表、提交文件+行数、单文件 diff hunk 解析、工作区四分类、unified diff 解析（rename/EOF 标志单测）、worktree、getCommit。
+- node-pty 原生绑定：真实 ConPTY 会话 spawn 验证通过（`@electron/rebuild` 对齐 Electron 44 ABI）。
+- 渲染层：tsc 严格 + vite 构建通过（bundle ~518KB，gzip 143KB）。
+- 端到端：`npm start`（app/）启动 Electron 窗口加载 web/dist。
+
+### 13.4 对等账本（旧栈功能 → 新栈落地状态）
+
+| 功能 | 状态 | 说明 |
+|---|---|---|
+| 六页签 + 命令面板 + 全局快捷键 | ✅ | 面板为 web 原生（Ctrl+Shift+P / Ctrl+P 预填 / 最近使用组） |
+| Log：分页/按天分组/详情/文件/diff/比较基准/右键复制 | ✅ | 会话折叠卡（LogSessionGrouping）延后；agent 过滤前缀（author:/agent:）已移植 |
+| 变更：四分类/勾选/文件级与 **hunk 级暂存撤销**/提交/推送失败分类 | ✅ | 安全网（CommitSafety）、AI 提交信息/解释延后 |
+| 终端：多 shell/ConPTY/跟随仓库/复制粘贴 | ✅ | 多 tab、agent 活动感知（AgentActivityMatcher）延后 |
+| 分支：创建/重命名/删除（影响预览）/检出/合并（no-ff）/变基/快进/同步 | ✅ | — |
+| 项目：添加（原生对话框）/打开/移除/新窗口/空态 | ✅ | — |
+| 任务：worktree 卡/创建/打开/移除/新窗口 | ✅ | 合并回主分支延后 |
+| 设置：主题/语言/差异模式/终端/外部编辑器 | ✅ | 设置导入导出延后 |
+| 主题：语义令牌 + 主题包（继承链）+ 亮暗 | ✅ | 数据格式与 .gpk theme 包兼容；.gpk 归档导入延后（目录形态可用） |
+| i18n：zh-Hans/en + system 跟随 + 热切换 | ✅ | 同一份 Strings.tsv |
+| **AI 全套（网关/提交信息/解释/风险）/ MCP 管道宿主 / Agent Harness / 规则引擎** | ⛔ v1 未移植 | 需在 TS 重写 HTTP 网关与 JSON-RPC（MCP 语义已有 C# 参照） |
+| 语法高亮（TextMate 子集 + 插件契约） | ⛔ v1 未移植 | diff/预览为纯文本着色；Shiki 是候选终局 |
+| 字级 diff / DiffPreviewWindow / 分割条位置持久化 | ⛔ v1 未移植 | 分割条比例 v1 固定 |
+
+### 13.5 后续项（按优先级）
+
+1. MCP 管道宿主移植（agent 生态接口已冻结于 docs/agent-harness-codex.md，语义照 C# 参照实现）。
+2. AI 网关 + 提交信息生成（HTTP 调用在 Node 侧直写，密钥用 Electron safeStorage 替代 DPAPI）。
+3. 会话分组折叠卡 + agent 活动感知（数据已具备：Assisted-By trailer 已解析进 CommitDTO）。
+4. Shiki 语法高亮 + 字级 diff。
+5. Playwright 无头测试套件（替代 22 个 UIA 脚本的对等场景面）。
+6. electron-builder 打包签名 + 安装器。

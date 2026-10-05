@@ -9,3 +9,8 @@ obj/
 *.log
 publish/
 .zcode/
+# Electron/web 全栈迁移产物
+web/node_modules/
+web/dist/
+app/node_modules/
+app/dist/
