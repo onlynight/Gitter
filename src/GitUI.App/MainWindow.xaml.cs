@@ -600,30 +600,23 @@ public sealed partial class MainWindow : Window
         btn.Click += NavItem_Click;
         AutomationProperties.SetName(btn, label);
 
-        // 压掉默认 Button 模板的 PointerOver/Pressed 视觉状态。注意：模板内的
-        // {ThemeResource} 只查 ThemeDictionaries（Light/Dark/Default），不查控件
-        // 普通 Resources —— 上一版往 Resources 塞覆盖完全无效（悬停照旧）。
-        // RefreshOne 会随选中态同步这里的值（选中项悬停/按下保持选中背景）。
-        SetNavChrome(btn, ClearBrush);
+        // 吞掉默认 Button 模板的 PointerOver/Pressed 视觉状态（自定义 VSM）：
+        // 模板的悬停/按下背景经 ThemeResource 覆盖 Background —— 普通 Resources 与
+        // ThemeDictionaries 两条覆盖路线都被实测无效/不稳，唯一确定的做法是让模板
+        // 永远走不到这两个状态，背景完全由 RefreshOne 设置的 Background 属性驱动。
+        VisualStateManager.SetCustomVisualStateManager(btn, new NavVisualStateManager());
 
         return btn;
     }
 
-    /// <summary>把导航按钮模板的悬停/按下背景与前景钉到指定画刷。Light/Dark/Default
-    /// 三份必须是独立实例 —— 同一字典实例挂多个主题键会 XAML failfast（0xc000027b 实证）。</summary>
-    private static void SetNavChrome(Button btn, Brush background)
+    /// <summary>导航按钮专用 VSM：PointerOver/Pressed 状态直接吞掉（不应用模板视觉），
+    /// 其余状态（Normal/Focused/Disabled）照常。</summary>
+    private sealed class NavVisualStateManager : VisualStateManager
     {
-        var themes = btn.Resources.ThemeDictionaries;
-        foreach (var key in new[] { "Default", "Light", "Dark" })
-        {
-            themes[key] = new ResourceDictionary
-            {
-                ["ButtonBackgroundPointerOver"] = background,
-                ["ButtonBackgroundPressed"] = background,
-                ["ButtonForegroundPointerOver"] = Ui.Text,
-                ["ButtonForegroundPressed"] = Ui.Text,
-            };
-        }
+        protected override bool GoToStateCore(Control control, FrameworkElement templateRoot, string stateName, VisualStateGroup group, VisualState state, bool useTransitions)
+            => stateName is "PointerOver" or "Pressed"
+                ? true
+                : base.GoToStateCore(control, templateRoot, stateName, group, state, useTransitions);
     }
 
     /// <summary>
@@ -1524,12 +1517,9 @@ public sealed partial class MainWindow : Window
     {
         var isSelected = button.Tag as string == _currentKey;
 
-        // 无悬停高亮：背景只在选中时出现（PointerEntered/Exited 订阅已移除）；
-        // 模板的 PointerOver/Pressed 画刷经 ThemeDictionaries 钉住（模板的
-        // ThemeResource 查找不读普通 Resources），这里随选中态同步 —— 悬停/按下
-        // 时保持当前逻辑背景（选中项不闪不消失）
+        // 无悬停高亮：背景只在选中时出现（模板 PointerOver/Pressed 状态已被
+        // NavVisualStateManager 吞掉，Background 属性是唯一的背景来源）
         button.Background = isSelected ? Ui.Selected : ClearBrush;
-        SetNavChrome(button, button.Background);
         button.Opacity = 1.0;
 
         // 选中态：图标染强调色（原 2px 竖条指示已移除）。row 子项顺序 = [icon, label]。
