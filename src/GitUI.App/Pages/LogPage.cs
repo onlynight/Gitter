@@ -278,6 +278,17 @@ public sealed class LogPage : UserControl
 
         Rebind();
 
+        // 诊断钩子（GITTER_LOGMENUTEST=1）：8s 后程序化弹出首个提交行的复制菜单——
+        // 右键注入被环境策略拦截时的菜单链路验证路径（与 GITTER_TERM_AUTOTYPE 同类）
+        if (Environment.GetEnvironmentVariable("GITTER_LOGMENUTEST") == "1")
+        {
+            _ = DispatcherQueue.TryEnqueue(async () =>
+            {
+                await Task.Delay(8000);
+                _lastCommitRowButton?.ContextFlyout?.ShowAt(_lastCommitRowButton);
+            });
+        }
+
         // 追上创建前已设置的当前项目（启动恢复 / 其他页先行切换）
         if (_context.WorkDir is not null)
         {
@@ -464,7 +475,47 @@ public sealed class LogPage : UserControl
         AutomationProperties.SetName(btn, $"提交 {r.Commit.ShortSha} {r.Commit.Subject}");
         if (isSelected) _selectedRowButton = btn;
         btn.Click += (_, _) => SelectCommit(r, btn);
+        // 右键 / 菜单键：复制提交 ID、消息、作者等（标准列表 UX：右键同时选中该行）
+        btn.ContextFlyout = BuildCommitCopyMenu(r.Commit);
+        btn.ContextRequested += (_, _) =>
+        {
+            if (!isSelected) SelectCommit(r, btn);
+        };
+        _lastCommitRowButton = btn;
         return btn;
+    }
+
+    private Button? _lastCommitRowButton;
+
+    /// <summary>提交行右键菜单：复制 ID / 消息 / 作者等（CommitNode 字段本地可得，无需再查 git）。</summary>
+    private MenuFlyout BuildCommitCopyMenu(CommitNode c)
+    {
+        MenuFlyoutItem Item(string label, string value)
+        {
+            var mi = new MenuFlyoutItem { Text = label };
+            AutomationProperties.SetName(mi, label);
+            mi.Click += (_, _) => CopyToClipboard(value);
+            return mi;
+        }
+
+        var menu = new MenuFlyout();
+        menu.Items.Add(Item("复制提交 ID（完整）", c.Sha));
+        menu.Items.Add(Item("复制短 ID", c.ShortSha));
+        menu.Items.Add(Item("复制提交消息", c.Subject));
+        if (c.Message.Length > 0 && !string.Equals(c.Message, c.Subject, StringComparison.Ordinal))
+        {
+            menu.Items.Add(Item("复制完整提交消息（含正文）", c.Message));
+        }
+        menu.Items.Add(Item("复制作者", c.AuthorEmail.Length > 0 ? $"{c.Author} <{c.AuthorEmail}>" : c.Author));
+        menu.Items.Add(Item("复制单行摘要（短 ID + 标题）", $"{c.ShortSha} {c.Subject}"));
+        return menu;
+    }
+
+    private static void CopyToClipboard(string text)
+    {
+        var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        dp.SetText(text);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
     }
 
     private FrameworkElement BuildBadge(LogBadge badge)
