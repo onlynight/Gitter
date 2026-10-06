@@ -18,9 +18,9 @@
   --mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
 
   /* 动效 tokens（mockup §四）：只做状态反馈，全部 ≤240ms，减速曲线 */
-  --dur-fast: 90ms;
-  --dur-base: 160ms;
-  --dur-slow: 240ms;
+  --dur-fast: 150ms;
+  --dur-base: 250ms;
+  --dur-slow: 400ms;
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --ease-std: cubic-bezier(.2, 0, 0, 1);
 }
@@ -36,18 +36,19 @@
 
 html, body, #root { height: 100%; overflow: hidden; }
 body {
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
   font-size: 13px;
   line-height: 1.55;
+  font-variant-numeric: tabular-nums;
   color: var(--c-text);
   background: var(--c-base);
   user-select: none;
 }
 ::selection { background: var(--c-selected); }
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--c-border-strong); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb { background: var(--c-border-strong); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--c-text3); background-clip: content-box; }
 
 .app { display: grid; grid-template-rows: var(--titlebar-h) 1fr var(--statusbar-h); height: 100%; }
@@ -164,10 +165,10 @@ body {
 .tool-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--c-link) 60%, transparent); outline-offset: 1px; }
 /* primary = 反白（token 层：Accent=Text 近单色，OnAccent 反色） */
 .tool-btn.primary {
-  background: var(--c-accent); border-color: var(--c-accent);
+  background: var(--c-link); border-color: var(--c-link);
   color: var(--c-on-accent); font-weight: 600; padding: 0 14px;
 }
-.tool-btn.primary:hover:not(:disabled) { background: var(--c-accent-hover); border-color: var(--c-accent-hover); }
+.tool-btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--c-link) 85%, var(--c-text)); border-color: var(--c-link); }
 .tool-btn.primary:active:not(:disabled) { background: var(--c-accent-pressed); }
 .tool-btn.danger { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 40%, transparent); }
 .tool-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 12%, transparent); }
@@ -185,7 +186,7 @@ body {
 /* ---- 横幅（卡片化：边框 + 圆角 + 入场滑落） ---- */
 .banner {
   display: flex; align-items: center; gap: 8px;
-  margin: 10px 12px 0; padding: 9px 12px; font-size: 12px; flex: none;
+  margin: 10px 12px 10px; padding: 9px 12px; font-size: 12px; flex: none;
   border: 1px solid color-mix(in srgb, var(--c-amber) 30%, transparent);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--c-amber) 9%, var(--c-panel));
@@ -213,7 +214,7 @@ body {
 .splitter { background: transparent; cursor: col-resize; touch-action: none; transition: background var(--dur-fast) var(--ease-std); }
 .split-h > .splitter { cursor: row-resize; }
 .splitter:hover, .splitter.dragging { background: var(--c-border-strong); }
-.split-pane { overflow: auto; min-width: 0; min-height: 0; }
+.split-pane { overflow: auto; min-width: 0; min-height: 0; background: var(--c-panel); border: 1px solid var(--c-border); border-radius: 10px; }
 
 /* ---- 列表 ---- */
 .list-row {
@@ -308,7 +309,7 @@ body {
   position: fixed; inset: 0; z-index: 100;
   background: color-mix(in srgb, var(--c-base) 45%, transparent);
   display: flex; align-items: flex-start; justify-content: center; padding-top: 84px;
-  animation: fade-in 120ms ease-out;
+  animation: fade-in 200ms ease-out;
 }
 .palette {
   width: 560px; max-height: 420px; display: flex; flex-direction: column;
@@ -336,7 +337,7 @@ body {
 .modal-overlay {
   position: fixed; inset: 0; z-index: 90; background: color-mix(in srgb, #000 45%, transparent);
   display: flex; align-items: center; justify-content: center;
-  animation: fade-in 120ms ease-out;
+  animation: fade-in 200ms ease-out;
 }
 .modal {
   width: 440px; background: var(--c-panel2, var(--c-panel)); border: 1px solid var(--c-border-strong);
@@ -360,7 +361,7 @@ body {
   position: fixed; z-index: 110; min-width: 190px;
   background: var(--c-panel2, var(--c-panel)); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
   padding: 4px; box-shadow: 0 12px 32px color-mix(in srgb, #000 45%, transparent);
-  animation: menu-in var(--dur-fast) var(--ease-out);
+  animation: pop-in var(--dur-base) var(--ease-out);
 }
 @keyframes menu-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
 .ctxmenu button {
@@ -494,3 +495,81 @@ body {
 .md-body th { background: var(--c-hover); }
 .md-body a, .md-link { color: var(--c-link); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .md-body hr { border: none; border-top: 1px solid var(--c-border); margin: 8px 0; }
+
+/* ================= v3（ui-redesign-codex-mockup.html v2/v3 修订） =================
+   动效标准 v3：150（快）/ 250（基础）/ 400（慢）；tooltip 入 250 出 200。 */
+
+/* 字形（Segoe Fluent Icons）：按钮图标化后的图标载体 */
+.glyph {
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  font-size: 13px; line-height: 1; font-style: normal;
+}
+
+/* 图标按钮：ghost（工具栏默认）；danger 红；title→data-tip 悬停提示 */
+.tool-btn.icon {
+  width: 28px; padding: 0; justify-content: center;
+  border-color: transparent; color: var(--c-text2);
+}
+.tool-btn.sm.icon { width: 24px; padding: 0; }
+.tool-btn.icon:hover:not(:disabled) { background: var(--c-hover); border-color: var(--c-border); color: var(--c-text); }
+.tool-btn.icon.danger { color: var(--c-red); }
+.tool-btn.icon.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 12%, transparent); border-color: color-mix(in srgb, var(--c-red) 40%, transparent); }
+
+/* ---- 自绘 checkbox（含半选：组头部分勾选） ---- */
+input[type="checkbox"] {
+  appearance: none; width: 14px; height: 14px; flex: none; margin: 0;
+  border: 1px solid var(--c-border-strong); border-radius: 4px; background: transparent;
+  cursor: pointer; position: relative; vertical-align: -3px;
+  transition: background var(--dur-fast) var(--ease-std), border-color var(--dur-fast) var(--ease-std);
+}
+input[type="checkbox"]:hover { border-color: var(--c-text3); background: var(--c-hover); }
+input[type="checkbox"]:checked, input[type="checkbox"]:indeterminate {
+  background: var(--c-text); border-color: var(--c-text);
+}
+input[type="checkbox"]:checked::after {
+  content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px;
+  border: solid var(--c-base); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg);
+}
+input[type="checkbox"]:indeterminate::after {
+  content: ""; position: absolute; left: 3px; top: 5.5px; width: 6px; height: 1.5px; background: var(--c-base);
+}
+input[type="checkbox"]:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-link) 25%, transparent); }
+
+/* ---- 自绘 select（自绘箭头） ---- */
+select.input {
+  appearance: none; padding-right: 28px; cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%238f8f8f' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 9px center;
+}
+
+/* ---- 自绘 tooltip 层（tooltip.ts 挂 .gtip；跟随 [data-tip]） ---- */
+.gtip {
+  position: fixed; z-index: 300; pointer-events: none;
+  background: var(--c-panel2); border: 1px solid var(--c-border-strong);
+  color: var(--c-text); font-size: 11.5px; font-family: inherit;
+  padding: 4px 9px; border-radius: 6px; white-space: nowrap;
+  box-shadow: 0 8px 24px color-mix(in srgb, #000 45%, transparent);
+  opacity: 0; transform: translateY(3px) scale(.98);
+  transition: opacity 200ms ease-in, transform 200ms ease-in;
+}
+.gtip.show {
+  opacity: 1; transform: none;
+  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+}
+
+/* ---- 面层卡片骨架（列表/diff/终端容器 = panel 圆角卡） ---- */
+.pane-card {
+  background: var(--c-panel); border: 1px solid var(--c-border);
+  border-radius: 10px; min-width: 0; min-height: 0;
+}
+.split-pane.pane-card { overflow: auto; }
+.content-max { max-width: 960px; }
+
+/* ---- 横幅字形徽章（替代 emoji） ---- */
+.b-ico {
+  width: 16px; height: 16px; border-radius: 999px; flex: none;
+  display: inline-grid; place-items: center;
+  font-size: 10px; font-weight: 700; font-family: var(--mono);
+}
+.b-ico.warn { background: color-mix(in srgb, var(--c-amber) 22%, transparent); color: var(--c-amber); }
+.b-ico.err { background: color-mix(in srgb, var(--c-red) 22%, transparent); color: var(--c-red); }

@@ -252,6 +252,12 @@ app.whenReady().then(() => {
             "(() => { const v = " + JSON.stringify(vars) + "; try { Object.entries(JSON.parse(v)).forEach(([k, val]) => document.documentElement.style.setProperty(k, String(val))); } catch {} })()");
           await new Promise((r) => setTimeout(r, 400));
         }
+        const shotPage = process.env.GITTER_SHOT_PAGE;
+        if (shotPage) {
+          await win.webContents.executeJavaScript(
+            "window.GITTER_UI && window.GITTER_UI.navigate(" + JSON.stringify(shotPage) + ")");
+          await new Promise((r) => setTimeout(r, 900)); // 惰性装载 + 渲染稳定
+        }
         const img = await win.webContents.capturePage();
         fs.writeFileSync(shotPath, img.toPNG());
         process.stdout.write("[shot] saved " + shotPath + "\n");

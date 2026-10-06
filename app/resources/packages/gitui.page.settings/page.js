@@ -897,7 +897,7 @@
                   ] })
                 ] }),
                 /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
-                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void importGpk(), children: t("Extensions_Import") }),
+                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Extensions_Import"), onClick: () => void importGpk(), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
                   /* @__PURE__ */ jsxRuntime.jsx(
                     "input",
                     {

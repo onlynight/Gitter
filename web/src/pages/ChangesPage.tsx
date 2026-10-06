@@ -384,15 +384,16 @@ export function ChangesPage() {
           <span className="grow" style={{ flex: 1 }} />
           {!stagedView && someChecked && (
             <button
-              className="tool-btn"
-              style={{ padding: "1px 8px", height: 20, fontSize: 11 }}
+              className="tool-btn icon sm"
+              data-tip={t("Changes_StageChecked", checkedPaths.length)}
+              style={{ width: 22, height: 20 }}
               disabled={busy}
               onClick={(e) => {
                 e.stopPropagation();
                 void run(async () => { await call("changes.stage", { paths: checkedPaths }); return t("Changes_Staged"); });
               }}
             >
-              {t("Changes_StageChecked", checkedPaths.length)}
+              <span className="glyph" style={{ fontSize: 11 }}>{""}</span>
             </button>
           )}
         </div>
@@ -433,20 +434,22 @@ export function ChangesPage() {
   return (
     <>
       <div className="toolbar">
-        <button className="tool-btn" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.fetch", {}); return t("Changes_Fetched"); })}>
-          {t("Changes_Fetch")}
+        <button className="tool-btn icon" data-tip="抓取" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.fetch", {}); return t("Changes_Fetched"); })}>
+          <span className="glyph">{""}</span>
         </button>
-        <button className="tool-btn" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: false }); return t("Changes_Pulled"); })}>
-          {t("Changes_Pull")}
+        <button className="tool-btn icon" data-tip="拉取" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: false }); return t("Changes_Pulled"); })}>
+          <span className="glyph">{""}</span>
         </button>
-        <button className="tool-btn" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: true }); return t("Changes_PulledRebase"); })}>
-          {t("Changes_PullRebase")}
+        <button className="tool-btn icon" data-tip="拉取（变基）" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: true }); return t("Changes_PulledRebase"); })}>
+          <span className="glyph">{""}</span>
         </button>
-        <button className="tool-btn" disabled={!repo || busy} onClick={() => void doPush()}>
-          {t("Changes_Push")}
+        <button className="tool-btn icon" data-tip="推送" disabled={!repo || busy} onClick={() => void doPush()}>
+          <span className="glyph">{""}</span>
         </button>
         <span className="grow" />
-        <button className="tool-btn" onClick={() => setCreateBranch("")}>{t("Branches_Create")}</button>
+        <button className="tool-btn icon" data-tip="创建分支" onClick={() => setCreateBranch("")}>
+          <span className="glyph">{""}</span>
+        </button>
       </div>
 
       {error && (
@@ -500,7 +503,7 @@ export function ChangesPage() {
         >
           {(showAllFindings ? activeFindings : activeFindings.slice(0, 6)).map((f, i) => (
             <div key={findingKey(f) + i} className="banner-text" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span>{f.severity === "blocked" ? "⛔" : "⚠️"}</span>
+              <span className={"b-ico " + (f.severity === "blocked" ? "err" : "warn")}>{f.severity === "blocked" ? "✕" : "!"}</span>
               <span
                 className="finding-link"
                 style={{ fontFamily: "var(--mono)", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2, color: "var(--c-link)" }}
@@ -512,36 +515,39 @@ export function ChangesPage() {
               <span style={{ color: "var(--c-text2)" }}>— {f.message}</span>
               <span style={{ flex: 1 }} />
               <button
-                className="tool-btn"
-                style={{ padding: "0 6px", height: 18, fontSize: 10 }}
-                title={t("Changes_MarkResolved")}
+                className="tool-btn icon sm"
+                data-tip={t("Changes_MarkResolved")}
+                style={{ width: 22, height: 18 }}
                 onClick={() => dismissFinding(f)}
               >
-                {t("Changes_MarkResolved")}
+                <span className="glyph" style={{ fontSize: 10 }}>{""}</span>
               </button>
             </div>
           ))}
           {!showAllFindings && activeFindings.length > 6 && (
             <button
-              className="tool-btn"
-              style={{ alignSelf: "flex-start", padding: "0 4px", fontSize: 11, color: "var(--c-accent)" }}
+              className="tool-btn icon sm"
+              data-tip={t("Changes_MoreFindings", activeFindings.length - 6)}
+              style={{ width: 22, height: 22, color: "var(--c-link)" }}
               onClick={() => setShowAllFindings(true)}
             >
-              {t("Changes_MoreFindings", activeFindings.length - 6)} ▾
+              <span className="glyph" style={{ fontSize: 10 }}>{""}</span>
             </button>
           )}
           {showAllFindings && activeFindings.length > 6 && (
             <button
-              className="tool-btn"
-              style={{ alignSelf: "flex-start", padding: "0 4px", fontSize: 11 }}
+              className="tool-btn icon sm"
+              data-tip={t("Common_Collapse")}
+              style={{ width: 22, height: 22 }}
               onClick={() => setShowAllFindings(false)}
             >
-              {t("Common_Collapse")} ▴
+              <span className="glyph" style={{ fontSize: 10, transform: "rotate(180deg)" }}>{""}</span>
             </button>
           )}
         </div>
       )}
 
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px 12px 12px" }}>
       <SplitPane settingKey="changesSplitterFraction" initial={0.38} a={
         <div className="split-pane" style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, overflow: "auto" }}>
@@ -567,14 +573,14 @@ export function ChangesPage() {
                 <button key={p} className="prefix-chip" onClick={() => setMessage((m) => (m.trim() ? m : p + " "))}>{p}</button>
               ))}
               <span className="grow" style={{ flex: 1 }} />
-              <button className="tool-btn" disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void generateMessage()}>
-                {aiBusy ? t("Common_Loading") : t("Changes_AiGenerate")}
+              <button className="tool-btn icon" data-tip={aiBusy ? t("Common_Loading") : t("Changes_AiGenerate")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void generateMessage()}>
+                <span className="glyph">{""}</span>
               </button>
-              <button className="tool-btn" disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("explain")}>
-                {t("Changes_AiExplain")}
+              <button className="tool-btn icon" data-tip={t("Changes_AiExplain")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("explain")}>
+                <span className="glyph">{""}</span>
               </button>
-              <button className="tool-btn" disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("review")}>
-                {t("Changes_AiReview")}
+              <button className="tool-btn icon" data-tip={t("Changes_AiReview")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("review")}>
+                <span className="glyph">{""}</span>
               </button>
             </div>
             <CommitBlocks fileCount={state?.staged.length ?? 0} />
@@ -587,11 +593,11 @@ export function ChangesPage() {
               }}
             />
             <div className="commit-actions">
-              <button className="tool-btn primary" disabled={!canCommit} onClick={() => void doCommit(false)}>
-                {t("Changes_Commit")}
+              <button className="tool-btn primary icon" data-tip={t("Changes_Commit")} disabled={!canCommit} onClick={() => void doCommit(false)}>
+                <span className="glyph">{""}</span>
               </button>
-              <button className="tool-btn" disabled={!canCommit} onClick={() => void doCommit(true)}>
-                {t("Changes_CommitAndPush")}
+              <button className="tool-btn icon" data-tip={t("Changes_CommitAndPush")} disabled={!canCommit} onClick={() => void doCommit(true)}>
+                <span className="glyph">{""}</span>
               </button>
             </div>
           </div>
@@ -621,26 +627,28 @@ export function ChangesPage() {
               ) : (
                 <>
                   <button
-                    className="tool-btn primary"
+                    className="tool-btn primary icon"
+                    data-tip={t("Changes_StageFile")}
                     disabled={busy}
                     onClick={() => void run(async () => { await call("changes.stage", { paths: [selected.path] }); setSelected(null); setDiff(null); return t("Changes_Staged"); })}
                   >
-                    {t("Changes_StageFile")}
+                    <span className="glyph">{""}</span>
                   </button>
                   {hasSelectedHunks && (
                     <button
-                      className="tool-btn primary"
+                      className="tool-btn primary icon"
+                      data-tip={t("Changes_StageHunkSelected", selectedHunks.size)}
                       disabled={busy}
                       onClick={() => void run(async () => { await call("changes.stageHunks", { path: selected.path, indices: [...selectedHunks] }); return t("Changes_StagedHunks"); })}
                     >
-                      {t("Changes_StageHunkSelected", selectedHunks.size)}
+                      <span className="glyph">{""}</span>
                     </button>
                   )}
                 </>
               )}
               <span className="grow" />
-              <button className="tool-btn" onClick={() => void call("shell.openPath", { path: selected.path, editor: true })}>
-                {t("Changes_OpenInEditor")}
+              <button className="tool-btn icon" data-tip={t("Changes_OpenInEditor")} onClick={() => void call("shell.openPath", { path: selected.path, editor: true })}>
+                <span className="glyph">{""}</span>
               </button>
             </div>
           )}
@@ -698,6 +706,7 @@ export function ChangesPage() {
             )}
           </div>
         </div>} />
+      </div>
 
       {explainText && (
         <Modal title={explainText.title} confirmText={t("Common_Close")} onClose={() => setExplainText(null)} onConfirm={() => setExplainText(null)}>

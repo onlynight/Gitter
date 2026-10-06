@@ -44,7 +44,9 @@ export function ProjectsPage() {
   return (
     <>
       <div className="toolbar">
-        <button className="tool-btn primary" onClick={() => void add()}>{t("Projects_AddProject")}</button>
+        <button className="tool-btn icon" data-tip={t("Projects_AddProject")} onClick={() => void add()}>
+            <span className="glyph">{""}</span>
+          </button>
         <span className="grow" />
       </div>
       {error && <div className="banner error"><span className="banner-text">{error}</span><button className="tool-btn" onClick={() => setError(null)}>✕</button></div>}
@@ -52,7 +54,9 @@ export function ProjectsPage() {
         <div className="empty-state">
           <div className="big">📁</div>
           <div>{t("Projects_EmptyHint")}</div>
-          <button className="tool-btn primary" onClick={() => void add()}>{t("Projects_AddProject")}</button>
+          <button className="tool-btn icon" data-tip={t("Projects_AddProject")} onClick={() => void add()}>
+            <span className="glyph">{""}</span>
+          </button>
         </div>
       ) : (
         <div className="card-grid">
@@ -64,13 +68,19 @@ export function ProjectsPage() {
               </div>
               <div className="card-path">{p.path}</div>
               <div className="card-actions" onClick={(e) => e.stopPropagation()}>
-                <button className="tool-btn" onClick={() => void open(p)}>{t("Projects_Open")}</button>
-                <button className="tool-btn" onClick={() => void call("app.newWindow", { path: p.path })}>{t("Projects_NewWindow")}</button>
+                <button className="tool-btn icon sm" data-tip={t("Projects_Open")} onClick={() => void open(p)}>
+                  <span className="glyph" style={{ fontSize: 11 }}>{""}</span>
+                </button>
+                <button className="tool-btn icon sm" data-tip={t("Projects_NewWindow")} onClick={() => void call("app.newWindow", { path: p.path })}>
+                  <span className="glyph" style={{ fontSize: 11 }}>{""}</span>
+                </button>
                 <button
-                  className="tool-btn"
+                  className="tool-btn icon sm"
+                  data-tip={t("Projects_Remove")}
+                  style={{ color: "var(--c-red)" }}
                   onClick={async () => { await call("projects.remove", { path: p.path }); closeRepo(); await reload(); }}
                 >
-                  {t("Projects_Remove")}
+                  <span className="glyph" style={{ fontSize: 11 }}>{""}</span>
                 </button>
               </div>
             </div>

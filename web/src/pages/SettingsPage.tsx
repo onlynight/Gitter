@@ -887,7 +887,9 @@ export function SettingsPage() {
                   </label>
                 </div>
                 <div>
-                  <button className="tool-btn" onClick={() => void importGpk()}>{t("Extensions_Import")}</button>
+                  <button className="tool-btn icon" data-tip={t("Extensions_Import")} onClick={() => void importGpk()}>
+                    <span className="glyph">{""}</span>
+                  </button>
                   <input
                     className="input"
                     style={{ width: 260 }}

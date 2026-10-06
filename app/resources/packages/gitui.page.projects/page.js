@@ -54,7 +54,7 @@
     };
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "toolbar", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", onClick: () => void add(), children: t("Projects_AddProject") }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Projects_AddProject"), onClick: () => void add(), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" })
       ] }),
       error && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner error", children: [
@@ -64,7 +64,7 @@
       state && state.projects.length === 0 ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "big", children: "📁" }),
         /* @__PURE__ */ jsxRuntime.jsx("div", { children: t("Projects_EmptyHint") }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", onClick: () => void add(), children: t("Projects_AddProject") })
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Projects_AddProject"), onClick: () => void add(), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
       ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "card-grid", children: state == null ? void 0 : state.projects.map((p) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "card", onClick: () => void open(p), children: [
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "card-title", children: [
           "📁 ",
@@ -73,18 +73,20 @@
         ] }),
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "card-path", children: p.path }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "card-actions", onClick: (e) => e.stopPropagation(), children: [
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void open(p), children: t("Projects_Open") }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("app.newWindow", { path: p.path }), children: t("Projects_NewWindow") }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon sm", "data-tip": t("Projects_Open"), onClick: () => void open(p), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", style: { fontSize: 11 }, children: "" }) }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon sm", "data-tip": t("Projects_NewWindow"), onClick: () => void call("app.newWindow", { path: p.path }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", style: { fontSize: 11 }, children: "" }) }),
           /* @__PURE__ */ jsxRuntime.jsx(
             "button",
             {
-              className: "tool-btn",
+              className: "tool-btn icon sm",
+              "data-tip": t("Projects_Remove"),
+              style: { color: "var(--c-red)" },
               onClick: async () => {
                 await call("projects.remove", { path: p.path });
                 closeRepo();
                 await reload();
               },
-              children: t("Projects_Remove")
+              children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", style: { fontSize: 11 }, children: "" })
             }
           )
         ] })

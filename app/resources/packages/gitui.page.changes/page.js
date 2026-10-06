@@ -390,8 +390,9 @@
           !stagedView && someChecked && /* @__PURE__ */ jsxRuntime.jsx(
             "button",
             {
-              className: "tool-btn",
-              style: { padding: "1px 8px", height: 20, fontSize: 11 },
+              className: "tool-btn icon sm",
+              "data-tip": t("Changes_StageChecked", checkedPaths.length),
+              style: { width: 22, height: 20 },
               disabled: busy,
               onClick: (e) => {
                 e.stopPropagation();
@@ -400,7 +401,7 @@
                   return t("Changes_Staged");
                 });
               },
-              children: t("Changes_StageChecked", checkedPaths.length)
+              children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", style: { fontSize: 11 }, children: "" })
             }
           )
         ] }),
@@ -450,21 +451,21 @@
     const hasSelectedHunks = selectedHunks.size > 0 && diff && !diff.isBinary;
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "toolbar", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: !repo || busy, onClick: () => void run(async () => {
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": "抓取", disabled: !repo || busy, onClick: () => void run(async () => {
           await call("changes.fetch", {});
           return t("Changes_Fetched");
-        }), children: t("Changes_Fetch") }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: !repo || busy, onClick: () => void run(async () => {
+        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": "拉取", disabled: !repo || busy, onClick: () => void run(async () => {
           await call("changes.pull", { rebase: false });
           return t("Changes_Pulled");
-        }), children: t("Changes_Pull") }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: !repo || busy, onClick: () => void run(async () => {
+        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": "拉取（变基）", disabled: !repo || busy, onClick: () => void run(async () => {
           await call("changes.pull", { rebase: true });
           return t("Changes_PulledRebase");
-        }), children: t("Changes_PullRebase") }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: !repo || busy, onClick: () => void doPush(), children: t("Changes_Push") }),
+        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": "推送", disabled: !repo || busy, onClick: () => void doPush(), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setCreateBranch(""), children: t("Branches_Create") })
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": "创建分支", onClick: () => setCreateBranch(""), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
       ] }),
       error && /* @__PURE__ */ jsxRuntime.jsx(
         Banner,
@@ -520,7 +521,7 @@
           style: { flexDirection: "column", alignItems: "stretch", gap: 2 },
           children: [
             (showAllFindings ? activeFindings : activeFindings.slice(0, 6)).map((f, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner-text", style: { display: "flex", alignItems: "center", gap: 6 }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: f.severity === "blocked" ? "⛔" : "⚠️" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "b-ico " + (f.severity === "blocked" ? "err" : "warn"), children: f.severity === "blocked" ? "✕" : "!" }),
               /* @__PURE__ */ jsxRuntime.jsxs(
                 "span",
                 {
@@ -542,42 +543,38 @@
               /* @__PURE__ */ jsxRuntime.jsx(
                 "button",
                 {
-                  className: "tool-btn",
-                  style: { padding: "0 6px", height: 18, fontSize: 10 },
-                  title: t("Changes_MarkResolved"),
+                  className: "tool-btn icon sm",
+                  "data-tip": t("Changes_MarkResolved"),
+                  style: { width: 22, height: 18 },
                   onClick: () => dismissFinding(f),
-                  children: t("Changes_MarkResolved")
+                  children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", style: { fontSize: 10 }, children: "" })
                 }
               )
             ] }, findingKey(f) + i)),
-            !showAllFindings && activeFindings.length > 6 && /* @__PURE__ */ jsxRuntime.jsxs(
+            !showAllFindings && activeFindings.length > 6 && /* @__PURE__ */ jsxRuntime.jsx(
               "button",
               {
-                className: "tool-btn",
-                style: { alignSelf: "flex-start", padding: "0 4px", fontSize: 11, color: "var(--c-accent)" },
+                className: "tool-btn icon sm",
+                "data-tip": t("Changes_MoreFindings", activeFindings.length - 6),
+                style: { width: 22, height: 22, color: "var(--c-link)" },
                 onClick: () => setShowAllFindings(true),
-                children: [
-                  t("Changes_MoreFindings", activeFindings.length - 6),
-                  " ▾"
-                ]
+                children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", style: { fontSize: 10 }, children: "" })
               }
             ),
-            showAllFindings && activeFindings.length > 6 && /* @__PURE__ */ jsxRuntime.jsxs(
+            showAllFindings && activeFindings.length > 6 && /* @__PURE__ */ jsxRuntime.jsx(
               "button",
               {
-                className: "tool-btn",
-                style: { alignSelf: "flex-start", padding: "0 4px", fontSize: 11 },
+                className: "tool-btn icon sm",
+                "data-tip": t("Common_Collapse"),
+                style: { width: 22, height: 22 },
                 onClick: () => setShowAllFindings(false),
-                children: [
-                  t("Common_Collapse"),
-                  " ▴"
-                ]
+                children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", style: { fontSize: 10, transform: "rotate(180deg)" }, children: "" })
               }
             )
           ]
         }
       ),
-      /* @__PURE__ */ jsxRuntime.jsx(SplitPane, { settingKey: "changesSplitterFraction", initial: 0.38, a: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane", style: { display: "flex", flexDirection: "column" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px 12px 12px" }, children: /* @__PURE__ */ jsxRuntime.jsx(SplitPane, { settingKey: "changesSplitterFraction", initial: 0.38, a: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane", style: { display: "flex", flexDirection: "column" }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "auto" }, children: state && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           group("conflicts", t("Changes_Conflicts"), state.conflicts, false, false),
           group("staged", t("Changes_StagedGroup"), state.staged, true, true),
@@ -592,9 +589,9 @@
           /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "prefix-row", children: [
             PREFIXES.map((p) => /* @__PURE__ */ jsxRuntime.jsx("button", { className: "prefix-chip", onClick: () => setMessage((m) => m.trim() ? m : p + " "), children: p }, p)),
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow", style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: aiBusy ? t("Common_Loading") : t("Changes_AiGenerate") }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("explain"), children: t("Changes_AiExplain") }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("review"), children: t("Changes_AiReview") })
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": aiBusy ? t("Common_Loading") : t("Changes_AiGenerate"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Changes_AiExplain"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("explain"), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Changes_AiReview"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("review"), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
           ] }),
           /* @__PURE__ */ jsxRuntime.jsx(CommitBlocks, { fileCount: (state == null ? void 0 : state.staged.length) ?? 0 }),
           /* @__PURE__ */ jsxRuntime.jsx(
@@ -612,8 +609,8 @@
             }
           ),
           /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "commit-actions", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", disabled: !canCommit, onClick: () => void doCommit(false), children: t("Changes_Commit") }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: !canCommit, onClick: () => void doCommit(true), children: t("Changes_CommitAndPush") })
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary icon", "data-tip": t("Changes_Commit"), disabled: !canCommit, onClick: () => void doCommit(false), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Changes_CommitAndPush"), disabled: !canCommit, onClick: () => void doCommit(true), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
           ] })
         ] })
       ] }), b: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane", style: { display: "flex", flexDirection: "column" }, children: [
@@ -649,7 +646,8 @@
             /* @__PURE__ */ jsxRuntime.jsx(
               "button",
               {
-                className: "tool-btn primary",
+                className: "tool-btn primary icon",
+                "data-tip": t("Changes_StageFile"),
                 disabled: busy,
                 onClick: () => void run(async () => {
                   await call("changes.stage", { paths: [selected.path] });
@@ -657,24 +655,25 @@
                   setDiff(null);
                   return t("Changes_Staged");
                 }),
-                children: t("Changes_StageFile")
+                children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" })
               }
             ),
             hasSelectedHunks && /* @__PURE__ */ jsxRuntime.jsx(
               "button",
               {
-                className: "tool-btn primary",
+                className: "tool-btn primary icon",
+                "data-tip": t("Changes_StageHunkSelected", selectedHunks.size),
                 disabled: busy,
                 onClick: () => void run(async () => {
                   await call("changes.stageHunks", { path: selected.path, indices: [...selectedHunks] });
                   return t("Changes_StagedHunks");
                 }),
-                children: t("Changes_StageHunkSelected", selectedHunks.size)
+                children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" })
               }
             )
           ] }),
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("shell.openPath", { path: selected.path, editor: true }), children: t("Changes_OpenInEditor") })
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Changes_OpenInEditor"), onClick: () => void call("shell.openPath", { path: selected.path, editor: true }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
         ] }),
         (selected == null ? void 0 : selected.isConflict) && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "banner", children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: t("Changes_ConflictCompareHint") }) }),
         /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "auto", minHeight: 0 }, children: selected && preview ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }, children: [
@@ -713,7 +712,7 @@
             })
           }
         ) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: t("Changes_SelectFileHint") }) })
-      ] }) }),
+      ] }) }) }),
       explainText && /* @__PURE__ */ jsxRuntime.jsx(Modal, { title: explainText.title, confirmText: t("Common_Close"), onClose: () => setExplainText(null), onConfirm: () => setExplainText(null), children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { whiteSpace: "pre-wrap", maxHeight: 340, overflow: "auto", userSelect: "text", fontSize: 12.5, lineHeight: 1.5 }, children: explainText.text }) }),
       createBranch !== null && /* @__PURE__ */ jsxRuntime.jsx(
         Modal,

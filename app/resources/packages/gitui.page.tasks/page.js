@@ -304,7 +304,7 @@
             /* @__PURE__ */ jsxRuntime.jsx("div", { className: "card-path", children: task.worktreePath }),
             task.lastMessage && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 11, color: "var(--c-text)", marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: task.lastMessage }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "card-actions", onClick: (e) => e.stopPropagation(), children: [
-              live && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: async () => {
+              live && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon sm", "data-tip": t("Agents_Stop"), onClick: async () => {
                 try {
                   await call("agent.task.stop", { taskId: task.taskId });
                   setTransient(t("Agents_Stopped"));
@@ -312,12 +312,12 @@
                 } catch (e) {
                   setError(e.message);
                 }
-              }, children: t("Agents_Stop") }),
-              !live && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => {
+              }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+              !live && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon sm", "data-tip": t("Agents_Resume"), onClick: () => {
                 setSelectedTask(task.taskId);
                 setInputText("");
-              }, children: t("Agents_Resume") }),
-              !live && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: async () => {
+              }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+              !live && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon sm", "data-tip": t("Agents_Archive"), onClick: async () => {
                 try {
                   await call("agent.task.archive", { taskId: task.taskId, archived: true });
                   if (selectedTask === task.taskId) setSelectedTask(null);
@@ -325,15 +325,15 @@
                 } catch (e) {
                   setError(e.message);
                 }
-              }, children: t("Agents_Archive") }),
-              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("app.newWindow", { path: task.worktreePath }), children: t("Projects_NewWindow") })
+              }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon sm", "data-tip": t("Projects_NewWindow"), onClick: () => void call("app.newWindow", { path: task.worktreePath }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
             ] })
           ]
         },
         task.taskId
       );
     };
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "grid", gridTemplateColumns: "400px 1fr", gap: 14, flex: 1, minHeight: 0, alignItems: "stretch" }, children: [
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "grid", gridTemplateColumns: "400px 1fr", gap: 14, flex: 1, minHeight: 0, alignItems: "stretch", padding: "10px 12px 12px" }, children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, gap: 10 }, children: [
         transient && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "toolbar", style: { padding: 0 }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 11, color: "var(--c-green)" }, children: transient }) }),
         error && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner error", children: [
@@ -449,7 +449,7 @@
                     /* @__PURE__ */ jsxRuntime.jsx("option", { value: "off", children: t("Agents_ThinkingOff") })
                   ] }),
                   /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
-                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", disabled: sending || !composeText.trim(), onClick: () => void createFromCompose(), children: sending ? "…" : `${t("Agents_Send")} ▶` })
+                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary icon", "data-tip": t("Agents_Send"), disabled: sending || !composeText.trim(), onClick: () => void createFromCompose(), children: sending ? "…" : /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
                 ] })
               ]
             }

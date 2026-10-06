@@ -6310,7 +6310,7 @@ WARNING: This link could potentially be dangerous`)) {
           /* @__PURE__ */ jsxRuntime.jsx("option", { value: "cmd", children: "CMD" }),
           /* @__PURE__ */ jsxRuntime.jsx("option", { value: "bash", children: "Git Bash" })
         ] }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void ensureSession(), children: t("Terminal_Restart") }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Terminal_Restart"), onClick: () => void ensureSession(), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 11, color: "var(--c-text3)" }, children: status })
       ] }),

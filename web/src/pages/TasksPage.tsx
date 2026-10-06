@@ -263,36 +263,37 @@ export function TasksPage() {
         )}
         <div className="card-actions" onClick={(e) => e.stopPropagation()}>
           {live && (
-            <button className="tool-btn" onClick={async () => {
+            <button className="tool-btn icon sm" data-tip={t("Agents_Stop")} onClick={async () => {
               try {
                 await call("agent.task.stop", { taskId: task.taskId });
                 setTransient(t("Agents_Stopped"));
                 await reloadAgents();
               } catch (e) { setError((e as Error).message); }
-            }}>{t("Agents_Stop")}</button>
+            }}><span className="glyph">{""}</span></button>
           )}
           {!live && (
-            <button className="tool-btn" onClick={() => { setSelectedTask(task.taskId); setInputText(""); }}>
-              {t("Agents_Resume")}
+            <button className="tool-btn icon sm" data-tip={t("Agents_Resume")} onClick={() => { setSelectedTask(task.taskId); setInputText(""); }}>
+              <span className="glyph">{""}</span>
             </button>
           )}
           {!live && (
-            <button className="tool-btn" onClick={async () => {
+            <button className="tool-btn icon sm" data-tip={t("Agents_Archive")} onClick={async () => {
               try {
                 await call("agent.task.archive", { taskId: task.taskId, archived: true });
                 if (selectedTask === task.taskId) setSelectedTask(null);
                 await reloadAgents();
               } catch (e) { setError((e as Error).message); }
-            }}>{t("Agents_Archive")}</button>
+            }}><span className="glyph">{""}</span></button>
           )}
-          <button className="tool-btn" onClick={() => void call("app.newWindow", { path: task.worktreePath })}>{t("Projects_NewWindow")}</button>
+          <button className="tool-btn icon sm" data-tip={t("Projects_NewWindow")} onClick={() => void call("app.newWindow", { path: task.worktreePath })}>
+            <span className="glyph">{""}</span></button>
         </div>
       </div>
     );
   };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "400px 1fr", gap: 14, flex: 1, minHeight: 0, alignItems: "stretch" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "400px 1fr", gap: 14, flex: 1, minHeight: 0, alignItems: "stretch", padding: "10px 12px 12px" }}>
       {/* ════ 左栏：任务卡列表 ════ */}
       <div style={{ display: "flex", flexDirection: "column", minHeight: 0, gap: 10 }}>
         {transient && <div className="toolbar" style={{ padding: 0 }}><span style={{ fontSize: 11, color: "var(--c-green)" }}>{transient}</span></div>}
@@ -396,8 +397,8 @@ export function TasksPage() {
                   <option value="off">{t("Agents_ThinkingOff")}</option>
                 </select>
                 <span className="grow" />
-                <button className="tool-btn primary" disabled={sending || !composeText.trim()} onClick={() => void createFromCompose()}>
-                  {sending ? "…" : `${t("Agents_Send")} ▶`}
+                <button className="tool-btn primary icon" data-tip={t("Agents_Send")} disabled={sending || !composeText.trim()} onClick={() => void createFromCompose()}>
+                  {sending ? "…" : <span className="glyph">{""}</span>}
                 </button>
               </div>
             </div>

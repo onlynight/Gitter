@@ -135,7 +135,9 @@ export function TerminalPage() {
           <option value="cmd">CMD</option>
           <option value="bash">Git Bash</option>
         </select>
-        <button className="tool-btn" onClick={() => void ensureSession()}>{t("Terminal_Restart")}</button>
+        <button className="tool-btn icon" data-tip={t("Terminal_Restart")} onClick={() => void ensureSession()}>
+          <span className="glyph">{""}</span>
+        </button>
         <span className="grow" />
         <span style={{ fontSize: 11, color: "var(--c-text3)" }}>{status}</span>
       </div>

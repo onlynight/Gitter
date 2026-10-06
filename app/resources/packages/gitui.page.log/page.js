@@ -1887,7 +1887,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
           onClose: () => setCompareBase(null)
         }
       ),
-      /* @__PURE__ */ jsxRuntime.jsx(SplitPane, { settingKey: "logSplitterFraction", initial: 0.42, a: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane", ref: listRef, children: [
+      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "8px 12px 12px" }, children: /* @__PURE__ */ jsxRuntime.jsx(SplitPane, { settingKey: "logSplitterFraction", initial: 0.42, a: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane", ref: listRef, children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: virtualizer.getTotalSize(), position: "relative" }, children: virtualizer.getVirtualItems().map((vi) => {
           const row = rows[vi.index];
           if (row.kind === "group") {
@@ -1979,14 +1979,15 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
                 })();
               },
               children: [
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: c.shortSha }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "trim", style: { flex: 1 }, children: c.subject }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { color: "var(--c-text3)" }, children: c.shortSha }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "trim", style: { flex: "0 1 auto", minWidth: 0 }, children: c.subject }),
                 c.refs.slice(0, 3).map((r) => /* @__PURE__ */ jsxRuntime.jsx("span", { className: "badge" + (r.isTag ? " tag" : ""), children: r.name }, r.name)),
                 row.ai && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "badge tag", children: [
                   "AI · ",
                   row.ai
                 ] }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "trim", style: { color: "var(--c-text3)", fontSize: 11, maxWidth: 180 }, children: row.meta })
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "trim", style: { color: "var(--c-text3)", fontSize: 11, maxWidth: 180 }, children: row.meta }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } })
               ]
             },
             row.key
@@ -2031,7 +2032,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
         ] }),
         diffLoading && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "spinner", children: t("Common_Loading") }),
         fileDiff && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: "55%", overflow: "auto", borderTop: "1px solid var(--c-border)" }, children: /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: fileDiff, inline: ((_a2 = app.settings) == null ? void 0 : _a2.diffMode) === "inline" }) })
-      ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: detailError ?? t("Log_SelectCommitHint") }) }) }),
+      ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: detailError ?? t("Log_SelectCommitHint") }) }) }) }),
       resetTarget && /* @__PURE__ */ jsxRuntime.jsx(
         Modal,
         {

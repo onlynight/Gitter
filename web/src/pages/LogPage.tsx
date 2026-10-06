@@ -270,6 +270,7 @@ export function LogPage() {
         />
       )}
 
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "8px 12px 12px" }}>
       <SplitPane settingKey="logSplitterFraction" initial={0.42} a={
         <div className="split-pane" ref={listRef}>
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -354,13 +355,14 @@ export function LogPage() {
                     })();
                   }}
                 >
-                  <span className="mono">{c.shortSha}</span>
-                  <span className="trim" style={{ flex: 1 }}>{c.subject}</span>
+                  <span className="mono" style={{ color: "var(--c-text3)" }}>{c.shortSha}</span>
+                  <span className="trim" style={{ flex: "0 1 auto", minWidth: 0 }}>{c.subject}</span>
                   {c.refs.slice(0, 3).map((r) => (
                     <span key={r.name} className={"badge" + (r.isTag ? " tag" : "")}>{r.name}</span>
                   ))}
                   {row.ai && <span className="badge tag">AI · {row.ai}</span>}
                   <span className="trim" style={{ color: "var(--c-text3)", fontSize: 11, maxWidth: 180 }}>{row.meta}</span>
+                  <span style={{ flex: 1 }} />
                 </div>
               );
             })}
@@ -411,6 +413,7 @@ export function LogPage() {
             <div className="empty-state">{detailError ?? t("Log_SelectCommitHint")}</div>
           )}
         </div>} />
+      </div>
       {resetTarget && (
         <Modal
           title={t("Log_ResetTitle")}

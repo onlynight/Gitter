@@ -28,20 +28,20 @@ interface ThemeDoc {
  * Panel2/Link 必须在基座缺省里存在——tm.* 等第三方主题包不携带这两个键，样式层依赖回退。 */
 const BUILTIN: Record<"dark" | "light", Record<string, string>> = {
   dark: {
-    Base: "#0F1113", Panel: "#15181C", Panel2: "#1A1E24", Hover: "#1D2228", Selected: "#262D35",
-    Border: "#242A31", BorderStrong: "#343C45", Accent: "#E9EBEE", AccentHover: "#FFFFFF",
-    AccentPressed: "#D5D8DC", AccentSoft: "#26E9EBEE", OnAccent: "#0C0D0F",
-    Text: "#E9EBEE", Text2: "#9AA3AD", Text3: "#616973", Link: "#7AAEF8",
-    Green: "#3FB950", Red: "#F0655A", Amber: "#D5A03C",
-    ChipBlueBg: "#1C2735", ChipBlueFg: "#8DB8F5", ChipPurpleBg: "#241F33", ChipPurpleFg: "#B9A3EC",
+    Base: "#0D0D0D", Panel: "#171717", Panel2: "#202020", Hover: "#272727", Selected: "#333333",
+    Border: "#2B2B2B", BorderStrong: "#3E3E3E", Accent: "#EAEAEA", AccentHover: "#FFFFFF",
+    AccentPressed: "#C9C9C9", AccentSoft: "#26EAEAEA", OnAccent: "#0D0D0D",
+    Text: "#EAEAEA", Text2: "#A0A0A0", Text3: "#6E6E6E", Link: "#6BABF5",
+    Green: "#3FB950", Red: "#F0655A", Amber: "#E3B341",
+    ChipBlueBg: "#1D2733", ChipBlueFg: "#8DB8F5", ChipPurpleBg: "#241F33", ChipPurpleFg: "#B9A3EC",
   },
   light: {
-    Base: "#FFFFFF", Panel: "#F6F8FA", Panel2: "#EFF1F3", Hover: "#EAEEF1", Selected: "#DDE4EA",
-    Border: "#E4E7EA", BorderStrong: "#D0D6DC", Accent: "#1F2328", AccentHover: "#000000",
-    AccentPressed: "#3A4148", AccentSoft: "#141F2328", OnAccent: "#FFFFFF",
-    Text: "#1F2328", Text2: "#59636E", Text3: "#8C959F", Link: "#0969DA",
-    Green: "#1A7F37", Red: "#CF222E", Amber: "#9A6700",
-    ChipBlueBg: "#DDF4FF", ChipBlueFg: "#0969DA", ChipPurpleBg: "#FBEFFF", ChipPurpleFg: "#8250DF",
+    Base: "#FFFFFF", Panel: "#F7F7F8", Panel2: "#EFEFF1", Hover: "#EBEBEC", Selected: "#E0E1E3",
+    Border: "#E5E5E5", BorderStrong: "#D0D0D0", Accent: "#1B1B1B", AccentHover: "#000000",
+    AccentPressed: "#3A3A3A", AccentSoft: "#141B1B1B", OnAccent: "#FFFFFF",
+    Text: "#1B1B1B", Text2: "#5C5C5C", Text3: "#8F8F8F", Link: "#0B6BCB",
+    Green: "#1A7F37", Red: "#CF222E", Amber: "#BF8700",
+    ChipBlueBg: "#DDF4FF", ChipBlueFg: "#0B6BCB", ChipPurpleBg: "#FBEFFF", ChipPurpleFg: "#8250DF",
   },
 };
 

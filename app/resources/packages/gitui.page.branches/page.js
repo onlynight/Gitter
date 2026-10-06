@@ -139,7 +139,7 @@
     const renderGroup = (title, remote) => {
       const list = remote ? (state == null ? void 0 : state.remote) ?? [] : (state == null ? void 0 : state.local) ?? [];
       if (list.length === 0) return null;
-      return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+      return /* @__PURE__ */ jsxRuntime.jsx(jsxRuntime.Fragment, { children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "pane-card", style: { marginBottom: 12, display: "block" }, children: [
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "group-header", children: [
           /* @__PURE__ */ jsxRuntime.jsx("span", { children: title }),
           /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontWeight: 400 }, children: list.length })
@@ -166,24 +166,24 @@
           },
           b.name
         ))
-      ] });
+      ] }) });
     };
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "toolbar", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", onClick: () => setDialog({ kind: "create", name: "" }), children: t("Branches_Create") }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Create"), onClick: () => setDialog({ kind: "create", name: "" }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: busy, onClick: () => void run(async () => {
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Pull"), disabled: busy, onClick: () => void run(async () => {
           await call("branches.pull", { rebase: false });
           return t("Branches_Pulled");
-        }), children: t("Branches_Pull") }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: busy, onClick: () => void run(async () => {
+        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_PullRebase"), disabled: busy, onClick: () => void run(async () => {
           await call("branches.pull", { rebase: true });
           return t("Branches_PulledRebase");
-        }), children: t("Branches_PullRebase") }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: busy, onClick: () => void run(async () => {
+        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Push"), disabled: busy, onClick: () => void run(async () => {
           await call("branches.push", {});
           return t("Branches_Pushed");
-        }), children: t("Branches_Push") })
+        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
       ] }),
       error && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner error", children: [
         /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: error }),
@@ -195,10 +195,17 @@
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setTransient(null), children: "✕" })
       ] }),
       busy && /* @__PURE__ */ jsxRuntime.jsx(SyncBar, { progress: syncProgress }),
-      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "split-pane", style: { flex: 1 }, children: state ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-        renderGroup(t("Branches_LocalGroup"), false),
-        renderGroup(t("Branches_RemoteGroup"), true)
-      ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: t("Common_Loading") }) }),
+      /* @__PURE__ */ jsxRuntime.jsx(
+        "div",
+        {
+          className: "split-pane",
+          style: { flex: 1, minHeight: 0, overflow: "auto", margin: "10px 12px 12px", background: "transparent", border: "none", borderRadius: 0 },
+          children: state ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            renderGroup(t("Branches_LocalGroup"), false),
+            renderGroup(t("Branches_RemoteGroup"), true)
+          ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: t("Common_Loading") })
+        }
+      ),
       (dialog == null ? void 0 : dialog.kind) === "create" && /* @__PURE__ */ jsxRuntime.jsx(
         Modal,
         {

@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import "./builtinPages"; // 内置页面注册表自举（必须先于 App 渲染）
 import "./kitGlobal"; // window.GITTER_KIT 组装（必须先于任何外部页脚本装载）
+import { installTooltip } from "./tooltip";
+installTooltip(); // 自绘 tooltip 层（data-tip → 悬浮提示）
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 import { resolveUiPage } from "./uiRegistry";

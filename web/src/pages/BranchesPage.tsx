@@ -94,6 +94,7 @@ export function BranchesPage() {
     if (list.length === 0) return null;
     return (
       <>
+        <div className="pane-card" style={{ marginBottom: 12, display: "block" }}>
         <div className="group-header"><span>{title}</span><span style={{ color: "var(--c-text3)", fontWeight: 400 }}>{list.length}</span></div>
         {list.map((b) => (
           <div
@@ -115,6 +116,7 @@ export function BranchesPage() {
             <span className="trim" style={{ color: "var(--c-text3)", fontSize: 11, maxWidth: 260 }}>{b.subject}</span>
           </div>
         ))}
+        </div>
       </>
     );
   };
@@ -122,11 +124,19 @@ export function BranchesPage() {
   return (
     <>
       <div className="toolbar">
-        <button className="tool-btn primary" onClick={() => setDialog({ kind: "create", name: "" })}>{t("Branches_Create")}</button>
+        <button className="tool-btn icon" data-tip={t("Branches_Create")} onClick={() => setDialog({ kind: "create", name: "" })}>
+          <span className="glyph">{""}</span>
+        </button>
         <span className="grow" />
-        <button className="tool-btn" disabled={busy} onClick={() => void run(async () => { await call("branches.pull", { rebase: false }); return t("Branches_Pulled"); })}>{t("Branches_Pull")}</button>
-        <button className="tool-btn" disabled={busy} onClick={() => void run(async () => { await call("branches.pull", { rebase: true }); return t("Branches_PulledRebase"); })}>{t("Branches_PullRebase")}</button>
-        <button className="tool-btn" disabled={busy} onClick={() => void run(async () => { await call("branches.push", {}); return t("Branches_Pushed"); })}>{t("Branches_Push")}</button>
+        <button className="tool-btn icon" data-tip={t("Branches_Pull")} disabled={busy} onClick={() => void run(async () => { await call("branches.pull", { rebase: false }); return t("Branches_Pulled"); })}>
+          <span className="glyph">{""}</span>
+        </button>
+        <button className="tool-btn icon" data-tip={t("Branches_PullRebase")} disabled={busy} onClick={() => void run(async () => { await call("branches.pull", { rebase: true }); return t("Branches_PulledRebase"); })}>
+          <span className="glyph">{""}</span>
+        </button>
+        <button className="tool-btn icon" data-tip={t("Branches_Push")} disabled={busy} onClick={() => void run(async () => { await call("branches.push", {}); return t("Branches_Pushed"); })}>
+          <span className="glyph">{""}</span>
+        </button>
       </div>
 
       {error && (
@@ -141,7 +151,10 @@ export function BranchesPage() {
       {transient && <div className="banner"><span className="banner-text">{transient}</span><button className="tool-btn" onClick={() => setTransient(null)}>✕</button></div>}
       {busy && <SyncBar progress={syncProgress} />}
 
-      <div className="split-pane" style={{ flex: 1 }}>
+      <div
+        className="split-pane"
+        style={{ flex: 1, minHeight: 0, overflow: "auto", margin: "10px 12px 12px", background: "transparent", border: "none", borderRadius: 0 }}
+      >
         {state ? (
           <>
             {renderGroup(t("Branches_LocalGroup"), false)}
