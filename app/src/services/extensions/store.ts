@@ -263,9 +263,18 @@ export class PackageStore {
   }
 
   /** 空状态提示包（emptyHints 接缝，E 阶段收尾）：按插槽返回追加文案。 */
-  /** 渲染层页面贡献（pages 接缝，U1）：装载由渲染层 loader 执行（allowCodePlugins 门）。 */
-  pagesOf(): { packageId: string; id: string; title: string; entryAbs: string; permissions: string[] }[] {
-    const out: { packageId: string; id: string; title: string; entryAbs: string; permissions: string[] }[] = [];
+  /** 渲染层页面贡献（pages 接缝，U1）：装载由渲染层 loader 执行。
+   * 内置包页面恒返回（信任随应用分发）；用户包页面由 bridge 按 allowCodePlugins 门过滤（R0/A3）。 */
+  pagesOf(): {
+    packageId: string; id: string; slot: string; title: string;
+    entryAbs: string; permissions: string[]; styles: string[]; lazy: boolean; isBuiltIn: boolean;
+    icon: string | null; svg: string | null;
+  }[] {
+    const out: {
+      packageId: string; id: string; slot: string; title: string;
+      entryAbs: string; permissions: string[]; styles: string[]; lazy: boolean; isBuiltIn: boolean;
+      icon: string | null; svg: string | null;
+    }[] = [];
     for (const e of this.scanAll()) {
       if (e.state !== "active" || !e.manifest) continue;
       if (this.ledgerOf()[e.manifest.id]?.kinds?.pages === false) continue;
@@ -273,11 +282,46 @@ export class PackageStore {
         out.push({
           packageId: e.manifest.id,
           id: `ext.${e.manifest.id}.${pg.id}`,
+          slot: pg.slot ?? `ext.${e.manifest.id}.${pg.id}`,
           title: pg.title,
           entryAbs: path.join(e.dir, pg.entry),
           permissions: [...pg.permissions],
+          styles: pg.styles.map((s) => path.join(e.dir, s)),
+          lazy: pg.lazy ?? false,
+          isBuiltIn: e.isBuiltIn,
+          icon: pg.icon,
+          svg: pg.svg,
         });
       }
+    }
+    return out;
+  }
+
+  /**
+   * 停用守卫（ui-full-pluginization-plan.md D4：槽位恒有 ≥1 已启用提供者）：
+   * 假想按 patch 停用 packageId（整体或 pages kind）后，返回将失去唯一提供者的槽位列表。
+   * 非空 = bridge 应拒绝并把这些槽位作为原因返回；纯函数，供冒烟直测。
+   */
+  soleProviderSlotsAfterDisable(packageId: string, kind: "package" | "pages" = "package"): string[] {
+    const activeProviders = new Map<string, string[]>(); // slot → 活跃提供者包 id 列表
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.pages === false) continue;
+      for (const pg of e.manifest.contributes.pages) {
+        const slot = pg.slot ?? `ext.${e.manifest.id}.${pg.id}`;
+        const list = activeProviders.get(slot) ?? [];
+        list.push(e.manifest.id);
+        activeProviders.set(slot, list);
+      }
+    }
+    const affected = kind === "pages"
+      ? (this.ledgerEntry(packageId)?.kinds?.pages !== false) // 已单独停用则再停无影响
+      : true;
+    if (!affected) return [];
+    const out: string[] = [];
+    for (const [slot, providers] of activeProviders) {
+      if (!providers.includes(packageId)) continue;
+      if (providers.length === 1) out.push(slot);
     }
     return out;
   }

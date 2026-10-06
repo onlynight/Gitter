@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { call } from "../bridge/client";
-import { pageSdk } from "../pageSdk"; // U4：宿主面收敛标记
+import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Modal, useContextMenu, type CtxMenuItem } from "../components/Dialogs";
-import { SyncBar, useSyncProgress } from "../components/SyncBar";
+import { Modal, useContextMenu, SyncBar, useSyncProgress, type CtxMenuItem } from "../kit";
 import type { BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
-import { refreshCurrent, openSettings, t, useApp } from "../state/store";
+
+// R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
+const { call, t, refresh: refreshCurrent, openSettings } = pageSdk;
+const useApp = useAppState;
 
 /** 推送无上游类错误的识别（git 2.37+ 提示语 + 旧版提示语都覆盖）。 */
 function isNoUpstreamError(msg: string | null): boolean {

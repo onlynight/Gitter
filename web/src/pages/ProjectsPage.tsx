@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { call } from "../bridge/client";
-import { pageSdk } from "../pageSdk"; // U4：宿主面收敛标记
+import { pageSdk, useAppState } from "../pageSdk";
 import type { ProjectDTO, ProjectsStateDTO } from "../bridge/types";
-import { refreshCurrent, setState, t, useApp } from "../state/store";
+
+// R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
+const { call, t, openRepo, closeRepo, refresh: refreshCurrent } = pageSdk;
+const useApp = useAppState;
 
 export function ProjectsPage() {
   const app = useApp();
@@ -23,9 +25,7 @@ export function ProjectsPage() {
 
   const open = async (p: ProjectDTO) => {
     try {
-      const repo = await call<{ workDir: string; name: string }>("projects.open", { path: p.path });
-      setState({ repo, page: "log" });
-      refreshCurrent();
+      await openRepo(p.path);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -68,7 +68,7 @@ export function ProjectsPage() {
                 <button className="tool-btn" onClick={() => void call("app.newWindow", { path: p.path })}>{t("Projects_NewWindow")}</button>
                 <button
                   className="tool-btn"
-                  onClick={async () => { await call("projects.remove", { path: p.path }); setState({ repo: null }); await reload(); }}
+                  onClick={async () => { await call("projects.remove", { path: p.path }); closeRepo(); await reload(); }}
                 >
                   {t("Projects_Remove")}
                 </button>

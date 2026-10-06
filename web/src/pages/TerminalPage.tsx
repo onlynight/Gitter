@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { call, onEvent } from "../bridge/client";
+import { pageSdk, useAppState } from "../pageSdk";
 import type { TerminalSessionDTO, ThemeStateDTO } from "../bridge/types";
-import { getState, t, useApp } from "../state/store";
+
+// R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
+const { call, on: onEvent, t, repo: repoOf, settings: settingsOf, theme: themeOf } = pageSdk;
+const useApp = useAppState;
 
 /** 终端页（xterm.js + node-pty，替代 TerminalCanvas/VT 解析器整条自绘链）。 */
 export function TerminalPage() {
@@ -36,11 +39,11 @@ export function TerminalPage() {
     if (!term || !fit) return;
     const dims = fit.proposeDimensions() ?? { cols: 120, rows: 30 };
     try {
-      const follow = getState().settings?.terminalFollowRepo ?? true;
+      const follow = settingsOf()?.terminalFollowRepo ?? true;
       const s = await call<TerminalSessionDTO>("terminal.ensure", {
         cols: dims.cols,
         rows: dims.rows,
-        cwd: follow ? getState().repo?.workDir ?? null : null,
+        cwd: follow ? repoOf()?.workDir ?? null : null,
         shellKind,
       });
       sessionRef.current = s;
@@ -55,8 +58,8 @@ export function TerminalPage() {
   useEffect(() => {
     if (!hostRef.current || termRef.current) return;
     const term = new Terminal({
-      fontFamily: `${getState().settings?.terminalFontFamily ?? "Cascadia Mono"}, Consolas, monospace`,
-      fontSize: getState().settings?.terminalFontSize ?? 13,
+      fontFamily: `${settingsOf()?.terminalFontFamily ?? "Cascadia Mono"}, Consolas, monospace`,
+      fontSize: settingsOf()?.terminalFontSize ?? 13,
       cursorBlink: true,
       allowProposedApi: true,
     });
@@ -65,7 +68,7 @@ export function TerminalPage() {
     term.open(hostRef.current);
     termRef.current = term;
     fitRef.current = fit;
-    term.options.theme = buildTheme(getState().theme);
+    term.options.theme = buildTheme(themeOf());
     try { fit.fit(); } catch { /* 未布局时忽略 */ }
 
     const disposers: (() => void)[] = [];

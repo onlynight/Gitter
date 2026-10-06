@@ -207,6 +207,14 @@ export class CommandRegistry {
     return dicts?.[lang]?.[m[1]] ?? dicts?.["en"]?.[m[1]] ?? t;
   }
 
+  /** 页面标题 %key% → 包 i18n 解析（contributes.pages[].title，ui-full-pluginization-plan.md D10；非 key 原样返回）。 */
+  resolvePageTitle(packageId: string, raw: string, lang: string): string {
+    const m = /^%(.+)%$/.exec(raw);
+    if (!m) return raw;
+    const dicts = this.i18n.get(packageId);
+    return dicts?.[lang]?.[m[1]] ?? dicts?.["en"]?.[m[1]] ?? raw;
+  }
+
   private whenCtx(opts?: { repoOpen?: boolean; fileSelected?: boolean }): WhenContext {
     return {
       repoOpen: opts?.repoOpen ?? false,

@@ -829,3 +829,7 @@ Ext_AllowCodePlugins	Allow code plugins	允许代码插件
 Ext_AllowCodePluginsHint	Load L2/L3 code from trusted sources only; writes still require approval	仅装载审核渠道来源的代码插件；写操作仍需人审
 Ext_ExternalMcp	Connect external MCP servers	连接外部 MCP 服务器
 Ext_ExternalMcpHint	Tools declared by extension packs (stdio); tools join the shared registry	扩展包声明的外部 stdio 工具将并入统一工具总线
+Common_Expand	Expand	展开
+Common_Collapse	Collapse	收起
+Common_OpenDetails	Open	点击打开
+Changes_JumpToFinding	Jump to line	跳转到问题行

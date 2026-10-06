@@ -29,33 +29,114 @@ if (!dataApiVersion) {
 
 const dtoTypes = fs.readFileSync(typesSrc, "utf8");
 
-// ---- GITTER_UI 全局 API 面（手工维护的宿主侧契约；随 U1/U2 演进） ----
+// ---- GITTER_UI 全局 API 面（手工维护的宿主侧契约；随 U1/U2/R0/R2 演进） ----
 const surface = `// ---- GITTER_UI 全局 API（宿主注入；外部页脚本直接使用，无需 import） ----
 
-/** 宿主注入的 UI SDK（allowCodePlugins 开启后可用） */
+/** 宿主注入的 UI SDK（内置页面包恒可用；用户页面包受 allowCodePlugins 门控）。
+ * 除 registerPage/getState/subscribeState 外与内置 pageSdk 同实现（web/src/surface.ts 单一源）。 */
 declare var GITTER_UI: GITTER_UI_API;
 
 interface GITTER_UI_API {
-  /** 注册外部页面：id 自动加 ext.<包id>. 前缀；mount 渲染进宿主提供的容器 */
+  /** 注册外部页面：id 自动加 ext.<包id>. 前缀；身份（标题/图标/权限/顺序）来自 manifest 元数据，def 只需 id */
   registerPage(
-    def: { id: string; title: string; icon?: string; order?: number },
+    def: { id: string; title?: string; icon?: string; order?: number },
     mount: (container: HTMLElement, ctx: ExternalPageContext) => void | (() => void),
   ): void;
-  /** 宿主桥调用（权限域过滤中，见 permissions 声明） */
+  /** 宿主桥调用（按 manifest permissions 声明过滤，advisory） */
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
-  /** 订阅宿主事件（ui.notify / sync.progress / repo.opened / agent.stream / audit.rpc.denied 等） */
-  on(method: string, cb: (params: unknown) => void): () => void;
-  /** 当前仓库上下文 */
-  context(): { repo: { workDir: string; name: string } | null };
+  /** 订阅宿主事件（ui.notify / sync.progress / repo.opened / agent.stream / context.changed / extensions.changed 等） */
+  on(method: string, cb: (params: never) => void): () => void;
+  /** i18n（宿主当前语言字典） */
+  t(key: string, ...args: (string | number)[]): string;
+  /** 导航到页面槽位 */
+  navigate(page: string): void;
+  /** 打开设置页并定位区块 */
+  openSettings(section?: string): void;
+  /** 通知 toast */
+  toast(title: string, body?: string): void;
+  /** 触发全局刷新（F5 语义） */
+  refresh(): void;
+  /** 当前仓库 */
+  repo(): { workDir: string; name: string } | null;
+  /** 当前设置快照 */
+  settings(): SettingsDTO | null;
+  /** 当前主题状态 */
+  theme(): ThemeStateDTO | null;
+  /** 打开仓库（projects.open + 导航到 log；Projects/替换页用） */
+  openRepo(path: string): Promise<void>;
+  /** 关闭当前仓库 */
+  closeRepo(): void;
+  /** 命令执行唯一入口（首跑确认/模板插值/路由在宿主） */
+  runCommand(cmd: { id: string; title?: string; titleKey?: string }, ctx?: { filePath?: string | null }): Promise<void>;
+  /** 共享上下文（repo + selectedFile/selectedCommitSha 镜像） */
+  context(): {
+    repo: { workDir: string; name: string } | null;
+    selectedFile: { path: string; staged: boolean; isNew: boolean; isConflict: boolean } | null;
+    selectedCommitSha: string | null;
+  };
+  /** 共享上下文写 */
+  setContext(patch: { selectedFile?: { path: string; staged: boolean; isNew: boolean; isConflict: boolean } | null; selectedCommitSha?: string | null }): void;
+  /** 设置更新（持久化 + 回写 + 主题/语言/差异模式按需重应用） */
+  updateSettings(patch: Partial<SettingsDTO>): Promise<SettingsDTO>;
+  /** 回写设置快照（专用 RPC 返回新快照后） */
+  applySettings(s: SettingsDTO): void;
+  /** 重取主题并落到 DOM */
+  reloadTheme(): Promise<void>;
+  /** 清空设置页定位信号 */
+  clearSettingsFocus(): void;
+  /** 任务聚焦信号（Log 会话卡 → TasksPage） */
+  focusTask(taskId: string): void;
+  clearTaskFocus(): void;
+  /** 宿主活状态快照（配合 subscribeState 组装 useSyncExternalStore） */
+  getState(): AppStateSnapshot;
+  /** 订阅宿主状态变化（setState 即触发；返回退订函数） */
+  subscribeState(cb: () => void): () => void;
+  /** 装载期窗口内可取：当前注入包的 caller 身份（适配层在入口脚本 eval 期捕获） */
+  getActiveCaller(): { packageId: string; permissions?: string[] } | null;
+  /** 以显式 caller 调桥（页面挂载后的全部调用走这里） */
+  callWith<T = unknown>(caller: { packageId: string; permissions?: string[] } | null, method: string, params?: unknown): Promise<T>;
 }
 
-/** mount 收到的宿主上下文（packageId = 本包反向域名） */
-interface ExternalPageContext {
-  packageId: string;
-  repo(): { workDir: string; name: string } | null;
-  call<T = unknown>(method: string, params?: unknown): Promise<T>;
-  on(method: string, cb: (params: unknown) => void): () => void;
+/** 宿主状态快照（渲染层 AppState 的只读镜像；字段见 web/src/state/store.ts） */
+interface AppStateSnapshot {
+  booted: boolean;
+  page: string;
+  repo: { workDir: string; name: string } | null;
+  settings: SettingsDTO | null;
+  theme: ThemeStateDTO | null;
+  i18n: { lang: string; strings: Record<string, string> } | null;
+  refreshTick: number;
+  context: {
+    selectedFile: { path: string; staged: boolean; isNew: boolean; isConflict: boolean } | null;
+    selectedCommitSha: string | null;
+  };
+  [key: string]: unknown;
 }
+
+/** mount 收到的宿主上下文（packageId = 本包反向域名；其余与 GITTER_UI 同面） */
+interface ExternalPageContext extends Omit<GITTER_UI_API, "registerPage" | "getState" | "subscribeState"> {
+  packageId: string;
+}
+
+/** window.GITTER_KIT：宿主启动时组装的 React 单实例 + 内核组件库（web/src/kitGlobal.ts）。
+ * 页面构建把 react/jsx-runtime/react-dom(+/client) 声明为 GITTER_KIT.* globals external。 */
+declare var GITTER_KIT: {
+  React: unknown;
+  ReactDOM: unknown;
+  ReactDOMClient: { createRoot(container: Element): { render(node: unknown): void; unmount(): void } };
+  ReactJSXRuntime: unknown;
+  DiffView: unknown;
+  SplitPane: unknown;
+  Banner: unknown;
+  Modal: unknown;
+  SyncBar: unknown;
+  PageErrorBoundary: unknown;
+  NavIcon: unknown;
+  useContextMenu: () => unknown;
+  renderMarkdown: (text: string) => string;
+  registerMarkdownPlugin: (plugin: unknown) => void;
+  [key: string]: unknown;
+};
 
 /** 权限域（contributes.pages[].permissions；缺省 = ["open", "git.read"]） */
 type UiPermission =

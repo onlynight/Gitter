@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.page.branches",
+  "name": "内置页面：分支",
+  "version": "0.1.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——分支管理（本地/远程/merge/rebase/pull/push）",
+  "contributes": {
+    "pages": [
+      {
+        "id": "branches",
+        "slot": "branches",
+        "title": "%Nav_Branches%",
+        "entry": "page.js",
+        "icon": null,
+        "svg": "M13.1 3.9a2.3 2.3 0 0 0-3.25 3.25l-.1.1a2.3 2.3 0 0 1-3.25 0L5.4 6.2a2.3 2.3 0 1 0-1.06 1.06l1.1 1.05a3.8 3.8 0 0 0 2.31 1.09v1.2a2.3 2.3 0 1 0 1.5 0V9.4a3.8 3.8 0 0 0 2.31-1.09l.1-.1a2.3 2.3 0 1 0 1.44-4.31z",
+        "lazy": true,
+        "permissions": [
+          "git.read",
+          "git.write",
+          "window"
+        ]
+      }
+    ]
+  }
+}

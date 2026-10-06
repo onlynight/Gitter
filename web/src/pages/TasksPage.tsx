@@ -1,19 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { renderMarkdown } from "../lib/markdown";
+import { renderMarkdown } from "../kit";
 import type { AgentEventDTO, AgentHarnessDTO, AgentTaskDTO, ModelProfileDTO, TaskTypeDTO, WorktreeDTO } from "../bridge/types";
 import { pageSdk, useAppState, useTaskFocus } from "../pageSdk";
-// U4 SDK 化试点：本页宿主面收敛到 pageSdk（call/on/t/navigate/toast/refresh/openSettings/useAppState/useTaskFocus）。
-// 兼容别名（迁移期最小 diff）：call/onEvent/t/navigate/refreshCurrent/openSettings/setState 经 pageSdk/别名表达。
-const call = pageSdk.call;
-const onEvent = pageSdk.on;
-const t = pageSdk.t;
-const navigate = pageSdk.navigate;
-const refreshCurrent = pageSdk.refresh;
-const openSettings = pageSdk.openSettings;
-const setState = (patch: { focusTaskId?: string | null; repo?: { workDir: string; name: string }; page?: string }) => {
-  if (patch.focusTaskId !== undefined) { /* focus 由 useTaskFocus 消费 */ }
-  if (patch.repo && patch.page === "log") { /* worktree 打开跳转：走 navigate + 刷新 */ navigate("log"); }
-};
+// R1 宿主面收敛：本页只经 pageSdk 消费宿主（U4 试点页；setState shim 已被 openRepo 收编）。
+const { call, on: onEvent, t, navigate, refresh: refreshCurrent, openSettings, openRepo } = pageSdk;
+const useApp = useAppState;
 
 /**
  * 任务页（agent-harness.md v3.0 §七，基准 = docs/gitter-fused-preview.html 设计稿）：
@@ -191,8 +182,7 @@ export function TasksPage() {
   }, [evMap, selectedTask, scrollTimelineToBottom]);
 
   const open = (w: WorktreeDTO) => {
-    setState({ repo: { workDir: w.path, name: w.path.split(/[\\/]/).pop() ?? w.path }, page: "log" });
-    refreshCurrent();
+    void openRepo(w.path);
   };
 
   if (!repo) {

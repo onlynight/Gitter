@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { call } from "../bridge/client";
-import { pageSdk } from "../pageSdk"; // U4：宿主面收敛标记
-import { NavIcon } from "../components/Shell";
+import { pageSdk, useAppState } from "../pageSdk";
+import { NavIcon } from "../kit";
 import type { ExtensionPackageDTO, ModelProfileDTO, SettingsDTO, TerminalProfileDTO, ThemePackageDTO } from "../bridge/types";
-import { setState, t, updateSettings, useApp, reapplyTheme } from "../state/store";
+
+// R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
+const { call, t, updateSettings, applySettings, clearSettingsFocus, reloadTheme } = pageSdk;
+const useApp = useAppState;
 
 /**
  * 设置页 v2（两级导航 + 搜索，agent-harness.md v3.0 任务流配套）：
@@ -268,8 +270,8 @@ export function SettingsPage() {
     setExts(list);
     if (list.some((p) => p.kinds.includes("theme"))) {
       const fresh = await call<SettingsDTO>("settings.get");
-      setState({ settings: fresh });
-      await reapplyTheme(fresh);
+      applySettings(fresh);
+      await reloadTheme();
     }
   };
 
@@ -332,7 +334,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (app.settingsFocus) {
       gotoSection(app.settingsFocus as SectionId);
-      setState({ settingsFocus: null });
+      clearSettingsFocus();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app.settingsFocus]);

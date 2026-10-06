@@ -82,7 +82,11 @@ export function useContextMenu() {
   return { showMenu, menuElement: element };
 }
 
-/** 横幅（错误/transient），替代 InfoBar 与 TextBlock 横幅。可带动作按钮（如"设置上游并推送"）。 */
+/**
+ * 横幅（错误/transient/反馈），替代 InfoBar 与 TextBlock 横幅。可带动作按钮（如"设置上游并推送"）。
+ * R2.1：可展开（长文本/detail 单行省略 → 展开 whole 内容）+ detail 可跳转
+ * （onOpenDetail：如反馈文件路径 → 外部编辑器打开，点击直达具体问题）。
+ */
 export function Banner(props: {
   text: string;
   detail?: string;
@@ -90,18 +94,62 @@ export function Banner(props: {
   onCopyDetail?: () => void;
   onClose?: () => void;
   actions?: { label: string; onClick: () => void }[];
+  /** detail 可跳转时的动作（如文件路径 → shell.openPath editor:true）；提供后 detail 渲染为可点链接 */
+  onOpenDetail?: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const expandable = !!props.detail || props.text.length > 120;
+  const clickable = !!props.onOpenDetail;
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
   return (
-    <div className={"banner" + (props.error ? " error" : "")}>
-      <span className="banner-text">{props.text}</span>
-      {props.detail && <span className="banner-detail">{props.detail}</span>}
-      {props.onCopyDetail && (
-        <button className="tool-btn" onClick={props.onCopyDetail}>{t("Common_CopyDetails")}</button>
+    <div className={"banner" + (props.error ? " error" : "")} style={open ? { alignItems: "flex-start" } : undefined}>
+      {expandable && (
+        <button
+          className="tool-btn"
+          style={{ padding: "0 2px", minWidth: 18 }}
+          title={open ? t("Common_Collapse") : t("Common_Expand")}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? "▾" : "▸"}
+        </button>
       )}
-      {props.actions?.map((a) => (
-        <button key={a.label} className="tool-btn" onClick={a.onClick}>{a.label}</button>
-      ))}
-      {props.onClose && <button className="tool-btn" onClick={props.onClose}>✕</button>}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          className="banner-text"
+          style={open ? { whiteSpace: "normal", wordBreak: "break-word" } : undefined}
+        >
+          {props.text}
+        </div>
+        {props.detail && !open && (
+          <div
+            className={"banner-detail" + (clickable ? " clickable" : "")}
+            style={{ maxHeight: 18, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            onClick={props.onOpenDetail}
+            title={clickable ? t("Common_OpenDetails") : props.detail}
+          >
+            {props.detail}
+          </div>
+        )}
+        {props.detail && open && (
+          <div
+            className={"banner-detail" + (clickable ? " clickable" : "")}
+            style={{ maxHeight: 240, marginTop: 4 }}
+            onClick={props.onOpenDetail}
+            title={clickable ? t("Common_OpenDetails") : undefined}
+          >
+            {props.detail}
+          </div>
+        )}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "none", alignSelf: open ? "flex-start" : undefined }}>
+        {props.detail && props.onCopyDetail && (
+          <button className="tool-btn" onClick={(e) => { stop(e); props.onCopyDetail!(); }}>{t("Common_CopyDetails")}</button>
+        )}
+        {props.actions?.map((a) => (
+          <button key={a.label} className="tool-btn" onClick={a.onClick}>{a.label}</button>
+        ))}
+        {props.onClose && <button className="tool-btn" onClick={props.onClose}>✕</button>}
+      </div>
     </div>
   );
 }

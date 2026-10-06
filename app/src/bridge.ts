@@ -19,7 +19,7 @@ import { importGpkFile, uninstallPackageDir } from "./services/extensions/gpk";
 import { buildRawTheme } from "./services/extensions/grammar";
 import { AgentSessionManager } from "./services/agents/session";
 import { pickRepairTarget } from "./services/agents/session";
-import { requiredScope, scopeGranted, DEFAULT_PAGE_SCOPES } from "./services/extensions/rpcScopes";
+import { checkCallerAccess, type CallerIdentity } from "./services/extensions/rpcScopes";
 import { HOST_API_VERSION } from "./services/extensions/store";
 import { DATA_API_VERSION } from "./shared/apiVersion";
 import { pickProfileRef, pickFastProfileRef, resolveProfileModel } from "./services/agents/provider";
@@ -163,16 +163,16 @@ export class Bridge {
 
     // U2 权限令牌（advisory）：外部页 SDK 调用携带 __caller，bridge 按声明的权限域过滤；
     // 无 __caller（宿主自身页面）不受影响。剥离后转传，handler 参数不受污染。
-    const caller = (args as { __caller?: { packageId: string; permissions?: string[] } } | null)?.__caller;
+    // R0/A1 闭环：permissions 由 loader 从 manifest 注入 __caller（页面脚本不可自报）。
+    const caller = (args as { __caller?: CallerIdentity } | null)?.__caller;
     let handlerArgs = args;
     if (caller) {
-      const scope = requiredScope(method);
-      const declared = caller.permissions ?? DEFAULT_PAGE_SCOPES as string[];
-      if (!scopeGranted(scope, declared)) {
+      const access = checkCallerAccess(method, caller);
+      if (!access.ok) {
         if (!this.win.isDestroyed()) {
-          this.win.webContents.send("evt", { method: "audit.rpc.denied", params: { packageId: caller.packageId, method, scope } });
+          this.win.webContents.send("evt", { method: "audit.rpc.denied", params: { packageId: caller.packageId, method, scope: access.scope } });
         }
-        return { ok: false, error: { message: `permission denied: ${scope}` } };
+        return { ok: false, error: { message: `permission denied: ${access.scope}` } };
       }
       handlerArgs = { ...(args as Record<string, unknown>) };
       delete (handlerArgs as Record<string, unknown>).__caller;
@@ -751,12 +751,26 @@ export class Bridge {
 
     // ---- 扩展包（extension-system-v2.md §五/§六）----
     R("extensions.list", () => this.shared.pkgStore.list());
+    // 停用守卫（ui-full-pluginization-plan.md D4）：槽位恒有 ≥1 已启用提供者，
+    // 停用将使某槽位失去唯一提供者时拒绝并把槽位列表作为原因返回。
     R("extensions.setEnabled", (args: { id: string; enabled: boolean }) => {
+      if (args.enabled === false) {
+        const sole = this.shared.pkgStore.soleProviderSlotsAfterDisable(args.id, "package");
+        if (sole.length > 0) {
+          throw new BridgeError(`无法停用：以下页面槽位将没有任何已启用的提供者——请先启用替换页面包：${sole.join("、")}`, sole.join(","));
+        }
+      }
       this.patchLedger(args.id, { enabled: !!args.enabled });
       this.refreshExtensions();
       return this.shared.pkgStore.list();
     });
     R("extensions.setKindEnabled", (args: { id: string; kind: string; enabled: boolean }) => {
+      if (args.kind === "pages" && args.enabled === false) {
+        const sole = this.shared.pkgStore.soleProviderSlotsAfterDisable(args.id, "pages");
+        if (sole.length > 0) {
+          throw new BridgeError(`无法停用页面能力：以下槽位将没有任何已启用的提供者——请先启用替换页面包：${sole.join("、")}`, sole.join(","));
+        }
+      }
       const cur = this.shared.settings.current.packages?.[args.id] ?? {};
       const kinds = { ...(cur.kinds ?? {}), [args.kind]: !!args.enabled };
       this.patchLedger(args.id, { kinds });
@@ -800,6 +814,11 @@ export class Bridge {
       if (!userRoots.some((root) => all.dir.startsWith(root))) {
         throw new BridgeError("内置包只能禁用，不能卸载", args.id);
       }
+      // 停用守卫同款（D4）：卸载唯一页面提供者会让槽位塌陷，先拒
+      const sole = this.shared.pkgStore.soleProviderSlotsAfterDisable(args.id, "package");
+      if (sole.length > 0) {
+        throw new BridgeError(`无法卸载：以下页面槽位将没有任何已启用的提供者——${sole.join("、")}`, sole.join(","));
+      }
       uninstallPackageDir(all.dir);
       this.refreshExtensions();
       return this.shared.pkgStore.list();
@@ -840,8 +859,16 @@ export class Bridge {
     R("ui.statusItems", () => this.shared.host.listStatusItems());
     R("ui.panels", () => this.shared.host.resolvePanels(this.repo));
     R("ui.views", () => this.shared.host.listViews());
-    R("extensions.pages", () =>
-      this.shared.settings.current.allowCodePlugins ? this.shared.pkgStore.pagesOf() : []);
+    // 内置页面包恒返回（信任随应用分发，R0/A3 门分离）；用户页面包受 allowCodePlugins 门控
+    R("extensions.pages", (args?: { lang?: string }) => {
+      const all = this.shared.pkgStore.pagesOf();
+      const gate = this.shared.settings.current.allowCodePlugins;
+      const lang = args?.lang ?? "en";
+      return (gate ? all : all.filter((p) => p.isBuiltIn)).map((p) => ({
+        ...p,
+        title: this.shared.commands.resolvePageTitle(p.packageId, p.title, lang),
+      }));
+    });
     R("ui.emptyHints", (args?: { slot?: "changes.empty" | "log.empty" | "branches.empty" }) =>
       this.shared.pkgStore.emptyHintsOf(args?.slot ?? "changes.empty"));
     R("ui.commitBlocks", (args?: { message?: string; fileCount?: number }) =>
@@ -1093,7 +1120,8 @@ export class Bridge {
     this.shared.settings.update({ packages: cur });
   }
 
-  /** 包集合变化后重建派生注册表（包命令 / 用户语法 / L2 宿主 / 工具表 / 外部 MCP）。 */
+  /** 包集合变化后重建派生注册表（包命令 / 用户语法 / L2 宿主 / 工具表 / 外部 MCP），
+   * 并通知渲染层热刷新外部页面（R0/D6 生命周期：卸载注销/重装载）。 */
   private refreshExtensions(): void {
     this.shared.commands.registerPackageCommands(this.shared.pkgStore);
     this.shared.grammar.reset();
@@ -1101,6 +1129,12 @@ export class Bridge {
       allowCode: this.shared.settings.current.allowCodePlugins,
     });
     void this.syncExternalMcp();
+    this.emit("extensions.changed", { allowCodePlugins: this.shared.settings.current.allowCodePlugins });
+  }
+
+  /** 渲染层事件推送（evt 通道，onEvent 消费）。 */
+  private emit(method: string, params: unknown): void {
+    if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method, params });
   }
 
   /** mcpServers 接缝：包声明的外部 server 全量重连（信任门 settings.externalMcpEnabled）。 */

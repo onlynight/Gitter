@@ -164,17 +164,58 @@ app.whenReady().then(() => {
   createWindow(repoArg);
 
   // 启动级验证钩子（scripts/boot-check.mjs）：定时退出前对渲染层做 UI 断言——
-  // 侧边栏导航项 ≥ 7（页面注册表自举生效）+ root 已渲染；失败退出码 3/4。
+  // 侧边栏导航项 ≥ 7 + root 已渲染 + 槽位运行时（GITTER_UI/GITTER_KIT 已装，
+  // 七个槽位全部解析到内置页面包提供者 gitui.page.*——R9 后宿主 bundle 零页面代码）；失败退出码 3/4。
   const bootExitMs = Number(process.env.GITTER_BOOT_EXIT_MS ?? 0);
   if (bootExitMs > 0) {
+    // E2E 权限探针（scripts/e2e-pages-check.mjs 驱动，GITTER_E2E=1 门控）：
+    // 真点击终端页（terminal.ensure 需 terminal 域）→ 断言页面无 "permission denied"——
+    // __caller permissions 闭包捕获的端到端验证（无头冒烟只能静态断言）。
+    if (process.env.GITTER_E2E === "1") {
+      setTimeout(async () => {
+        try {
+          const win = BrowserWindow.getAllWindows()[0];
+          await win.webContents.executeJavaScript(
+            "document.querySelectorAll('.nav-top .nav-item')[5].click()"); // bash（注册表序 projects..bash）
+          await new Promise((r) => setTimeout(r, 3000));
+          const text = await win.webContents.executeJavaScript(
+            "document.querySelector('.page')?.innerText?.slice(0, 2000) ?? ''");
+          if (text.includes("permission denied")) {
+            process.stdout.write("[e2e] FAIL: 终端页出现 permission denied — " + text.slice(0, 120).replace(/\n/g, " ") + "\n");
+          } else if (/PowerShell|bash|cmd|·/.test(text)) {
+            process.stdout.write("[e2e] PASS: 终端页正常挂载（terminal 域放行）\n");
+          } else {
+            process.stdout.write("[e2e] WARN: 终端页内容不可识别 — " + text.slice(0, 120).replace(/\n/g, " ") + "\n");
+          }
+        } catch (e) {
+          process.stdout.write("[e2e] FAIL: 探针异常 " + (e as Error).message + "\n");
+        }
+      }, Math.max(bootExitMs - 9000, 3000));
+    }
     setTimeout(async () => {
       try {
         const win = BrowserWindow.getAllWindows()[0];
-        const navCount = await win.webContents.executeJavaScript(
-          "document.querySelectorAll('.nav-item').length");
-        const rootRendered = await win.webContents.executeJavaScript(
-          "!!document.getElementById('root') && document.getElementById('root').children.length > 0");
-        app.exit(navCount >= 7 && rootRendered ? 0 : 3);
+        const r = await win.webContents.executeJavaScript(`(() => {
+          const navCount = document.querySelectorAll('.nav-item').length;
+          const rootRendered = !!document.getElementById('root') && document.getElementById('root').children.length > 0;
+          const gitterUi = !!window.GITTER_UI && typeof window.GITTER_UI.registerPage === "function";
+          const kit = !!window.GITTER_KIT && !!window.GITTER_KIT.React && !!window.GITTER_KIT.DiffView;
+          const pageMounted = !!document.querySelector('.page .toolbar') || !!document.querySelector('.page .settings-page') || !!document.querySelector('.page .empty-state');
+          const navLabels = [...document.querySelectorAll('.nav-top .nav-item .nav-label')].map((e) => e.textContent ?? "");
+          return { navCount, rootRendered, gitterUi, kit, pageMounted, navLabels };
+        })()`);
+        const slots = ["projects", "log", "changes", "branches", "tasks", "bash", "settings"];
+        const resolved: Record<string, { source: string; isBuiltInPackage: boolean } | null> = {};
+        for (const s of slots) {
+          resolved[s] = await win.webContents.executeJavaScript(
+            `window.__gitterDebugResolve ? window.__gitterDebugResolve(${JSON.stringify(s)}) : null`);
+        }
+        const slotsOk = slots.every((s) => resolved[s] && resolved[s]!.source === "package" && resolved[s]!.isBuiltInPackage);
+        // 首个主导航 = projects（注册表 order 排序防回潮：包元数据继承内置身份 order）
+        const firstNavOk = !!r.navLabels[0] && /projects|项目/i.test(r.navLabels[0]);
+        const ok = r.navCount >= 7 && r.rootRendered && r.gitterUi && r.kit && r.pageMounted && slotsOk && firstNavOk;
+        process.stdout.write("[boot] UI 断言: " + JSON.stringify({ ...r, slots: Object.fromEntries(slots.map((s) => [s, resolved[s]?.isBuiltInPackage === true ? "builtin-package" : resolved[s]?.source ?? null])) }) + "\n");
+        app.exit(ok ? 0 : 3);
       } catch {
         app.exit(4);
       }

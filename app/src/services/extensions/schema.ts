@@ -76,8 +76,16 @@ export interface PageContribution {
   /** 渲染层入口（经典 script，相对包目录；经 window.GITTER_UI 注册） */
   entry: string;
   icon: string | null;
+  /** 16×16 SVG path（icon 字形之外的第二图标形态；侧栏 NavIcon 消费） */
+  svg: string | null;
   /** 桥权限域声明（缺省 = open + git.read；bridge 入口按此过滤外部页调用） */
   permissions: RpcScopeName[];
+  /** 竞争的页面槽位（缺省 = ext.<包id>.<id>，独占槽位）；声明内置槽位 id（如 "log"）即替换缺省提供者 */
+  slot: string | null;
+  /** 页面样式表（相对包目录），装载时注入、卸载时移除 */
+  styles: string[];
+  /** 懒装载：首次导航到该页时才注入入口脚本（缺省 false = 启动即装载） */
+  lazy: boolean | null;
 }
 
 export interface EmptyHintContribution {
@@ -307,11 +315,15 @@ const manifestV2 = z.object({
             title: z.string().min(1),
             entry: z.string().min(1),
             icon: z.string().nullish(),
+            svg: z.string().nullish(),
             permissions: z.array(z.enum([
               "open", "git.read", "git.write", "settings.write",
               "agent.run", "agent.config", "extensions.admin",
               "terminal", "ai.invoke", "approval", "window",
             ])).nullish(),
+            slot: z.string().min(1).nullish(),
+            styles: z.array(z.string().min(1)).nullish(),
+            lazy: z.boolean().nullish(),
           }),
         )
         .optional(),
@@ -556,8 +568,11 @@ export function normalizeManifest(raw: unknown): ManifestResult {
           })),
           emptyHints: (c.emptyHints ?? []).map((h) => ({ slot: h.slot, text: h.text })),
           pages: (c.pages ?? []).map((pg) => ({
-            id: pg.id, title: pg.title, entry: pg.entry, icon: pg.icon ?? null,
+            id: pg.id, title: pg.title, entry: pg.entry, icon: pg.icon ?? null, svg: pg.svg ?? null,
             permissions: [...(pg.permissions ?? [])],
+            slot: pg.slot ?? null,
+            styles: [...(pg.styles ?? [])],
+            lazy: pg.lazy ?? null,
           })),
           skills: (c.skills ?? []).map((k) => ({
             id: k.id, name: k.name, description: k.description, instructions: k.instructions, tools: [...(k.tools ?? [])],

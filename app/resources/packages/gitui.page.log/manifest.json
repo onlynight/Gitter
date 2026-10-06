@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.page.log",
+  "name": "内置页面：Log",
+  "version": "0.1.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——提交历史时间轴（虚拟列表/会话聚合/squash/reset/diff 详情）",
+  "contributes": {
+    "pages": [
+      {
+        "id": "log",
+        "slot": "log",
+        "title": "%Nav_Log%",
+        "entry": "page.js",
+        "icon": null,
+        "svg": "M2 3h12v1.5H2V3zm0 4.25h8.5v1.5H2v-1.5zM2 11.5h12V13H2v-1.5z",
+        "lazy": true,
+        "permissions": [
+          "git.read",
+          "git.write",
+          "window"
+        ]
+      }
+    ]
+  }
+}

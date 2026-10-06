@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
 import type { DiffDTO, HunkDTO } from "../bridge/types";
 import { t, useApp } from "../state/store";
@@ -88,9 +88,9 @@ function renderCode(text: string, runs: SyntaxRun[] | undefined, colors: Record<
   return text;
 }
 
-function Cell(props: { num?: number; content: React.ReactNode; cls: string }) {
+function Cell(props: { num?: number; content: React.ReactNode; cls: string; newLn?: number }) {
   return (
-    <div className={"diff-cell " + props.cls}>
+    <div className={"diff-cell " + props.cls} data-new-ln={props.newLn}>
       <span className="ln">{props.num ?? ""}</span>
       <span className="code">{props.content}</span>
     </div>
@@ -106,9 +106,26 @@ export function DiffView(props: {
   onHunkAction?: (index: number) => void;
   /** 语法高亮 + 字级 diff 开关（详情页只读视图开，普通渲染默认开） */
   rich?: boolean;
+  /** 定位到新增行号（安全网发现跳转）：滚动到该行并短暂高亮；ts 变化即重复触发 */
+  focusLine?: { line: number; ts: number } | null;
 }) {
   const { diff } = props;
   const app = useApp();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const line = props.focusLine?.line;
+    if (!line) return;
+    const el = rootRef.current?.querySelector(`[data-new-ln="${line}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center" });
+    el.classList.add("ln-focus");
+    const timer = setTimeout(() => el.classList.remove("ln-focus"), 1800);
+    return () => {
+      clearTimeout(timer);
+      el.classList.remove("ln-focus");
+    };
+  }, [props.focusLine, diff]);
   const syntaxColors = app.theme?.syntax ?? {};
   const [syntaxLines, setSyntaxLines] = useState<{ left?: SyntaxRun[][]; right?: SyntaxRun[][] }>({});
 
@@ -248,7 +265,7 @@ export function DiffView(props: {
   });
 
   return (
-    <div className="diff">
+    <div className="diff" ref={rootRef}>
       {header}
       {noteStrip}
       <div className={"diff-grid" + (props.inline ? " inline" : "")}>{body}</div>
@@ -284,7 +301,7 @@ function SideHunkBody(props: {
         return (
           <div className="diff-row" key={i}>
             <Cell num={r.left?.num} content={leftContent} cls={leftCls} />
-            <Cell num={r.right?.num} content={rightContent} cls={rightCls} />
+            <Cell num={r.right?.num} newLn={r.right?.num} content={rightContent} cls={rightCls} />
           </div>
         );
       })}
@@ -313,7 +330,7 @@ function InlineHunkBody({ hunk }: { hunk: HunkDTO }) {
     <>
       {rows.map((r, i) => (
         <div className="diff-row" key={i}>
-          <Cell num={r.num} content={r.text} cls={r.cls} />
+          <Cell num={r.num} newLn={r.cls !== "d-del" ? r.num : undefined} content={r.text} cls={r.cls} />
         </div>
       ))}
     </>

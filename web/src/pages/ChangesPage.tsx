@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { call } from "../bridge/client";
-import { pageSdk } from "../pageSdk"; // U4：宿主面收敛标记
+import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import type { CtxMenuItem } from "../components/Dialogs";
-import { Banner, Modal, useContextMenu } from "../components/Dialogs";
-import { DiffView } from "../components/DiffView";
-import { SplitPane } from "../components/SplitPane";
-import { SyncBar, useSyncProgress } from "../components/SyncBar";
+import { Banner, DiffView, Modal, SplitPane, SyncBar, useSyncProgress, useContextMenu, type CtxMenuItem } from "../kit";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
-import { navigate, refreshCurrent, openSettings, t, useApp, setSharedContext } from "../state/store";
+
+// R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
+const { call, t, navigate, refresh: refreshCurrent, openSettings, setContext: setSharedContext } = pageSdk;
+const useApp = useAppState;
 
 const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
 
@@ -56,10 +54,64 @@ export function ChangesPage() {
   const [diff, setDiff] = useState<DiffDTO | null>(null);
   const [preview, setPreview] = useState<PreviewDTO | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  // 分组折叠（组键 = 稳定 id，与语言无关；localStorage 持久化——跨页导航/重启保留）
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("gitter:changes:collapsedGroups") ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleGroup = (gkey: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(gkey)) next.delete(gkey);
+      else next.add(gkey);
+      try {
+        localStorage.setItem("gitter:changes:collapsedGroups", JSON.stringify([...next]));
+      } catch { /* 无 localStorage（纯浏览器调试） */ }
+      return next;
+    });
   const [selectedHunks, setSelectedHunks] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [findings, setFindings] = useState<SafetyFindingDTO[]>([]);
+  // 安全网发现交互：展开全部 / 逐条标记已解决（localStorage 持久化，仅隐藏横幅——
+  // 主进程提交门每次独立重扫，拦截语义不受 UI 标记影响）/ 跳转到问题行
+  const [showAllFindings, setShowAllFindings] = useState(false);
+  const [resolvedFindings, setResolvedFindings] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("gitter:changes:resolvedFindings") ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const [focusLine, setFocusLine] = useState<{ line: number; ts: number } | null>(null);
+  const findingKey = (f: SafetyFindingDTO) => `${f.ruleId}|${f.filePath}|${f.line ?? ""}`;
+  const dismissFinding = (f: SafetyFindingDTO) =>
+    setResolvedFindings((prev) => {
+      const next = new Set(prev);
+      next.add(findingKey(f));
+      try {
+        localStorage.setItem("gitter:changes:resolvedFindings", JSON.stringify([...next]));
+      } catch { /* 无 localStorage */ }
+      return next;
+    });
+  const activeFindings = findings.filter((f) => !resolvedFindings.has(findingKey(f)));
+  const jumpToFinding = (f: SafetyFindingDTO) => {
+    // 优先应用内跳转：选中该文件（加载 diff）→ DiffView 滚动到问题行；
+    // 文件不在本次变更里（如已暂存侧/已提交后残留）→ 退回外部编辑器打开
+    const unstaged = state?.changes.find((x) => x.path === f.filePath);
+    const staged = state?.staged.find((x) => x.path === f.filePath);
+    const conflict = state?.conflicts.find((x) => x.path === f.filePath);
+    const target = unstaged ?? staged ?? conflict;
+    if (target) {
+      select(target, !unstaged && !!staged);
+      if (f.line) setFocusLine({ line: f.line, ts: Date.now() });
+    } else {
+      void call("shell.openPath", { path: f.filePath, editor: true });
+    }
+  };
   const [feedback, setFeedback] = useState<AgentFeedbackDTO | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [explainText, setExplainText] = useState<{ title: string; text: string } | null>(null);
@@ -296,7 +348,7 @@ export function ChangesPage() {
     return <div className="empty-state"><div className="big">◇</div>{t("Common_NoProjectSelected")}</div>;
   }
 
-  const group = (title: string, files: FileStatusDTO[], stagedView: boolean, allowCheck: boolean) => {
+  const group = (gkey: string, title: string, files: FileStatusDTO[], stagedView: boolean, allowCheck: boolean) => {
     if (files.length === 0) return null;
     const eligible = files.filter((f) => !f.isConflict);
     const allChecked = allowCheck && eligible.length > 0 && eligible.every((f) => checked.has(f.path));
@@ -312,18 +364,21 @@ export function ChangesPage() {
         }
         return next;
       });
+    const collapsed = collapsedGroups.has(gkey);
     return (
       <div>
-        <div className="group-header">
+        <div className="group-header" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleGroup(gkey)}>
           {allowCheck && eligible.length > 0 && (
             <input
               type="checkbox"
               checked={allChecked}
               ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
               onChange={toggleAll}
+              onClick={(e) => e.stopPropagation()}
               title={allChecked ? t("Changes_UncheckAll") : t("Changes_CheckAll")}
             />
           )}
+          <span style={{ width: 12, color: "var(--c-text3)", fontSize: 10 }}>{collapsed ? "▸" : "▾"}</span>
           <span>{title}</span>
           <span style={{ color: "var(--c-text3)", fontWeight: 400 }}>{files.length}</span>
           <span className="grow" style={{ flex: 1 }} />
@@ -332,15 +387,16 @@ export function ChangesPage() {
               className="tool-btn"
               style={{ padding: "1px 8px", height: 20, fontSize: 11 }}
               disabled={busy}
-              onClick={() =>
-                void run(async () => { await call("changes.stage", { paths: checkedPaths }); return t("Changes_Staged"); })
-              }
+              onClick={(e) => {
+                e.stopPropagation();
+                void run(async () => { await call("changes.stage", { paths: checkedPaths }); return t("Changes_Staged"); });
+              }}
             >
               {t("Changes_StageChecked", checkedPaths.length)}
             </button>
           )}
         </div>
-        {files.map((f) => (
+        {!collapsed && files.map((f) => (
           <div
             key={f.category + f.path}
             className={"list-row" + (selected?.path === f.path && selected?.staged === stagedView ? " selected" : "")}
@@ -418,6 +474,7 @@ export function ChangesPage() {
         <Banner
           text={t("Changes_AgentFeedback", feedback.note)}
           detail={feedback.path ?? undefined}
+          onOpenDetail={feedback.path ? () => void call("shell.openPath", { path: feedback.path, editor: true }) : undefined}
           onClose={async () => { await call("changes.clearFeedback", {}); setFeedback(null); }}
           actions={[
             {
@@ -436,17 +493,52 @@ export function ChangesPage() {
           ]}
         />
       )}
-      {findings.length > 0 && (
+      {activeFindings.length > 0 && (
         <div
-          className={"banner" + (findings.some((f) => f.severity === "blocked") ? " error" : "")}
+          className={"banner" + (activeFindings.some((f) => f.severity === "blocked") ? " error" : "")}
           style={{ flexDirection: "column", alignItems: "stretch", gap: 2 }}
         >
-          {findings.slice(0, 6).map((f, i) => (
-            <div key={i} className="banner-text">
-              {f.severity === "blocked" ? "⛔" : "⚠️"} <span style={{ fontFamily: "var(--mono)" }}>{f.filePath}{f.line ? `:${f.line}` : ""}</span> — {f.message}
+          {(showAllFindings ? activeFindings : activeFindings.slice(0, 6)).map((f, i) => (
+            <div key={findingKey(f) + i} className="banner-text" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span>{f.severity === "blocked" ? "⛔" : "⚠️"}</span>
+              <span
+                className="finding-link"
+                style={{ fontFamily: "var(--mono)", cursor: "pointer", textDecoration: "underline", color: "var(--c-accent)" }}
+                onClick={() => jumpToFinding(f)}
+                title={t("Changes_JumpToFinding")}
+              >
+                {f.filePath}{f.line ? `:${f.line}` : ""}
+              </span>
+              <span style={{ color: "var(--c-text2)" }}>— {f.message}</span>
+              <span style={{ flex: 1 }} />
+              <button
+                className="tool-btn"
+                style={{ padding: "0 6px", height: 18, fontSize: 10 }}
+                title={t("Changes_MarkResolved")}
+                onClick={() => dismissFinding(f)}
+              >
+                {t("Changes_MarkResolved")}
+              </button>
             </div>
           ))}
-          {findings.length > 6 && <div className="banner-text" style={{ color: "var(--c-text2)" }}>{t("Changes_MoreFindings", findings.length - 6)}</div>}
+          {!showAllFindings && activeFindings.length > 6 && (
+            <button
+              className="tool-btn"
+              style={{ alignSelf: "flex-start", padding: "0 4px", fontSize: 11, color: "var(--c-accent)" }}
+              onClick={() => setShowAllFindings(true)}
+            >
+              {t("Changes_MoreFindings", activeFindings.length - 6)} ▾
+            </button>
+          )}
+          {showAllFindings && activeFindings.length > 6 && (
+            <button
+              className="tool-btn"
+              style={{ alignSelf: "flex-start", padding: "0 4px", fontSize: 11 }}
+              onClick={() => setShowAllFindings(false)}
+            >
+              {t("Common_Collapse")} ▴
+            </button>
+          )}
         </div>
       )}
 
@@ -455,10 +547,10 @@ export function ChangesPage() {
           <div style={{ flex: 1, overflow: "auto" }}>
             {state && (
               <>
-                {group(t("Changes_Conflicts"), state.conflicts, false, false)}
-                {group(t("Changes_StagedGroup"), state.staged, true, true)}
-                {group(t("Changes_ChangesGroup"), state.changes, false, true)}
-                {group(t("Changes_UnversionedGroup"), state.unversioned, false, true)}
+                {group("conflicts", t("Changes_Conflicts"), state.conflicts, false, false)}
+                {group("staged", t("Changes_StagedGroup"), state.staged, true, true)}
+                {group("changes", t("Changes_ChangesGroup"), state.changes, false, true)}
+                {group("unversioned", t("Changes_UnversionedGroup"), state.unversioned, false, true)}
                 {allFiles.length === 0 && (
                   <div className="empty-state">
                     {t("Changes_WorktreeClean")}
@@ -581,6 +673,7 @@ export function ChangesPage() {
             ) : selected && diff ? (
               <DiffView
                 diff={diff}
+                focusLine={focusLine}
                 inline={app.settings?.diffMode === "inline"}
                 selectedHunks={selected.staged || selected.isNew ? undefined : selectedHunks}
                 onToggleHunk={selected.staged || selected.isNew ? undefined : (i) =>

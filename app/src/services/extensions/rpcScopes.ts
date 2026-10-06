@@ -118,3 +118,20 @@ export function scopeGranted(required: RpcScope, declared: readonly string[]): b
   if (required === "open") return true;
   return declared.includes(required);
 }
+
+/** bridge handle 入口的 __caller 身份（sdk.ts 注入；permissions 来自 manifest，非页面脚本自报）。 */
+export interface CallerIdentity {
+  packageId: string;
+  permissions?: string[];
+}
+
+/** 调用方访问判定（R0/A1 权限闭环：纯函数化以便冒烟直测——声明缺失回退 DEFAULT_PAGE_SCOPES）。 */
+export function checkCallerAccess(
+  method: string,
+  caller: CallerIdentity,
+): { ok: true } | { ok: false; scope: RpcScope } {
+  const scope = requiredScope(method);
+  const declared = caller.permissions ?? DEFAULT_PAGE_SCOPES as string[];
+  if (!scopeGranted(scope, declared)) return { ok: false, scope };
+  return { ok: true };
+}

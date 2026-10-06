@@ -9,19 +9,20 @@ import { getState, navigate, routeCommand, setState, t, type PageKey } from "./s
  */
 
 function builtinRunner(id: string, repoPath: string | null): (() => void) | null {
-  const route = (cmd: string) => () => routeCommand(cmd);
+  // R0-8：内置命令的归属页面由执行体显式给出（routeCommand 的 page 参数），不再前缀启发式
+  const route = (cmd: string, page: PageKey) => () => routeCommand(cmd, page);
   switch (id) {
     case "repo.refresh": return () => window.dispatchEvent(new CustomEvent("gitter:refresh"));
     case "repo.newWindow": return () => void call("app.newWindow", { path: repoPath });
-    case "commit": return route("changes.commit");
-    case "commit.push": return route("changes.commitPush");
-    case "changes.stageAll": return route("changes.stageAll");
-    case "changes.unstageAll": return route("changes.unstageAll");
-    case "branches.create": return route("branches.create");
-    case "branches.checkout": return route("branches.checkout");
-    case "branches.pull": return route("branches.pull");
-    case "branches.pullRebase": return route("branches.pullRebase");
-    case "branches.push": return route("branches.push");
+    case "commit": return route("changes.commit", "changes");
+    case "commit.push": return route("changes.commitPush", "changes");
+    case "changes.stageAll": return route("changes.stageAll", "changes");
+    case "changes.unstageAll": return route("changes.unstageAll", "changes");
+    case "branches.create": return route("branches.create", "branches");
+    case "branches.checkout": return route("branches.checkout", "branches");
+    case "branches.pull": return route("branches.pull", "branches");
+    case "branches.pullRebase": return route("branches.pullRebase", "branches");
+    case "branches.push": return route("branches.push", "branches");
     case "view.diffSide": return () => void import("./state/store").then((m) => m.updateSettings({ diffMode: "sideBySide" }));
     case "view.diffInline": return () => void import("./state/store").then((m) => m.updateSettings({ diffMode: "inline" }));
     case "view.themeSystem": return () => void import("./state/store").then((m) => m.updateSettings({ theme: "system" }));

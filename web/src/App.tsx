@@ -1,57 +1,85 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { call, onEvent } from "./bridge/client";
 import type { CommandDTO } from "./bridge/types";
 import { runCommand } from "./commands";
 import { CommandPalette } from "./components/CommandPalette";
-import { Modal } from "./components/Dialogs";
+import { Modal, PageErrorBoundary } from "./kit";
 import { Sidebar, StatusBar, TitleBar } from "./components/Shell";
 import { appendAgentStream, applyDiffModeToDom, applyThemeToDom, getState, navigate, pushToast, reapplyLanguage, reapplyTheme, refreshCurrent, setState, t, useApp } from "./state/store";
-import { uiPage, uiPages, onUiPagesChanged, type UIPageDef } from "./uiRegistry";
+import { onUiPagesChanged, resolveUiPage, uiPages, type UIPageDef } from "./uiRegistry";
 import { installUiApi } from "./sdk";
-import { loadExternalPages } from "./pageLoader";
-import { BranchesPage } from "./pages/BranchesPage";
-import { ChangesPage } from "./pages/ChangesPage";
-import { LogPage } from "./pages/LogPage";
-import { ProjectsPage } from "./pages/ProjectsPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { TasksPage } from "./pages/TasksPage";
-import { TerminalPage } from "./pages/TerminalPage";
+import { ensureExternalPageLoaded, loadExternalPages, reloadExternalPages } from "./pageLoader";
 
 /** 全局快捷键（keybindings 接缝自举：Ctrl+1..7 / F5 / Ctrl+Shift+N 等由 commands.list 的
  * keyHint 驱动分发；面板开关与 Ctrl+Tab 循环不是命令，保留硬编码。Ctrl+Enter 由提交框
  * 输入上下文处理，分发器跳过）。 */
-/** 内置页面组件表（组件本体仍为宿主私有——注册表只登记身份与顺序）。 */
-const BUILTIN_COMPONENTS: Record<string, () => JSX.Element | null> = {
-  projects: ProjectsPage,
-  log: LogPage,
-  changes: ChangesPage,
-  branches: BranchesPage,
-  tasks: TasksPage,
-  bash: TerminalPage,
-  settings: SettingsPage,
-};
-
-/** 外部页宿主组件：容器 div 交给插件 mount(ctx)，卸载时执行清理。 */
+/** 外部页宿主组件：容器 div 交给插件 mount(ctx)，卸载时执行清理
+ * （R0/A2 修复：__gitterCleanup 只写不读的断链——清理函数经 effect return 真正调用）。 */
 function ExternalPageHost({ def }: { def: UIPageDef }) {
-  const ref = (el: HTMLDivElement | null) => {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
     if (!el || !def.mount) return;
-    const ctx = {
-      repo: getState().repo,
-      packageId: def.packageId ?? "?",
+    const cleanup = def.mount(el, { repo: getState().repo, packageId: def.packageId ?? "?" });
+    return () => {
+      if (typeof cleanup === "function") cleanup();
     };
-    const cleanup = def.mount(el, ctx);
-    (el as HTMLDivElement & { __gitterCleanup?: () => void }).__gitterCleanup =
-      typeof cleanup === "function" ? cleanup : undefined;
-  };
-  return <div ref={ref} style={{ flex: 1, overflow: "auto" }} />;
+  }, [def]);
+  // 容器复用 .page 布局语义：页面根（toolbar/内容区 fragment）与内置时期同构
+  return <div ref={ref} className="page" />;
 }
 
+/** 单槽位内容（R0-2 槽位-提供者解析）：用户包 > 内置包；惰性页面在此触发首次装载
+ * （loader 注入脚本 → registerPage → 注册表 notify 重渲染）。 */
+function PageContent({ pageId }: { pageId: string }) {
+  const def = resolveUiPage(pageId);
+  const lazyPending = !!(def?.lazy && !def.mount);
+  useEffect(() => {
+    if (lazyPending) void ensureExternalPageLoaded(pageId);
+  }, [lazyPending, pageId]);
+
+  if (def?.mount) {
+    return <PageErrorBoundary pageKey={pageId}><ExternalPageHost def={def} /></PageErrorBoundary>;
+  }
+  if (lazyPending) {
+    return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--c-text3)" }}>…</div>;
+  }
+  // 提供者存在但装载终态失败（markLoadFailed）或槽位彻底无提供者：如实呈现，不静默
+  return (
+    <div className="empty-state" style={{ flex: 1 }}>
+      <div className="big">⊘</div>
+      <div>页面不可用：{pageId}</div>
+      <div style={{ color: "var(--c-text3)", fontSize: 12, marginTop: 4 }}>页面包装载失败或已被移除——可在 设置 → 扩展 检查</div>
+    </div>
+  );
+}
+
+/** 页面出口（keep-alive，R2.1）：访问过的槽位保持挂载，display 切换可见性——
+ * 切页不卸载不重载：终端回滚、列表勾选/折叠、滚动位置、表单状态全部保留。
+ * 真正卸载只发生在：包热刷新（def 变化重挂）、页面被卸载/停用（wrapper 移除）。 */
 function PageOutlet({ pageId }: { pageId: string }) {
-  const def = uiPage(pageId);
-  const Builtin = BUILTIN_COMPONENTS[pageId];
-  if (Builtin) return <Builtin />;
-  if (def?.mount) return <ExternalPageHost def={def} />;
-  return <ProjectsPage />;
+  const [, tick] = useState(0);
+  useEffect(() => onUiPagesChanged(() => tick((x) => x + 1)), []);
+
+  // 未知槽位（页面被卸载/停用后残留的 page 值）→ 回落注册表首个槽位
+  const first = uiPages()[0];
+  const firstSlot = first ? first.slot ?? first.id : null;
+  const effective = resolveUiPage(pageId) ? pageId : firstSlot ?? pageId;
+
+  const [visited, setVisited] = useState<string[]>(() => [effective]);
+  useEffect(() => {
+    setVisited((prev) => (prev.includes(effective) ? prev : [...prev, effective]));
+  }, [effective]);
+
+  return (
+    <>
+      {visited.map((slot) => (
+        <div key={slot} className="page" style={slot === effective ? undefined : { display: "none" }}>
+          <PageContent pageId={slot} />
+        </div>
+      ))}
+    </>
+  );
 }
 
 function useShortcuts(openPalette: (prefill?: string) => void) {
@@ -87,7 +115,8 @@ function useShortcuts(openPalette: (prefill?: string) => void) {
       }
       if (ctrl && e.key === "Tab") {
         e.preventDefault();
-        const order: import("./state/store").PageKey[] = ["projects", "log", "changes", "branches", "tasks", "bash", "settings"];
+        // R0-8：循环顺序由页面注册表驱动（槽位 order，settings 天然在末位）
+        const order = uiPages().map((x) => x.slot ?? x.id);
         const idx = order.indexOf(getState().page);
         navigate(order[(idx + 1 + order.length) % order.length]);
         return;
@@ -142,9 +171,9 @@ export function App() {
           }
         }
         setState({ booted: true, page: settings.currentProjectPath ? "log" : "projects" });
-        // U1c：外部页面装载（allowCodePlugins 门；SDK 全局先装）
+        // U1c：外部页面装载（R0/A3：bridge 侧内置包免门、用户包按 allowCodePlugins 门；SDK 全局先装）
         installUiApi();
-        void loadExternalPages(settings.allowCodePlugins);
+        void loadExternalPages(settings.allowCodePlugins, settings.language);
       } catch (e) {
         // 桥不可用（纯浏览器调试）：以未开仓库状态进入
         setState({ booted: true, page: "projects" });
@@ -222,6 +251,21 @@ export function App() {
   useEffect(() => onEvent("ui.notify", (p: { title: string; body?: string }) => {
     pushToast(String(p?.title ?? ""), String(p?.body ?? ""));
   }), []);
+
+  // R0/D6 生命周期：包集合变化（导入/卸载/启停/allowCodePlugins 切换）→ 外部页热重同步
+  useEffect(() => onEvent("extensions.changed", () => {
+    void reloadExternalPages(
+      getState().settings?.allowCodePlugins ?? false,
+      getState().i18n?.lang ?? "en",
+    );
+  }), []);
+
+  // R2：语言切换 → 包标题（%key% 装载时解析）重解析
+  const lang = useApp().i18n?.lang;
+  useEffect(() => {
+    if (!lang) return;
+    void reloadExternalPages(getState().settings?.allowCodePlugins ?? false, lang);
+  }, [lang]);
 
   useShortcuts((prefill) => setPalette({ prefill, ts: Date.now() }));
 

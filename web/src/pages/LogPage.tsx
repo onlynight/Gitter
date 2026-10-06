@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { call } from "../bridge/client";
-import { pageSdk } from "../pageSdk"; // U4：宿主面收敛标记
+import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import type { CtxMenuItem } from "../components/Dialogs";
-import { Banner, Modal, useContextMenu } from "../components/Dialogs";
-import { DiffView } from "../components/DiffView";
-import { SplitPane } from "../components/SplitPane";
+import { Banner, DiffView, Modal, SplitPane, useContextMenu, type CtxMenuItem } from "../kit";
 import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge/types";
 import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
-import { refreshCurrent, t, useApp, setState, navigate, setSharedContext } from "../state/store";
+
+// R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
+const { call, t, navigate, refresh: refreshCurrent, setContext: setSharedContext, focusTask } = pageSdk;
+const useApp = useAppState;
 
 // ---- 行模型（对齐 LogRow：按天组头 / 会话卡 / 提交行）----
 
@@ -319,7 +318,7 @@ export function LogPage() {
                           action: () => void squash(s),
                         },
                         { label: t("Log_CopyAgent"), action: () => copy(s.agentId) },
-                        { label: t("Log_OpenTaskCard"), action: () => { setState({ focusTaskId: s.agentId }); navigate("tasks"); } },
+                        { label: t("Log_OpenTaskCard"), action: () => { focusTask(s.agentId); navigate("tasks"); } },
                       ])
                     }
                   >

@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from "react";
-import type { UIPageDef } from "../uiRegistry";
 import { call } from "../bridge/client";
 import type { SettingsDTO, ThemeStateDTO, I18nDTO } from "../bridge/types";
 
@@ -31,8 +30,6 @@ export interface AppState {
   focusTaskId: string | null;
   /** Agent 流式输出缓冲（agent.stream 事件，10s 无增量自动清空） */
   agentStreamText: string | null;
-  /** U1 页面注册表快照（App/Sidebar 消费；由 uiRegistry 订阅同步） */
-  pages: UIPageDef[];
   /** U1b 共享上下文（跨页联动与外部页读取；页面内仍可保局部镜像） */
   context: {
     selectedFile: { path: string; staged: boolean; isNew: boolean; isConflict: boolean } | null;
@@ -56,9 +53,15 @@ let state: AppState = {
   panels: [],
   focusTaskId: null,
   agentStreamText: null,
-  pages: [],
   context: { selectedFile: null, selectedCommitSha: null },
 };
+
+/** 共享上下文变化事件（渲染层本地；sdk/pageSdk 的 on("context.changed") 消费）。 */
+export function onContextChanged(cb: (context: AppState["context"]) => void): () => void {
+  const fn = (e: Event) => cb((e as CustomEvent).detail);
+  window.addEventListener("gitter:context-changed", fn);
+  return () => window.removeEventListener("gitter:context-changed", fn);
+}
 
 /** 共享上下文补丁（页面向 store 镜像选中态）。 */
 export function setSharedContext(patch: {
@@ -71,6 +74,7 @@ export function setSharedContext(patch: {
       selectedCommitSha: patch.selectedCommitSha !== undefined ? patch.selectedCommitSha : getState().context.selectedCommitSha,
     },
   });
+  window.dispatchEvent(new CustomEvent("gitter:context-changed", { detail: getState().context }));
 }
 
 let streamClearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -115,6 +119,12 @@ export function useApp(): AppState {
   );
 }
 
+/** 裸订阅（外部页 React 面经 GITTER_UI.subscribeState + getState 组装 useSyncExternalStore）。 */
+export function subscribeState(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
+
 export function navigate(page: PageKey) {
   if (state.page === page) return;
   setState({ page });
@@ -130,14 +140,17 @@ export function refreshCurrent() {
   setState({ refreshTick: state.refreshTick + 1 });
 }
 
-export function routeCommand(id: string) {
-  setState({ routedCommand: { id, ts: Date.now() }, page: pageForCommand(id) });
+/**
+ * 命令 → 页面路由（R0-8：命令面板/菜单执行后落到拥有该命令的页面）。
+ * page 由调用方显式给出（commands.ts 的内置执行体最清楚归属）；goto.* 前缀沿用
+ * 命令 id 即槽位 id 的约定；不再做其它前缀启发式。
+ */
+export function routeCommand(id: string, page?: PageKey) {
+  setState({ routedCommand: { id, ts: Date.now() }, page: page ?? pageForCommand(id) });
 }
 
 function pageForCommand(id: string): PageKey {
   if (id.startsWith("goto.")) return id.slice(5) as PageKey;
-  if (id.startsWith("changes.") || id.startsWith("commit")) return "changes";
-  if (id.startsWith("branches.")) return "branches";
   return state.page;
 }
 
