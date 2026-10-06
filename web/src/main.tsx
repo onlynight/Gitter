@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
+import "./builtinPages"; // 内置页面注册表自举（必须先于 App 渲染）
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 

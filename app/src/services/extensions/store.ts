@@ -34,7 +34,7 @@ interface Entry extends PackageRecord {
 const ALL_KINDS = [
   "theme", "grammar", "commands", "configuration",
   "menus", "keybindings", "terminalProfiles", "safetyRules",
-  "skills", "mcpServers", "emptyHints",
+  "skills", "mcpServers", "emptyHints", "pages",
   "harness", "models", "taskTypes",
 ] as const;
 export type ExtensionKind = (typeof ALL_KINDS)[number];
@@ -128,6 +128,7 @@ export class PackageStore {
     if (c.skills.length) kinds.push("skills");
     if (c.mcpServers.length) kinds.push("mcpServers");
     if (c.emptyHints.length) kinds.push("emptyHints");
+    if (c.pages.length) kinds.push("pages");
     return kinds;
   }
 
@@ -244,6 +245,25 @@ export class PackageStore {
   }
 
   /** 空状态提示包（emptyHints 接缝，E 阶段收尾）：按插槽返回追加文案。 */
+  /** 渲染层页面贡献（pages 接缝，U1）：装载由渲染层 loader 执行（allowCodePlugins 门）。 */
+  pagesOf(): { packageId: string; id: string; title: string; entryAbs: string; permissions: string[] }[] {
+    const out: { packageId: string; id: string; title: string; entryAbs: string; permissions: string[] }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.pages === false) continue;
+      for (const pg of e.manifest.contributes.pages) {
+        out.push({
+          packageId: e.manifest.id,
+          id: `ext.${e.manifest.id}.${pg.id}`,
+          title: pg.title,
+          entryAbs: path.join(e.dir, pg.entry),
+          permissions: [...pg.permissions],
+        });
+      }
+    }
+    return out;
+  }
+
   emptyHintsOf(slot: "changes.empty" | "log.empty" | "branches.empty"): { packageId: string; text: string }[] {
     const out: { packageId: string; text: string }[] = [];
     for (const e of this.scanAll()) {

@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from "react";
+import type { UIPageDef } from "../uiRegistry";
 import { call } from "../bridge/client";
 import type { SettingsDTO, ThemeStateDTO, I18nDTO } from "../bridge/types";
 
 // 轻量全局 store（不引状态库）：emit + useSyncExternalStore。
 
-export type PageKey = "projects" | "log" | "changes" | "branches" | "tasks" | "bash" | "settings";
+export type PageKey = string; // 页面 id = 注册表键（内置 7 页 + 外部页 ext.<pkg>.<id>，ui-pluginization-plan.md U1a）
 
 export interface AppState {
   booted: boolean;
@@ -30,6 +31,13 @@ export interface AppState {
   focusTaskId: string | null;
   /** Agent 流式输出缓冲（agent.stream 事件，10s 无增量自动清空） */
   agentStreamText: string | null;
+  /** U1 页面注册表快照（App/Sidebar 消费；由 uiRegistry 订阅同步） */
+  pages: UIPageDef[];
+  /** U1b 共享上下文（跨页联动与外部页读取；页面内仍可保局部镜像） */
+  context: {
+    selectedFile: { path: string; staged: boolean; isNew: boolean; isConflict: boolean } | null;
+    selectedCommitSha: string | null;
+  };
 }
 
 let state: AppState = {
@@ -48,7 +56,22 @@ let state: AppState = {
   panels: [],
   focusTaskId: null,
   agentStreamText: null,
+  pages: [],
+  context: { selectedFile: null, selectedCommitSha: null },
 };
+
+/** 共享上下文补丁（页面向 store 镜像选中态）。 */
+export function setSharedContext(patch: {
+  selectedFile?: { path: string; staged: boolean; isNew: boolean; isConflict: boolean } | null;
+  selectedCommitSha?: string | null;
+}): void {
+  setState({
+    context: {
+      selectedFile: patch.selectedFile !== undefined ? patch.selectedFile : getState().context.selectedFile,
+      selectedCommitSha: patch.selectedCommitSha !== undefined ? patch.selectedCommitSha : getState().context.selectedCommitSha,
+    },
+  });
+}
 
 let streamClearTimer: ReturnType<typeof setTimeout> | null = null;
 

@@ -65,6 +65,21 @@ export interface SkillContribution {
   tools: string[];
 }
 
+export type RpcScopeName =
+  | "open" | "git.read" | "git.write" | "settings.write"
+  | "agent.run" | "agent.config" | "extensions.admin"
+  | "terminal" | "ai.invoke" | "approval" | "window";
+
+export interface PageContribution {
+  id: string;
+  title: string;
+  /** 渲染层入口（经典 script，相对包目录；经 window.GITTER_UI 注册） */
+  entry: string;
+  icon: string | null;
+  /** 桥权限域声明（缺省 = open + git.read；bridge 入口按此过滤外部页调用） */
+  permissions: RpcScopeName[];
+}
+
 export interface EmptyHintContribution {
   /** 插槽：changes.empty / log.empty / branches.empty */
   slot: "changes.empty" | "log.empty" | "branches.empty";
@@ -167,6 +182,8 @@ export interface TaskTypeContribution {
   /** 权限覆盖：只能沿 auto→session→each-time 收紧（编译期校验）；git_push 恒 each-time */
   permissionPolicy: Record<string, "auto" | "session" | "each-time">;
   defaultModelRef: string | null;
+  /** 循环实现 id（G7：taskType→loop 绑定；缺省 builtin.default） */
+  defaultLoop: string | null;
 }
 
 export interface Manifest {
@@ -196,6 +213,7 @@ export interface Manifest {
     skills: SkillContribution[];
     mcpServers: McpServerContribution[];
     emptyHints: EmptyHintContribution[];
+    pages: PageContribution[];
     harnesses: HarnessContribution[];
     models: ModelContribution[];
     taskTypes: TaskTypeContribution[];
@@ -279,6 +297,21 @@ const manifestV2 = z.object({
             flags: z.string().nullish(),
             message: z.string().min(1),
             fileExts: z.array(z.string()).nullish(),
+          }),
+        )
+        .optional(),
+      pages: z
+        .array(
+          z.object({
+            id: z.string().min(1),
+            title: z.string().min(1),
+            entry: z.string().min(1),
+            icon: z.string().nullish(),
+            permissions: z.array(z.enum([
+              "open", "git.read", "git.write", "settings.write",
+              "agent.run", "agent.config", "extensions.admin",
+              "terminal", "ai.invoke", "approval", "window",
+            ])).nullish(),
           }),
         )
         .optional(),
@@ -455,6 +488,7 @@ const manifestV2 = z.object({
               .record(z.string(), z.enum(["auto", "session", "each-time"]))
               .default({}),
             defaultModelRef: z.string().nullish(),
+            defaultLoop: z.string().nullish(),
           }),
         )
         .optional(),
@@ -521,6 +555,10 @@ export function normalizeManifest(raw: unknown): ManifestResult {
             args: [...(p.args ?? [])],
           })),
           emptyHints: (c.emptyHints ?? []).map((h) => ({ slot: h.slot, text: h.text })),
+          pages: (c.pages ?? []).map((pg) => ({
+            id: pg.id, title: pg.title, entry: pg.entry, icon: pg.icon ?? null,
+            permissions: [...(pg.permissions ?? [])],
+          })),
           skills: (c.skills ?? []).map((k) => ({
             id: k.id, name: k.name, description: k.description, instructions: k.instructions, tools: [...(k.tools ?? [])],
           })),
@@ -601,6 +639,7 @@ export function normalizeManifest(raw: unknown): ManifestResult {
             tools: [...t.tools],
             permissionPolicy: { ...t.permissionPolicy },
             defaultModelRef: t.defaultModelRef ?? null,
+            defaultLoop: t.defaultLoop ?? null,
           })),
         },
       },
@@ -643,6 +682,7 @@ export function normalizeManifest(raw: unknown): ManifestResult {
         skills: [],
         mcpServers: [],
         emptyHints: [],
+        pages: [],
         harnesses: [],
         models: [],
         taskTypes: [],

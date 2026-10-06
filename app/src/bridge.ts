@@ -19,6 +19,9 @@ import { importGpkFile, uninstallPackageDir } from "./services/extensions/gpk";
 import { buildRawTheme } from "./services/extensions/grammar";
 import { AgentSessionManager } from "./services/agents/session";
 import { pickRepairTarget } from "./services/agents/session";
+import { requiredScope, scopeGranted, DEFAULT_PAGE_SCOPES } from "./services/extensions/rpcScopes";
+import { HOST_API_VERSION } from "./services/extensions/store";
+import { DATA_API_VERSION } from "./shared/apiVersion";
 import { pickProfileRef, pickFastProfileRef, resolveProfileModel } from "./services/agents/provider";
 import { compileTaskTypes, BUILTIN_FREE_ID } from "./services/agents/taskTypes";
 import type { ModelProfileDTO, UserModelProfileDTO } from "./shared/types";
@@ -108,6 +111,16 @@ export class Bridge {
           : { ok: false as const, error: r.error };
       },
       // 用量记账（task-model-modules.md §2.3）
+      // U5 生命周期钩子 → EventBus（L2 插件 ctx.on("agent.task.*") 订阅）
+      onLifecycle: (event, record) => {
+        void this.shared.events.emit(`agent.task.${event}`, {
+          repo: this.repo,
+          taskId: record.taskId,
+          title: record.title,
+          branch: record.branch,
+          state: record.state,
+        });
+      },
       addUsage: (profileRef, usage) => {
         const cur = this.shared.settings.current.modelUsage ?? {};
         const prev = cur[profileRef] ?? { turns: 0, inputTokens: 0, outputTokens: 0 };
@@ -147,8 +160,26 @@ export class Bridge {
   async handle(method: string, args: unknown): Promise<{ ok: true; data: unknown } | { ok: false; error: { message: string; detail?: string } }> {
     const handler = this.handlers.get(method);
     if (!handler) return { ok: false, error: { message: `未知桥方法: ${method}` } };
+
+    // U2 权限令牌（advisory）：外部页 SDK 调用携带 __caller，bridge 按声明的权限域过滤；
+    // 无 __caller（宿主自身页面）不受影响。剥离后转传，handler 参数不受污染。
+    const caller = (args as { __caller?: { packageId: string; permissions?: string[] } } | null)?.__caller;
+    let handlerArgs = args;
+    if (caller) {
+      const scope = requiredScope(method);
+      const declared = caller.permissions ?? DEFAULT_PAGE_SCOPES as string[];
+      if (!scopeGranted(scope, declared)) {
+        if (!this.win.isDestroyed()) {
+          this.win.webContents.send("evt", { method: "audit.rpc.denied", params: { packageId: caller.packageId, method, scope } });
+        }
+        return { ok: false, error: { message: `permission denied: ${scope}` } };
+      }
+      handlerArgs = { ...(args as Record<string, unknown>) };
+      delete (handlerArgs as Record<string, unknown>).__caller;
+    }
+
     try {
-      const data = await handler(args);
+      const data = await handler(handlerArgs);
       return { ok: true, data };
     } catch (e) {
       if (e instanceof BridgeError) return { ok: false, error: { message: e.message, detail: e.detail } };
@@ -498,6 +529,37 @@ export class Bridge {
 
     // ---- 设置 / 主题 / 语言 ----
     R("settings.get", () => settings.current);
+    R("api.info", () => ({
+      dataApiVersion: DATA_API_VERSION,
+      hostApiVersion: HOST_API_VERSION,
+    }));
+    R("settings.schema", () => ({
+      apiVersion: 1,
+      // 宿主设置 schema（ui-pluginization-plan.md U6/G9：替换 Settings 页的机器可读描述；
+      // packages/confirmedCommands/aiApiKeyProtected 等宿主内部字段不发布）
+      fields: [
+        { key: "theme", type: "enum", values: ["system", "light", "dark"], default: "system", section: "appearance" },
+        { key: "themePackageId", type: "string", default: null, section: "appearance" },
+        { key: "language", type: "enum", values: ["system", "en", "zh-Hans"], default: "system", section: "appearance" },
+        { key: "diffMode", type: "enum", values: ["sideBySide", "inline"], default: "sideBySide", section: "diff" },
+        { key: "terminalShell", type: "string", default: "powershell", section: "terminal" },
+        { key: "terminalFontFamily", type: "string", default: "Cascadia Mono", section: "terminal" },
+        { key: "terminalFontSize", type: "number", default: 13, section: "terminal" },
+        { key: "terminalFollowRepo", type: "boolean", default: true, section: "terminal" },
+        { key: "bashPath", type: "string", default: null, section: "terminal" },
+        { key: "autoFetch", type: "boolean", default: true, section: "monitor" },
+        { key: "autoFetchIntervalMinutes", type: "number", default: 5, section: "monitor" },
+        { key: "externalEditor", type: "string", default: null, section: "editor" },
+        { key: "aiProvider", type: "string", default: "off", section: "ai" },
+        { key: "aiEndpoint", type: "string", default: null, section: "ai" },
+        { key: "aiModel", type: "string", default: null, section: "ai" },
+        { key: "aiPrivacy", type: "enum", values: ["metadataOnly", "fullDiff", "disabled"], default: "metadataOnly", section: "ai" },
+        { key: "safetyNet", type: "enum", values: ["off", "warn", "block"], default: "warn", section: "safety" },
+        { key: "mcpEnabled", type: "boolean", default: true, section: "mcp" },
+        { key: "allowCodePlugins", type: "boolean", default: false, section: "extensions" },
+        { key: "externalMcpEnabled", type: "boolean", default: false, section: "extensions" },
+      ],
+    }));
     R("settings.set", (args: { patch: Partial<SettingsDTO> }) => {
       settings.update(args.patch ?? {});
       if (args.patch?.externalMcpEnabled !== undefined) void this.syncExternalMcp();
@@ -778,6 +840,8 @@ export class Bridge {
     R("ui.statusItems", () => this.shared.host.listStatusItems());
     R("ui.panels", () => this.shared.host.resolvePanels(this.repo));
     R("ui.views", () => this.shared.host.listViews());
+    R("extensions.pages", () =>
+      this.shared.settings.current.allowCodePlugins ? this.shared.pkgStore.pagesOf() : []);
     R("ui.emptyHints", (args?: { slot?: "changes.empty" | "log.empty" | "branches.empty" }) =>
       this.shared.pkgStore.emptyHintsOf(args?.slot ?? "changes.empty"));
     R("ui.commitBlocks", (args?: { message?: string; fileCount?: number }) =>

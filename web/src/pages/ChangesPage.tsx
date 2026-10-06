@@ -7,7 +7,7 @@ import { DiffView } from "../components/DiffView";
 import { SplitPane } from "../components/SplitPane";
 import { SyncBar, useSyncProgress } from "../components/SyncBar";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
-import { navigate, refreshCurrent, openSettings, t, useApp } from "../state/store";
+import { navigate, refreshCurrent, openSettings, t, useApp, setSharedContext } from "../state/store";
 
 const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
 
@@ -48,6 +48,10 @@ export function ChangesPage() {
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [transient, setTransient] = useState<string | null>(null);
   const [selected, setSelected] = useState<{ path: string; staged: boolean; isNew: boolean; isConflict: boolean } | null>(null);
+  // U1b 共享上下文镜像（外部页/跨页联动读取）
+  useEffect(() => {
+    setSharedContext({ selectedFile: selected });
+  }, [selected]);
   const [diff, setDiff] = useState<DiffDTO | null>(null);
   const [preview, setPreview] = useState<PreviewDTO | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());

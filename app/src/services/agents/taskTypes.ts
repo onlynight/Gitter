@@ -21,6 +21,8 @@ export interface CompiledTaskType {
   tools: string[] | null; // null = 全集
   policy: Record<string, PermissionClass>;
   defaultModelRef: string | null;
+  /** 循环实现 id（G7：taskType→loop 绑定；缺省 builtin.default） */
+  defaultLoop: string | null;
 }
 
 export interface TaskTypeEntry {
@@ -30,6 +32,7 @@ export interface TaskTypeEntry {
   name: string;
   tools: string[];
   defaultModelRef: string | null;
+  defaultLoop: string | null;
   error: string | null;
 }
 
@@ -48,11 +51,13 @@ export const FREE_TASK_TYPE: CompiledTaskType = {
   tools: null,
   policy: {},
   defaultModelRef: null,
+  defaultLoop: null,
 };
 
 function compileOne(packageId: string, t: {
   id: string; name: string; promptTemplate: string; systemAddendum: string | null;
   tools: string[]; permissionPolicy: Record<string, PermissionClass>; defaultModelRef: string | null;
+  defaultLoop: string | null;
 }): { spec: CompiledTaskType | null; error: string | null } {
   const unknownTools = t.tools.filter((x) => !TOOL_SET.has(x));
   if (unknownTools.length > 0) {
@@ -81,6 +86,7 @@ function compileOne(packageId: string, t: {
       tools: t.tools.length > 0 ? [...t.tools] : null,
       policy: { ...t.permissionPolicy },
       defaultModelRef: t.defaultModelRef,
+      defaultLoop: t.defaultLoop ?? null,
     },
     error: null,
   };
@@ -104,6 +110,7 @@ export function compileTaskTypes(store: PackageStore): { entries: TaskTypeEntry[
         name: t.name,
         tools: [...t.tools],
         defaultModelRef: t.defaultModelRef,
+        defaultLoop: t.defaultLoop ?? null,
         error,
       });
     }

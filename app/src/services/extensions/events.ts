@@ -12,6 +12,10 @@ export const EVENT_NAMES = [
   "branch.checkedOut",
   "sync.pushed",
   "sync.pulled",
+  "agent.task.created",
+  "agent.task.resumed",
+  "agent.task.stopped",
+  "agent.task.removed",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];

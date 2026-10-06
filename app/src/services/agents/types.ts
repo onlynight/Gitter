@@ -88,6 +88,8 @@ export interface AgentTaskRecord {
   modelRef: string | null;
   /** 任务型全限定 id（builtin/free = 自由任务） */
   taskType: string | null;
+  /** 循环实现 id（G7：taskType→loop 绑定或 createTask 显式指定；缺省 builtin.default） */
+  loopId: string | null;
   /** 思考深度（ZCode reasoning-effort 语义：循环侧 providerOptions + 系统提示词双通道） */
   thinking: ThinkingLevel;
   /** 归档（列表默认过滤，可恢复） */

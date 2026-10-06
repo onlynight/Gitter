@@ -163,10 +163,22 @@ app.whenReady().then(() => {
   const repoArg = process.argv.slice(1).find((a) => looksLikeRepoArg(a));
   createWindow(repoArg);
 
-  // 启动级验证钩子（scripts/boot-check.mjs）：定时自动退出，退出码 0 = 存活到期
+  // 启动级验证钩子（scripts/boot-check.mjs）：定时退出前对渲染层做 UI 断言——
+  // 侧边栏导航项 ≥ 7（页面注册表自举生效）+ root 已渲染；失败退出码 3/4。
   const bootExitMs = Number(process.env.GITTER_BOOT_EXIT_MS ?? 0);
   if (bootExitMs > 0) {
-    setTimeout(() => app.quit(), bootExitMs);
+    setTimeout(async () => {
+      try {
+        const win = BrowserWindow.getAllWindows()[0];
+        const navCount = await win.webContents.executeJavaScript(
+          "document.querySelectorAll('.nav-item').length");
+        const rootRendered = await win.webContents.executeJavaScript(
+          "!!document.getElementById('root') && document.getElementById('root').children.length > 0");
+        app.exit(navCount >= 7 && rootRendered ? 0 : 3);
+      } catch {
+        app.exit(4);
+      }
+    }, bootExitMs);
   }
 
   app.on("activate", () => {

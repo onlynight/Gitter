@@ -32,6 +32,8 @@ export interface AgentSessionDeps {
   addUsage: (profileRef: string, usage: { input?: number; output?: number } | null) => void;
   /** 经 preload bridge 推渲染层（evt 通道） */
   send: (method: string, params: unknown) => void;
+  /** U5 生命周期钩子（可选）：桥转发到 EventBus，L2 插件 ctx.on("agent.task.*") 订阅 */
+  onLifecycle?: (event: "created" | "resumed" | "stopped" | "removed", record: AgentTaskRecord) => void;
 }
 
 interface LiveSession {
@@ -169,7 +171,7 @@ export class AgentSessionManager {
 
   // ---- 任务生命周期 ----
 
-  async createTask(args: { harness?: string; name?: string; prompt: string; taskType?: string; model?: string; thinking?: ThinkingLevel }): Promise<AgentTaskRecord> {
+  async createTask(args: { harness?: string; name?: string; prompt: string; taskType?: string; model?: string; thinking?: ThinkingLevel; loopId?: string }): Promise<AgentTaskRecord> {
     const repo = this.needRepo();
     if (args.harness && args.harness !== BUILTIN_HARNESS_ID) {
       throw new Error(`未知 agent：${args.harness}（当前版本仅内置 Gitter Agent）`);
@@ -206,10 +208,12 @@ export class AgentSessionManager {
       lastMessage: null,
       modelRef: rr.profileRef,
       taskType: tt.spec.fullId,
+      loopId: args.loopId ?? tt.spec.defaultLoop ?? null,
       thinking: args.thinking ?? "medium",
       archived: false,
     };
     this.putRecord(record);
+    this.deps.onLifecycle?.("created", record);
     const input = tt.spec.promptTemplate.replace("{input}", args.prompt.trim());
     const messages: ModelMessage[] = [{ role: "user", content: input }];
     this.persistMessages(record.taskId, messages);
@@ -234,7 +238,8 @@ export class AgentSessionManager {
     record.lastActiveAt = new Date().toISOString();
     if (args.thinking) record.thinking = args.thinking;
     this.putRecord(record);
-    const humanNote = `追加输入：${args.prompt.trim().split(/\r?\n/)[0]?.slice(0, 60)}`;
+        this.deps.onLifecycle?.("resumed", record);
+const humanNote = `追加输入：${args.prompt.trim().split(/\r?\n/)[0]?.slice(0, 60)}`;
     void this.startTurn(record, record.worktreePath, messages, tt.spec, humanNote);
     return record;
   }
@@ -250,6 +255,7 @@ export class AgentSessionManager {
   }
 
   /** 退回重做直投（验收台 rejected + 反馈 → 注入同会话）。 */
+  /** A4 修复轮注入：反馈包装成受限提示走 resume。 */
   async sendFeedback(args: { taskId: string; feedback: string }): Promise<AgentTaskRecord> {
     return this.resumeTask({
       taskId: args.taskId,
@@ -348,6 +354,7 @@ export class AgentSessionManager {
       /* 会话文件缺失不阻塞 */
     }
     this.deps.send("agent.tasks.changed", {});
+    this.deps.onLifecycle?.("removed", record);
     return { ok: true };
   }
 
@@ -388,6 +395,7 @@ export class AgentSessionManager {
     this.emit(record, { type: "status", phase: "editing", summary: `分支 ${ctx.branch ?? "?"} · ${ctx.statusSummary}` });
 
     const result = await runLoop({
+      loopId: record.loopId ?? undefined,
       model: rr.model,
       thinking: record.thinking,
       system: composeSystemPrompt(ctx, worktreePath) + (tt.systemAddendum ? `\n\n${tt.systemAddendum}` : ""),

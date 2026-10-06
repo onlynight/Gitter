@@ -8,7 +8,7 @@ import { DiffView } from "../components/DiffView";
 import { SplitPane } from "../components/SplitPane";
 import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge/types";
 import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
-import { refreshCurrent, t, useApp, setState, navigate } from "../state/store";
+import { refreshCurrent, t, useApp, setState, navigate, setSharedContext } from "../state/store";
 
 // ---- 行模型（对齐 LogRow：按天组头 / 会话卡 / 提交行）----
 
@@ -48,6 +48,10 @@ export function LogPage() {
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
   const [collapsedSessions, setCollapsedSessions] = useState<Set<string>>(new Set());
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
+  // U1b 共享上下文镜像
+  useEffect(() => {
+    setSharedContext({ selectedCommitSha: selectedSha });
+  }, [selectedSha]);
   const [detail, setDetail] = useState<CommitDetailDTO | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [fileDiff, setFileDiff] = useState<DiffDTO | null>(null);

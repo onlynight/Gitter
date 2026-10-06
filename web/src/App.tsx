@@ -6,6 +6,9 @@ import { CommandPalette } from "./components/CommandPalette";
 import { Modal } from "./components/Dialogs";
 import { Sidebar, StatusBar, TitleBar } from "./components/Shell";
 import { appendAgentStream, applyDiffModeToDom, applyThemeToDom, getState, navigate, pushToast, reapplyLanguage, reapplyTheme, refreshCurrent, setState, t, useApp } from "./state/store";
+import { uiPage, uiPages, onUiPagesChanged, type UIPageDef } from "./uiRegistry";
+import { installUiApi } from "./sdk";
+import { loadExternalPages } from "./pageLoader";
 import { BranchesPage } from "./pages/BranchesPage";
 import { ChangesPage } from "./pages/ChangesPage";
 import { LogPage } from "./pages/LogPage";
@@ -17,6 +20,40 @@ import { TerminalPage } from "./pages/TerminalPage";
 /** 全局快捷键（keybindings 接缝自举：Ctrl+1..7 / F5 / Ctrl+Shift+N 等由 commands.list 的
  * keyHint 驱动分发；面板开关与 Ctrl+Tab 循环不是命令，保留硬编码。Ctrl+Enter 由提交框
  * 输入上下文处理，分发器跳过）。 */
+/** 内置页面组件表（组件本体仍为宿主私有——注册表只登记身份与顺序）。 */
+const BUILTIN_COMPONENTS: Record<string, () => JSX.Element | null> = {
+  projects: ProjectsPage,
+  log: LogPage,
+  changes: ChangesPage,
+  branches: BranchesPage,
+  tasks: TasksPage,
+  bash: TerminalPage,
+  settings: SettingsPage,
+};
+
+/** 外部页宿主组件：容器 div 交给插件 mount(ctx)，卸载时执行清理。 */
+function ExternalPageHost({ def }: { def: UIPageDef }) {
+  const ref = (el: HTMLDivElement | null) => {
+    if (!el || !def.mount) return;
+    const ctx = {
+      repo: getState().repo,
+      packageId: def.packageId ?? "?",
+    };
+    const cleanup = def.mount(el, ctx);
+    (el as HTMLDivElement & { __gitterCleanup?: () => void }).__gitterCleanup =
+      typeof cleanup === "function" ? cleanup : undefined;
+  };
+  return <div ref={ref} style={{ flex: 1, overflow: "auto" }} />;
+}
+
+function PageOutlet({ pageId }: { pageId: string }) {
+  const def = uiPage(pageId);
+  const Builtin = BUILTIN_COMPONENTS[pageId];
+  if (Builtin) return <Builtin />;
+  if (def?.mount) return <ExternalPageHost def={def} />;
+  return <ProjectsPage />;
+}
+
 function useShortcuts(openPalette: (prefill?: string) => void) {
   const repoPath = useApp().repo?.workDir ?? null;
   useEffect(() => {
@@ -39,6 +76,15 @@ function useShortcuts(openPalette: (prefill?: string) => void) {
       const ctrl = e.ctrlKey && !e.altKey;
       if (ctrl && e.shiftKey && (e.key === "P" || e.key === "p")) { e.preventDefault(); openPalette(); return; }
       if (ctrl && !e.shiftKey && (e.key === "P" || e.key === "p")) { e.preventDefault(); openPalette(">"); return; }
+      if (ctrl && e.key >= "1" && e.key <= "9") {
+        const order = uiPages().filter((x) => x.id !== "settings");
+        const idx = parseInt(e.key, 10) - 1;
+        if (order[idx]) {
+          e.preventDefault();
+          navigate(order[idx].id);
+        }
+        return;
+      }
       if (ctrl && e.key === "Tab") {
         e.preventDefault();
         const order: import("./state/store").PageKey[] = ["projects", "log", "changes", "branches", "tasks", "bash", "settings"];
@@ -96,6 +142,9 @@ export function App() {
           }
         }
         setState({ booted: true, page: settings.currentProjectPath ? "log" : "projects" });
+        // U1c：外部页面装载（allowCodePlugins 门；SDK 全局先装）
+        installUiApi();
+        void loadExternalPages(settings.allowCodePlugins);
       } catch (e) {
         // 桥不可用（纯浏览器调试）：以未开仓库状态进入
         setState({ booted: true, page: "projects" });
@@ -199,13 +248,7 @@ export function App() {
       <div className={"main" + (app.settings?.sidebarCollapsed ? " collapsed" : "")}>
         <Sidebar />
         <div className="page">
-          {app.page === "projects" && <ProjectsPage />}
-          {app.page === "log" && <LogPage />}
-          {app.page === "changes" && <ChangesPage />}
-          {app.page === "branches" && <BranchesPage />}
-          {app.page === "tasks" && <TasksPage />}
-          {app.page === "bash" && <TerminalPage />}
-          {app.page === "settings" && <SettingsPage />}
+          <PageOutlet pageId={app.page} />
         </div>
       </div>
       <StatusBar />

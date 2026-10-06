@@ -43,7 +43,8 @@ child.on("exit", (code) => {
     console.log(`[PASS] Electron 启动级验证（存活 ${elapsed}ms，退出码 0，无致命输出）`);
     process.exit(0);
   }
-  console.error(`[FAIL] 退出码=${code} 存活=${elapsed}ms 致命标记=${fatal.join(",") || "无"}`);
+  const hint = code === 0 && elapsed < 3000 ? "（疑似单实例锁被占用：先结束残留的 electron.exe 再重跑）" : ""
+  console.error(`[FAIL] 退出码=${code} 存活=${elapsed}ms 致命标记=${fatal.join(",") || "无"}${hint}`);
   console.error(out.slice(-2000));
   process.exit(1);
 });

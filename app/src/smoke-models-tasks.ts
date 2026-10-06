@@ -161,7 +161,7 @@ async function main() {
     taskId: "t-src", title: "源任务", harnessFullId: "builtin/gitter-agent",
     worktreePath: repo, branch: "task/src", externalSessionId: null, baselineSha: "a",
     state: "completed" as const, exitCode: 0, createdAt: new Date().toISOString(),
-    lastActiveAt: null, lastMessage: "完成", modelRef: null, taskType: "builtin/free", thinking: "medium" as const, archived: false,
+    lastActiveAt: null, lastMessage: "完成", modelRef: null, taskType: "builtin/free", loopId: null, thinking: "medium" as const, archived: false,
   };
   const file = loadAgentTasks(repo);
   file.tasks.push(seed);

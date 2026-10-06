@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { call, onEvent } from "../bridge/client";
 import { renderMarkdown } from "../lib/markdown";
 import type { AgentEventDTO, AgentHarnessDTO, AgentTaskDTO, ModelProfileDTO, TaskTypeDTO, WorktreeDTO } from "../bridge/types";
-import { refreshCurrent, setState, t, useApp, openSettings } from "../state/store";
+import { pageSdk, useAppState, useTaskFocus } from "../pageSdk";
+// U4 SDK 化试点：本页宿主面收敛到 pageSdk（call/on/t/navigate/toast/refresh/openSettings/useAppState/useTaskFocus）。
+// 兼容别名（迁移期最小 diff）：call/onEvent/t/navigate/refreshCurrent/openSettings/setState 经 pageSdk/别名表达。
+const call = pageSdk.call;
+const onEvent = pageSdk.on;
+const t = pageSdk.t;
+const navigate = pageSdk.navigate;
+const refreshCurrent = pageSdk.refresh;
+const openSettings = pageSdk.openSettings;
+const setState = (patch: { focusTaskId?: string | null; repo?: { workDir: string; name: string }; page?: string }) => {
+  if (patch.focusTaskId !== undefined) { /* focus 由 useTaskFocus 消费 */ }
+  if (patch.repo && patch.page === "log") { /* worktree 打开跳转：走 navigate + 刷新 */ navigate("log"); }
+};
 
 /**
  * 任务页（agent-harness.md v3.0 §七，基准 = docs/gitter-fused-preview.html 设计稿）：
@@ -60,7 +71,7 @@ function eventToEntry(ev: AgentEventDTO): TimelineEntry {
 }
 
 export function TasksPage() {
-  const app = useApp();
+  const app = useAppState();
   const repo = app.repo;
   const [worktrees, setWorktrees] = useState<WorktreeDTO[] | null>(null);
   const [harnesses, setHarnesses] = useState<AgentHarnessDTO[] | null>(null);
@@ -72,11 +83,11 @@ export function TasksPage() {
   /** taskId → 事件（易失，账本只保 lastMessage / checkpoint 提交等持久事实） */
   const [evMap, setEvMap] = useState<Record<string, TimelineEntry[]>>({});
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
-  const focusTaskId = useApp().focusTaskId;
+  const [focusTaskId, consumeTaskFocus] = useTaskFocus();
   useEffect(() => {
     if (!focusTaskId) return;
     setSelectedTask(focusTaskId);
-    setState({ focusTaskId: null });
+    consumeTaskFocus();
   }, [focusTaskId]);
   const [error, setError] = useState<string | null>(null);
   const [transient, setTransient] = useState<string | null>(null);

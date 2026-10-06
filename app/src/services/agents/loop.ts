@@ -11,6 +11,8 @@ import type { AgentSessionEvent, ThinkingLevel } from "./types";
  */
 
 export interface LoopOptions {
+  /** 循环实现 id（缺省 builtin.default；taskType→loop 绑定经 createTask 解析） */
+  loopId?: string;
   model: LanguageModel;
   system: string;
   messages: ModelMessage[];
@@ -43,7 +45,27 @@ function normalizeUsage(u: unknown): { input?: number; output?: number } | null 
   return input === undefined && output === undefined ? null : { input, output };
 }
 
+// ---- 循环注册表（agent-harness.md §十 / ui-pluginization-plan.md G7：taskType→loop 绑定）----
+// 内置实现自举注册为 builtin.default；任务创建经 loopId（或 taskType.defaultLoop）选择实现。
+
+const HARNESS_LOOPS = new Map<string, (o: LoopOptions) => Promise<LoopResult>>();
+const DEFAULT_LOOP = "builtin.default";
+
+export function registerHarnessLoop(id: string, impl: (o: LoopOptions) => Promise<LoopResult>): void {
+  HARNESS_LOOPS.set(id, impl);
+}
+
+export function harnessLoops(): string[] {
+  return [...HARNESS_LOOPS.keys()];
+}
+
 export async function runLoop(o: LoopOptions): Promise<LoopResult> {
+  const impl = HARNESS_LOOPS.get(o.loopId ?? DEFAULT_LOOP);
+  if (!impl) throw new Error(`未注册的 Agent 循环：${o.loopId ?? DEFAULT_LOOP}`);
+  return impl(o);
+}
+
+async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
   let finalText = "";
   let pending = "";
   let lastFlush = 0;
@@ -120,3 +142,5 @@ export async function runLoop(o: LoopOptions): Promise<LoopResult> {
     return { outcome: "failed", lastMessage: finalText.trim() || null, usage, error: err.message };
   }
 }
+
+registerHarnessLoop(DEFAULT_LOOP, builtinLoop);

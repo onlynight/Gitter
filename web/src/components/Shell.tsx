@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { call, isMaximized, onEvent, winAction } from "../bridge/client";
 import type { StatusItemDTO } from "../bridge/types";
 import { runCommand } from "../commands";
-import { navigate, t, updateSettings, useApp, type PageKey } from "../state/store";
+import { navigate, openSettings, t, updateSettings, useApp, type PageKey } from "../state/store";
+import { onUiPagesChanged, uiPages } from "../uiRegistry";
 
 export function TitleBar() {
   const { repo, settings } = useApp();
@@ -35,30 +36,8 @@ export function TitleBar() {
 
 // 侧边栏图标 = WinUI 实现的逐一移植（MainWindow.BuildNavItem 的 items 表）：
 // SVG path 为 design-mockups 的 16×16 内联图形；字形项用 Segoe Fluent Icons（WinUI 同码位）。
-const NAV: { key: PageKey; glyph?: string; svg?: string; labelKey: string }[] = [
-  { key: "projects", glyph: "\uE8B7", labelKey: "Nav_Projects" },
-  {
-    key: "log",
-    svg: "M2 3h12v1.5H2V3zm0 4.25h8.5v1.5H2v-1.5zM2 11.5h12V13H2v-1.5z",
-    labelKey: "Nav_Log",
-  },
-  {
-    key: "changes",
-    svg: "M2 4.25 5 8l-3 3.75V4.25zM6 3h1.5v10H6V3zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3z",
-    labelKey: "Nav_Changes",
-  },
-  {
-    key: "branches",
-    svg: "M13.1 3.9a2.3 2.3 0 0 0-3.25 3.25l-.1.1a2.3 2.3 0 0 1-3.25 0L5.4 6.2a2.3 2.3 0 1 0-1.06 1.06l1.1 1.05a3.8 3.8 0 0 0 2.31 1.09v1.2a2.3 2.3 0 1 0 1.5 0V9.4a3.8 3.8 0 0 0 2.31-1.09l.1-.1a2.3 2.3 0 1 0 1.44-4.31z",
-    labelKey: "Nav_Branches",
-  },
-  { key: "tasks", glyph: "\uE7C1", labelKey: "Nav_Tasks" },
-  { key: "bash", glyph: "\uE756", labelKey: "Nav_Terminal" },
-];
-
-// 设置不随导航列表排列，单独固定在侧边栏最下方
-const SETTINGS_NAV = { key: "settings" as PageKey, glyph: "\uE713", labelKey: "Nav_Settings" };
-
+// 侧边栏 = 页面注册表驱动（ui-pluginization-plan.md U1a）：内置页身份在 builtinPages.ts，
+// 外部页（package 来源）追加在注册表顺序位。图标渲染沿用 NavIcon（SVG/glyph）。
 export function NavIcon({ glyph, svg }: { glyph?: string; svg?: string }) {
   if (svg) {
     return (
@@ -72,23 +51,49 @@ export function NavIcon({ glyph, svg }: { glyph?: string; svg?: string }) {
 
 export function Sidebar() {
   const { page, settings } = useApp();
+  const [, setPagesTick] = useState(0);
+  useEffect(() => onUiPagesChanged(() => setPagesTick((x) => x + 1)), []);
+  const extNav = uiPages().filter((x) => x.source === "package");
   const collapsed = settings?.sidebarCollapsed ?? false;
-  const navButton = (n: { key: PageKey; glyph?: string; svg?: string; labelKey: string }) => (
+  const NAV = uiPages()
+    .filter((x) => x.source === "builtin" && x.id !== "settings")
+    .map((x) => ({ key: x.id as PageKey, glyph: x.glyph, svg: x.svg, labelKey: x.titleKey ?? "", title: x.title }));
+  // 设置固定在侧栏最下方（不在主导航序列）
+  const SETTINGS_NAV = { key: "settings" as PageKey, glyph: "", labelKey: "Nav_Settings" };
+  
+  // 设置不随导航列表排列，单独固定在侧边栏最下方
+  const navButton = (n: { key: PageKey; glyph?: string; svg?: string; labelKey?: string; title?: string; packageId?: string }) => (
     <button
       key={n.key}
       className={"nav-item" + (page === n.key ? " active" : "")}
       onClick={() => navigate(n.key)}
-      title={t(n.labelKey)}
+      title={n.labelKey ? t(n.labelKey) : n.title}
     >
       <span className="nav-ico">
         <NavIcon glyph={n.glyph} svg={n.svg} />
       </span>
-      <span className="nav-label">{t(n.labelKey)}</span>
+      <span className="nav-label">{n.labelKey ? t(n.labelKey) : n.title ?? n.key}</span>
     </button>
   );
   return (
     <div className={"sidebar" + (collapsed ? " collapsed" : "")}>
       <div className="nav-top">{NAV.map(navButton)}</div>
+      <div className="nav-sep" />
+      {extNav.map((x) => (
+        <div key={x.id} style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {navButton({ key: x.id, glyph: x.glyph, labelKey: undefined, title: x.title })}
+          </div>
+          <button
+            className="tool-btn"
+            style={{ padding: "0 4px", fontSize: 10 }}
+            title="卸载此外部页面"
+            onClick={() => openSettings("extensions")}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
       <div className="nav-sep" />
       {navButton(SETTINGS_NAV)}
     </div>

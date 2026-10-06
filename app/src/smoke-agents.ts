@@ -63,6 +63,7 @@ const HARNESS_MANIFEST = (node: string): Manifest => ({
     skills: [],
     mcpServers: [],
     emptyHints: [],
+    pages: [],
     models: [],
     taskTypes: [],
     harnesses: [
