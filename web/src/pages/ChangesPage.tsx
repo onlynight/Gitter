@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
+import { seamMenuItems } from "../commands";
+import type { CtxMenuItem } from "../components/Dialogs";
 import { Banner, Modal, useContextMenu } from "../components/Dialogs";
 import { DiffView } from "../components/DiffView";
 import { SplitPane } from "../components/SplitPane";
 import { SyncBar, useSyncProgress } from "../components/SyncBar";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
-import { refreshCurrent, openSettings, t, useApp } from "../state/store";
+import { navigate, refreshCurrent, openSettings, t, useApp } from "../state/store";
 
 const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
 
@@ -294,6 +296,8 @@ export function ChangesPage() {
     const eligible = files.filter((f) => !f.isConflict);
     const allChecked = allowCheck && eligible.length > 0 && eligible.every((f) => checked.has(f.path));
     const someChecked = eligible.some((f) => checked.has(f.path));
+    // 勾选（含组头全选）后可一键批量暂存，无需逐个右键
+    const checkedPaths = eligible.filter((f) => checked.has(f.path)).map((f) => f.path);
     const toggleAll = () =>
       setChecked((prev) => {
         const next = new Set(prev);
@@ -318,23 +322,37 @@ export function ChangesPage() {
           <span>{title}</span>
           <span style={{ color: "var(--c-text3)", fontWeight: 400 }}>{files.length}</span>
           <span className="grow" style={{ flex: 1 }} />
+          {!stagedView && someChecked && (
+            <button
+              className="tool-btn"
+              style={{ padding: "1px 8px", height: 20, fontSize: 11 }}
+              disabled={busy}
+              onClick={() =>
+                void run(async () => { await call("changes.stage", { paths: checkedPaths }); return t("Changes_Staged"); })
+              }
+            >
+              {t("Changes_StageChecked", checkedPaths.length)}
+            </button>
+          )}
         </div>
         {files.map((f) => (
           <div
             key={f.category + f.path}
             className={"list-row" + (selected?.path === f.path && selected?.staged === stagedView ? " selected" : "")}
             onClick={() => select(f, stagedView)}
-            onContextMenu={(e) =>
-              showMenu(e, [
-                stagedView
-                  ? { label: t("Changes_UnstageFile"), action: () => void run(async () => { await call("changes.unstage", { paths: [f.path] }); return t("Changes_Unstaged"); }) }
-                  : { label: t("Changes_StageFile"), action: () => void run(async () => { await call("changes.stage", { paths: [f.path] }); return t("Changes_Staged"); }) },
-                ...(f.isConflict ? [{ label: t("Changes_MarkResolved"), action: () => void run(async () => { await call("changes.stage", { paths: [f.path] }); return t("Changes_MarkedResolved"); }) }] : []),
-                { sep: true, label: "", action: () => {} },
-                { label: t("Changes_OpenInEditor"), action: () => void call("shell.openPath", { path: f.path, editor: true }) },
-                { label: t("Changes_RevealInExplorer"), action: () => void call("shell.reveal", { path: f.path }) },
-              ])
-            }
+            onContextMenu={(e) => {
+              // menus 接缝（extension-system-v2.md §16.5）：本地动作 + 内置文件菜单（走接缝） + 包菜单
+              void (async () => {
+                const local: CtxMenuItem[] = [
+                  stagedView
+                    ? { label: t("Changes_UnstageFile"), action: () => void run(async () => { await call("changes.unstage", { paths: [f.path] }); return t("Changes_Unstaged"); }) }
+                    : { label: t("Changes_StageFile"), action: () => void run(async () => { await call("changes.stage", { paths: [f.path] }); return t("Changes_Staged"); }) },
+                  ...(f.isConflict ? [{ label: t("Changes_MarkResolved"), action: () => void run(async () => { await call("changes.stage", { paths: [f.path] }); return t("Changes_MarkedResolved"); }) }] : []),
+                  { sep: true, label: "", action: () => {} },
+                ];
+                showMenu(e, [...local, ...(await seamMenuItems("changesFile", f.path))]);
+              })();
+            }}
           >
             {allowCheck && !f.isConflict && (
               <input type="checkbox" checked={checked.has(f.path)} onChange={() => toggleCheck(f.path)} />
@@ -396,6 +414,21 @@ export function ChangesPage() {
           text={t("Changes_AgentFeedback", feedback.note)}
           detail={feedback.path ?? undefined}
           onClose={async () => { await call("changes.clearFeedback", {}); setFeedback(null); }}
+          actions={[
+            {
+              label: t("Changes_SendToRepair"),
+              onClick: () => void (async () => {
+                try {
+                  const r = await call<{ task: { taskId: string; title: string } }>("review.repair", {});
+                  setFeedback(null);
+                  setTransient(t("Changes_RepairSent", r.task.title));
+                  navigate("tasks");
+                } catch (e) {
+                  setTransient((e as Error).message);
+                }
+              })(),
+            },
+          ]}
         />
       )}
       {findings.length > 0 && (
@@ -421,7 +454,12 @@ export function ChangesPage() {
                 {group(t("Changes_StagedGroup"), state.staged, true, true)}
                 {group(t("Changes_ChangesGroup"), state.changes, false, true)}
                 {group(t("Changes_UnversionedGroup"), state.unversioned, false, true)}
-                {allFiles.length === 0 && <div className="empty-state">{t("Changes_WorktreeClean")}</div>}
+                {allFiles.length === 0 && (
+                  <div className="empty-state">
+                    {t("Changes_WorktreeClean")}
+                    <EmptyHints slot="changes.empty" />
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -442,6 +480,7 @@ export function ChangesPage() {
                 {t("Changes_AiReview")}
               </button>
             </div>
+            <CommitBlocks fileCount={state?.staged.length ?? 0} />
             <textarea
               placeholder={t("Changes_CommitMessagePlaceholder")}
               value={message}
@@ -600,4 +639,35 @@ function statusLetter(f: FileStatusDTO): string {
   if (f.category === "unversioned") return "U";
   if (f.category === "staged") return "A";
   return "M";
+}
+
+/** 提交对话框区块接缝（E 阶段收尾：L2 数据供给，只能提示不能阻断——阻断走门禁）。 */
+function useCommitBlocks(fileCount: number) {
+  const [blocks, setBlocks] = useState<{ packageId: string; text: string }[]>([]);
+  useEffect(() => {
+    void call<{ packageId: string; text: string }[]>("ui.commitBlocks", { fileCount, message: "" }).then(setBlocks);
+  }, [fileCount]);
+  return blocks;
+}
+
+function CommitBlocks({ fileCount }: { fileCount: number }) {
+  const blocks = useCommitBlocks(fileCount);
+  if (blocks.length === 0) return null;
+  return (
+    <div className="hint" style={{ whiteSpace: "pre-wrap" }}>
+      {blocks.map((b, i) => (
+        <div key={i}>▸ {b.text}<span className="hint">（{b.packageId}）</span></div>
+      ))}
+    </div>
+  );
+}
+
+/** 空状态提示接缝（emptyHints L1 数据包，extension-system-v2.md §16.6 E 阶段收尾）。 */
+function EmptyHints({ slot }: { slot: "changes.empty" | "log.empty" | "branches.empty" }) {
+  const [hints, setHints] = useState<string[]>([]);
+  useEffect(() => {
+    void call<{ packageId: string; text: string }[]>("ui.emptyHints", { slot }).then((r) => setHints(r.map((x) => x.text)));
+  }, [slot]);
+  if (hints.length === 0) return null;
+  return <div className="hint" style={{ marginTop: 6 }}>{hints.join("  ·  ")}</div>;
 }

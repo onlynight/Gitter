@@ -1,7 +1,7 @@
 # Gitter 工具属性 × Agent 融合设计（工具面统一稿）
 
 > 状态：设计提案 v1.1（2026-10-05），**仅设计稿，未动任何代码**
-> 上位文档：docs/ai-native-redesign.md v1.2（功能域 + harness 接口）、docs/agent-harness-codex.md v2.0（宿主设计权威版）
+> 上位文档：docs/ai-native-redesign.md v1.2（功能域 + harness 接口）、docs/agent-harness.md v3.0（agent harness 权威版：Gitter 自身即 agent 运行时；工具集 = 本稿操作目录的 zod 化）
 > v1.1 对齐注记（随插件系统 v2 与 Web 栈）：文中 IRepositoryService / GitWorker 读作迁移后 git 服务层与串行任务队列的 TS 对应物；"安全网 / 确认队列 / 写管线"统一落在 **safety.ts 人审门**（§三操作目录的确认策略为其策略输入）；MCP 双向统一 @modelcontextprotocol/sdk（P4）；命令面板数据源为 CommandReg。三命题 / 操作目录 / 闭环模型不变。
 > 本稿定位：**不新增功能域**，而是回答"Gitter 的工具属性怎么和 agent 融合"——给出一个统一的融合模型（工具面 / Operation Catalog），把此前分散在 §7.2（MCP 工具集）、§12.3（harness 权限白名单）、§4.2（提交安全网）、§3.4（hunk 三态）的机制收敛到一处，并补上融合中缺的一块拼图：**验收状态的人机双向共享**。
 

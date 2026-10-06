@@ -154,6 +154,18 @@ export function DiffView(props: {
     // app.theme 进依赖：TextMate 颜色在主进程按活动主题解析，切主题需重拉
   }, [assembled, props.inline, props.rich, diff.path, app.theme]);
 
+  // diff 侧栏注记接缝（E 阶段收尾：L2 按路径只读注记）
+  const [notes, setNotes] = useState<{ packageId: string; text: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void call<{ packageId: string; text: string }[]>("diff.notes", { path: diff.path }).then((r) => {
+      if (!cancelled) setNotes(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [diff.path]);
+
   if (diff.isBinary) {
     return (
       <div className="diff">
@@ -164,6 +176,12 @@ export function DiffView(props: {
       </div>
     );
   }
+
+  const noteStrip = notes.length > 0 ? (
+    <div className="hint" style={{ padding: "2px 10px", borderBottom: "1px solid var(--c-border)" }}>
+      {notes.map((n, i) => <span key={i} style={{ marginRight: 12 }}>▸ {n.text}<span className="hint">（{n.packageId}）</span></span>)}
+    </div>
+  ) : null;
 
   const header = (
     <div className="diff-file-header">
@@ -181,6 +199,8 @@ export function DiffView(props: {
     return (
       <div className="diff">
         {header}
+      {noteStrip}
+        {noteStrip}
         <div className="empty-state">{t("Diff_NoContentChange")}</div>
       </div>
     );

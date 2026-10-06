@@ -8,6 +8,12 @@ import { HighlightService } from "./services/highlight";
 import { PackageStore } from "./services/extensions/store";
 import { CommandRegistry, BUILTIN_COMMANDS } from "./services/extensions/commands";
 import { GrammarService } from "./services/extensions/grammar";
+import { ToolRegistry, builtinGitTools } from "./services/extensions/tools";
+import { EventBus } from "./services/extensions/events";
+import { PluginStorage } from "./services/extensions/storage";
+import { PluginHost } from "./services/extensions/host";
+import { McpClientManager } from "./services/extensions/mcpClient";
+import { bindToolRegistry } from "./services/extensions/agentLoop";
 
 const bridges = new Map<number, Bridge>();
 let shared: SharedServices;
@@ -103,6 +109,33 @@ app.whenReady().then(() => {
   const highlightSvc = new HighlightService(res.syntaxRulesPath);
   const commands = new CommandRegistry(BUILTIN_COMMANDS);
   commands.registerPackageCommands(pkgStore);
+  const tools = new ToolRegistry(builtinGitTools());
+  const events = new EventBus();
+  bindToolRegistry(tools);
+  const mcpMgr = new McpClientManager();
+  const host = new PluginHost({
+    registry: commands,
+    tools,
+    events,
+    storage: new PluginStorage(path.join(userData, "plugin-data")),
+    notify: (title, body) => {
+      for (const b of bridges.values()) {
+        if (!b.isWindowDestroyed()) b.sendNotify(title, body);
+      }
+    },
+    // L3 隔离子进程（Electron utilityProcess 适配器；无头冒烟走 Node fork 适配器）
+    utilityTransport: (entryPath, serviceName, sdkDir) => {
+      const { utilityProcess } = require("electron") as typeof import("electron");
+      const up = utilityProcess.fork(entryPath, [sdkDir], { serviceName });
+      return {
+        send: (m) => up.postMessage(m),
+        onMessage: (cb) => up.on("message", (m) => cb((m as { data?: unknown }).data ?? m)),
+        onExit: (cb) => up.on("exit", (code) => cb(code ?? 0)),
+        kill: () => up.kill(),
+      };
+    },
+    sdkDir: __dirname,
+  });
   const grammarSvc = new GrammarService(pkgStore, grammarDataRoot(), onigWasmPath());
   grammarSvc.registerUserGrammars();
   if (Object.keys(i18n.get("en").strings).length === 0) {
@@ -117,6 +150,10 @@ app.whenReady().then(() => {
     pkgStore,
     commands,
     grammar: grammarSvc,
+    tools,
+    events,
+    host,
+    mcpMgr,
     userPackagesRoot: path.join(userData, "packages"),
     userThemesRoot: path.join(userData, "themes"),
     createWindow: (repoPath?: string) => createWindow(repoPath),
@@ -125,6 +162,12 @@ app.whenReady().then(() => {
   registerIpc();
   const repoArg = process.argv.slice(1).find((a) => looksLikeRepoArg(a));
   createWindow(repoArg);
+
+  // 启动级验证钩子（scripts/boot-check.mjs）：定时自动退出，退出码 0 = 存活到期
+  const bootExitMs = Number(process.env.GITTER_BOOT_EXIT_MS ?? 0);
+  if (bootExitMs > 0) {
+    setTimeout(() => app.quit(), bootExitMs);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

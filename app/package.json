@@ -18,6 +18,10 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.71",
+    "@ai-sdk/openai-compatible": "^3.0.62",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "ai": "^7.0.127",
     "fflate": "^0.8.3",
     "node-pty": "^1.1.0",
     "semver": "^7.8.5",

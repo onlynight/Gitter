@@ -1,6 +1,6 @@
 # Gitter 核心功能重设计：AI 编程时代的 Git 验收台
 
-> 状态：设计 v1.2（2026-10-05）——v1.1 新增 §十二 Agent Harness 扩展框架（`harness` kind + 四级传输 + 预留接口），原 §7.4 反向桥被其吸收；v1.2 按 docs/agent-harness-codex.md 扩展 §12.3/§12.4（含 §12.9 宿主托管 checkpoint 与会话账本）。**P0–P5 主路线与顺延项已全部实现**（2026-10-05：P0/P1 见 §十三；P2–P5 见 §十四；顺延项见 §十五），harness H 系列接口已冻结、生态待建；**v1.3（2026-10-05）：随插件系统 v2（docs/extension-system-v2.md）与 Web 栈演进，agent 宿主框架（§十二/H 系列）的权威设计重排至 docs/agent-harness-codex.md v2.0**——C# 冻结接口（src/GitUI.Core/Agents/AgentHarness.cs）为形状基准，Web 栈落点 app/src/services/agents（TS/zod），包形态并入 schema v2 `contributes.harnesses`（L1 声明式）
+> 状态：设计 v1.4（2026-10-05）——v1.1 新增 §十二 Agent Harness 扩展框架（`harness` kind + 四级传输 + 预留接口），原 §7.4 反向桥被其吸收；v1.2 按 docs/agent-harness-codex.md 扩展 §12.3/§12.4（含 §12.9 宿主托管 checkpoint 与会话账本）。**P0–P5 主路线与顺延项已全部实现**（2026-10-05：P0/P1 见 §十三；P2–P5 见 §十四；顺延项见 §十五），harness H 系列接口已冻结、生态待建；v1.3 随插件系统 v2 与 Web 栈演进重排接口落点（C# 冻结接口为形状基准，Web 栈落点 app/src/services/agents）；**v1.4 方向裁决：Gitter 自身做成 agent harness（ZCode/DeepSeek Harness 同构，自有 LLM 工具循环），"宿主外部 CLI"降为可选外部桥——权威设计见 docs/agent-harness.md v3.0**；§12.4 事件模型与 §12.9 托管 checkpoint 概念由 v3.0 继承
 > 定位输入：Gitter 是代码管理工具（git 代码管理器），辅助代码编写，**不是普通 IDE**
 > 前置阅读：docs/design.md（总设计定稿）、docs/known-issues.md（技术债台账）、docs/extension-package-framework.md（.gpk 框架）
 

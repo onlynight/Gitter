@@ -1,9 +1,14 @@
 # 插件系统 v2 方案（成熟开源组件组合，非自造框架）
 
-> 状态：实施中 —— P1/P2/P3 已实施（2026-10-05：PackageStore/主题/语法/命令全链路，主进程无头冒烟 31 项全绿 + 真实资源装配验证；P4/P4.5/P5 待实施）
+> 状态：✅ 完工并审计归零（2026-10-06）—— 36 条接缝全部开缝，可选后续三项收口，且完成系统性完工审计（scripts/audit-completion.py：渲染层 RPC 引用 vs 宿主注册 0 缺失 / i18n 引用 vs 词条 0 缺失 / TODO 0 残留），并补齐第二轮深度审计发现的缺口：L2/L3 信任门设置开关（allowCodePlugins / externalMcpEnabled，切换即时生效）、按 kind 启停 UI（extensions.setKindEnabled 接入设置页 chips）、L2 ctx 补齐 §16.2 承诺的 registerLoop / registerAiProvider 两动词（含注销清理 + 冒烟）、agent.stream 流式缓冲条可视化。八套冒烟 + boot 真启动全绿
+> 默认内置包（2026-10-05 起随应用分发，`app/resources/packages/`，生成器 `scripts/gen-default-packages.mjs` 幂等可重现）：
+> `gitui.theme.dark`/`gitui.theme.light`（v1 迁移 v2 + tokenColors 随包，旧 `resources/themes/GitUI.theme.*` 已移除）、
+> `tm.one-dark-pro`/`tm.dracula`/`tm.nord`/`tm.github-light`/`tm.solarized-light`（tm-themes 策展 wrapper 包，tokenColors 原样随包）、
+> `gitui.tools.git`（L1 受限命令示例：rev-list --count / fetch --prune / git gc，经 terminal.run 白名单动作）。
+> 语法不设默认语法包：tm-grammars 为 GrammarService 引擎内置数据（260 语言），与扩展包分层。
 > 日期：2026-10-05
 > 背景：WinUI3→Web 迁移后，v1 扩展框架（extension-package-framework.md）只剩主题目录扫描；高亮退化为内置 5 语言死 JSON；生命周期/脚本宿主/命令扩展全部缺位。
-> 关联：`extension-package-framework.md`（v1，数据格式延续）、`code-highlight-framework.md`（声明式引擎降级为回退层）、`theme-framework.md`（theme.json 格式兼容）、`winui3-to-web-migration.md`（§12.3 语法终局决策门，本方案即该门的裁决）、`agent-harness-codex.md`（agent 宿主框架，v2.0 已按本方案重排：`contributes.harnesses` / L3 解析通道 / safety.ts 同门 / 与 §十五 agentLoop 的关系界定）
+> 关联：`extension-package-framework.md`（v1，数据格式延续）、`code-highlight-framework.md`（声明式引擎降级为回退层）、`theme-framework.md`（theme.json 格式兼容）、`winui3-to-web-migration.md`（§12.3 语法终局决策门，本方案即该门的裁决）、`agent-harness.md`（agent harness v3.0：**Gitter 自身即 agent 运行时**，§十五/P4.5 的完整化与任务卡宿主壳；`agent-harness-codex.md` 的"外部 CLI 宿主"方向已废止，catalog/manifest 机制封存为未来外部桥扩展点）
 > 设计哲学：**每一层用现成的成熟开源件，Gitter 只写领域胶水**；数据包先行，代码插件最后；信任分级，进程内只放受信代码。
 
 ---
@@ -222,3 +227,112 @@ P1–P3 主线，P4 可并行，P5 按需。
 - **host.ts 契约增补一个动词**：`ctx.registerAgentLoop`——不改变"activate/dispose 两动词"的极简性评价，这是第三种注册与 registerCommand 同形
 
 **与 dsh 路线的差异声明**：dsh"一切皆插件、loop 也是插件"成立的前提是它本身即 agent 运行时且接受进程内全信任。Gitter 的 agent 是功能而非产品本体，GUI 用户安装第三方插件的信任模型不同，故取"**开放外围、圈住内核**"折中：外围（模型/工具/技能/循环选择）全部可插拔，循环执行权永不离开宿主。若 agentLoop 生态长大，将自然命中 Cordis 触发信号（服务依赖图 + 每仓库 fork 实例），届时按 §六既定路径换内核，AgentLoop 接缝不受影响。
+
+## 十六、插件能力扩展：贡献点全集与载体矩阵（v3 方向，2026-10-05 增补）
+
+> 背景：P1–P3 落地后插件能力限于"换皮 + 补语言 + 快捷命令"三类 L0/L1 数据插件。本节对标 pi（包带工具/技能/提示模板并影响 agent 行为）与 DeepSeek Harness（一切皆插件）的扩展点全集，把能力面从"数据声明"扩展到"行为扩展"，同时保住 Gitter 的信任分级。
+> 结论先行：**扩展性来自"扩展点 × 载体"矩阵的宽度，安全性来自载体的分级**——吸收"什么都能插"，不吸收 dsh/pi 的进程内全信任。
+
+### 16.1 扩展点 × 载体矩阵（设计目标全景）
+
+| 扩展点 | L1 声明 | L2 受信代码 | L3 隔离 | MCP 外部 | 现状 |
+|---|---|---|---|---|---|
+| 主题 themes | ✅ | — | — | — | 已实施 |
+| 语法 grammars | ✅ | — | — | — | 已实施 |
+| 命令 commands | ✅(扩) | ✅ | ✅ | — | L1 仅 2 动作 |
+| 配置 configuration | ✅(闭环) | ctx 读取 | ctx 读取 | — | 存而不用 |
+| 快捷键/菜单 keybindings·menus | ✅(新) | — | — | — | 无 |
+| i18n 词条 | ✅(新) | — | — | — | 无 |
+| 模型端点 modelEndpoints | ✅(新) | ✅ provider | ✅ | ✅ | ai.ts 写死 3 传输 |
+| **工具 tools** | — | ✅ | ✅ | ✅ | 无（最关键缺口）|
+| **技能 skills** | ✅(新) | — | — | — | 无 |
+| **事件钩子 hooks** | — | ✅ | ✅ | — | 无 |
+| **视图 views/statusbar** | — | ✅(数据供给) | ✅(webview) | — | 无 |
+| Agent 循环 loops | — | ✅ | ✅ | — | §十五已设计 |
+
+### 16.2 四项核心机制
+
+1. **contributes 贡献点全集（manifest schema v3，向后兼容 v2）**：新增声明式段 `keybindings`（映射命令 id）、`menus`（右键菜单引用命令 id + when）、`skills`（技能包：name/description/instructions + 可引用工具名，纯文本数据）、`modelEndpoints`（OpenAI 兼容端点三元组，零代码插模型）、`mcpServers`（stdio 命令或 URL 声明式引用）、`i18n`（`i18n/<lang>.json` + 标题 `%key%` 引用）。`when` 条件从单一 `repoOpen` 扩为表达式子集（`repoOpen`/`fileSelected`/`config:<key>`/`kind:<fileKind>`）。
+2. **ToolRegistry——统一工具总线（本节最重要的结构）**：一张注册表 `{ name, inputSchema(zod), permission, execute }`，四个来源入注册：内置 git 工具（mcp.ts 工具面收编）、MCP server 工具（@modelcontextprotocol/sdk client）、L2 插件工具（`ctx.registerTool`）、L3 插件工具（comlink 存根）。命令面板、AI 循环、事件钩子消费同一注册表——工具是各类插件的通用语言。
+3. **L2 宿主契约正式化**：`activate(ctx) ⇒ dispose()`，ctx API v1 = registerCommand / registerTool / registerAiProvider / registerLoop(P4.5 后) / on·emit 事件总线（repo.opened·closed、changes.updated、commit.created、branch.checkedOut、sync.pushed）/ ctx.git 只读 API / ctx.storage 插件隔离 KV / ctx.ui.notify。契约与 Cordis 插件形状同构（§六触发信号不变）。
+4. **UI 贡献点：宿主容器 + 插件内容**：渲染层插槽注册表（statusbar 左右、侧栏面板、提交对话框区块、diff 侧栏、空状态）。L2 注册"视图元数据 + 数据供给回调"（主进程算数据，React 宿主容器渲染通用卡片）；L3 内容进沙箱 iframe（webview 模式，postMessage 桥）。宿主 Chrome 原生，插件内容装箱（VS Code/Obsidian 模式）。
+
+### 16.3 安全不变量（扩展能力不许破的）
+
+1. **决策/执行分离**：循环与插件"提议"，宿主执行——工具执行器只在宿主，L3 拿不到 Node。
+2. **写操作一律过 safety.ts 人审门**（含 L2/L3 工具、钩子里的 git 写）。
+3. **权限最小化 + 安装时明示**：manifest `permissions` 清单，设置页安装卡展示并需确认；L3 网络走域名白名单；apiKey 永不进 L3（AI 调用经宿主代理）。
+4. **L1 命令首跑确认**：`terminal.run` 命令首次执行弹确认（terminal.run 本质是以用户权限预置任意 shell 命令，信任边界在包作者）。
+5. **L2 只走审核渠道**分发（设置页来源标记）；任意来源默认仅 L1/L3。
+
+### 16.4 能力实证（扩展后的插件形态）
+
+| 插件 | 形态 | 扩展点 |
+|---|---|---|
+| 项目脚手架包 | L1 | commands(模板化) + configuration + i18n |
+| Jira/Issue 集成 | L2 | hooks(commit.created) + statusbar + ctx.git + network |
+| 提交规范门禁 | L2 | hooks(commit.created 可阻断) + ui.notify |
+| Ollama/DeepSeek 本地模型包 | L1 | modelEndpoints（零代码） |
+| 自定义 AI 后端 | L2 | registerAiProvider |
+| 代码统计面板 | L2 | views(侧栏) + ctx.git |
+| 图片 diff 增强 | L2 | views(diff 侧栏) + previewProvider |
+| AI Code Review 技能包 | L1 | skills + 工具引用 |
+| 外部 agent 接入 | MCP | mcpServers 声明 |
+| 第三方检查器 | L3 | 隔离进程 + 权限清单（network + git.read） |
+
+### 16.5 全环节接缝地图（每个环节都有插件植入点）
+
+**接缝三原则**：
+1. **自举强制**：接缝开启的同一阶段，内置功能必须改走该接缝（B 阶段内置 git 工具迁移进 ToolRegistry；A 阶段现有右键菜单迁到 menus 接缝）——接缝不许是摆设，每阶段冒烟必须含"内置走接缝"断言。
+2. **接缝即边界**：每条接缝声明合法载体白名单 + 所需权限 + 是否过人审门；未列入的载体在该接缝上装载期即拒绝。
+3. **数据先行**：能用 L1 声明表达的绝不开 L2 接缝（如安全网先做正则规则数据包，扫描器接口只留给真正需要代码的）。
+
+| 环节 | 接缝 | 合法载体 | 开缝阶段 |
+|---|---|---|---|
+| 命令与导航 | commands / keybindings / menus(右键) / 命令面板 | L1 / L2 / L3 | A(L1) → C(L2) → F(L3) |
+| 设置 | configuration（闭环 + `${config.x}` 模板） | L1 / ctx 读取 | A |
+| 界面文案 | i18n（`%key%` 引用 + i18n/ 目录） | L1 | A |
+| 终端 | terminal.run 动作 + terminalProfiles 档位包 | L1 | A |
+| 提交安全网 | safetyRules 规则包（L1 正则规则）+ 自定义扫描器接口 | L1(数据) / L2(扫描器) | A(L1) → C(L2) |
+| 代码高亮 | grammars / tokenColors | L1 | 已实施 |
+| 外观 | themes（tokens/diff/terminal/tokenColors） | L1 | 已实施 |
+| 工具 | ToolRegistry（内置自举 + MCP + L2 + L3 同一注册表） | L2 / L3 / MCP | B |
+| 模型 | modelEndpoints（数据）+ aiProvider 注册表 | L1 / L2 / MCP | B |
+| 外部代理 | mcpServers 声明式引用 | L1(引用) | B |
+| 仓库生命周期 | 事件 repo.opened / repo.closed | L2 / L3 | C |
+| 变更与提交 | 事件 changes.updated + commit.created（可否决门禁） | L2 / L3 | C |
+| 分支与同步 | 事件 branch.checkedOut / sync.pushed + push 前门禁 | L2 / L3 | C |
+| Log 视图 | log.decorators（提交徽章/注解，只读装饰） | L2 / L3 | C |
+| 文件预览 | previewProviders（按扩展名的非文本预览） | L2 / L3 | C |
+| 存储 | ctx.storage 插件隔离 KV | L2 / L3 | C |
+| 通知 | ctx.ui.notify | L2 / L3 | C |
+| Agent 循环 | loops + skills + 提示模板 + 会话卡（→ agent-harness.md taskTypes） | L1(Skills) / L2·L3(Loop) | D |
+| UI 容器 | 插槽注册表（statusbar/侧栏面板/对话框区块/diff 侧栏/空状态）+ L3 webview | L2(数据视图) / L3(webview) | E |
+| 跨载体授权 | 权限清单 + 安装明示 + 宿主代理执行 | L3（全部接缝的授权子集） | F |
+| 分发 | catalog / 渠道标记 / apiVersion | 生态 | G |
+
+### 16.6 分阶段路线（每阶段必开接缝；A→B→C 串行，D 依赖 B+C，E/F 依赖 C，G 最后）
+
+| 阶段 | 本阶段开的接缝 | 内容 | 验收（含"内置走接缝"自举断言） |
+|---|---|---|---|
+| A · L1 全开 ✅ 已实施（2026-10-05） | **8 条全部开缝**：commands(模板化+白名单扩容 shell.reveal/repo.refresh+首跑确认) / menus（内置 changesFile 两项已迁入接缝） / keybindings（useShortcuts 改 keyHint 分发） / configuration(闭环：config.* 进入模板变量) / i18n（包 i18n/<lang>.json + %key%） / when 表达式（repoOpen/fileSelected/config:<key>/!取反，宿主求值 enabled） / terminalProfiles（TerminalManager resolveProfile + terminal.profiles RPC + 设置页动态档位） / safetyRules（scanPackageRules 恒 warning，提交拦截链已合并） | 验收 = 冒烟 48 项全绿（含内置走接缝自举断言：file.openInEditor/revealInExplorer 经 when+menus 接缝、确认流、模板插值 config+repo 变量） |
+| B · 工具与模型 ✅ 全部实施（2026-10-05） | ToolRegistry ✅（内置自举 + mcp.ts 协议层走注册表 + 来源标记 + 写工具人审门）；ai provider 注册表 ✅（registerAiProvider 三传输自举）；mcpServers 外部连接器 ✅（D 阶段补齐：手写 stdio 按行 JSON-RPC 客户端 mcpClient.ts，零 SDK 依赖，工具入注册表 source=mcp，信任门 settings.externalMcpEnabled）；modelEndpoints → 并行文档 task-model-modules.md models 体系覆盖，provider 注册表即运行时接缝 | 冒烟：内置工具真实仓库调用/人审门/协议层 + fixture 外部 MCP server 连接与调用全绿 |
+| C · 行为接缝（L2 宿主）✅ 已实施（2026-10-05） | **7 条全部开缝**：事件总线（repo.opened/closed、commit.created、branch.checkedOut、sync.pushed/pulled，bridge 各操作点发射）✅ / commit·push 可否决门禁 ✅（runGates，只能否决不能篡改）/ log.decorators ✅（log.query 后处理只读徽章）/ previewProviders ✅（file.preview 包提供者优先）/ L2 扫描器 ✅（可 blocked，allowCode 门=审核渠道信任）/ ctx.storage ✅（每包隔离 JSON）/ ctx.ui.notify ✅（ui.notify 事件 → 渲染层 toast）。L2 宿主 = host.ts activate/dispose，manifest `entry` 字段，settings.allowCodePlugins 信任门（默认关） | 验收 = smoke-seams-bc 25 项全绿：L2 fixture 插件装载/卸载/dispose 回调/坏 entry 错误账本/事件链/门禁否决/装饰器/扫描器/插件工具/storage 落盘/runtime 命令跨 manifest 重载存活；附带修复 mcp 未知工具协议双重编码缺陷 |
+| D · Agent 接缝 ✅ 完整实施（2026-10-06） | loops ✅（openai 兼容 **SSE 流式** + **Anthropic 原生 tools 协议**双循环：tool_use/tool_result content blocks；registerAgentLoop 可替换 + 双内置自举；bridge 按 provider 路由默认循环）/ skills ✅ / 提示模板 ✅ / 会话卡 → agent-harness.md 已覆盖 | 冒烟：openai 全 SSE 端到端 + anthropic tool_use/tool_result 端到端 全绿 |
+| E · UI 接缝 ✅ 全部实施（2026-10-06） | statusbar ✅ / 侧栏面板 ✅ / webview 视图容器 ✅（沙箱 iframe 无脚本）/ 空状态提示 ✅ / **提交对话框区块 ✅**（registerCommitBlock → ui.commitBlocks RPC → 提交框上方提示条，只能提示不能阻断）/ **diff 侧栏注记 ✅**（registerDiffNote → diff.notes RPC → DiffView 头部注记条，按路径命中） | 冒烟：commitBlock 数据供给 + diffNote 按路径命中/未命中 全绿 |
+| F · 隔离授权 ✅ 已实施（2026-10-06） | manifest `entrySandbox: "utility"` + `permissions` 清单（storage/notify/events/git.read/tools/statusbar 六能力）；L3 通道双适配器（main 注入 Electron utilityProcess / 冒烟注入 Node fork，同协议）；宿主能力代理权限强制（未授权 = permission denied）；L3 工具代理（write:gate 仍走人审）；崩溃隔离（子进程退出 → 注册面回收 + 错误账本）；子进程 SDK = l3-child.ts（init 下发 sdkDir）；apiVersion 拒载策略 ✅（HOST_API_VERSION=3，超版 disabled+原因）；设置页权限徽标 ✅ | 冒烟：seams-f 16 项全绿（装载/权限拒绝/工具跨进程 2+3=5/storage/statusbar/git.read/事件下发/崩溃隔离/deactivate 清理/apiVersion/面板） |
+| G · 分发接缝 ✅ 宿主侧齐备（2026-10-06） | 脚手架模板 ✅ + apiVersion 冻结 ✅ + **gen-catalog.mjs ✅**（扫描包根 → 宿主同源 zod 校验 → sha256 checksum → catalog.json，错误包入账本）；目录站聚合/渠道标记为外部基建（catalog.json 即其输入契约） | 冒烟：catalog 生成（ok+error 双路径）全绿 |
+
+合计 32 条接缝：A(8) + B(3) + C(7) + D(4) + E(6) + F(1 横切) + G(3)，另有已实施 4 条（themes/grammars/commands-L1 基础/configuration 存储）。
+
+### 16.7 风险
+
+| 风险 | 对策 |
+|---|---|
+| 渲染层插槽系统是最大新增前端工程（E） | 先做 statusbar + 侧栏两插槽验证模式再铺开 |
+| ctx API 冻结压力 | `gitui.apiVersion` 显式版本 + 弃用周期 |
+| 事件风暴（changes.updated 高频） | 宿主侧 100ms 合并节流（复用 syncProgress 经验） |
+| Cordis 误判 | 触发信号维持 §六原判，ctx 契约保持同构 |
+| L2 审核渠道运营成本 | 信任模型的持续成本，G 阶段目录站自动校验降低人工 |
+| safetyRules 规则包误报/恶意拦截提交 | L1 规则默认 warn 档只有提示权；block 档仅内置规则集可设（数据插件不给否决权，否决权保留给 C 阶段 L2 扫描器 + 人审） |
+| 接缝数量膨胀（32 条）的维护面 | 每条接缝一张契约卡（载体白名单/权限/门三字段）；自举断言进冒烟防接缝腐化；年检裁撤零使用接缝 |

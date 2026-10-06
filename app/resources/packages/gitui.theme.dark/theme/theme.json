@@ -1,0 +1,96 @@
+{
+  "id": "gitui.theme.dark",
+  "name": "深色",
+  "base": "dark",
+  "inherits": null,
+  "tokens": {
+    "Base": "#FF1E1F22",
+    "Panel": "#FF2B2D30",
+    "Hover": "#FF393B40",
+    "Selected": "#FF43454A",
+    "Border": "#FF2E3033",
+    "BorderStrong": "#FF43454A",
+    "Accent": "#FF3574F0",
+    "AccentHover": "#FF4682F2",
+    "AccentPressed": "#FF2B62C9",
+    "AccentSoft": "#333574F0",
+    "OnAccent": "#FFFFFFFF",
+    "Text": "#FFDFE1E5",
+    "Text2": "#FF9DA0A8",
+    "Text3": "#FF6F737A",
+    "Green": "#FF6FBF73",
+    "Red": "#FFF75464",
+    "Amber": "#FFC8A35F",
+    "ChipBlueBg": "#334C7DD4",
+    "ChipBlueFg": "#FF8FB8E8",
+    "ChipPurpleBg": "#36B080FF",
+    "ChipPurpleFg": "#FFC9A2FF"
+  },
+  "syntax": {
+    "keyword": "#569CD6",
+    "string": "#6A9955",
+    "comment": "#6A9955",
+    "number": "#B5CEA8",
+    "type": "#4EC9B0",
+    "function": "#DCDCAA",
+    "variable": "#9CDCFE",
+    "operator": "#D4D4D4",
+    "punctuation": "#D4D4D4"
+  },
+  "tokenColors": [
+    {
+      "scope": "keyword",
+      "settings": {
+        "foreground": "#569CD6"
+      }
+    },
+    {
+      "scope": "string",
+      "settings": {
+        "foreground": "#6A9955"
+      }
+    },
+    {
+      "scope": "comment",
+      "settings": {
+        "foreground": "#6A9955"
+      }
+    },
+    {
+      "scope": "constant.numeric",
+      "settings": {
+        "foreground": "#B5CEA8"
+      }
+    },
+    {
+      "scope": "entity.name.type",
+      "settings": {
+        "foreground": "#4EC9B0"
+      }
+    },
+    {
+      "scope": "entity.name.function",
+      "settings": {
+        "foreground": "#DCDCAA"
+      }
+    },
+    {
+      "scope": "variable",
+      "settings": {
+        "foreground": "#9CDCFE"
+      }
+    },
+    {
+      "scope": "keyword.operator",
+      "settings": {
+        "foreground": "#D4D4D4"
+      }
+    },
+    {
+      "scope": "punctuation",
+      "settings": {
+        "foreground": "#D4D4D4"
+      }
+    }
+  ]
+}

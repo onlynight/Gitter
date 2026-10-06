@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.models.deepseek",
+  "name": "DeepSeek 模型档案",
+  "version": "1.0.0",
+  "description": "预置 DeepSeek 官方 API 模型档案：安装后在 设置 → 模型档案 填入 API Key 即用",
+  "engines": { "gitter": ">=0.1.0" },
+  "contributes": {
+    "models": [
+      {
+        "id": "deepseek-chat",
+        "name": "DeepSeek Chat",
+        "kind": "openai-compatible",
+        "baseURL": "https://api.deepseek.com/v1",
+        "modelId": "deepseek-chat",
+        "keyHint": "DeepSeek API Key",
+        "params": { "temperature": 0.3 },
+        "capabilities": { "tools": true, "streaming": true, "contextTokens": 128000 },
+        "tags": ["cloud", "fast"]
+      },
+      {
+        "id": "deepseek-reasoner",
+        "name": "DeepSeek Reasoner",
+        "kind": "openai-compatible",
+        "baseURL": "https://api.deepseek.com/v1",
+        "modelId": "deepseek-reasoner",
+        "keyHint": "DeepSeek API Key",
+        "capabilities": { "tools": true, "streaming": true, "contextTokens": 128000 },
+        "tags": ["cloud", "reasoning"]
+      }
+    ]
+  }
+}

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { call } from "../bridge/client";
+import { seamMenuItems } from "../commands";
+import type { CtxMenuItem } from "../components/Dialogs";
 import { Banner, Modal, useContextMenu } from "../components/Dialogs";
 import { DiffView } from "../components/DiffView";
 import { SplitPane } from "../components/SplitPane";
 import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge/types";
 import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
-import { refreshCurrent, t, useApp } from "../state/store";
+import { refreshCurrent, t, useApp, setState, navigate } from "../state/store";
 
 // ---- 行模型（对齐 LogRow：按天组头 / 会话卡 / 提交行）----
 
@@ -312,6 +314,7 @@ export function LogPage() {
                           action: () => void squash(s),
                         },
                         { label: t("Log_CopyAgent"), action: () => copy(s.agentId) },
+                        { label: t("Log_OpenTaskCard"), action: () => { setState({ focusTaskId: s.agentId }); navigate("tasks"); } },
                       ])
                     }
                   >
@@ -329,19 +332,23 @@ export function LogPage() {
                   className={"list-row" + (row.selected ? " selected" : "")}
                   style={{ position: "absolute", top: vi.start, left: 0, right: 0, height: vi.size, alignItems: "flex-start", paddingTop: 5 }}
                   onClick={() => setSelectedSha(c.sha)}
-                  onContextMenu={(e) =>
-                    showMenu(e, [
-                      { label: t("Log_CopySha"), action: () => copy(c.sha) },
-                      { label: t("Log_CopySubject"), action: () => copy(c.subject) },
-                      { label: t("Log_CopyAuthor"), action: () => copy(c.author) },
-                      { sep: true, label: "", action: () => {} },
-                      {
-                        label: t("Log_CompareWithSelected"),
-                        action: () => setCompareBase((cur) => (cur?.sha === c.sha ? null : c)),
-                      },
-                      { label: t("Log_ResetToHere"), action: () => { setResetMode("mixed"); setResetTarget(c); } },
-                    ])
-                  }
+                  onContextMenu={(e) => {
+                    // menus 接缝：本地动作 + 包贡献项（logRow）
+                    void (async () => {
+                      const local: CtxMenuItem[] = [
+                        { label: t("Log_CopySha"), action: () => copy(c.sha) },
+                        { label: t("Log_CopySubject"), action: () => copy(c.subject) },
+                        { label: t("Log_CopyAuthor"), action: () => copy(c.author) },
+                        { sep: true, label: "", action: () => {} },
+                        {
+                          label: t("Log_CompareWithSelected"),
+                          action: () => setCompareBase((cur) => (cur?.sha === c.sha ? null : c)),
+                        },
+                        { label: t("Log_ResetToHere"), action: () => { setResetMode("mixed"); setResetTarget(c); } },
+                      ];
+                      showMenu(e, [...local, ...(await seamMenuItems("logRow"))]);
+                    })();
+                  }}
                 >
                   <span className="mono">{c.shortSha}</span>
                   <span className="trim" style={{ flex: 1 }}>{c.subject}</span>

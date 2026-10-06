@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { call, onEvent } from "./bridge/client";
+import type { CommandDTO } from "./bridge/types";
+import { runCommand } from "./commands";
 import { CommandPalette } from "./components/CommandPalette";
 import { Modal } from "./components/Dialogs";
 import { Sidebar, StatusBar, TitleBar } from "./components/Shell";
-import { applyDiffModeToDom, applyThemeToDom, getState, navigate, reapplyLanguage, reapplyTheme, refreshCurrent, setState, useApp } from "./state/store";
+import { appendAgentStream, applyDiffModeToDom, applyThemeToDom, getState, navigate, pushToast, reapplyLanguage, reapplyTheme, refreshCurrent, setState, t, useApp } from "./state/store";
 import { BranchesPage } from "./pages/BranchesPage";
 import { ChangesPage } from "./pages/ChangesPage";
 import { LogPage } from "./pages/LogPage";
@@ -12,15 +14,31 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
 import { TerminalPage } from "./pages/TerminalPage";
 
-/** 全局快捷键（原 WinUI KeyboardAccelerators 的渲染层版） */
+/** 全局快捷键（keybindings 接缝自举：Ctrl+1..7 / F5 / Ctrl+Shift+N 等由 commands.list 的
+ * keyHint 驱动分发；面板开关与 Ctrl+Tab 循环不是命令，保留硬编码。Ctrl+Enter 由提交框
+ * 输入上下文处理，分发器跳过）。 */
 function useShortcuts(openPalette: (prefill?: string) => void) {
+  const repoPath = useApp().repo?.workDir ?? null;
   useEffect(() => {
-    const order = ["projects", "log", "changes", "branches", "tasks", "bash", "settings"] as const;
-    const onKey = (e: KeyboardEvent) => {      const ctrl = e.ctrlKey && !e.altKey;
+    let cmds: CommandDTO[] = [];
+    const load = () => void call<CommandDTO[]>("commands.list", { lang: getState().i18n?.lang ?? "en" }).then((r) => (cmds = r));
+    void load();
+    const off = onEvent("repo.refresh", () => refreshCurrent());
+
+    const match = (hint: string, e: KeyboardEvent): boolean => {
+      const parts = hint.split("+").map((p) => p.trim());
+      const key = parts[parts.length - 1];
+      const needCtrl = parts.some((p) => p.toLowerCase() === "ctrl");
+      const needShift = parts.some((p) => p.toLowerCase() === "shift");
+      const needAlt = parts.some((p) => p.toLowerCase() === "alt");
+      if (needCtrl !== e.ctrlKey || needShift !== e.shiftKey || needAlt !== e.altKey) return false;
+      return e.key.length === 1 ? e.key.toLowerCase() === key.toLowerCase() : e.key === key;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey && !e.altKey;
       if (ctrl && e.shiftKey && (e.key === "P" || e.key === "p")) { e.preventDefault(); openPalette(); return; }
       if (ctrl && !e.shiftKey && (e.key === "P" || e.key === "p")) { e.preventDefault(); openPalette(">"); return; }
-      if (ctrl && e.shiftKey && (e.key === "N" || e.key === "n")) { e.preventDefault(); import("./state/store").then((m) => m.routeCommand("branches.create")); return; }
-      if (e.key === "F5") { e.preventDefault(); refreshCurrent(); return; }
       if (ctrl && e.key === "Tab") {
         e.preventDefault();
         const order: import("./state/store").PageKey[] = ["projects", "log", "changes", "branches", "tasks", "bash", "settings"];
@@ -28,14 +46,22 @@ function useShortcuts(openPalette: (prefill?: string) => void) {
         navigate(order[(idx + 1 + order.length) % order.length]);
         return;
       }
-      if (ctrl && e.key >= "1" && e.key <= "7") {
-        e.preventDefault();
-        navigate(order[parseInt(e.key, 10) - 1]);
+      // keybindings 接缝：按 keyHint 分发（Ctrl+Enter 输入上下文保留给提交框）
+      for (const c of cmds) {
+        if (!c.keyHint || c.keyHint === "Ctrl+Enter" || c.enabled === false) continue;
+        if (match(c.keyHint, e)) {
+          e.preventDefault();
+          void runCommand(c);
+          return;
+        }
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [openPalette]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      off();
+    };
+  }, [openPalette, repoPath]);
 }
 
 export function App() {
@@ -105,6 +131,49 @@ export function App() {
     }),
   []);
 
+  // L1 命令首跑确认（commands.exec confirm-required 的 GUI 侧）
+  const commandConfirm = useApp().commandConfirm;
+  const toasts = useApp().toasts;
+
+  // E 阶段面板插槽：ui.panels 拉取（15s 轮询，正文为插件数据供给文本）
+  const panels = useApp().panels;
+  const [views, setViews] = useState<{ id: string; title: string; html: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => void call<{ id: string; title: string; html: string }[]>("ui.views").then((r) => {
+      if (!cancelled) setViews(r);
+    });
+    void load();
+    const timer = window.setInterval(load, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => void call<{ id: string; title: string; body: string }[]>("ui.panels").then((r) => {
+      if (!cancelled) setState({ panels: r });
+    });
+    void load();
+    const timer = window.setInterval(load, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [app.repo?.workDir]);
+
+  // agent.stream → 流式缓冲条（D 阶段：循环 delta 透传的可视化）
+  const agentStreamText = useApp().agentStreamText;
+  useEffect(() => onEvent("agent.stream", (p: { delta?: string }) => {
+    if (typeof p?.delta === "string") appendAgentStream(p.delta);
+  }), []);
+
+  // ctx.ui.notify → toast（L2 插件通知接缝）
+  useEffect(() => onEvent("ui.notify", (p: { title: string; body?: string }) => {
+    pushToast(String(p?.title ?? ""), String(p?.body ?? ""));
+  }), []);
+
   useShortcuts((prefill) => setPalette({ prefill, ts: Date.now() }));
 
   // 标题栏面板按钮（CustomEvent 桥）
@@ -159,6 +228,62 @@ export function App() {
           <div style={{ userSelect: "text" }}>
             <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--c-text2)", marginBottom: 6 }}>{mcpApproval.repo}</div>
             {mcpApproval.description}
+          </div>
+        </Modal>
+      )}
+      {panels.length > 0 && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: "var(--sb-h, 28px)", display: "flex", gap: 8, padding: "4px 12px", borderTop: "1px solid var(--c-border)", background: "var(--c-panel)", maxHeight: 180, overflow: "auto" }}>
+          {panels.map((p) => (
+            <details key={p.id} style={{ flex: 1, minWidth: 200 }}>
+              <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{p.title}</summary>
+              <div style={{ fontSize: 12, whiteSpace: "pre-wrap", userSelect: "text", marginTop: 4 }}>{p.body}</div>
+            </details>
+          ))}
+          {agentStreamText && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: "var(--sb-h, 28px)", padding: "4px 12px", borderTop: "1px solid var(--c-border)", background: "var(--c-panel)", fontSize: 12, whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto" }}>
+          <b>AI：</b>{agentStreamText}
+        </div>
+      )}
+      {views.map((v) => (
+            <details key={v.id} style={{ flex: 1, minWidth: 200 }}>
+              <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{v.title}</summary>
+              {/* webview 视图容器：sandbox 无 allow-scripts——插件 HTML 静态渲染，无脚本执行权 */}
+              <iframe
+                title={v.title}
+                sandbox=""
+                srcDoc={v.html}
+                style={{ width: "100%", height: 140, border: "none", background: "#fff", marginTop: 4 }}
+              />
+            </details>
+          ))}
+        </div>
+      )}
+      {toasts.length > 0 && (
+        <div style={{ position: "fixed", right: 16, bottom: 16, display: "flex", flexDirection: "column", gap: 8, zIndex: 1000 }}>
+          {toasts.map((x) => (
+            <div key={x.id} className="banner" style={{ minWidth: 240, maxWidth: 360 }}>
+              <div style={{ fontWeight: 600 }}>{x.title}</div>
+              {x.body && <div style={{ color: "var(--c-text2)", fontSize: 12, marginTop: 2 }}>{x.body}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+      {commandConfirm && (
+        <Modal
+          title={t("Ext_ConfirmTitle")}
+          confirmText={t("Ext_ConfirmRun")}
+          cancelText={t("Common_Cancel")}
+          danger
+          onClose={() => setState({ commandConfirm: null })}
+          onConfirm={() => {
+            void call("commands.exec", { id: commandConfirm.id, confirmed: true, filePath: commandConfirm.filePath })
+              .catch((e) => console.warn("命令执行失败:", (e as Error).message));
+            setState({ commandConfirm: null });
+          }}
+        >
+          <div style={{ userSelect: "text" }}>
+            <div>{t("Ext_ConfirmBody")}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginTop: 6 }}>{commandConfirm.title}</div>
           </div>
         </Modal>
       )}

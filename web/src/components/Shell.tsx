@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { call, isMaximized, onEvent, winAction } from "../bridge/client";
+import type { StatusItemDTO } from "../bridge/types";
+import { runCommand } from "../commands";
 import { navigate, t, updateSettings, useApp, type PageKey } from "../state/store";
 
 export function TitleBar() {
@@ -52,10 +54,12 @@ const NAV: { key: PageKey; glyph?: string; svg?: string; labelKey: string }[] = 
   },
   { key: "tasks", glyph: "\uE7C1", labelKey: "Nav_Tasks" },
   { key: "bash", glyph: "\uE756", labelKey: "Nav_Terminal" },
-  { key: "settings", glyph: "\uE713", labelKey: "Nav_Settings" },
 ];
 
-function NavIcon({ glyph, svg }: { glyph?: string; svg?: string }) {
+// 设置不随导航列表排列，单独固定在侧边栏最下方
+const SETTINGS_NAV = { key: "settings" as PageKey, glyph: "\uE713", labelKey: "Nav_Settings" };
+
+export function NavIcon({ glyph, svg }: { glyph?: string; svg?: string }) {
   if (svg) {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -69,32 +73,59 @@ function NavIcon({ glyph, svg }: { glyph?: string; svg?: string }) {
 export function Sidebar() {
   const { page, settings } = useApp();
   const collapsed = settings?.sidebarCollapsed ?? false;
+  const navButton = (n: { key: PageKey; glyph?: string; svg?: string; labelKey: string }) => (
+    <button
+      key={n.key}
+      className={"nav-item" + (page === n.key ? " active" : "")}
+      onClick={() => navigate(n.key)}
+      title={t(n.labelKey)}
+    >
+      <span className="nav-ico">
+        <NavIcon glyph={n.glyph} svg={n.svg} />
+      </span>
+      <span className="nav-label">{t(n.labelKey)}</span>
+    </button>
+  );
   return (
     <div className={"sidebar" + (collapsed ? " collapsed" : "")}>
-      {NAV.map((n) => (
-        <button
-          key={n.key}
-          className={"nav-item" + (page === n.key ? " active" : "")}
-          onClick={() => navigate(n.key)}
-          title={t(n.labelKey)}
-        >
-          <span className="nav-ico">
-            <NavIcon glyph={n.glyph} svg={n.svg} />
-          </span>
-          <span className="nav-label">{t(n.labelKey)}</span>
-        </button>
-      ))}
+      <div className="nav-top">{NAV.map(navButton)}</div>
+      <div className="nav-sep" />
+      {navButton(SETTINGS_NAV)}
     </div>
   );
 }
 
 export function StatusBar() {
   const { repo } = useApp();
+  const [items, setItems] = useState<StatusItemDTO[]>([]);
+
+  // statusbar 插槽（extension-system-v2.md §16.6 E 阶段）：L2 插件条目
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => void call<StatusItemDTO[]>("ui.statusItems").then((r) => !cancelled && setItems(r));
+    void load();
+    const timer = window.setInterval(load, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   return (
     <div className="statusbar">
       <span className="sb-repo">
         {repo ? `${repo.name} · ${repo.workDir}` : t("Common_NoProjectSelected")}
       </span>
+      {items.map((it) => (
+        <span
+          key={it.id}
+          title={it.tooltip}
+          style={{ cursor: it.command ? "pointer" : "default" }}
+          onClick={() => it.command && void runCommand({ id: it.command, title: it.text })}
+        >
+          {it.text}
+        </span>
+      ))}
       <span>{t("Main_StatusHint")}</span>
     </div>
   );

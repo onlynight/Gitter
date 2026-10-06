@@ -31,7 +31,11 @@ export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
   private seq = 0;
 
-  constructor(private readonly win: IEventSink) {}
+  constructor(
+    private readonly win: IEventSink,
+    /** terminalProfiles 接缝（extension-system-v2.md §16.5）：ext.<pkg>.<id> 档位解析器，main 注入 */
+    private readonly resolveProfile?: (shellKind: string) => { command: string; args: string[] } | null,
+  ) {}
 
   list(): TerminalSessionDTO[] {
     return [...this.sessions.values()].map((s) => ({
@@ -54,7 +58,7 @@ export class TerminalManager {
     const session: Session = { id, backend: "conpty", shellKind, cwd, running: false, exitCode: null, pty: null };
     this.sessions.set(id, session);
 
-    const [file, args] = resolveShell(shellKind, opts.cwd ?? null);
+    const [file, args] = this.shellFor(shellKind, opts.cwd ?? null);
     const p = pty.spawn(file, args, {
       name: "xterm-256color",
       cols: Math.max(20, Math.min(500, Math.floor(opts.cols) || 120)),
@@ -127,6 +131,15 @@ export class TerminalManager {
 
   private dto(s: Session): TerminalSessionDTO {
     return { id: s.id, backend: s.backend, shellKind: s.shellKind, cwd: s.cwd, running: s.running, exitCode: s.exitCode };
+  }
+
+  /** 档位解析：ext.* 走包 profiles（未知档位回退 PowerShell），其余走内置三档。 */
+  private shellFor(kind: string, workDir: string | null): [string, string[]] {
+    if (kind.startsWith("ext.")) {
+      const p = this.resolveProfile?.(kind);
+      if (p && p.command.trim()) return [p.command, [...p.args]];
+    }
+    return resolveShell(kind, workDir);
   }
 }
 

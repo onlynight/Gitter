@@ -48,7 +48,38 @@ export class SettingsStore {
       logSplitterFraction: null,
       changesSplitterFraction: null,
       packages: {},
+      confirmedCommands: [],
+      allowCodePlugins: false,
+      externalMcpEnabled: false,
+      agentsCheckpoint: true,
+      agentsOnExit: "terminate",
+      models: [],
+      defaultModelId: null,
+      fastModelId: null,
+      modelUsage: {},
     };
+  }
+
+  /**
+   * 一次性迁移（task-model-modules.md §2.5）：旧 AI 网关四字段 → 首个用户模型档案。
+   * cli 桥不迁（不进循环，一次性补全走 legacy 回退）；旧字段保留不写，一个版本后删除。
+   */
+  private migrateLegacyAi(s: SettingsDTO): void {
+    if ((s.models?.length ?? 0) > 0) return;
+    if ((s.aiProvider === "openai" || s.aiProvider === "anthropic") && s.aiEndpoint && s.aiModel) {
+      const profile = {
+        id: "user/migrated",
+        name: "迁移的 AI 网关",
+        kind: (s.aiProvider === "anthropic" ? "anthropic" : "openai-compatible") as "anthropic" | "openai-compatible",
+        baseURL: s.aiEndpoint,
+        modelId: s.aiModel,
+        apiKeyProtected: s.aiApiKeyProtected,
+        capabilities: { tools: true, streaming: true },
+        tags: [] as string[],
+      };
+      s.models = [profile];
+      s.defaultModelId = profile.id;
+    }
   }
 
   get current(): SettingsDTO {
@@ -69,7 +100,9 @@ export class SettingsStore {
       "watchWorktree", "autoFetch", "autoFetchIntervalMinutes", "recentCommands",
       "aiProvider", "aiEndpoint", "aiModel", "aiCliCommand", "aiPrivacy", "aiAppendTrailer",
       "aiApiKeyProtected", "safetyNet", "mcpEnabled",
-      "logSplitterFraction", "changesSplitterFraction", "packages",
+      "logSplitterFraction", "changesSplitterFraction", "packages", "confirmedCommands", "allowCodePlugins", "externalMcpEnabled",
+      "agentsCheckpoint", "agentsOnExit",
+      "models", "defaultModelId", "fastModelId", "modelUsage",
     ];
     for (const key of allowed) {
       if (patch[key] !== undefined) {
@@ -94,6 +127,7 @@ export class SettingsStore {
     } catch {
       // 文件不存在/损坏：用默认值（与 C# JsonSettingsStore 行为一致）
     }
+    this.migrateLegacyAi(this.data);
   }
 
   save(): boolean {

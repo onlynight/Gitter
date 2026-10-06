@@ -547,6 +547,7 @@ Changes_SelectFileHint	Select a file to view its diff	选择文件查看差异
 Changes_StageFile	Stage file	暂存文件
 Changes_Staged	Staged	已暂存
 Changes_StagedAll	All staged	已全部暂存
+Changes_StageChecked	Stage checked ({0})	暂存所选 ({0})
 Changes_UnstageFile	Unstage file	撤销暂存
 Changes_Unstaged	Unstaged	已撤销暂存
 Changes_UnstagedAll	All unstaged	已全部撤销暂存
@@ -720,3 +721,111 @@ Extensions_Disabled	Disabled	已禁用
 Extensions_Error	Error	错误
 Extensions_Config	Configuration	配置
 Extensions_Imported	Imported	已导入
+
+# Agent 宿主（agent-harness-codex.md v2.0）
+Agents_Create	New agent task	新建 Agent 任务
+Agents_CreateTitle	New Agent Task	新建 Agent 任务
+Agents_Created	Agent task created	Agent 任务已创建
+Agents_Stop	Stop	停止
+Agents_Stopped	Stop requested	已请求停止
+Agents_Resume	Resume	续跑
+Agents_ResumeTitle	Resume Task	续跑任务
+Agents_Feedback	Send feedback	退回重做
+Agents_FeedbackSend	Send	直投
+Agents_FeedbackTitle	Send Feedback (NextTurn)	退回重做（直投下一轮）
+Agents_FeedbackSent	Feedback sent to running session	反馈已直投会话
+Agents_FeedbackPlaceholder	Review feedback for the agent…	给 agent 的审查反馈…
+Agents_PromptPlaceholder	Task description (sent via stdin)…	任务描述（经 stdin 投递）…
+Agents_HarnessPlaceholder	— select harness —
+Agents_NoHarness	No usable harness detected (check CLI install / PATH)	未探测到可用的 harness（检查 CLI 安装与 PATH）
+Agents_PermTitle	Permission request	授权请求
+Agents_PermApprove	Approve	批准
+Agents_PermDeny	Deny	驳回
+
+# Agent 宿主 v3.0（两栏任务页）
+Agents_EmptyHint	No agent tasks yet — create one and hand it a task	还没有 Agent 任务——新建一个并派活
+Agents_SelectHint	Select a task on the left to view its session timeline	在左侧选择任务查看会话时间线
+Agents_TimelineEmpty	Session timeline will stream here once the turn starts	轮次开始后，会话时间线将在此流式呈现
+Agents_PermNote	each-time: confirm every run, never remembered
+each-time：每次确认，永不记忆
+Agents_InputPlaceholder	Continue / feedback (Ctrl+Enter to send)…	续跑 / 反馈（Ctrl+Enter 发送）…
+Agents_InputRunning	Agent is working — stop it before sending new input…	agent 正在工作——请先停止再发送新输入…
+Agents_Send	Send	发送
+Tasks_WorktreeSection	MANUAL WORKTREES	手动 WORKTREE
+Agents_ModelReady	model ready	模型已配置
+Agents_ModelMissing	model not configured	模型未配置
+Agents_OpenSettings	Open settings	打开设置
+Agents_ComposeHint	Describe the task and send — Gitter will create an isolated worktree, run its built-in agent, and record checkpoints per turn.	描述任务后发送：Gitter 自动创建隔离 worktree，驱动内置 agent，按轮次记录 checkpoint。
+Agents_ComposePlaceholder	Describe the task, e.g. "Fix LogFilter parsing crash and add unit tests"…	描述任务，例如“修复 LogFilter 解析崩溃并补单元测试”…
+Agents_TargetHint	creates an isolated worktree (task/* branch)	自动创建隔离 worktree（task/* 分支）
+Agents_Dispatched	Task dispatched: {0}	任务已下发：{0}
+
+# 
+# 设置页 v2（两级导航 + 搜索）
+Settings_CatAppearance	Appearance	外观
+Settings_CatTerminal	Terminal	终端
+Settings_CatRepo	Repo & Sync	仓库与同步
+Settings_CatAi	AI & Agent	AI 与 Agent
+Settings_CatExtensions	Extensions	扩展包
+Settings_CatAbout	About	关于
+Settings_Search	Search settings…	搜索设置…
+Settings_NoResults	No matching settings	没有匹配的设置项
+Settings_SafetyNetSection	Commit Safety Net	提交安全网
+Settings_SafetyNetHint	Scan staged content before commit; blocked findings stop the commit	提交前扫描暂存内容；block 档命中即拦截（agent 提交同样受限）
+Settings_AgentSection	Agent Runtime	Agent 运行时
+Settings_AgentCheckpoint	Host checkpoints	宿主托管 checkpoint
+Settings_AgentCheckpointHint	Auto WIP commit at turn boundaries in task worktrees (Assisted-by/Gitter-Session)	轮次结束在任务 worktree 自动代打 WIP 提交（带 trailer，可整体关闭）
+Settings_AgentOnExit	On exit	agent 退出时
+Settings_AgentOnExitTerminate	Terminate	终止会话
+Settings_AgentOnExitKeep	Keep running	保留运行
+Settings_AiProviderHint	openai-compatible covers DeepSeek / Ollama / any endpoint	openai-compatible 覆盖 DeepSeek / Ollama / 任意兼容端点
+
+# 模型档案与任务型（task-model-modules.md）
+Settings_ModelsSection	Model Profiles	模型档案
+Settings_ModelsProfiles	Profiles	档案
+Settings_ModelsEmpty	No model profiles yet — add one or install a model pack	还没有模型档案——手动新增或安装模型接入包
+Settings_ModelsSourcePackage	pack	包
+Settings_ModelsSourceUser	user	用户
+Settings_ModelsNeedKey	key required	待填密钥
+Settings_ModelsDefault	default	默认
+Settings_ModelsFast	fast	轻量
+Settings_ModelsKeyPlaceholder	API key	API Key
+Settings_ModelsSetDefault	Set default	设为默认
+Settings_ModelsSetFast	Set light	设为轻量
+Settings_ModelsDelete	Delete	删除
+Settings_ModelsName	Name	名称
+Settings_ModelsAdd	Add profile	新增档案
+Settings_ModelsHint	Profiles resolve as: task binding → task-type default → global default. Keys are stored encrypted (safeStorage) and never leave this machine.	解析链：任务绑定 → 任务型缺省 → 全局默认。密钥 safeStorage 加密存储，不出本机。
+Settings_AiMigrated	Legacy gateway settings have been migrated to Model Profiles below.	旧版 AI 网关配置已迁移到下方模型档案。
+Agents_TaskTypeFree	Free task	自由任务
+Agents_ModelDefault	Model: default chain	模型：默认链
+Agents_ModelBadgeTitle	Model profile (takes effect next turn)	模型档案（下一轮生效）
+Agents_Archive	Archive	归档
+
+Settings_CatModels	Models	模型
+Settings_ModelsApiKey	API Key	API 密钥
+Settings_ModelsIdPlaceholder	model id（可测试连接后自动填充）	model id（可测试连接后自动填充）
+Settings_ModelsTestConn	Test connection	测试连接
+Settings_ModelsTestOk	Connected — {0} models available	连接成功 — 发现 {0} 个模型
+Settings_ModelsTestFail	Connection failed	连接失败
+
+Agents_TaskType	Task type	任务型
+Agents_Model	Model	模型
+Agents_Thinking	Thinking depth	思考深度
+Agents_ThinkingHigh	High	高
+Agents_ThinkingMedium	Medium	中
+Agents_ThinkingLow	Low	低
+Agents_ThinkingOff	Off	关闭
+Cat_File	File	文件
+Ext_ConfirmTitle	Run command for the first time	首次运行命令
+Ext_ConfirmBody	This command comes from an extension package and will run with your privileges:
+该命令来自扩展包，将以你的权限执行：
+Ext_ConfirmRun	Run	执行
+Extensions_InstallFromUrl	Install from URL	从地址安装
+Changes_SendToRepair	Send to repair round	直投修复轮
+Log_OpenTaskCard	Open task card	打开任务卡
+Changes_RepairSent	Repair round started	已直投修复轮
+Ext_AllowCodePlugins	Allow code plugins	允许代码插件
+Ext_AllowCodePluginsHint	Load L2/L3 code from trusted sources only; writes still require approval	仅装载审核渠道来源的代码插件；写操作仍需人审
+Ext_ExternalMcp	Connect external MCP servers	连接外部 MCP 服务器
+Ext_ExternalMcpHint	Tools declared by extension packs (stdio); tools join the shared registry	扩展包声明的外部 stdio 工具将并入统一工具总线

@@ -31,8 +31,16 @@ interface Entry extends PackageRecord {
   reason: string | null;
 }
 
-const ALL_KINDS = ["theme", "grammar", "commands", "configuration"] as const;
+const ALL_KINDS = [
+  "theme", "grammar", "commands", "configuration",
+  "menus", "keybindings", "terminalProfiles", "safetyRules",
+  "skills", "mcpServers", "emptyHints",
+  "harness", "models", "taskTypes",
+] as const;
 export type ExtensionKind = (typeof ALL_KINDS)[number];
+
+/** 宿主支持的插件 API 版本（G 阶段 apiVersion 冻结策略：只拒高不拒低）。 */
+export const HOST_API_VERSION = 3;
 
 export class PackageStore {
   constructor(
@@ -92,6 +100,9 @@ export class PackageStore {
         return { manifest, dir, isBuiltIn, state: "disabled", reason: `需要 Gitter ${range}（当前 ${this.appVersion}）` };
       }
     }
+    if (manifest.apiVersion !== null && manifest.apiVersion > HOST_API_VERSION) {
+      return { manifest, dir, isBuiltIn, state: "disabled", reason: `插件 API v${manifest.apiVersion} 超出宿主支持（当前 v${HOST_API_VERSION}），请升级 Gitter` };
+    }
     const ledger = this.ledgerOf()[manifest.id];
     if (ledger?.enabled === false) {
       return { manifest, dir, isBuiltIn, state: "disabled", reason: null };
@@ -107,6 +118,16 @@ export class PackageStore {
     if (c.grammars.length) kinds.push("grammar");
     if (c.commands.length) kinds.push("commands");
     if (c.configuration.length) kinds.push("configuration");
+    if (c.harnesses.length) kinds.push("harness");
+    if (c.models.length) kinds.push("models");
+    if (c.taskTypes.length) kinds.push("taskTypes");
+    if (c.menus.length) kinds.push("menus");
+    if (c.keybindings.length) kinds.push("keybindings");
+    if (c.terminalProfiles.length) kinds.push("terminalProfiles");
+    if (c.safetyRules.length) kinds.push("safetyRules");
+    if (c.skills.length) kinds.push("skills");
+    if (c.mcpServers.length) kinds.push("mcpServers");
+    if (c.emptyHints.length) kinds.push("emptyHints");
     return kinds;
   }
 
@@ -128,6 +149,7 @@ export class PackageStore {
         state: e.state,
         reason: e.reason,
         kindStates,
+        permissions: e.manifest?.permissions ?? [],
         configuration: e.manifest?.contributes.configuration.map((c) => ({
           key: c.key, type: c.type, default: c.default, title: c.title,
         })) ?? [],
@@ -159,5 +181,97 @@ export class PackageStore {
       }
     }
     return { ...out, ...this.ledgerOf()[id]?.config };
+  }
+
+  /** 终端档位包（terminalProfiles 接缝，A 阶段）。id 运行时形式 = ext.<packageId>.<profileId>。 */
+  terminalProfiles(): { id: string; name: string; command: string; args: string[] }[] {
+    const out: { id: string; name: string; command: string; args: string[] }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      const ledger = this.ledgerOf()[e.manifest.id];
+      if (ledger?.kinds?.terminalProfiles === false) continue;
+      for (const p of e.manifest.contributes.terminalProfiles) {
+        out.push({ id: `ext.${e.manifest.id}.${p.id}`, name: `${p.name}（${e.manifest.name}）`, command: p.command, args: [...p.args] });
+      }
+    }
+    return out;
+  }
+
+  /** 安全网规则包（safetyRules 接缝，A 阶段）。数据包规则恒为 warning 档（否决权保留给内置规则 + 人审）。 */
+  safetyRules(): { packageId: string; id: string; regex: RegExp; message: string; fileExts: string[] }[] {
+    const out: { packageId: string; id: string; regex: RegExp; message: string; fileExts: string[] }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      const ledger = this.ledgerOf()[e.manifest.id];
+      if (ledger?.kinds?.safetyRules === false) continue;
+      for (const r of e.manifest.contributes.safetyRules) {
+        try {
+          // g 全局标志会造成 lastIndex 状态泄漏，强制剥离；其余 flags 放行（i/m/s/y）
+          const flags = (r.flags ?? "").replace(/g/g, "");
+          out.push({
+            packageId: e.manifest.id,
+            id: `pkg.${e.manifest.id}.${r.id}`,
+            regex: new RegExp(r.pattern, flags),
+            message: r.message,
+            fileExts: r.fileExts.map((x) => (x.startsWith(".") ? x.toLowerCase() : `.${x.toLowerCase()}`)),
+          });
+        } catch {
+          // 非法正则：跳过该条规则（不影响其它规则，宿主存活）
+        }
+      }
+    }
+    return out;
+  }
+
+  /** 技能包（skills 接缝，D 阶段）：AgentLoop 注入系统提示的 L1 纯数据。 */
+  skillsOf(): { packageId: string; id: string; name: string; description: string; instructions: string; tools: string[] }[] {
+    const out: { packageId: string; id: string; name: string; description: string; instructions: string; tools: string[] }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.skills === false) continue;
+      for (const k of e.manifest.contributes.skills) {
+        out.push({
+          packageId: e.manifest.id,
+          id: `ext.${e.manifest.id}.${k.id}`,
+          name: k.name,
+          description: k.description,
+          instructions: k.instructions,
+          tools: [...k.tools],
+        });
+      }
+    }
+    return out;
+  }
+
+  /** 空状态提示包（emptyHints 接缝，E 阶段收尾）：按插槽返回追加文案。 */
+  emptyHintsOf(slot: "changes.empty" | "log.empty" | "branches.empty"): { packageId: string; text: string }[] {
+    const out: { packageId: string; text: string }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.emptyHints === false) continue;
+      for (const h of e.manifest.contributes.emptyHints) {
+        if (h.slot === slot) out.push({ packageId: e.manifest.id, text: h.text });
+      }
+    }
+    return out;
+  }
+
+  /** 包声明的外部 MCP server（mcpServers 接缝，B 阶段遗留项）。运行时 id = mcp.<pkg>.<id>。 */
+  mcpServersOf(): { id: string; name: string; command: string; args: string[]; description: string | null }[] {
+    const out: { id: string; name: string; command: string; args: string[]; description: string | null }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.mcpServers === false) continue;
+      for (const m of e.manifest.contributes.mcpServers) {
+        out.push({
+          id: `mcp.${e.manifest.id}.${m.id}`,
+          name: `${m.name}（${e.manifest.name}）`,
+          command: m.command,
+          args: [...m.args],
+          description: m.description,
+        });
+      }
+    }
+    return out;
   }
 }

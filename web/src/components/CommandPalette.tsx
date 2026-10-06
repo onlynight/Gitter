@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
 import type { CommandDTO } from "../bridge/types";
-import { navigate, routeCommand, t, updateSettings, useApp, type PageKey } from "../state/store";
+import { runCommand } from "../commands";
+import { getState, t, useApp } from "../state/store";
 
 interface Command {
   id: string;
@@ -12,44 +13,19 @@ interface Command {
   run: () => void;
 }
 
-/** 内置命令执行体（extension-system-v2.md §九：元数据在宿主 CommandReg，执行体留在渲染层）。 */
-function builtinRunner(id: string, repoPath: string | null): (() => void) | null {
-  const route = (cmd: string) => () => routeCommand(cmd);
-  switch (id) {
-    case "repo.refresh": return () => window.dispatchEvent(new CustomEvent("gitter:refresh"));
-    case "repo.newWindow": return () => void call("app.newWindow", { path: repoPath });
-    case "commit": return route("changes.commit");
-    case "commit.push": return route("changes.commitPush");
-    case "changes.stageAll": return route("changes.stageAll");
-    case "changes.unstageAll": return route("changes.unstageAll");
-    case "branches.create": return route("branches.create");
-    case "branches.checkout": return route("branches.checkout");
-    case "branches.pull": return route("branches.pull");
-    case "branches.pullRebase": return route("branches.pullRebase");
-    case "branches.push": return route("branches.push");
-    case "view.diffSide": return () => void updateSettings({ diffMode: "sideBySide" });
-    case "view.diffInline": return () => void updateSettings({ diffMode: "inline" });
-    case "view.themeSystem": return () => void updateSettings({ theme: "system" });
-    case "view.themeLight": return () => void updateSettings({ theme: "light" });
-    case "view.themeDark": return () => void updateSettings({ theme: "dark" });
-    default: return null;
-  }
-}
-
 /** 命令面板 v2（docs/command-palette-v2.md 语义的 web 版）：Ctrl+Shift+P 全量 / Ctrl+P 预填 ">"。
- * 数据源 = 宿主 CommandReg（commands.list），扩展包命令经 commands.exec 白名单执行。 */
+ * A 阶段：数据源 = 宿主 CommandReg（commands.list），when 表达式宿主求值（enabled），
+ * %key% 标题按语言解析，执行走共享 runCommand（面板/菜单/快捷键同一路径）。 */
 export function CommandPalette({ onClose, prefill }: { onClose: () => void; prefill?: string }) {
-  const { repo, settings } = useApp();
+  const { settings } = useApp();
   const [query, setQuery] = useState(prefill ?? "");
   const [selected, setSelected] = useState(-1); // 相对 items 的索引
   const listRef = useRef<HTMLDivElement>(null);
   const [remote, setRemote] = useState<CommandDTO[]>([]);
 
-  const repoOpen = !!repo;
-
   useEffect(() => {
     let cancelled = false;
-    void call<CommandDTO[]>("commands.list").then((cmds) => {
+    void call<CommandDTO[]>("commands.list", { lang: getState().i18n?.lang ?? "en" }).then((cmds) => {
       if (!cancelled) setRemote(cmds);
     });
     return () => {
@@ -59,21 +35,16 @@ export function CommandPalette({ onClose, prefill }: { onClose: () => void; pref
 
   const commands: Command[] = useMemo(
     () =>
-      remote.map((c) => {
-        const id = c.id;
-        const title = (c.titleKey ? t(c.titleKey) : c.title) ?? id;
-        const category = (c.categoryKey ? t(c.categoryKey) : c.category) ?? "";
-        const run =
-          id.startsWith("goto.")
-            ? () => navigate(id.slice(5) as PageKey)
-            : builtinRunner(id, repo?.workDir ?? null) ??
-              (() => {
-                void call("commands.exec", { id }).catch((e) => console.warn("命令执行失败:", (e as Error).message));
-              });
-        return { id, category, title, keyHint: c.keyHint, enabled: c.when !== "repoOpen" || repoOpen, run };
-      }),
+      remote.map((c) => ({
+        id: c.id,
+        category: (c.categoryKey ? t(c.categoryKey) : c.category) ?? "",
+        title: (c.titleKey ? t(c.titleKey) : c.title) ?? c.id,
+        keyHint: c.keyHint,
+        enabled: c.enabled !== false,
+        run: () => void runCommand(c),
+      })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [remote, repoOpen, repo?.workDir],
+    [remote],
   );
 
   // 过滤（子串不区分大小写；">" 前缀仅为命令模式标记，v1 与默认同义）

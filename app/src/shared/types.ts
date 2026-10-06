@@ -14,6 +14,8 @@ export interface CommitDTO {
   refs: RefDTO[]; // 分支/标签徽章（git log %D 解析）
   assistedBy: string[]; // Assisted-By trailer（会话分组/agent 过滤）
   sessionId: string | null; // Gitter-Session trailer（会话分组键）
+  /** log.decorators 接缝（C 阶段）：插件贡献的只读徽章 */
+  decorations?: { text: string; color?: string }[];
 }
 
 export interface RefDTO {
@@ -162,7 +164,7 @@ export interface SettingsDTO {
   terminalFontFamily: string;
   terminalFontSize: number;
   terminalFollowRepo: boolean;
-  terminalShell: "powershell" | "cmd" | "bash";
+  terminalShell: string; // 内置 powershell|cmd|bash 或包档位 ext.<pkg>.<id>（terminalProfiles 接缝）
   watchWorktree: boolean;
   autoFetch: boolean;
   autoFetchIntervalMinutes: number;
@@ -184,6 +186,65 @@ export interface SettingsDTO {
   changesSplitterFraction: number | null;
   /** 扩展包账本（extension-system-v2.md §五）：启停/按 kind 启停/包配置 */
   packages: Record<string, PackageLedgerDTO>;
+  /** L1 命令首跑确认账本（已确认的命令 id，terminal.run 类） */
+  confirmedCommands: string[];
+  /** L2 代码插件装载门（extension-system-v2.md §16.3：只走审核渠道，默认关） */
+  allowCodePlugins: boolean;
+  /** 包声明的外部 MCP server 连接门（mcpServers 接缝，默认关） */
+  externalMcpEnabled: boolean;
+  /** Agent 宿主（agent-harness-codex.md v2.0 §六）：托管 checkpoint 与退出策略 */
+  agentsCheckpoint: boolean;
+  agentsOnExit: "terminate" | "keep";
+  /** 模型档案（task-model-modules.md §二）：用户档案 + 缺省链 + 用量累计 */
+  models: UserModelProfileDTO[];
+  defaultModelId: string | null;
+  fastModelId: string | null;
+  modelUsage: Record<string, { turns: number; inputTokens: number; outputTokens: number }>;
+}
+
+/** 用户模型档案（settings.models[]；包模板实例化后也落在这里，同 fullId 遮蔽模板）。 */
+export interface UserModelProfileDTO {
+  id: string; // 全限定：user/<slug> 或 <包id>/<模型id>（遮蔽模板）
+  name: string;
+  kind: "openai-compatible" | "anthropic";
+  baseURL: string;
+  modelId: string;
+  /** safeStorage 密文 base64（keyRef 即档案 id） */
+  apiKeyProtected: string | null;
+  params?: { temperature?: number; maxOutputTokens?: number };
+  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number };
+  tags: string[];
+}
+
+/** models.list RPC 条目：用户档案与包模板的合并视图。 */
+export interface ModelProfileDTO {
+  id: string;
+  name: string;
+  kind: "openai-compatible" | "anthropic";
+  baseURL: string;
+  modelId: string;
+  source: "user" | "package";
+  /** 包模板尚未实例化（未填密钥）→ 不可选 */
+  configured: boolean;
+  enabled: boolean;
+  hasKey: boolean;
+  keyHint: string | null;
+  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number };
+  tags: string[];
+  isDefault: boolean;
+  isFast: boolean;
+  usage: { turns: number; inputTokens: number; outputTokens: number };
+}
+
+/** agent.taskTypes.list RPC 条目。 */
+export interface TaskTypeDTO {
+  fullId: string;
+  packageId: string;
+  id: string;
+  name: string;
+  tools: string[];
+  defaultModelRef: string | null;
+  error: string | null;
 }
 
 /** settings.packages[id]：启停账本（缺省 = 全部启用）。 */
@@ -206,11 +267,14 @@ export interface ExtensionPackageDTO {
   /** error / engines 不满足的原因（设置页展示） */
   reason: string | null;
   kindStates: Record<string, boolean>;
+  /** L3 权限清单（entrySandbox=utility；设置页安装明示） */
+  permissions: string[];
   /** contributes.configuration 的 schema（设置页自动渲染，值存 packages[id].config） */
   configuration: { key: string; type: "string" | "boolean" | "number"; default: string | boolean | number; title: string | null }[];
 }
 
-/** 命令注册表条目（commands.list RPC）：内置命令带 *Key（i18n 键），包命令带 title/packageId。 */
+/** 命令注册表条目（commands.list RPC）：内置命令带 *Key（i18n 键），包命令带 title/packageId。
+ * A 阶段：when 表达式宿主求值（enabled），%key% 标题按 lang 解析，confirm = 首跑确认。 */
 export interface CommandDTO {
   id: string;
   titleKey?: string;
@@ -218,11 +282,32 @@ export interface CommandDTO {
   categoryKey?: string;
   category?: string;
   keyHint?: string;
-  when?: "repoOpen";
-  /** L1 受限命令的宿主动作（仅包命令有） */
+  when?: string | null;
+  /** L1 受限命令的宿主动作（包命令；带动作的内置命令也有） */
   action?: string;
   args?: unknown;
   packageId?: string;
+  /** 首跑确认要求（terminal.run 类缺省 true） */
+  confirm?: boolean;
+  /** when 求值结果（宿主按调用上下文算好） */
+  enabled?: boolean;
+}
+
+/** 右键菜单项（menus.list RPC，extension-system-v2.md §16.5 menus 接缝）。 */
+export interface MenuDTO {
+  id: string;
+  location: "changesFile" | "branchRow" | "logRow";
+  title: string;
+  command: string;
+  order: number;
+  packageId?: string;
+}
+
+/** 终端档位（terminal.profiles RPC：内置 3 档 + terminalProfiles 包）。 */
+export interface TerminalProfileDTO {
+  id: string;
+  name: string;
+  source: "builtin" | "package";
 }
 
 export interface I18nDTO {

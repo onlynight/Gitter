@@ -20,6 +20,16 @@ export interface AppState {
   refreshTick: number;
   /** 设置页定位（如 "git"：从错误横幅跳转后滚动到对应区块） */
   settingsFocus: string | null;
+  /** L1 命令首跑确认（commands.exec confirm-required 的 GUI 侧，App 渲染 Modal） */
+  commandConfirm: { id: string; title: string; filePath: string | null } | null;
+  /** 插件通知 toast（ctx.ui.notify → ui.notify 事件） */
+  toasts: { id: number; title: string; body: string }[];
+  /** E 阶段面板插槽（ui.panels） */
+  panels: { id: string; title: string; body: string }[];
+  /** A4 Log 会话卡联动：聚焦任务卡（TasksPage 消费后清空） */
+  focusTaskId: string | null;
+  /** Agent 流式输出缓冲（agent.stream 事件，10s 无增量自动清空） */
+  agentStreamText: string | null;
 }
 
 let state: AppState = {
@@ -33,7 +43,33 @@ let state: AppState = {
   routedCommand: null,
   refreshTick: 0,
   settingsFocus: null,
+  commandConfirm: null,
+  toasts: [],
+  panels: [],
+  focusTaskId: null,
+  agentStreamText: null,
 };
+
+let streamClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** agent.stream 增量累积（App 监听调用），10s 无增量清空。 */
+export function appendAgentStream(delta: string): void {
+  const next = (getState().agentStreamText ?? "") + delta;
+  setState({ agentStreamText: next });
+  if (streamClearTimer) clearTimeout(streamClearTimer);
+  streamClearTimer = setTimeout(() => setState({ agentStreamText: null }), 10_000);
+}
+
+let toastSeq = 0;
+
+/** 插件通知（App 监听 ui.notify 事件调用），6s 自动消失。 */
+export function pushToast(title: string, body: string): void {
+  const id = ++toastSeq;
+  setState({ toasts: [...getState().toasts, { id, title, body }] });
+  setTimeout(() => {
+    setState({ toasts: getState().toasts.filter((x) => x.id !== id) });
+  }, 6000);
+}
 
 const listeners = new Set<() => void>();
 

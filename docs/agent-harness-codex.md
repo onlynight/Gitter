@@ -1,6 +1,7 @@
 # Codex Agent Harness 插件化接入设计 v2（对齐插件系统 v2）
 
-> 状态：设计提案 v2.0（2026-10-05），**仅设计方案，未动任何代码**
+> ⛔ **本方案已废止（2026-10-05，v2.0 当日）**：方向性误读——把"做成 agent harness"错解为"适配外部 codex CLI"。正确方向见 **docs/agent-harness.md v3.0（Gitter 自身即 agent 运行时，ZCode/DeepSeek Harness 同构）**。本文件的"外部 CLI 桥"机制（catalog/manifest/事件映射/cli-json 传输）降级为未来可选扩展点封存；事件模型、任务账本、托管 checkpoint、安全模型由 v3.0 继承。已按本文件实现的代码处置清单见 v3.0 §八。
+> **实施进度（2026-10-05）：P1 全部 + C1 主进程侧已落地**——`app/src/services/agents/`（types/events/catalog/tasks/checkpoint/prompts/transports/clijson/session）+ PackageStore `contributes.harnesses` 段 + 内置 `com.openai.codex` 包 + 任务页 Agent 卡（渲染层）+ 六个 `agent.*` RPC + `agent.task.*` 宿主动作；无头验收 `npm run build && node dist/smoke-agents.js`（39 项含 cli-json 端到端）。未含：cli-pty/acp/mcp 传输、review.state 拉通道、内置循环包装。
 > 变更：v1.x 基于 C#/WinUI3 栈与 .gpk v1；本版随 **WinUI3→Web 迁移**与**插件系统 v2**（docs/extension-system-v2.md）整体重排。上位文档换为 extension-system-v2.md；ai-native-redesign.md §十二降为"概念与接口形状来源"（形状仍有效，落点重排）。**本文自 v2.0 起为 agent 宿主设计的权威版本。**
 > 结论先行：**设计骨架零弃用**——四级传输、事件模型、宿主托管 checkpoint、声明式事件映射、会话账本、Codex 包全部具体适配均保留；变化的是形态与落点：harness 从"自定义 kind"变为 **schema v2 的 `contributes.harnesses` 段（L1 纯声明）**；接口从 C# 变为 **TS（zod）**；确认队列并入 **safety.ts 人审门**；MCP 双向统一走 **@modelcontextprotocol/sdk**；并补上与 §十五 agentLoop 的关系界定（Gitter 自有循环 vs 外部 agent 宿主）。
 

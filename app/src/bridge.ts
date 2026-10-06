@@ -11,11 +11,17 @@ import { I18nService, resolveLanguage } from "./services/i18n";
 import { ThemeService } from "./services/themes";
 import { TerminalManager } from "./services/terminal";
 import { HighlightService } from "./services/highlight";
-import { McpPipeHost, pendingApprovals } from "./services/mcp";
+import { McpPipeHost, pendingApprovals, requestHumanApproval } from "./services/mcp";
+import { runRegisteredLoop, registeredLoops } from "./services/extensions/agentLoop";
 import { PackageStore, type PackageLedgerEntry } from "./services/extensions/store";
 import { CommandRegistry } from "./services/extensions/commands";
 import { importGpkFile, uninstallPackageDir } from "./services/extensions/gpk";
 import { buildRawTheme } from "./services/extensions/grammar";
+import { AgentSessionManager } from "./services/agents/session";
+import { pickRepairTarget } from "./services/agents/session";
+import { pickProfileRef, pickFastProfileRef, resolveProfileModel } from "./services/agents/provider";
+import { compileTaskTypes, BUILTIN_FREE_ID } from "./services/agents/taskTypes";
+import type { ModelProfileDTO, UserModelProfileDTO } from "./shared/types";
 import * as gitconfig from "./services/gitconfig";
 import * as preview from "./services/preview";
 import * as aiSvc from "./services/ai";
@@ -34,6 +40,14 @@ export interface SharedServices {
   commands: CommandRegistry;
   /** TextMate 语法服务（降级链第一级；null 安全：WASM 缺失时自动回退声明式） */
   grammar: import("./services/extensions/grammar").GrammarService;
+  /** 统一工具总线（B 阶段）：内置 git 工具 + MCP + L2 插件工具 */
+  tools: import("./services/extensions/tools").ToolRegistry;
+  /** 事件总线（C 阶段）：L2 插件钩子 */
+  events: import("./services/extensions/events").EventBus;
+  /** 包声明的外部 MCP server 连接器（D 阶段补 B 遗留） */
+  mcpMgr: import("./services/extensions/mcpClient").McpClientManager;
+  /** L2 插件宿主（C 阶段） */
+  host: import("./services/extensions/host").PluginHost;
   /** 用户扩展包根（.gpk 导入目标 / 卸载边界校验），由 main 注入 */
   userPackagesRoot: string;
   userThemesRoot: string;
@@ -58,6 +72,8 @@ export class Bridge {
   private handlers = new Map<string, Handler>();
   private terminals: TerminalManager;
   private mcpHost: McpPipeHost | null = null;
+  /** Agent 宿主（窗口域，与终端同模式；事件经 evt 通道扇出渲染层） */
+  private agents: AgentSessionManager;
   /** 当前仓库（渲染层 repo.open 驱动，对齐 RepositoryContext 单仓库语义）。 */
   repo: string | null = null;
 
@@ -69,6 +85,46 @@ export class Bridge {
       send: (channel: string, payload: unknown) => {
         if (!win.isDestroyed()) win.webContents.send(channel, payload);
       },
+    }, (kind) => {
+      // terminalProfiles 接缝：ext.<pkg>.<id> → 包档位
+      const p = this.shared.pkgStore.terminalProfiles().find((x) => x.id === kind);
+      return p ? { command: p.command, args: p.args } : null;
+    });
+    this.agents = new AgentSessionManager({
+      repoOf: () => this.repo,
+      store: this.shared.pkgStore,
+      settings: this.shared.settings,
+      // 模型档案链（task-model-modules.md §2.2）：任务绑定 → defaultModelId → 首个可用；解密在此
+      resolveModel: (profileRef: string | null, thinking?: "off" | "low" | "medium" | "high") => {
+        const s = this.shared.settings.current;
+        const p = pickProfileRef(s.models ?? [], profileRef);
+        if (!p) {
+          return { ok: false as const, error: "没有可用的模型档案：请在 设置 → 模型档案 新增并配置密钥" };
+        }
+        const key = this.decryptProfileKey(p.apiKeyProtected);
+        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking });
+        return r.ok
+          ? { ok: true as const, model: r.model, profileRef: p.id }
+          : { ok: false as const, error: r.error };
+      },
+      // 用量记账（task-model-modules.md §2.3）
+      addUsage: (profileRef, usage) => {
+        const cur = this.shared.settings.current.modelUsage ?? {};
+        const prev = cur[profileRef] ?? { turns: 0, inputTokens: 0, outputTokens: 0 };
+        this.shared.settings.update({
+          modelUsage: {
+            ...cur,
+            [profileRef]: {
+              turns: prev.turns + 1,
+              inputTokens: prev.inputTokens + (usage?.input ?? 0),
+              outputTokens: prev.outputTokens + (usage?.output ?? 0),
+            },
+          },
+        });
+      },
+      send: (method: string, params: unknown) => {
+        if (!win.isDestroyed()) win.webContents.send("evt", { method, params });
+      },
     });
     this.registerAll();
   }
@@ -76,6 +132,16 @@ export class Bridge {
   dispose() {
     this.terminals.disposeAll();
     this.mcpHost?.stop();
+    this.agents.dispose();
+  }
+
+  /** main 的 host.notify 扇出用。 */
+  isWindowDestroyed(): boolean {
+    return this.win.isDestroyed();
+  }
+
+  sendNotify(title: string, body: string): void {
+    if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method: "ui.notify", params: { title, body } });
   }
 
   async handle(method: string, args: unknown): Promise<{ ok: true; data: unknown } | { ok: false; error: { message: string; detail?: string } }> {
@@ -110,20 +176,27 @@ export class Bridge {
         throw new BridgeError("不是有效的 git 仓库", full);
       }
       this.repo = full;
+      this.shared.host.setCurrentRepo(full);
       this.ensureMcp();
+      void this.shared.events.emit("repo.opened", { repo: full });
       return { workDir: full, name: path.basename(full) };
     });
     R("repo.close", () => {
       this.repo = null;
+      this.shared.host.setCurrentRepo(null);
       this.mcpHost?.stop();
       this.mcpHost = null;
+      void this.shared.events.emit("repo.closed", {});
       return {};
     });
     R("repo.state", () => ({ workDir: this.repo }));
 
     // ---- Log ----
-    R("log.query", (args: { branch?: string; query?: string; limit?: number; skip?: number }) =>
-      queryLog(this.needRepo(), args ?? {}));
+    R("log.query", async (args: { branch?: string; query?: string; limit?: number; skip?: number }) => {
+      const page = await queryLog(this.needRepo(), args ?? {});
+      this.shared.host.applyDecorations(page.commits); // log.decorators 接缝（只读徽章）
+      return page;
+    });
     R("log.branches", () => listBranches(this.needRepo()));
     R("log.detail", async (args: { sha: string; baseSha?: string | null }) => {
       const wd = this.needRepo();
@@ -163,7 +236,12 @@ export class Bridge {
             addedLines: f.added ?? 0, deletedLines: f.deleted ?? 0,
           });
         }
-        const blocked = safety.scan(files).filter((x) => x.severity === "blocked");
+        const pkgRules = this.shared.pkgStore.safetyRules();
+        const blocked = [
+          ...safety.scan(files),
+          ...safety.scanPackageRules(files, pkgRules),
+          ...this.shared.host.runScanners(files),
+        ].filter((x) => x.severity === "blocked");
         if (blocked.length > 0) {
           throw new BridgeError(
             `安全网拦截：${blocked.length} 个阻塞级发现（${blocked[0].filePath}:${blocked[0].line ?? "?"} ${blocked[0].message}…）`,
@@ -171,15 +249,33 @@ export class Bridge {
           );
         }
       }
-      return status.commit(wd, args.message, !!args.push, this.syncProgress());
+      const vetoes = await this.shared.host.runGates("commit", { message: args.message });
+      if (vetoes.length > 0) throw new BridgeError(`插件门禁拦截提交：${vetoes.join("；")}`);
+      const r = await status.commit(wd, args.message, !!args.push, this.syncProgress());
+      void this.shared.events.emit("commit.created", { repo: wd, message: args.message, pushed: !!args.push });
+      return r;
     });
-    R("changes.push", () => status.retryPush(this.needRepo(), this.syncProgress()));
-    R("changes.pull", (args: { rebase?: boolean }) => status.pullWithProgress(this.needRepo(), !!args?.rebase, this.syncProgress()).then(() => ({})));
+    R("changes.push", async () => {
+      const vetoes = await this.shared.host.runGates("push", {});
+      if (vetoes.length > 0) throw new BridgeError(`插件门禁拦截推送：${vetoes.join("；")}`);
+      const r = await status.retryPush(this.needRepo(), this.syncProgress());
+      void this.shared.events.emit("sync.pushed", { repo: this.repo });
+      return r;
+    });
+    R("changes.pull", (args: { rebase?: boolean }) =>
+      status.pullWithProgress(this.needRepo(), !!args?.rebase, this.syncProgress()).then(() => {
+        void this.shared.events.emit("sync.pulled", { repo: this.repo });
+        return {};
+      }));
     R("changes.fetch", () => status.fetchAll(this.needRepo(), this.syncProgress()).then(() => ({})));
 
     // ---- 分支 ----
     R("branches.state", () => branches.getBranches(this.needRepo()));
-    R("branches.checkout", (args: { name: string }) => branches.checkout(this.needRepo(), args.name));
+    R("branches.checkout", async (args: { name: string }) => {
+      const r = await branches.checkout(this.needRepo(), args.name);
+      void this.shared.events.emit("branch.checkedOut", { repo: this.repo, branch: args.name });
+      return r;
+    });
     R("branches.create", (args: { name: string; fromSha?: string | null }) =>
       branches.createBranch(this.needRepo(), args.name, args.fromSha ?? null));
     R("branches.rename", (args: { oldName: string; newName: string }) =>
@@ -198,6 +294,156 @@ export class Bridge {
     R("tasks.list", () => worktrees.listWorktrees(this.needRepo()));
     R("tasks.create", (args: { name: string }) => worktrees.createTaskWorktree(this.needRepo(), args.name));
     R("tasks.remove", (args: { path: string }) => worktrees.removeTaskWorktree(this.needRepo(), args.path));
+
+    // ---- Agent 宿主（agent-harness-codex.md v2.0 §三/§八）----
+    R("agents.list", () => this.agents.listHarnesses());
+    R("agent.tasks", () => this.agents.listTasks());
+    R("agent.task.create", (args: { name?: string; prompt: string; taskType?: string; model?: string; thinking?: string }) =>
+      this.agents.createTask({ name: args?.name, prompt: args?.prompt ?? "", taskType: args?.taskType, model: args?.model, thinking: args?.thinking as never }));
+    R("agent.task.resume", (args: { taskId: string; prompt: string; thinking?: string }) => this.agents.resumeTask({ ...args, thinking: args?.thinking as never }));
+    R("agent.task.stop", (args: { taskId: string }) => this.agents.stopTask(args) ?? {});
+    R("agent.task.feedback", (args: { taskId: string; feedback: string }) => this.agents.sendFeedback(args));
+    // 任务历史读取（时间线回放 + 插件读取面）：记录 + 事件日志 + 消息历史
+    R("agent.task.history", (args: { taskId: string }) => this.agents.taskHistory(args));
+    R("agent.perm.reply", (args: { requestId: string; ok: boolean; remember?: boolean }) =>
+      this.agents.replyPermission(args));
+    R("agent.task.setModel", (args: { taskId: string; model: string }) => this.agents.setModel(args) ?? {});
+    R("agent.task.fork", (args: { taskId: string; model?: string }) => this.agents.fork(args));
+    R("agent.task.archive", (args: { taskId: string; archived: boolean }) => this.agents.archive(args) ?? {});
+    R("agent.task.delete", (args: { taskId: string }) => this.agents.deleteTask(args));
+    R("agent.taskTypes.list", () => {
+      const { entries } = compileTaskTypes(this.shared.pkgStore);
+      const free = {
+        fullId: BUILTIN_FREE_ID, packageId: "builtin", id: "free",
+        name: "自由任务", tools: [], defaultModelRef: null, error: null,
+      };
+      return [free, ...entries];
+    });
+
+    // ---- 模型档案（task-model-modules.md §二/§四）----
+    R("models.list", () => {
+      const s = this.shared.settings.current;
+      const models = s.models ?? [];
+      const out: ModelProfileDTO[] = [];
+      const pkgIds = new Set<string>();
+      for (const p of this.shared.pkgStore.list()) {
+        if (p.state !== "active" || !p.kindStates.models) continue;
+        const rec = this.shared.pkgStore.find(p.id);
+        if (!rec) continue;
+        for (const m of rec.manifest.contributes.models) {
+          const fullId = `${p.id}/${m.id}`;
+          pkgIds.add(fullId);
+          const user = models.find((u) => u.id === fullId);
+          out.push(this.toProfileDTO(
+            fullId,
+            user ?? {
+              id: fullId, name: m.name, kind: m.kind, baseURL: m.baseURL, modelId: m.modelId,
+              apiKeyProtected: null, params: { temperature: m.params?.temperature ?? undefined, maxOutputTokens: m.params?.maxOutputTokens ?? undefined },
+              capabilities: { tools: m.capabilities.tools, streaming: m.capabilities.streaming, contextTokens: m.capabilities.contextTokens ?? undefined },
+              tags: m.tags,
+            },
+            "package",
+            m.keyHint,
+            s,
+          ));
+        }
+      }
+      for (const u of models) {
+        if (pkgIds.has(u.id)) continue;
+        out.push(this.toProfileDTO(u.id, u, "user", null, s));
+      }
+      return out;
+    });
+    R("models.save", (args: { profile: { id?: string; name: string; kind: "openai-compatible" | "anthropic"; baseURL: string; modelId: string; tags?: string[] } }) => {
+      const p = args.profile;
+      if (!p.name.trim() || !p.baseURL.trim() || !p.modelId.trim()) throw new BridgeError("name/baseURL/modelId 均必填");
+      const s = this.shared.settings.current;
+      const models = [...(s.models ?? [])];
+      let id = p.id ?? "";
+      if (!id || !models.some((m) => m.id === id)) {
+        id = `user/${p.name.trim().toLowerCase().replace(/[^a-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "") || "profile"}-${Date.now().toString(36)}`;
+      }
+      const prev = models.find((m) => m.id === id);
+      const entry: UserModelProfileDTO = {
+        id, name: p.name.trim(), kind: p.kind, baseURL: p.baseURL.trim(), modelId: p.modelId.trim(),
+        apiKeyProtected: prev?.apiKeyProtected ?? null,
+        params: prev?.params,
+        capabilities: prev?.capabilities ?? { tools: true, streaming: true },
+        tags: p.tags ?? prev?.tags ?? [],
+      };
+      const i = models.findIndex((m) => m.id === id);
+      if (i >= 0) models[i] = entry; else models.unshift(entry);
+      this.shared.settings.update({ models });
+      return { id };
+    });
+    R("models.delete", (args: { id: string }) => {
+      const s = this.shared.settings.current;
+      const models = (s.models ?? []).filter((m) => m.id !== args.id);
+      const patch: Partial<SettingsDTO> = { models };
+      if (s.defaultModelId === args.id) patch.defaultModelId = models[0]?.id ?? null;
+      if (s.fastModelId === args.id) patch.fastModelId = null;
+      this.shared.settings.update(patch);
+      return {};
+    });
+    R("models.setKey", (args: { id: string; key: string }) => {
+      if (!safeStorage.isEncryptionAvailable()) throw new BridgeError("系统不支持密钥加密（safeStorage 不可用）");
+      const s = this.shared.settings.current;
+      const models = [...(s.models ?? [])];
+      let target = models.find((m) => m.id === args.id);
+      if (!target) {
+        // 包模板 → 实例化用户档案（同 fullId 遮蔽模板）
+        for (const p of this.shared.pkgStore.list()) {
+          if (p.state !== "active" || !p.kindStates.models) continue;
+          const rec = this.shared.pkgStore.find(p.id);
+          const m = rec?.manifest.contributes.models.find((x) => `${p.id}/${x.id}` === args.id);
+          if (rec && m) {
+            target = {
+              id: args.id, name: m.name, kind: m.kind, baseURL: m.baseURL, modelId: m.modelId,
+              apiKeyProtected: null, params: { temperature: m.params?.temperature ?? undefined, maxOutputTokens: m.params?.maxOutputTokens ?? undefined },
+              capabilities: { tools: m.capabilities.tools, streaming: m.capabilities.streaming, contextTokens: m.capabilities.contextTokens ?? undefined },
+              tags: m.tags,
+            };
+            models.unshift(target);
+            break;
+          }
+        }
+        if (!target) throw new BridgeError("模型档案不存在", args.id);
+      }
+      target.apiKeyProtected = safeStorage.encryptString(args.key).toString("base64");
+      this.shared.settings.update({ models });
+      return {};
+    });
+    R("models.setDefault", (args: { id: string | null }) => {
+      this.shared.settings.update({ defaultModelId: args.id });
+      return {};
+    });
+    R("models.setFast", (args: { id: string | null }) => {
+      this.shared.settings.update({ fastModelId: args.id });
+      return {};
+    });
+    // 测试连接：拉 /models 列表（DeepSeek-harness 式添加模型：验证 URL+密钥并可自动填充模型 ID）
+    R("models.test", async (args: { kind: "openai-compatible" | "anthropic"; baseURL: string; apiKey?: string }) => {
+      const base = args.baseURL.trim().replace(/\/+$/, "");
+      if (!base) return { ok: false, error: "Base URL 不能为空" };
+      const url = args.kind === "anthropic"
+        ? `${base.endsWith("/v1") ? base : base + "/v1"}/models`
+        : `${base}/models`;
+      const headers: Record<string, string> = args.kind === "anthropic"
+        ? { "x-api-key": args.apiKey ?? "", "anthropic-version": "2023-06-01" }
+        : args.apiKey ? { authorization: `Bearer ${args.apiKey}` } : {};
+      try {
+        const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+        if (!res.ok) {
+          const hint = res.status === 401 || res.status === 403 ? "（密钥无效或缺失）" : res.status === 404 ? "（端点不存在，检查 Base URL）" : "";
+          return { ok: false, error: `HTTP ${res.status}${hint}` };
+        }
+        const j = (await res.json()) as { data?: { id?: string }[]; models?: { id?: string }[] };
+        const ids = (j.data ?? j.models ?? []).map((x) => x.id).filter((x): x is string => !!x);
+        return { ok: true, models: ids };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    });
 
     // ---- 项目 ----
     R("projects.list", () => {
@@ -254,6 +500,8 @@ export class Bridge {
     R("settings.get", () => settings.current);
     R("settings.set", (args: { patch: Partial<SettingsDTO> }) => {
       settings.update(args.patch ?? {});
+      if (args.patch?.externalMcpEnabled !== undefined) void this.syncExternalMcp();
+      if (args.patch?.allowCodePlugins !== undefined) this.refreshExtensions();
       return settings.current;
     });
     R("settings.rememberCommand", (args: { id: string }) => {
@@ -299,6 +547,13 @@ export class Bridge {
     });
     R("shell.reveal", (args: { path: string }) => {
       shell.showItemInFolder(args.path);
+      return {};
+    });
+    // markdown 链接（agent 输出）→ 系统浏览器；webview 内不跳转
+    R("shell.openExternal", (args: { url: string }) => {
+      const url = String(args?.url ?? "");
+      if (!/^https?:\/\//i.test(url)) throw new BridgeError("仅允许 http/https 链接", url);
+      void shell.openExternal(url);
       return {};
     });
     R("app.newWindow", (args: { path?: string }) => {
@@ -390,7 +645,14 @@ export class Bridge {
           deletedLines: f.deleted ?? 0,
         });
       }
-      return { findings: safety.scan(files), mode: s.safetyNet };
+      return {
+        findings: [
+          ...safety.scan(files),
+          ...safety.scanPackageRules(files, this.shared.pkgStore.safetyRules()),
+          ...this.shared.host.runScanners(files),
+        ],
+        mode: s.safetyNet,
+      };
     });
 
     // ---- agent 反馈（review.submit_feedback 的消费侧）----
@@ -439,6 +701,23 @@ export class Bridge {
       this.refreshExtensions();
       return this.shared.pkgStore.list();
     });
+    R("extensions.installFromCatalog", async (args: { url: string }) => {
+      const url = String(args?.url ?? "").trim();
+      if (!/^https?:\/\//.test(url)) throw new BridgeError("目录安装需要 http(s) 的 .gpk 地址", url);
+      const res = await fetch(url);
+      if (!res.ok) throw new BridgeError(`下载失败：HTTP ${res.status}`, url);
+      const buf = Buffer.from(await res.arrayBuffer());
+      const tmpGpk = path.join(this.shared.userPackagesRoot, `catalog-${Date.now()}.gpk`);
+      fs.mkdirSync(this.shared.userPackagesRoot, { recursive: true });
+      fs.writeFileSync(tmpGpk, buf);
+      try {
+        const result = importGpkFile(tmpGpk, this.shared.userPackagesRoot);
+        this.refreshExtensions();
+        return result;
+      } finally {
+        fs.rmSync(tmpGpk, { force: true });
+      }
+    });
     R("extensions.importGpk", async () => {
       const r = await dialog.showOpenDialog(this.win, {
         title: "导入扩展包",
@@ -470,11 +749,81 @@ export class Bridge {
     });
 
     // ---- 命令注册表（extension-system-v2.md §九）----
-    R("commands.list", () => this.shared.commands.list());
-    R("commands.exec", async (args: { id: string }) => {
-      await this.shared.commands.execute(args.id, (action, execArgs) => this.execHostAction(action, execArgs));
-      return {};
+    R("commands.list", (args?: { lang?: "en" | "zh-Hans"; fileSelected?: boolean }) =>
+      this.shared.commands.list({
+        lang: args?.lang,
+        repoOpen: !!this.repo,
+        fileSelected: !!args?.fileSelected,
+      }));
+    R("commands.exec", async (args: { id: string; confirmed?: boolean; filePath?: string | null }) => {
+      const vars = await this.templateVars(args.filePath ?? null);
+      return this.shared.commands.execute(args.id, (action, execArgs) => this.execHostAction(action, execArgs), {
+        confirmed: !!args.confirmed,
+        isConfirmed: (id) => (this.shared.settings.current.confirmedCommands ?? []).includes(id),
+        markConfirmed: (id) => {
+          const cur = this.shared.settings.current.confirmedCommands ?? [];
+          this.shared.settings.update({ confirmedCommands: [...cur.filter((c) => c !== id), id].slice(-200) });
+        },
+        vars,
+      });
     });
+    R("menus.list", (args?: { location: "changesFile" | "branchRow" | "logRow"; lang?: "en" | "zh-Hans"; fileSelected?: boolean }) =>
+      this.shared.commands.menusList(args?.location ?? "changesFile", {
+        lang: args?.lang,
+        repoOpen: !!this.repo,
+        fileSelected: !!args?.fileSelected,
+      }));
+    R("tools.list", () => this.shared.tools.list());
+    R("skills.list", () => this.shared.pkgStore.skillsOf());
+    R("ui.statusItems", () => this.shared.host.listStatusItems());
+    R("ui.panels", () => this.shared.host.resolvePanels(this.repo));
+    R("ui.views", () => this.shared.host.listViews());
+    R("ui.emptyHints", (args?: { slot?: "changes.empty" | "log.empty" | "branches.empty" }) =>
+      this.shared.pkgStore.emptyHintsOf(args?.slot ?? "changes.empty"));
+    R("ui.commitBlocks", (args?: { message?: string; fileCount?: number }) =>
+      this.shared.host.resolveCommitBlocks({ message: args?.message ?? "", files: args?.fileCount ?? 0 }));
+    R("diff.notes", (args: { path: string }) => this.shared.host.resolveDiffNotes(args.path));
+    R("review.repair", () => {
+      // A4 验收台闭环：rejected 反馈 → 直投最近可接任务的修复轮
+      const wd = this.needRepo();
+      const fb = feedbackStore.readFeedback(wd);
+      if (!fb) throw new BridgeError("没有待处理的验收反馈");
+      const target = pickRepairTarget(this.agents.listTasks());
+      if (!target) throw new BridgeError("没有可直投的任务——请先在任务页创建", "NO_TASK");
+      const feedback = fb.path ? `${fb.note}
+（涉及文件：${fb.path}）` : fb.note;
+      const task = this.agents.sendFeedback({ taskId: target.taskId, feedback });
+      feedbackStore.clearFeedback(wd);
+      return { task, note: fb.note };
+    });
+    R("agent.loop.run", async (args: { input: string; loopId?: string; maxSteps?: number }) => {
+      const wd = this.needRepo();
+      const sink = {
+        send: (channel: string, payload: unknown) => {
+          if (!this.win.isDestroyed()) this.win.webContents.send(channel, payload);
+        },
+      };
+      const provider = this.aiConfig().provider;
+      return runRegisteredLoop(args.loopId ?? (provider === "anthropic" ? "builtin.tools.anthropic" : "builtin.tools"), {
+        workDir: wd,
+        system: "You are a git assistant inside the Gitter client. Use tools when helpful, then answer concisely.",
+        user: String(args.input ?? ""),
+        skills: this.shared.pkgStore.skillsOf().map((k) => ({ name: k.name, instructions: k.instructions })),
+        maxSteps: args.maxSteps,
+        requestApproval: (d) => requestHumanApproval(sink, path.basename(wd), d),
+        onDelta: (delta) => {
+          if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method: "agent.stream", params: { delta } });
+        },
+      }, this.aiConfig());
+    });
+    R("agent.loops", () => registeredLoops());
+    R("host.status", () => this.shared.host.status());
+    R("terminal.profiles", () => [
+      { id: "powershell", name: "PowerShell", source: "builtin" },
+      { id: "cmd", name: "CMD", source: "builtin" },
+      { id: "bash", name: "Git Bash", source: "builtin" },
+      ...this.shared.pkgStore.terminalProfiles().map((p) => ({ id: p.id, name: p.name, source: "package" as const })),
+    ]);
 
     // ---- MCP 宿主 ----
     R("mcp.state", () => ({
@@ -520,8 +869,15 @@ export class Bridge {
     });
 
     // ---- 非代码文件预览（图片等二进制直接出内容，不走 diff）----
-    R("file.preview", (args: { path: string; staged?: boolean; maxBytes?: number }) =>
-      preview.readPreview(this.needRepo(), args.path, !!args.staged, args.maxBytes));
+    R("file.preview", async (args: { path: string; staged?: boolean; maxBytes?: number }) => {
+      // previewProviders 接缝：包提供者优先，缺省走内置预览
+      const provider = this.shared.host.findPreviewProvider(args.path);
+      if (provider) {
+        const r = await provider(args.path, args.maxBytes);
+        if (r) return r;
+      }
+      return preview.readPreview(this.needRepo(), args.path, !!args.staged, args.maxBytes);
+    });
 
     // ---- 推送自助修复（noUpstream 错误的动作）----
     R("changes.pushSetUpstream", async () => {
@@ -541,8 +897,20 @@ export class Bridge {
     });
   }
 
-  /** 组装 AI 配置（密钥 safeStorage 解密，只在内存，不回传渲染层明文）。 */
-  private aiConfig(): aiSvc.AiConfig {    const s = this.shared.settings.current;
+  /** 组装 AI 配置：模型档案 fast 链优先（task-model-modules.md §2.4）；无档案回落 legacy（cli 桥一次性补全）。 */
+  private aiConfig(): aiSvc.AiConfig {
+    const s = this.shared.settings.current;
+    const p = pickFastProfileRef(s.models ?? [], s.fastModelId, s.defaultModelId);
+    if (p) {
+      const key = this.decryptProfileKey(p.apiKeyProtected);
+      return {
+        provider: p.kind === "anthropic" ? "anthropic" : "openai",
+        endpoint: p.baseURL,
+        model: p.modelId,
+        cliCommand: s.aiCliCommand,
+        apiKey: key,
+      };
+    }
     let apiKey: string | null = null;
     if (s.aiApiKeyProtected && safeStorage.isEncryptionAvailable()) {
       try {
@@ -583,6 +951,47 @@ export class Bridge {
     ).syntax;
   }
 
+  /** 档案密钥解密（safeStorage；只在内存，不回传渲染层明文）。 */
+  private decryptProfileKey(protectedKey: string | null | undefined): string | null {
+    if (!protectedKey || !safeStorage.isEncryptionAvailable()) return null;
+    try {
+      return safeStorage.decryptString(Buffer.from(protectedKey, "base64"));
+    } catch {
+      return null;
+    }
+  }
+
+  private toProfileDTO(
+    id: string,
+    u: UserModelProfileDTO,
+    source: "user" | "package",
+    keyHint: string | null,
+    s: SettingsDTO,
+  ): ModelProfileDTO {
+    const usage = s.modelUsage?.[id] ?? { turns: 0, inputTokens: 0, outputTokens: 0 };
+    return {
+      id,
+      name: u.name,
+      kind: u.kind,
+      baseURL: u.baseURL,
+      modelId: u.modelId,
+      source,
+      configured: source === "user" || !!u.apiKeyProtected,
+      enabled: true,
+      hasKey: !!u.apiKeyProtected,
+      keyHint,
+      capabilities: {
+        tools: u.capabilities?.tools ?? true,
+        streaming: u.capabilities?.streaming ?? true,
+        contextTokens: u.capabilities?.contextTokens,
+      },
+      tags: u.tags ?? [],
+      isDefault: s.defaultModelId === id,
+      isFast: s.fastModelId === id,
+      usage,
+    };
+  }
+
   /** 同步进度事件（push/pull/fetch 的 --progress 行），100ms 节流防 IPC 风暴。 */
   private syncProgress(): status.SyncProgress {
     let last = 0;
@@ -609,7 +1018,7 @@ export class Bridge {
       send: (channel: string, payload: unknown) => {
         if (!this.win.isDestroyed()) this.win.webContents.send(channel, payload);
       },
-    });
+    }, { allowWrites: false, tools: this.shared.tools });
     this.mcpHost.start();
   }
 
@@ -620,10 +1029,39 @@ export class Bridge {
     this.shared.settings.update({ packages: cur });
   }
 
-  /** 包集合变化后重建派生注册表（包命令 / 用户语法）。 */
+  /** 包集合变化后重建派生注册表（包命令 / 用户语法 / L2 宿主 / 工具表 / 外部 MCP）。 */
   private refreshExtensions(): void {
     this.shared.commands.registerPackageCommands(this.shared.pkgStore);
     this.shared.grammar.reset();
+    void this.shared.host.activateAll(this.shared.pkgStore, {
+      allowCode: this.shared.settings.current.allowCodePlugins,
+    });
+    void this.syncExternalMcp();
+  }
+
+  /** mcpServers 接缝：包声明的外部 server 全量重连（信任门 settings.externalMcpEnabled）。 */
+  private async syncExternalMcp(): Promise<void> {
+    const mgr = this.shared.mcpMgr;
+    mgr.disconnectAll();
+    if (!this.shared.settings.current.externalMcpEnabled) return;
+    for (const cfg of this.shared.pkgStore.mcpServersOf()) {
+      const r = await mgr.connect(cfg, this.shared.tools);
+      if (r.error) console.warn(`[mcpServers] ${cfg.id} 连接失败:`, r.error);
+    }
+  }
+
+  /** 命令模板变量（${repo.path}/${repo.branch}/${file.path}；config.* 在 registry.execute 内按包合并）。 */
+  private async templateVars(filePath: string | null): Promise<Record<string, string>> {
+    const vars: Record<string, string> = { "repo.path": this.repo ?? "", "repo.branch": "", "file.path": filePath ?? "" };
+    if (this.repo) {
+      try {
+        const r = await tryGit(this.repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+        vars["repo.branch"] = r.stdout.trim();
+      } catch {
+        // 游离 HEAD 等场景取不到分支名 → 空串
+      }
+    }
+    return vars;
   }
 
   /** L1 受限命令的宿主动作执行体（白名单见 commands.ts HOST_ACTIONS）。 */
@@ -646,7 +1084,42 @@ export class Bridge {
       if (typeof a.path !== "string" || !a.path.trim()) {
         throw new BridgeError("shell.openPath 需要 path 参数");
       }
+      if (a.editor === true && this.shared.settings.current.externalEditor) {
+        await new Promise<void>((resolve, reject) => {
+          import("child_process").then((cp) => {
+            const child = cp.spawn(this.shared.settings.current.externalEditor!, [a.path as string], { shell: true, windowsHide: true });
+            child.on("close", (code) => (code === 0 ? resolve() : reject(new BridgeError("外部编辑器启动失败", `exit ${code}`))));
+            child.on("error", (e) => reject(new BridgeError("外部编辑器启动失败", String(e))));
+          });
+        });
+        return;
+      }
       await shell.openPath(a.path);
+      return;
+    }
+    if (action === "shell.reveal") {
+      if (typeof a.path !== "string" || !a.path.trim()) {
+        throw new BridgeError("shell.reveal 需要 path 参数");
+      }
+      shell.showItemInFolder(a.path);
+      return;
+    }
+    if (action === "repo.refresh") {
+      if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method: "repo.refresh", params: {} });
+      return;
+    }
+    // Agent 宿主动作（agent-harness.md v3.0：包命令的执行体；任务派生已收敛为内置 agent）
+    if (action === "agent.task.create") {
+      const name = typeof a.name === "string" && a.name.trim() ? a.name : "";
+      const prompt = typeof a.prompt === "string" ? a.prompt : "";
+      this.needRepo();
+      await this.agents.createTask({ name, prompt });
+      return;
+    }
+    if (action === "agent.task.resume") {
+      const prompt = typeof a.prompt === "string" ? a.prompt : "";
+      this.needRepo();
+      await this.agents.resumeLast(prompt);
       return;
     }
     throw new BridgeError(`不允许的宿主动作：${action}`);

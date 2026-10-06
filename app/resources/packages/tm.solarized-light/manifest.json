@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "id": "tm.solarized-light",
+  "name": "Solarized Light",
+  "version": "1.0.0",
+  "description": "TextMate 主题（tm-themes 源：solarized-light）；仅代码配色，应用界面跟随内置亮暗基座",
+  "contributes": {
+    "themes": [
+      {
+        "path": "theme/theme.json",
+        "base": "light"
+      }
+    ]
+  }
+}

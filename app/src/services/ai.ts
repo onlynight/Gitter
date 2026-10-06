@@ -13,7 +13,8 @@ export interface AiPrompt {
 export class AiGatewayError extends Error {}
 
 export interface AiConfig {
-  provider: "off" | "openai" | "anthropic" | "cli";
+  /** 内置 off|openai|anthropic|cli；扩展 provider 经 registerAiProvider（B 阶段接缝） */
+  provider: string;
   endpoint: string | null;
   model: string | null;
   cliCommand: string | null;
@@ -21,19 +22,50 @@ export interface AiConfig {
   timeoutSeconds?: number;
 }
 
+// ---- provider 注册表（extension-system-v2.md §16.6 B 阶段：三传输自举收编；D 阶段 AgentLoop 消费同一注册）----
+
+type ProviderImpl = {
+  isConfigured(c: AiConfig): boolean;
+  complete(prompt: AiPrompt, c: AiConfig, timeoutMs: number): Promise<string>;
+};
+
+const PROVIDERS = new Map<string, ProviderImpl>();
+
+/** 注册 AI provider（L2 插件经 host ctx 注册；内置三传输自举见下方 registerAiProvider 调用）。 */
+export function registerAiProvider(name: string, impl: ProviderImpl): void {
+  PROVIDERS.set(name, impl);
+}
+
+export function registeredProviders(): string[] {
+  return [...PROVIDERS.keys()];
+}
+
+export function unregisterAiProvider(name: string): void {
+  PROVIDERS.delete(name);
+}
+
+registerAiProvider("openai", {
+  isConfigured: (c) => !!c.endpoint && !!c.model,
+  complete: (p, c, t) => openAiComplete(p, c, t),
+});
+registerAiProvider("anthropic", {
+  isConfigured: (c) => !!c.endpoint && !!c.model,
+  complete: (p, c, t) => anthropicComplete(p, c, t),
+});
+registerAiProvider("cli", {
+  isConfigured: (c) => !!c.cliCommand,
+  complete: (p, c, t) => cliComplete(p, c, t),
+});
+
 export function isConfigured(c: AiConfig): boolean {
-  if (c.provider === "openai") return !!c.endpoint && !!c.model;
-  if (c.provider === "anthropic") return !!c.endpoint && !!c.model;
-  if (c.provider === "cli") return !!c.cliCommand;
-  return false;
+  return PROVIDERS.get(c.provider)?.isConfigured(c) ?? false;
 }
 
 export async function complete(prompt: AiPrompt, config: AiConfig): Promise<string> {
-  if (!isConfigured(config)) throw new AiGatewayError("AI provider 未配置");
+  const impl = PROVIDERS.get(config.provider);
+  if (!impl || !impl.isConfigured(config)) throw new AiGatewayError("AI provider 未配置");
   const timeout = (config.timeoutSeconds ?? 60) * 1000;
-  if (config.provider === "openai") return openAiComplete(prompt, config, timeout);
-  if (config.provider === "anthropic") return anthropicComplete(prompt, config, timeout);
-  return cliComplete(prompt, config, timeout);
+  return impl.complete(prompt, config, timeout);
 }
 
 // ---- OpenAI 兼容 /chat/completions（覆盖 OpenAI/DeepSeek/Ollama /v1 等）----

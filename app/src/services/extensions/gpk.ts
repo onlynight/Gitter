@@ -38,6 +38,12 @@ export function importGpkFile(gpkPath: string, userRoot: string): { id: string; 
     manifest.contributes.grammars.length && "grammar",
     manifest.contributes.commands.length && "commands",
     manifest.contributes.configuration.length && "configuration",
+    manifest.contributes.skills.length && "skills",
+    manifest.contributes.mcpServers.length && "mcpServers",
+    manifest.contributes.emptyHints.length && "emptyHints",
+    manifest.contributes.harnesses.length && "harness",
+    manifest.contributes.models.length && "models",
+    manifest.contributes.taskTypes.length && "taskTypes",
   ].filter(Boolean);
   if (kinds.length === 0) fail("包不含任何可安装内容（contributes 为空）");
 

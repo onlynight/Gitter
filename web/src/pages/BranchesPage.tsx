@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { call } from "../bridge/client";
+import { seamMenuItems } from "../commands";
 import { Modal, useContextMenu, type CtxMenuItem } from "../components/Dialogs";
 import { SyncBar, useSyncProgress } from "../components/SyncBar";
 import type { BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
@@ -97,7 +98,12 @@ export function BranchesPage() {
             key={b.name}
             className={"list-row" + (selected?.name === b.name ? " selected" : "")}
             onClick={() => setSelected({ name: b.name, isRemote: remote })}
-            onContextMenu={(e) => { setSelected({ name: b.name, isRemote: remote }); showMenu(e, branchMenu(b.name, remote)); }}
+            onContextMenu={(e) => {
+              setSelected({ name: b.name, isRemote: remote });
+              void (async () => {
+                showMenu(e, [...branchMenu(b.name, remote), ...(await seamMenuItems("branchRow"))]);
+              })();
+            }}
           >
             <span className="mono">{b.shortSha}</span>
             <span className="trim" style={{ flex: 1 }}>

@@ -83,6 +83,63 @@ export function scan(files: ScannableFile[], options?: Partial<SafetyOptions>): 
   );
 }
 
+// ---- safetyRules 数据包规则（extension-system-v2.md §16.5 safetyRules 接缝，A 阶段）----
+// 数据包规则恒为 warning 档：否决权（blocked）保留给内置规则 + 人审，包规则只有提示权。
+
+export interface PackageRule {
+  packageId: string;
+  id: string;
+  regex: RegExp;
+  message: string;
+  fileExts: string[];
+}
+
+/** 用包规则扫描新增行（注释行豁免与内置一致；severity 恒 warning）。 */
+export function scanPackageRules(files: ScannableFile[], rules: PackageRule[]): RuleFinding[] {
+  if (rules.length === 0) return [];
+  const findings: RuleFinding[] = [];
+  for (const file of files) {
+    if (file.isBinary || !file.patch) continue;
+    const ext = path.extname(file.path).toLowerCase();
+    let newLineNo = 0;
+    let inHunk = false;
+    for (const raw of file.patch.split("\n")) {
+      const line = raw.replace(/\r$/, "");
+      if (line.startsWith("@@")) {
+        inHunk = true;
+        newLineNo = parseNewStart(line);
+        continue;
+      }
+      if (!inHunk) continue;
+      if (line.startsWith("-")) continue;
+      if (line.startsWith("+")) {
+        const content = line.slice(1);
+        const trimmed = content.trimStart();
+        const isComment =
+          trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("/*") || trimmed.startsWith("*");
+        if (!isComment) {
+          for (const rule of rules) {
+            if (rule.fileExts.length > 0 && !rule.fileExts.includes(ext)) continue;
+            if (rule.regex.test(content)) {
+              findings.push({
+                ruleId: rule.id,
+                severity: "warning",
+                filePath: file.path,
+                line: newLineNo,
+                message: `${rule.message}（${rule.packageId}）`,
+              });
+            }
+          }
+        }
+        newLineNo++;
+      } else if (line.length > 0) {
+        newLineNo++;
+      }
+    }
+  }
+  return findings;
+}
+
 function scanPatch(file: ScannableFile, findings: RuleFinding[]) {
   if (!file.patch) return;
   let newLineNo = 0;
