@@ -120,6 +120,99 @@ export function SettingsPage() {
   const [exts, setExts] = useState<ExtensionPackageDTO[]>([]);
   const [extError, setExtError] = useState<string | null>(null);
   const [catalogUrl, setCatalogUrl] = useState("");
+
+  // 包类型分组（按 primaryKind 固定顺序分节显示；名称按类型前缀区分）
+  const KIND_SECTIONS: { kind: string; label: string }[] = [
+    { kind: "theme", label: "主题" },
+    { kind: "grammar", label: "语法" },
+    { kind: "skills", label: "技能" },
+    { kind: "commands", label: "命令" },
+    { kind: "pages", label: "页面" },
+    { kind: "mcpServers", label: "MCP 服务器" },
+    { kind: "models", label: "模型" },
+    { kind: "taskTypes", label: "任务型" },
+    { kind: "harness", label: "Agent 宿主" },
+    { kind: "terminalProfiles", label: "终端档位" },
+    { kind: "safetyRules", label: "安全网规则" },
+    { kind: "emptyHints", label: "空状态提示" },
+    { kind: "menus", label: "菜单" },
+    { kind: "keybindings", label: "快捷键" },
+    { kind: "configuration", label: "配置" },
+  ];
+  const primaryKindOf = (p: ExtensionPackageDTO): string =>
+    p.kinds.find((k) => KIND_SECTIONS.some((x) => x.kind === k)) ?? p.kinds[0] ?? "__other";
+  const kindLabel = (k: string): string => KIND_SECTIONS.find((x) => x.kind === k)?.label ?? k;
+  const renderExtCard = (p: ExtensionPackageDTO) => {
+    const cfgValues = ((s?.packages?.[p.id]?.config ?? {}) ?? {}) as Record<string, unknown>;
+    return (
+      <div key={p.id} style={{ display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            type="checkbox"
+            checked={p.state === "active"}
+            disabled={p.state === "error"}
+            title={p.state === "disabled" && p.reason ? p.reason : undefined}
+            onChange={(e) => void setPkgEnabled(p, e.target.checked)}
+          />
+          <span><span style={{ color: "var(--c-text2)" }}>[{kindLabel(primaryKindOf(p))}]</span> {p.name} <span className="hint">v{p.version}</span></span>
+          {p.isBuiltIn && <span className="hint">{t("Extensions_BuiltIn")}</span>}
+          {p.kinds.map((k) => (
+            <button
+              key={k}
+              className="tool-btn"
+              title={p.kindStates[k] ? "点击禁用该类内容" : "点击启用该类内容"}
+              style={{ opacity: p.kindStates[k] === false ? 0.45 : 1, padding: "0 6px" }}
+              onClick={async () => {
+                setExtError(null);
+                try {
+                  await refreshExts(await call<ExtensionPackageDTO[]>("extensions.setKindEnabled", {
+                    id: p.id, kind: k, enabled: p.kindStates[k] === false,
+                  }));
+                } catch (e) {
+                  setExtError((e as Error).message);
+                }
+              }}
+            >
+              {k}{p.kindStates[k] === false ? "（已禁用）" : ""}
+            </button>
+          ))}
+          {p.permissions.length > 0 && <span className="hint" title="权限域声明">权限: {p.permissions.join(" / ")}</span>}
+          {p.state !== "active" && (
+            <span className="hint" style={{ color: "var(--c-red)" }}>
+              {p.state === "error" ? `${t("Extensions_Error")}: ${p.reason ?? ""}` : t("Extensions_Disabled") + (p.reason ? ` — ${p.reason}` : "")}
+            </span>
+          )}
+          <span style={{ flex: 1 }} />
+          {!p.isBuiltIn && p.state !== "error" && (
+            <button className="tool-btn" onClick={() => void uninstallPkg(p)}>{t("Extensions_Uninstall")}</button>
+          )}
+        </div>
+        {p.state === "active" && p.kindStates.configuration && p.configuration.map((item) => (
+          <div key={item.key} style={{ display: "flex", gap: 8, alignItems: "center", paddingLeft: 24 }}>
+            <span className="hint" style={{ width: 140 }}>{item.title ?? item.key}</span>
+            {item.type === "boolean" ? (
+              <input
+                type="checkbox"
+                checked={typeof cfgValues[item.key] === "boolean" ? (cfgValues[item.key] as boolean) : !!item.default}
+                onChange={(e) => void call("extensions.setConfig", { id: p.id, key: item.key, value: e.target.checked })}
+              />
+            ) : (
+              <input
+                className="input"
+                style={{ width: 200 }}
+                type={item.type === "number" ? "number" : "text"}
+                value={cfgValues[item.key] !== undefined ? String(cfgValues[item.key]) : String(item.default)}
+                onChange={(e) => {
+                  const v = item.type === "number" ? Number(e.target.value) : e.target.value;
+                  void call("extensions.setConfig", { id: p.id, key: item.key, value: v });
+                }}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
   const [modelProfiles, setModelProfiles] = useState<ModelProfileDTO[]>([]);
   const [newModel, setNewModel] = useState<{ name: string; kind: "openai-compatible" | "anthropic"; baseURL: string; modelId: string; apiKey: string }>({
     name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "",
@@ -817,77 +910,30 @@ export function SettingsPage() {
                   </button>
                 </div>
                 {exts.length === 0 && <span className="hint">{t("Extensions_Empty")}</span>}
-                {exts.map((p) => {
-                  const cfgValues = (s.packages?.[p.id]?.config ?? {}) as Record<string, unknown>;
+                {/* U 分类分组：按 primaryKind 固定顺序分节；节内按名称排序 */}
+                {KIND_SECTIONS.map(({ kind, label }) => {
+                  const group = exts.filter((p) => primaryKindOf(p) === kind).sort((a, b) => a.name.localeCompare(b.name));
+                  if (group.length === 0) return null;
                   return (
-                    <div key={p.id} style={{ display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }}>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                        <input
-                          type="checkbox"
-                          checked={p.state === "active"}
-                          disabled={p.state === "error"}
-                          title={p.state === "disabled" && p.reason ? p.reason : undefined}
-                          onChange={(e) => void setPkgEnabled(p, e.target.checked)}
-                        />
-                        <span>{p.name} <span className="hint">v{p.version}</span></span>
-                        {p.isBuiltIn && <span className="hint">{t("Extensions_BuiltIn")}</span>}
-                        {p.kinds.map((k) => (
-                      <button
-                        key={k}
-                        className="tool-btn"
-                        title={p.kindStates[k] ? "点击禁用该类内容" : "点击启用该类内容"}
-                        style={{ opacity: p.kindStates[k] === false ? 0.45 : 1, padding: "0 6px" }}
-                        onClick={async () => {
-                          setExtError(null);
-                          try {
-                            await refreshExts(await call<ExtensionPackageDTO[]>("extensions.setKindEnabled", {
-                              id: p.id, kind: k, enabled: p.kindStates[k] === false,
-                            }));
-                          } catch (e) {
-                            setExtError((e as Error).message);
-                          }
-                        }}
-                      >
-                        {k}{p.kindStates[k] === false ? "（已禁用）" : ""}
-                      </button>
-                    ))}
-                    {p.permissions.length > 0 && <span className="hint" title="L3 隔离插件权限清单">权限: {p.permissions.join(" / ")}</span>}
-                        {p.state !== "active" && (
-                          <span className="hint" style={{ color: "var(--c-red)" }}>
-                            {p.state === "error" ? `${t("Extensions_Error")}: ${p.reason ?? ""}` : t("Extensions_Disabled") + (p.reason ? ` — ${p.reason}` : "")}
-                          </span>
-                        )}
-                        <span style={{ flex: 1 }} />
-                        {!p.isBuiltIn && p.state !== "error" && (
-                          <button className="tool-btn" onClick={() => void uninstallPkg(p)}>{t("Extensions_Uninstall")}</button>
-                        )}
+                    <div key={kind} style={{ marginBottom: 10 }}>
+                      <div style={{ fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }}>
+                        {label} <span className="hint">（{group.length}）</span>
                       </div>
-                      {p.state === "active" && p.kindStates.configuration && p.configuration.map((item) => (
-                        <div key={item.key} style={{ display: "flex", gap: 8, alignItems: "center", paddingLeft: 24 }}>
-                          <span className="hint" style={{ width: 140 }}>{item.title ?? item.key}</span>
-                          {item.type === "boolean" ? (
-                            <input
-                              type="checkbox"
-                              checked={typeof cfgValues[item.key] === "boolean" ? (cfgValues[item.key] as boolean) : !!item.default}
-                              onChange={(e) => void call("extensions.setConfig", { id: p.id, key: item.key, value: e.target.checked })}
-                            />
-                          ) : (
-                            <input
-                              className="input"
-                              style={{ width: 200 }}
-                              type={item.type === "number" ? "number" : "text"}
-                              value={cfgValues[item.key] !== undefined ? String(cfgValues[item.key]) : String(item.default)}
-                              onChange={(e) => {
-                                const v = item.type === "number" ? Number(e.target.value) : e.target.value;
-                                void call("extensions.setConfig", { id: p.id, key: item.key, value: v });
-                              }}
-                            />
-                          )}
-                        </div>
-                      ))}
+                      {group.map((p) => renderExtCard(p))}
                     </div>
                   );
                 })}
+                {(() => {
+                  const known = new Set(KIND_SECTIONS.map((x) => x.kind));
+                  const others = exts.filter((p) => !known.has(primaryKindOf(p)));
+                  if (others.length === 0) return null;
+                  return (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }}>其他（{others.length}）</div>
+                      {others.map((p) => renderExtCard(p))}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>

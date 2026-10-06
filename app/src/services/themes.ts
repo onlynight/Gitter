@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { ThemePackageDTO, ThemeStateDTO, TokenColorDTO } from "../shared/types";
-import type { PackageStore } from "./extensions/store";
+import { canonicalPackageId, type PackageRecord, type PackageStore } from "./extensions/store";
 
 /**
  * 主题服务（theme-framework.md 数据格式兼容；v2 起扫描/校验/启停收编到 PackageStore，
@@ -69,7 +69,17 @@ export class ThemeService {
   resolve(packageId: string | null, fallbackBase: "dark" | "light"): ThemeStateDTO {
     const chain: ThemeDoc[] = [];
     const seen = new Set<string>();
-    let cur = packageId && this.store.kindEnabled(packageId, "theme") ? this.store.find(packageId) : undefined;
+    // 旧 id 迁移：直接 id 命中优先，未命中再试别名（gitui.theme.* → theme.gitui.*）
+    const candidates = [packageId, canonicalPackageId(packageId ?? "")].filter(
+      (x): x is string => !!x,
+    );
+    let cur: PackageRecord | null | undefined;
+    for (const c of candidates) {
+      if (this.store.kindEnabled(c, "theme")) {
+        cur = this.store.find(c);
+        if (cur) break;
+      }
+    }
     while (cur) {
       if (seen.has(cur.manifest.id)) break;
       seen.add(cur.manifest.id);

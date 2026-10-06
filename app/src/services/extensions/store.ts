@@ -42,6 +42,16 @@ export type ExtensionKind = (typeof ALL_KINDS)[number];
 /** 宿主支持的插件 API 版本（G 阶段 apiVersion 冻结策略：只拒高不拒低）。 */
 export const HOST_API_VERSION = 3;
 
+/** 旧包 id → 新 id（U 分类命名迁移：theme.gitui.* 等；settings.themePackageId 与启停账本按此续接）。 */
+export const LEGACY_ID_ALIASES: Record<string, string> = {
+  "gitui.theme.dark": "theme.gitui.dark",
+  "gitui.theme.light": "theme.gitui.light",
+};
+
+export function canonicalPackageId(id: string): string {
+  return LEGACY_ID_ALIASES[id] ?? id;
+}
+
 export class PackageStore {
   constructor(
     private readonly builtinRoots: string[],
@@ -103,11 +113,19 @@ export class PackageStore {
     if (manifest.apiVersion !== null && manifest.apiVersion > HOST_API_VERSION) {
       return { manifest, dir, isBuiltIn, state: "disabled", reason: `插件 API v${manifest.apiVersion} 超出宿主支持（当前 v${HOST_API_VERSION}），请升级 Gitter` };
     }
-    const ledger = this.ledgerOf()[manifest.id];
+    const ledger = this.ledgerEntry(manifest.id);
     if (ledger?.enabled === false) {
       return { manifest, dir, isBuiltIn, state: "disabled", reason: null };
     }
     return { manifest, dir, isBuiltIn, state: "active", reason: null };
+  }
+
+  /** 账本条目（新 id 优先；旧 id 键的遗留条目并入，保住用户的历史启停/配置）。 */
+  private ledgerEntry(id: string): PackageLedgerEntry | undefined {
+    const ledger = this.ledgerOf();
+    const legacyKey = Object.keys(LEGACY_ID_ALIASES).find((oldId) => LEGACY_ID_ALIASES[oldId] === id);
+    const legacy = legacyKey ? ledger[legacyKey] : undefined;
+    return { ...(legacy ?? {}), ...(ledger[id] ?? {}) };
   }
 
   private kindsOf(e: Entry): string[] {
@@ -135,7 +153,7 @@ export class PackageStore {
   list(): ExtensionPackageDTO[] {
     return this.scanAll().map((e) => {
       const kinds = this.kindsOf(e);
-      const ledger = e.manifest ? this.ledgerOf()[e.manifest.id] : undefined;
+      const ledger = e.manifest ? this.ledgerEntry(e.manifest.id) : undefined;
       const kindStates: Record<string, boolean> = {};
       for (const k of kinds) {
         kindStates[k] = e.state === "active" && ledger?.kinds?.[k] !== false;
@@ -169,7 +187,7 @@ export class PackageStore {
   kindEnabled(id: string, kind: ExtensionKind): boolean {
     const hit = this.scanAll().find((e) => e.manifest?.id === id);
     if (!hit || hit.state !== "active") return false;
-    return this.ledgerOf()[id]?.kinds?.[kind] !== false;
+    return this.ledgerEntry(id)?.kinds?.[kind] !== false;
   }
 
   /** 包配置（contributes.configuration 的运行值，来自账本，缺省用 manifest default）。 */
@@ -181,7 +199,7 @@ export class PackageStore {
         out[item.key] = item.default;
       }
     }
-    return { ...out, ...this.ledgerOf()[id]?.config };
+    return { ...out, ...this.ledgerEntry(id)?.config };
   }
 
   /** 终端档位包（terminalProfiles 接缝，A 阶段）。id 运行时形式 = ext.<packageId>.<profileId>。 */

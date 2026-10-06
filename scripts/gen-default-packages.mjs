@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const APP = path.join(ROOT, "app");
-const LEGACY_THEMES = path.join(APP, "resources", "themes");
+// v1 主题源 = packages 内旧 id 目录（迁移后由清理段移除）
 const PACKAGES = path.join(APP, "resources", "packages");
 const TM_THEMES = path.join(APP, "node_modules", "tm-themes", "themes");
 
@@ -35,13 +35,13 @@ const LEGACY_SCOPES = {
   punctuation: "punctuation",
 };
 
-/** v2 主题包 → tm-themes 源文件（策展；tm-themes 共 65 个，可按需增补）。 */
+/** v2 主题包 → tm-themes 源文件（策展；tm-themes 共 65 个，可按需增补）。id 统一 theme. 前缀。 */
 const TM_COLLECTION = [
-  { file: "one-dark-pro.json", id: "tm.one-dark-pro", name: "One Dark Pro" },
-  { file: "dracula.json", id: "tm.dracula", name: "Dracula" },
-  { file: "nord.json", id: "tm.nord", name: "Nord" },
-  { file: "github-light.json", id: "tm.github-light", name: "GitHub Light" },
-  { file: "solarized-light.json", id: "tm.solarized-light", name: "Solarized Light" },
+  { file: "one-dark-pro.json", id: "theme.tm.one-dark-pro", name: "One Dark Pro" },
+  { file: "dracula.json", id: "theme.tm.dracula", name: "Dracula" },
+  { file: "nord.json", id: "theme.tm.nord", name: "Nord" },
+  { file: "github-light.json", id: "theme.tm.github-light", name: "GitHub Light" },
+  { file: "solarized-light.json", id: "theme.tm.solarized-light", name: "Solarized Light" },
 ];
 
 function writePack(id, files) {
@@ -56,9 +56,15 @@ function writePack(id, files) {
 }
 
 // ---- 1. v1 内置主题 → v2 包（补 tokenColors）----
+// id 规范（U 分类命名）：theme.gitui.dark / theme.tm.one-dark-pro / tools.gitui.git
+// 旧 id → 新 id（与 app/src/services/extensions/store.ts LEGACY_ID_ALIASES 保持一致）
+const LEGACY_THEME_IDS = {
+  "gitui.theme.dark": "theme.gitui.dark",
+  "gitui.theme.light": "theme.gitui.light",
+};
 function migrateLegacyTheme(dirName, manifestV1) {
-  const id = manifestV1.id;
-  const themeDoc = JSON.parse(fs.readFileSync(path.join(LEGACY_THEMES, dirName, "theme", "theme.json"), "utf8"));
+  const id = LEGACY_THEME_IDS[manifestV1.id] ?? manifestV1.id;
+  const themeDoc = JSON.parse(fs.readFileSync(path.join(PACKAGES, dirName, "theme", "theme.json"), "utf8"));
   const base = manifestV1.theme?.base === "light" ? "light" : "dark";
   // 由 syntax 语义键生成 tokenColors（TextMate 配色随主题包走，不再依赖主进程 legacy 兜底）
   const tokenColors = Object.entries(themeDoc.syntax ?? {})
@@ -108,10 +114,10 @@ function generateTmThemePack(entry) {
 
 // ---- 3. Git 维护工具 L1 命令包 ----
 function generateGitToolsPack() {
-  return writePack("gitui.tools.git", {
+  return writePack("tools.gitui.git", {
     "manifest.json": {
       schemaVersion: 2,
-      id: "gitui.tools.git",
+      id: "tools.gitui.git",
       name: "Git 维护工具",
       version: "1.0.0",
       description: "常用仓库维护命令（L1 受限命令，在当前仓库终端执行）",
@@ -130,11 +136,12 @@ function generateGitToolsPack() {
 fs.mkdirSync(PACKAGES, { recursive: true });
 const generated = [];
 
+
 let legacyManifests = [];
 try {
-  legacyManifests = fs.readdirSync(LEGACY_THEMES).map((d) => ({
+  legacyManifests = fs.readdirSync(PACKAGES).filter((d) => fs.existsSync(path.join(PACKAGES, d, "theme", "theme.json")) && !/^(theme|tools)\./.test(d)).map((d) => ({
     dirName: d,
-    manifest: JSON.parse(fs.readFileSync(path.join(LEGACY_THEMES, d, "manifest.json"), "utf8")),
+    manifest: JSON.parse(fs.readFileSync(path.join(PACKAGES, d, "manifest.json"), "utf8")),
   }));
 } catch { /* 目录不存在则跳过迁移 */ }
 for (const { dirName, manifest } of legacyManifests) {
@@ -144,6 +151,16 @@ for (const entry of TM_COLLECTION) {
   generated.push(path.basename(generateTmThemePack(entry)));
 }
 generated.push(path.basename(generateGitToolsPack()));
+
+// 遗留 id 目录清理（历史命名 gitui.theme.* / tm.* / gitui.tools.* → 新 scheme）
+const LEGACY_GENERATED_DIRS = [
+  "gitui.theme.dark", "gitui.theme.light",
+  "tm.one-dark-pro", "tm.dracula", "tm.nord", "tm.github-light", "tm.solarized-light",
+  "gitui.tools.git",
+];
+for (const d of LEGACY_GENERATED_DIRS) {
+  fs.rmSync(path.join(PACKAGES, d), { recursive: true, force: true });
+}
 
 console.log(`默认扩展包生成完毕（${generated.length} 个）→ app/resources/packages/`);
 for (const g of generated) console.log("  -", g);
