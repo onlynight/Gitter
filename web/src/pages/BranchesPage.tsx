@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { call } from "../bridge/client";
+import { pageSdk } from "../pageSdk"; // U4：宿主面收敛标记
 import { seamMenuItems } from "../commands";
 import { Modal, useContextMenu, type CtxMenuItem } from "../components/Dialogs";
 import { SyncBar, useSyncProgress } from "../components/SyncBar";

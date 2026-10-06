@@ -89,6 +89,12 @@ export interface PluginCtx {
     isConfigured(c: import("../ai").AiConfig): boolean;
     complete(prompt: import("../ai").AiPrompt, c: import("../ai").AiConfig, timeoutMs: number): Promise<string>;
   }): void;
+  /** 只读 git API（pluginization-plan.md PR-2 前置：L2 ctx.git） */
+  git: {
+    status(): Promise<string>;
+    log(limit?: number): Promise<string>;
+    branches(): Promise<string>;
+  };
 }
 
 export interface HostDeps {
@@ -259,6 +265,11 @@ export class PluginHost {
         const fullName = `ext.${packageId}.${name}`;
         registerAiProvider(fullName, impl);
         cleanup(() => unregisterAiProvider(fullName));
+      },
+      git: {
+        status: async () => (await tryGit(this.currentRepo ?? ".", ["status", "--porcelain"])).stdout,
+        log: async (limit) => (await tryGit(this.currentRepo ?? ".", ["log", "--oneline", "-n", String(limit ?? 10)])).stdout,
+        branches: async () => (await tryGit(this.currentRepo ?? ".", ["branch", "--list"])).stdout,
       },
     };
     const recInfo = this.lastActivateRecord;

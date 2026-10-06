@@ -112,6 +112,55 @@ function generateTmThemePack(entry) {
   });
 }
 
+// ---- 2b. 安全网调试规则包（PR-1：数据包规则恒 warning，blocked 裁决权在宿主） ----
+// ---- 2b. 安全网调试规则包（PR-1：数据包规则恒 warning，blocked 裁决权在宿主） ----
+function generateSafetyDebugPack() {
+  const manifest = {
+    schemaVersion: 2,
+    id: "safety.gitui.debug",
+    name: "调试残留检测",
+    version: "1.0.0",
+    description: "检测 console.log / debugger / breakpoint 等调试残留（warning 档）",
+    contributes: {
+      safetyRules: [
+        { id: "js-console", pattern: "\bconsole\.(?:log|debug)\s*\(\s*|\bdebugger\s*;", flags: "", message: "JS/TS 调试输出残留", fileExts: [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"] },
+      ],
+    },
+  };
+  return writePack("safety.gitui.debug", {
+    "manifest.json": JSON.stringify(manifest, null, 2) + "\n",
+  });
+}
+
+// ---- 2c. 提交规范技能包（PR-3：skills 数据接缝） ----
+function generateCommitStyleSkillPack() {
+  const manifest = {
+    schemaVersion: 2,
+    id: "skill.gitui.commit-style",
+    name: "提交规范",
+    version: "1.0.0",
+    description: "Conventional Commit 规范技能（Agent 循环注入系统提示）",
+    contributes: {
+      skills: [{
+        id: "conventional",
+        name: "Conventional Commit 规范",
+        description: "生成提交信息时遵循 Conventional Commit 规范",
+        instructions: [
+          "生成提交信息时严格遵循以下规范：",
+          "- 格式：type(scope): subject（type = feat|fix|docs|test|build|chore|refactor）",
+          "- Subject ≤ 72 字符，祈使语气，不以句号结尾",
+          "- Body（可选）与 Subject 之间空一行，每行 ≤ 72 字符",
+          "- 参考仓库最近提交的风格与语言",
+        ].join("\n"),
+        tools: [],
+      }],
+    },
+  };
+  return writePack("skill.gitui.commit-style", {
+    "manifest.json": JSON.stringify(manifest, null, 2) + "\n",
+  });
+}
+
 // ---- 3. Git 维护工具 L1 命令包 ----
 function generateGitToolsPack() {
   return writePack("tools.gitui.git", {
@@ -151,6 +200,8 @@ for (const entry of TM_COLLECTION) {
   generated.push(path.basename(generateTmThemePack(entry)));
 }
 generated.push(path.basename(generateGitToolsPack()));
+generated.push(path.basename(generateSafetyDebugPack()));
+generated.push(path.basename(generateCommitStyleSkillPack()));
 
 // 遗留 id 目录清理（历史命名 gitui.theme.* / tm.* / gitui.tools.* → 新 scheme）
 const LEGACY_GENERATED_DIRS = [

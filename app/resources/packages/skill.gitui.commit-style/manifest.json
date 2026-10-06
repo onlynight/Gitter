@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "id": "skill.gitui.commit-style",
+  "name": "提交规范",
+  "version": "1.0.0",
+  "description": "Conventional Commit 规范技能（Agent 循环注入系统提示）",
+  "contributes": {
+    "skills": [
+      {
+        "id": "conventional",
+        "name": "Conventional Commit 规范",
+        "description": "生成提交信息时遵循 Conventional Commit 规范",
+        "instructions": "生成提交信息时严格遵循以下规范：\n- 格式：type(scope): subject（type = feat|fix|docs|test|build|chore|refactor）\n- Subject ≤ 72 字符，祈使语气，不以句号结尾\n- Body（可选）与 Subject 之间空一行，每行 ≤ 72 字符\n- 参考仓库最近提交的风格与语言",
+        "tools": []
+      }
+    ]
+  }
+}

@@ -200,8 +200,7 @@ export function DiffView(props: {
       <div className="diff">
         {header}
       {noteStrip}
-        {noteStrip}
-        <div className="empty-state">{t("Diff_NoContentChange")}</div>
+      <div className="empty-state">{t("Diff_NoContentChange")}</div>
       </div>
     );
   }
@@ -251,6 +250,7 @@ export function DiffView(props: {
   return (
     <div className="diff">
       {header}
+      {noteStrip}
       <div className={"diff-grid" + (props.inline ? " inline" : "")}>{body}</div>
     </div>
   );

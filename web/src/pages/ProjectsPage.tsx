@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { call } from "../bridge/client";
+import { pageSdk } from "../pageSdk"; // U4：宿主面收敛标记
 import type { ProjectDTO, ProjectsStateDTO } from "../bridge/types";
 import { refreshCurrent, setState, t, useApp } from "../state/store";
 

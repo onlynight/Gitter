@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { call } from "../bridge/client";
+import { pageSdk } from "../pageSdk"; // U4：宿主面收敛标记
 import { seamMenuItems } from "../commands";
 import type { CtxMenuItem } from "../components/Dialogs";
 import { Banner, Modal, useContextMenu } from "../components/Dialogs";

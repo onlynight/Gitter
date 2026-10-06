@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { call } from "../bridge/client";
+import { pageSdk } from "../pageSdk"; // U4：宿主面收敛标记
 import { NavIcon } from "../components/Shell";
 import type { ExtensionPackageDTO, ModelProfileDTO, SettingsDTO, TerminalProfileDTO, ThemePackageDTO } from "../bridge/types";
 import { setState, t, updateSettings, useApp, reapplyTheme } from "../state/store";

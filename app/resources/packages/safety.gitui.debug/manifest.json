@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 2,
+  "id": "safety.gitui.debug",
+  "name": "调试残留检测",
+  "version": "1.0.0",
+  "description": "检测 console.log / debugger / breakpoint 等调试残留（warning 档）",
+  "contributes": {
+    "safetyRules": [
+      {
+        "id": "js-console",
+        "pattern": "\bconsole.(?:log|debug)s*(|\bdebuggers*;",
+        "flags": "",
+        "message": "JS/TS 调试输出残留",
+        "fileExts": [
+          ".js",
+          ".jsx",
+          ".ts",
+          ".tsx",
+          ".mjs",
+          ".cjs"
+        ]
+      },
+      {
+        "id": "cs-debug",
+        "pattern": "System.Diagnostics.Debug.WriteLines*(",
+        "flags": "",
+        "message": "C# 调试输出残留",
+        "fileExts": [
+          ".cs"
+        ]
+      },
+      {
+        "id": "py-breakpoint",
+        "pattern": "\bbreakpoints*(s*)",
+        "flags": "",
+        "message": "Python breakpoint 残留",
+        "fileExts": [
+          ".py"
+        ]
+      },
+      {
+        "id": "rs-dbgi",
+        "pattern": "\bdbgi?!s*!",
+        "flags": "",
+        "message": "Rust dbg! 残留",
+        "fileExts": [
+          ".rs"
+        ]
+      }
+    ]
+  }
+}
