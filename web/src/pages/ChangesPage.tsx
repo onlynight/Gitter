@@ -503,7 +503,7 @@ export function ChangesPage() {
               <span>{f.severity === "blocked" ? "⛔" : "⚠️"}</span>
               <span
                 className="finding-link"
-                style={{ fontFamily: "var(--mono)", cursor: "pointer", textDecoration: "underline", color: "var(--c-accent)" }}
+                style={{ fontFamily: "var(--mono)", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2, color: "var(--c-link)" }}
                 onClick={() => jumpToFinding(f)}
                 title={t("Changes_JumpToFinding")}
               >

@@ -525,7 +525,7 @@
                 "span",
                 {
                   className: "finding-link",
-                  style: { fontFamily: "var(--mono)", cursor: "pointer", textDecoration: "underline", color: "var(--c-accent)" },
+                  style: { fontFamily: "var(--mono)", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2, color: "var(--c-link)" },
                   onClick: () => jumpToFinding(f),
                   title: t("Changes_JumpToFinding"),
                   children: [
@@ -780,6 +780,9 @@
     return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", style: { marginTop: 6 }, children: hints.join("  ·  ") });
   }
   window.GITTER_UI.registerPage({ id: "changes" }, (container) => {
+    var _a2;
+    const host = container;
+    (_a2 = host.__gitterRoot) == null ? void 0 : _a2.unmount();
     const root = ReactDOMClient.createRoot(container);
     root.render(
       React.createElement(PageErrorBoundary, {
@@ -787,6 +790,10 @@
         children: React.createElement(ChangesPage)
       })
     );
-    return () => root.unmount();
+    host.__gitterRoot = root;
+    return () => {
+      host.__gitterRoot = void 0;
+      root.unmount();
+    };
   });
 })(window.GITTER_KIT.ReactJSXRuntime, window.GITTER_KIT.React);

@@ -8,6 +8,9 @@ import { TerminalPage } from "../TerminalPage";
 import { PageErrorBoundary, React, ReactDOMClient } from "../../external/kitShim";
 
 window.GITTER_UI!.registerPage({ id: "bash" }, (container) => {
+  // 幂等：热重载会把同一容器再次交给本 mount——先清掉旧 React root，防多实例同容器冲突
+  const host = container as HTMLElement & { __gitterRoot?: { unmount(): void } };
+  host.__gitterRoot?.unmount();
   const root = ReactDOMClient.createRoot(container);
   root.render(
     React.createElement(PageErrorBoundary, {
@@ -15,5 +18,9 @@ window.GITTER_UI!.registerPage({ id: "bash" }, (container) => {
       children: React.createElement(TerminalPage),
     }),
   );
-  return () => root.unmount();
+  host.__gitterRoot = root;
+  return () => {
+    host.__gitterRoot = undefined;
+    root.unmount();
+  };
 });

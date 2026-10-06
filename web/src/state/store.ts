@@ -166,10 +166,11 @@ export function t(key: string, ...args: (string | number)[]): string {
 }
 
 const TOKEN_VARS: Record<string, string> = {
-  Base: "--c-base", Panel: "--c-panel", Hover: "--c-hover", Selected: "--c-selected",
+  Base: "--c-base", Panel: "--c-panel", Panel2: "--c-panel2", Hover: "--c-hover", Selected: "--c-selected",
   Border: "--c-border", BorderStrong: "--c-border-strong", Accent: "--c-accent",
   AccentHover: "--c-accent-hover", AccentPressed: "--c-accent-pressed", AccentSoft: "--c-accent-soft",
   OnAccent: "--c-on-accent", Text: "--c-text", Text2: "--c-text2", Text3: "--c-text3",
+  Link: "--c-link",
   Green: "--c-green", Red: "--c-red", Amber: "--c-amber",
   ChipBlueBg: "--c-chip-blue-bg", ChipBlueFg: "--c-chip-blue-fg",
   ChipPurpleBg: "--c-chip-purple-bg", ChipPurpleFg: "--c-chip-purple-fg",

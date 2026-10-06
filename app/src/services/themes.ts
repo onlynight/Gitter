@@ -23,23 +23,25 @@ interface ThemeDoc {
   tokenColors?: TokenColorDTO[];
 }
 
-/** 内置基座缺省令牌（与 TokenRuntime.BuiltinDefaults 一致，装载失败时兜底）。 */
+/** 内置基座缺省令牌（与 TokenRuntime.BuiltinDefaults 一致，装载失败时兜底）。
+ * Codex 风格色板（ui-redesign-codex-mockup.html）：近单色 + Panel2/Link 两个新 token；
+ * Panel2/Link 必须在基座缺省里存在——tm.* 等第三方主题包不携带这两个键，样式层依赖回退。 */
 const BUILTIN: Record<"dark" | "light", Record<string, string>> = {
   dark: {
-    Base: "#1E1F22", Panel: "#2B2D30", Hover: "#393B40", Selected: "#43454A",
-    Border: "#2E3033", BorderStrong: "#43454A", Accent: "#3574F0", AccentHover: "#4682F2",
-    AccentPressed: "#2B62C9", AccentSoft: "#333574F0", OnAccent: "#FFFFFF",
-    Text: "#DFE1E5", Text2: "#9DA0A8", Text3: "#6F737A",
-    Green: "#6FBF73", Red: "#F75464", Amber: "#C8A35F",
-    ChipBlueBg: "#334C7DD4", ChipBlueFg: "#8FB8E8", ChipPurpleBg: "#36B080FF", ChipPurpleFg: "#C9A2FF",
+    Base: "#0F1113", Panel: "#15181C", Panel2: "#1A1E24", Hover: "#1D2228", Selected: "#262D35",
+    Border: "#242A31", BorderStrong: "#343C45", Accent: "#E9EBEE", AccentHover: "#FFFFFF",
+    AccentPressed: "#D5D8DC", AccentSoft: "#26E9EBEE", OnAccent: "#0C0D0F",
+    Text: "#E9EBEE", Text2: "#9AA3AD", Text3: "#616973", Link: "#7AAEF8",
+    Green: "#3FB950", Red: "#F0655A", Amber: "#D5A03C",
+    ChipBlueBg: "#1C2735", ChipBlueFg: "#8DB8F5", ChipPurpleBg: "#241F33", ChipPurpleFg: "#B9A3EC",
   },
   light: {
-    Base: "#FFFFFF", Panel: "#F7F8FA", Hover: "#EBECF0", Selected: "#E0E2E8",
-    Border: "#E6E7EA", BorderStrong: "#D5D7DB", Accent: "#2B6BE4", AccentHover: "#3D7AEA",
-    AccentPressed: "#2359C7", AccentSoft: "#1F2B6BE4", OnAccent: "#FFFFFF",
-    Text: "#1F2328", Text2: "#5C6167", Text3: "#9DA0A8",
-    Green: "#1A7F37", Red: "#CF222E", Amber: "#96671E",
-    ChipBlueBg: "#1A2B6BE4", ChipBlueFg: "#1F5EDD", ChipPurpleBg: "#1A6B1EA0", ChipPurpleFg: "#7A3FC9",
+    Base: "#FFFFFF", Panel: "#F6F8FA", Panel2: "#EFF1F3", Hover: "#EAEEF1", Selected: "#DDE4EA",
+    Border: "#E4E7EA", BorderStrong: "#D0D6DC", Accent: "#1F2328", AccentHover: "#000000",
+    AccentPressed: "#3A4148", AccentSoft: "#141F2328", OnAccent: "#FFFFFF",
+    Text: "#1F2328", Text2: "#59636E", Text3: "#8C959F", Link: "#0969DA",
+    Green: "#1A7F37", Red: "#CF222E", Amber: "#9A6700",
+    ChipBlueBg: "#DDF4FF", ChipBlueFg: "#0969DA", ChipPurpleBg: "#FBEFFF", ChipPurpleFg: "#8250DF",
   },
 };
 

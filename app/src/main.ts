@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import * as path from "path";
 import { Bridge, SharedServices } from "./bridge";
@@ -215,11 +216,49 @@ app.whenReady().then(() => {
         const firstNavOk = !!r.navLabels[0] && /projects|项目/i.test(r.navLabels[0]);
         const ok = r.navCount >= 7 && r.rootRendered && r.gitterUi && r.kit && r.pageMounted && slotsOk && firstNavOk;
         process.stdout.write("[boot] UI 断言: " + JSON.stringify({ ...r, slots: Object.fromEntries(slots.map((s) => [s, resolved[s]?.isBuiltInPackage === true ? "builtin-package" : resolved[s]?.source ?? null])) }) + "\n");
+        try {
+          // 语言切换探测（永久回归门）：触发 reapplyLanguage + reloadExternalPages →
+          // 断言七槽位提供者仍全部在册（热重载差量同步的防回潮断言）
+          await win.webContents.executeJavaScript(
+            "window.__gitterDebugReload && void window.__gitterDebugReload('en')");
+          await new Promise((r2) => setTimeout(r2, 2500));
+          const after: Record<string, { source: string } | null> = {};
+          for (const s2 of ["projects", "log", "changes", "branches", "tasks", "bash", "settings"]) {
+            after[s2] = await win.webContents.executeJavaScript(
+              `window.__gitterDebugResolve ? window.__gitterDebugResolve(${JSON.stringify(s2)}) : null`);
+          }
+          const langOk = Object.entries(after).every(([, v]) => v && v.source === "package");
+          process.stdout.write("[boot] 语言切换后槽位: " + JSON.stringify(Object.fromEntries(Object.entries(after).map(([k, v]) => [k, v ? v.source : null]))) + (langOk ? " OK" : " BROKEN") + "\n");
+        } catch (e2) {
+          process.stdout.write("[boot] 语言探测异常 " + String(e2) + "\n");
+        }
         app.exit(ok ? 0 : 3);
       } catch {
         app.exit(4);
       }
     }, bootExitMs);
+  }
+
+  // 视觉验收截图钩子（GITTER_SHOT=<png 路径>，需配合 GITTER_BOOT_EXIT_MS）：
+  // boot 断言通过后 capturePage 落盘；GITTER_SHOT_VARS=JSON 可临时覆盖 --c-* token（浅色验收）。
+  const shotPath = process.env.GITTER_SHOT;
+  if (shotPath && bootExitMs > 0) {
+    setTimeout(async () => {
+      try {
+        const win = BrowserWindow.getAllWindows()[0];
+        const vars = process.env.GITTER_SHOT_VARS;
+        if (vars) {
+          await win.webContents.executeJavaScript(
+            "(() => { const v = " + JSON.stringify(vars) + "; try { Object.entries(JSON.parse(v)).forEach(([k, val]) => document.documentElement.style.setProperty(k, String(val))); } catch {} })()");
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        const img = await win.webContents.capturePage();
+        fs.writeFileSync(shotPath, img.toPNG());
+        process.stdout.write("[shot] saved " + shotPath + "\n");
+      } catch (e) {
+        process.stdout.write("[shot] FAIL " + (e as Error).message + "\n");
+      }
+    }, Math.max(bootExitMs - 2500, 2000));
   }
 
   app.on("activate", () => {

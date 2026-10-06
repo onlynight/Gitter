@@ -172,6 +172,8 @@ export class Bridge {
         if (!this.win.isDestroyed()) {
           this.win.webContents.send("evt", { method: "audit.rpc.denied", params: { packageId: caller.packageId, method, scope: access.scope } });
         }
+        process.stdout.write(`[audit.rpc.denied] ${caller.packageId} ${method} need=${access.scope}
+`);
         return { ok: false, error: { message: `permission denied: ${access.scope}` } };
       }
       handlerArgs = { ...(args as Record<string, unknown>) };

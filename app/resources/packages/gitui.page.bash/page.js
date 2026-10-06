@@ -6341,6 +6341,9 @@ WARNING: This link could potentially be dangerous`)) {
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
   window.GITTER_UI.registerPage({ id: "bash" }, (container) => {
+    var _a2;
+    const host = container;
+    (_a2 = host.__gitterRoot) == null ? void 0 : _a2.unmount();
     const root = ReactDOMClient.createRoot(container);
     root.render(
       React.createElement(PageErrorBoundary, {
@@ -6348,6 +6351,10 @@ WARNING: This link could potentially be dangerous`)) {
         children: React.createElement(TerminalPage)
       })
     );
-    return () => root.unmount();
+    host.__gitterRoot = root;
+    return () => {
+      host.__gitterRoot = void 0;
+      root.unmount();
+    };
   });
 })(window.GITTER_KIT.ReactJSXRuntime, window.GITTER_KIT.React);

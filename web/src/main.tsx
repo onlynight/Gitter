@@ -18,6 +18,15 @@ window.addEventListener("gitter:refresh", () => {
   return d ? { source: d.source ?? null, id: d.id, isBuiltInPackage: d.isBuiltInPackage ?? false, lazy: d.lazy ?? false } : null;
 };
 
+// 语言切换诊断钩子（boot 钩子消费）：模拟设置页切语言 → 重载外部页
+(window as unknown as { __gitterDebugReload: (lang: string) => Promise<void> }).__gitterDebugReload = async (lang) => {
+  const { reapplyLanguage } = await import("./state/store");
+  const settings = (await import("./state/store")).getState().settings;
+  if (settings) await reapplyLanguage({ ...settings, language: lang as never });
+  const { reloadExternalPages } = await import("./pageLoader");
+  await reloadExternalPages(settings?.allowCodePlugins ?? false, lang);
+};
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

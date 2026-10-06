@@ -306,6 +306,9 @@
     ] });
   }
   window.GITTER_UI.registerPage({ id: "branches" }, (container) => {
+    var _a2;
+    const host = container;
+    (_a2 = host.__gitterRoot) == null ? void 0 : _a2.unmount();
     const root = ReactDOMClient.createRoot(container);
     root.render(
       React.createElement(PageErrorBoundary, {
@@ -313,6 +316,10 @@
         children: React.createElement(BranchesPage)
       })
     );
-    return () => root.unmount();
+    host.__gitterRoot = root;
+    return () => {
+      host.__gitterRoot = void 0;
+      root.unmount();
+    };
   });
 })(window.GITTER_KIT.ReactJSXRuntime, window.GITTER_KIT.React);

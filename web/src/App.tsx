@@ -34,9 +34,30 @@ function ExternalPageHost({ def }: { def: UIPageDef }) {
 function PageContent({ pageId }: { pageId: string }) {
   const def = resolveUiPage(pageId);
   const lazyPending = !!(def?.lazy && !def.mount);
+  // ensure 失败（热重载竞态下 metas 暂空等场景）→ 短间隔重试直至 mount 出现或达到上限
+  const [lazyAttempts, setLazyAttempts] = useState(0);
   useEffect(() => {
-    if (lazyPending) void ensureExternalPageLoaded(pageId);
-  }, [lazyPending, pageId]);
+    setLazyAttempts(0);
+  }, [pageId]);
+  useEffect(() => {
+    if (!lazyPending) return;
+    let cancelled = false;
+    const attempt = (n: number) => {
+      if (cancelled) return;
+      void ensureExternalPageLoaded(pageId).then((ok) => {
+        if (ok || cancelled) return;
+        // 未成功：注册表没有新增 mount 时退避重试（成功时注册表 notify 会重渲染并清 pending）
+        setTimeout(() => {
+          if (!cancelled && n < 5) {
+            setLazyAttempts((x) => x + 1);
+            attempt(n + 1);
+          }
+        }, 400 * (n + 1));
+      });
+    };
+    attempt(lazyAttempts);
+    return () => { cancelled = true; };
+  }, [lazyPending, pageId, lazyAttempts]);
 
   if (def?.mount) {
     return <PageErrorBoundary pageKey={pageId}><ExternalPageHost def={def} /></PageErrorBoundary>;
@@ -74,7 +95,7 @@ function PageOutlet({ pageId }: { pageId: string }) {
   return (
     <>
       {visited.map((slot) => (
-        <div key={slot} className="page" style={slot === effective ? undefined : { display: "none" }}>
+        <div key={slot} className="page page-slot" style={slot === effective ? undefined : { display: "none" }}>
           <PageContent pageId={slot} />
         </div>
       ))}

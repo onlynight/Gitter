@@ -1956,7 +1956,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
             "div",
             {
               className: "list-row" + (row.selected ? " selected" : ""),
-              style: { position: "absolute", top: vi.start, left: 0, right: 0, height: vi.size, alignItems: "flex-start", paddingTop: 5 },
+              style: { position: "absolute", top: vi.start, left: 0, right: 0, height: vi.size },
               onClick: () => setSelectedSha(c.sha),
               onContextMenu: (e) => {
                 void (async () => {
@@ -2085,6 +2085,9 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     ] });
   }
   window.GITTER_UI.registerPage({ id: "log" }, (container) => {
+    var _a2;
+    const host = container;
+    (_a2 = host.__gitterRoot) == null ? void 0 : _a2.unmount();
     const root = ReactDOMClient.createRoot(container);
     root.render(
       React.createElement(PageErrorBoundary, {
@@ -2092,6 +2095,10 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
         children: React.createElement(LogPage)
       })
     );
-    return () => root.unmount();
+    host.__gitterRoot = root;
+    return () => {
+      host.__gitterRoot = void 0;
+      root.unmount();
+    };
   });
 })(window.GITTER_KIT.ReactJSXRuntime, window.GITTER_KIT.React, window.GITTER_KIT.ReactDOM);

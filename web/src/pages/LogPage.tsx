@@ -334,7 +334,7 @@ export function LogPage() {
                 <div
                   key={row.key}
                   className={"list-row" + (row.selected ? " selected" : "")}
-                  style={{ position: "absolute", top: vi.start, left: 0, right: 0, height: vi.size, alignItems: "flex-start", paddingTop: 5 }}
+                  style={{ position: "absolute", top: vi.start, left: 0, right: 0, height: vi.size }}
                   onClick={() => setSelectedSha(c.sha)}
                   onContextMenu={(e) => {
                     // menus 接缝：本地动作 + 包贡献项（logRow）
