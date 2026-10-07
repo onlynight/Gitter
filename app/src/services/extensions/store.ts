@@ -46,8 +46,11 @@ export const HOST_API_VERSION = 3;
 
 /** 旧包 id → 新 id（U 分类命名迁移：theme.gitui.* 等；settings.themePackageId 与启停账本按此续接）。 */
 export const LEGACY_ID_ALIASES: Record<string, string> = {
-  "gitui.theme.dark": "theme.gitui.dark",
-  "gitui.theme.light": "theme.gitui.light",
+  // 窗口效果主题包化（三包 acrylic/mica/solid 各含亮暗）：旧亮暗包并入 acrylic 包
+  "theme.gitui.dark": "theme.gitui.acrylic",
+  "theme.gitui.light": "theme.gitui.acrylic",
+  "gitui.theme.dark": "theme.gitui.acrylic",
+  "gitui.theme.light": "theme.gitui.acrylic",
 };
 
 export function canonicalPackageId(id: string): string {

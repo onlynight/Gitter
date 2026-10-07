@@ -19,6 +19,8 @@ export interface TimelineCardCtx {
   taskId?: string;
   /** file 块「查看」→ 跳改动页签并选中该文件 */
   viewFile?: (path: string) => void;
+  /** file 块「预览」→ 只读正文预览（§21.3.4） */
+  previewFile?: (path: string) => void;
   /** turn 块上下文用量文案（宿主轮询 stats） */
   contextPct?: string;
   /** subtask 子块渲染（递归走同一解析管线，含交互卡） */

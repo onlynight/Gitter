@@ -6187,135 +6187,300 @@ WARNING: This link could potentially be dangerous`)) {
   }
   const { call, on: onEvent, t, repo: repoOf, settings: settingsOf, theme: themeOf } = pageSdk;
   const useApp = useAppState;
+  const PROFILES = [
+    { value: "powershell", label: "PowerShell" },
+    { value: "cmd", label: "CMD" },
+    { value: "bash", label: "Git Bash" }
+  ];
+  const labelOf = (kind) => {
+    var _a2;
+    return ((_a2 = PROFILES.find((p) => p.value === kind)) == null ? void 0 : _a2.label) ?? kind;
+  };
   function TerminalPage() {
-    var _a2, _b2;
+    var _a2;
     const app = useApp();
-    const hostRef = react.useRef(null);
-    const termRef = react.useRef(null);
-    const fitRef = react.useRef(null);
-    const sessionRef = react.useRef(null);
-    const [status, setStatus] = react.useState("");
-    const [shellKind, setShellKind] = react.useState(((_a2 = app.settings) == null ? void 0 : _a2.terminalShell) ?? "powershell");
-    const buildTheme = (theme) => ({
-      background: (theme == null ? void 0 : theme.tokens["Base"]) ?? "#1E1F22",
-      foreground: (theme == null ? void 0 : theme.tokens["Text"]) ?? "#DFE1E5",
-      cursor: (theme == null ? void 0 : theme.tokens["Accent"]) ?? "#3574F0",
-      selectionBackground: (theme == null ? void 0 : theme.tokens["Selected"]) ?? "#43454A",
-      black: (theme == null ? void 0 : theme.terminal["black"]) ?? "#000000",
-      red: (theme == null ? void 0 : theme.terminal["red"]) ?? "#F75464",
-      green: (theme == null ? void 0 : theme.terminal["green"]) ?? "#6FBF73",
-      yellow: (theme == null ? void 0 : theme.terminal["yellow"]) ?? "#C8A35F",
-      blue: (theme == null ? void 0 : theme.terminal["blue"]) ?? "#3574F0",
-      magenta: (theme == null ? void 0 : theme.terminal["magenta"]) ?? "#C9A2FF",
-      cyan: (theme == null ? void 0 : theme.terminal["cyan"]) ?? "#8FB8E8",
-      white: (theme == null ? void 0 : theme.terminal["white"]) ?? "#DFE1E5"
-    });
-    const ensureSession = react.useCallback(async () => {
-      var _a3, _b3;
-      const term = termRef.current;
-      const fit = fitRef.current;
-      if (!term || !fit) return;
-      const dims = fit.proposeDimensions() ?? { cols: 120, rows: 30 };
-      try {
-        const follow = ((_a3 = settingsOf()) == null ? void 0 : _a3.terminalFollowRepo) ?? true;
-        const s = await call("terminal.ensure", {
-          cols: dims.cols,
-          rows: dims.rows,
-          cwd: follow ? ((_b3 = repoOf()) == null ? void 0 : _b3.workDir) ?? null : null,
-          shellKind
-        });
-        sessionRef.current = s;
-        setStatus(`${s.backend} · ${s.shellKind}${s.running ? "" : ` · exit ${s.exitCode ?? "?"}`}`);
-      } catch (e) {
-        term.writeln(`\r
-\x1B[31m${e.message}\x1B[0m`);
-        setStatus(e.message);
-      }
-    }, [shellKind]);
-    react.useEffect(() => {
-      var _a3, _b3;
-      if (!hostRef.current || termRef.current) return;
+    const wrapRef = react.useRef(null);
+    const termsRef = react.useRef(/* @__PURE__ */ new Map());
+    const hostsRef = react.useRef(/* @__PURE__ */ new Map());
+    const [tabs, setTabs] = react.useState([]);
+    const [activeId, setActiveId] = react.useState(null);
+    const [exits, setExits] = react.useState({});
+    const [menuOpen, setMenuOpen] = react.useState(false);
+    const restoredRef = react.useRef(false);
+    const withAlpha = (hex, suffix, fallback) => {
+      const m = /^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/.exec(hex ?? fallback);
+      return m ? `#${m[1]}${suffix}` : hex ?? fallback;
+    };
+    const buildTheme = (theme) => {
+      const blur = ((theme == null ? void 0 : theme.material) ?? "none") !== "none";
+      return {
+        background: withAlpha(theme == null ? void 0 : theme.tokens["Base"], blur ? "14" : "", "#1E1F22"),
+        foreground: (theme == null ? void 0 : theme.tokens["Text"]) ?? "#DFE1E5",
+        cursor: (theme == null ? void 0 : theme.tokens["Accent"]) ?? "#3574F0",
+        selectionBackground: (theme == null ? void 0 : theme.tokens["Selected"]) ?? "#43454A",
+        black: (theme == null ? void 0 : theme.terminal["black"]) ?? "#000000",
+        red: (theme == null ? void 0 : theme.terminal["red"]) ?? "#F75464",
+        green: (theme == null ? void 0 : theme.terminal["green"]) ?? "#6FBF73",
+        yellow: (theme == null ? void 0 : theme.terminal["yellow"]) ?? "#C8A35F",
+        blue: (theme == null ? void 0 : theme.terminal["blue"]) ?? "#3574F0",
+        magenta: (theme == null ? void 0 : theme.terminal["magenta"]) ?? "#C9A2FF",
+        cyan: (theme == null ? void 0 : theme.terminal["cyan"]) ?? "#8FB8E8",
+        white: (theme == null ? void 0 : theme.terminal["white"]) ?? "#DFE1E5"
+      };
+    };
+    const applyTheme = react.useCallback(() => {
+      const theme = buildTheme(themeOf());
+      for (const { term } of termsRef.current.values()) term.options.theme = theme;
+    }, [themeOf]);
+    const createTerm = react.useCallback((tab) => {
+      var _a3, _b2;
+      const host = hostsRef.current.get(tab.sessionId);
+      if (!host || termsRef.current.has(tab.sessionId)) return;
       const term = new xtermExports.Terminal({
         fontFamily: `${((_a3 = settingsOf()) == null ? void 0 : _a3.terminalFontFamily) ?? "Cascadia Mono"}, Consolas, monospace`,
-        fontSize: ((_b3 = settingsOf()) == null ? void 0 : _b3.terminalFontSize) ?? 13,
+        fontSize: ((_b2 = settingsOf()) == null ? void 0 : _b2.terminalFontSize) ?? 13,
         cursorBlink: true,
-        allowProposedApi: true
+        allowProposedApi: true,
+        allowTransparency: true
+        // 模糊窗口下背景带 alpha（随 buildTheme 切换）
       });
       const fit = new addonFitExports.FitAddon();
       term.loadAddon(fit);
-      term.open(hostRef.current);
-      termRef.current = term;
-      fitRef.current = fit;
+      term.open(host);
       term.options.theme = buildTheme(themeOf());
+      termsRef.current.set(tab.sessionId, { term, fit });
+      applyTheme();
       try {
         fit.fit();
       } catch {
       }
-      const disposers = [];
-      disposers.push(
-        term.onData((data) => {
-          const s = sessionRef.current;
-          if (s == null ? void 0 : s.running) void call("terminal.write", { id: s.id, dataB64: btoa(unescape(encodeURIComponent(data))) });
-        }).dispose
-      );
-      disposers.push(
-        onEvent("terminal.data", (p) => {
-          var _a4;
-          if (((_a4 = sessionRef.current) == null ? void 0 : _a4.id) !== p.id) return;
-          const bytes = Uint8Array.from(atob(p.b64), (c) => c.charCodeAt(0));
-          term.write(bytes);
-        })
-      );
-      disposers.push(
-        onEvent("terminal.exit", (p) => {
-          var _a4;
-          if (((_a4 = sessionRef.current) == null ? void 0 : _a4.id) !== p.id) return;
-          sessionRef.current = { ...sessionRef.current, running: false, exitCode: p.exitCode };
-          setStatus(`exit ${p.exitCode}`);
-          term.writeln(`\r
-\x1B[2m[process exited with code ${p.exitCode}]\x1B[0m`);
-        })
-      );
-      const ro = new ResizeObserver(() => {
-        try {
-          fit.fit();
-          const dims = fit.proposeDimensions();
-          const s = sessionRef.current;
-          if (dims && (s == null ? void 0 : s.running)) void call("terminal.resize", { id: s.id, cols: dims.cols, rows: dims.rows });
-        } catch {
-        }
+      term.onData((data) => {
+        void call("terminal.write", { id: tab.sessionId, dataB64: btoa(unescape(encodeURIComponent(data))) });
       });
-      ro.observe(hostRef.current);
-      void ensureSession();
-      term.focus();
-      return () => {
-        disposers.forEach((d) => d());
-        ro.disconnect();
-        term.dispose();
-        termRef.current = null;
-        fitRef.current = null;
-        sessionRef.current = null;
-      };
+    }, [applyTheme, themeOf]);
+    const syncSession = react.useCallback((tab) => {
+      const t2 = termsRef.current.get(tab.sessionId);
+      if (!t2) return;
+      try {
+        const dims = t2.fit.proposeDimensions();
+        if (dims) void call("terminal.resize", { id: tab.sessionId, cols: dims.cols, rows: dims.rows });
+      } catch {
+      }
+    }, []);
+    const openTab = react.useCallback(async (shellKind) => {
+      var _a3, _b2;
+      const sessionId = `tab-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`;
+      const follow = ((_a3 = settingsOf()) == null ? void 0 : _a3.terminalFollowRepo) ?? true;
+      const s = await call("terminal.ensure", {
+        cols: 80,
+        rows: 24,
+        cwd: follow ? ((_b2 = repoOf()) == null ? void 0 : _b2.workDir) ?? null : null,
+        shellKind,
+        sessionId
+      });
+      setTabs((prev) => [...prev, { sessionId: s.id, shellKind: s.shellKind }]);
+      setActiveId(s.id);
     }, []);
     react.useEffect(() => {
-      if (sessionRef.current) void ensureSession();
-    }, [(_b2 = app.repo) == null ? void 0 : _b2.workDir]);
+      if (restoredRef.current) return;
+      restoredRef.current = true;
+      void call("terminal.list").then((list) => {
+        var _a3, _b2;
+        const running = list.filter((s) => s.running);
+        setTabs(running.map((s) => ({ sessionId: s.id, shellKind: s.shellKind })));
+        setActiveId(((_a3 = running[0]) == null ? void 0 : _a3.id) ?? null);
+        if (running.length === 0) void openTab(((_b2 = settingsOf()) == null ? void 0 : _b2.terminalShell) ?? "powershell");
+      }).catch(() => {
+        var _a3;
+        void openTab(((_a3 = settingsOf()) == null ? void 0 : _a3.terminalShell) ?? "powershell");
+      });
+    }, [openTab]);
     react.useEffect(() => {
-      if (termRef.current) termRef.current.options.theme = buildTheme(app.theme);
-    }, [app.theme]);
+      if (!activeId) return;
+      const tab = tabs.find((x) => x.sessionId === activeId);
+      if (!tab) return;
+      createTerm(tab);
+      const t2 = termsRef.current.get(activeId);
+      if (!t2) return;
+      requestAnimationFrame(() => {
+        try {
+          t2.fit.fit();
+        } catch {
+        }
+        syncSession(tab);
+        t2.term.focus();
+      });
+    }, [activeId, tabs, createTerm, syncSession]);
+    react.useEffect(() => {
+      const off = onEvent("terminal.data", (p) => {
+        const t2 = termsRef.current.get(p.id);
+        if (!t2) return;
+        const bytes = Uint8Array.from(atob(p.b64), (c) => c.charCodeAt(0));
+        t2.term.write(bytes);
+      });
+      return off;
+    }, []);
+    react.useEffect(() => {
+      const off = onEvent("terminal.exit", (p) => {
+        setExits((prev) => ({ ...prev, [p.id]: p.exitCode }));
+        const t2 = termsRef.current.get(p.id);
+        t2 == null ? void 0 : t2.term.writeln(`\r
+\x1B[2m[process exited with code ${p.exitCode}]\x1B[0m`);
+      });
+      return off;
+    }, []);
+    react.useEffect(() => {
+      applyTheme();
+    }, [app.theme, applyTheme]);
+    const closeTab = react.useCallback(async (tab) => {
+      var _a3;
+      if (exits[tab.sessionId] === void 0) {
+        if (!window.confirm(t("Terminal_CloseRunningConfirm", labelOf(tab.shellKind)))) return;
+      }
+      await call("terminal.close", { id: tab.sessionId }).catch(() => {
+      });
+      (_a3 = termsRef.current.get(tab.sessionId)) == null ? void 0 : _a3.term.dispose();
+      termsRef.current.delete(tab.sessionId);
+      setExits((prev) => {
+        const n = { ...prev };
+        delete n[tab.sessionId];
+        return n;
+      });
+      setTabs((prev) => {
+        var _a4;
+        const idx = prev.findIndex((x) => x.sessionId === tab.sessionId);
+        const next = prev.filter((x) => x.sessionId !== tab.sessionId);
+        if (activeId === tab.sessionId) setActiveId(((_a4 = next[Math.min(idx, next.length - 1)]) == null ? void 0 : _a4.sessionId) ?? null);
+        return next;
+      });
+    }, [activeId, exits]);
+    react.useEffect(() => {
+      const h = (e) => {
+        if (!e.ctrlKey || e.key !== "Tab") return;
+        const visible = wrapRef.current && wrapRef.current.offsetParent !== null;
+        if (!visible || tabs.length < 2) return;
+        e.preventDefault();
+        const idx = tabs.findIndex((x) => x.sessionId === activeId);
+        const next = e.shiftKey ? tabs[(idx - 1 + tabs.length) % tabs.length] : tabs[(idx + 1) % tabs.length];
+        setActiveId(next.sessionId);
+      };
+      window.addEventListener("keydown", h);
+      return () => window.removeEventListener("keydown", h);
+    }, [tabs, activeId]);
+    react.useEffect(() => {
+      if (!menuOpen) return;
+      const close = (e) => {
+        var _a3;
+        if (!((_a3 = wrapRef.current) == null ? void 0 : _a3.contains(e.target))) setMenuOpen(false);
+      };
+      document.addEventListener("mousedown", close);
+      return () => document.removeEventListener("mousedown", close);
+    }, [menuOpen]);
+    const active = tabs.find((x) => x.sessionId === activeId) ?? null;
+    const activeStatus = active ? `${labelOf(active.shellKind)}${exits[active.sessionId] !== void 0 ? ` · exit ${exits[active.sessionId]}` : ""}` : "";
+    const restartActive = () => {
+      var _a3, _b2;
+      if (!active) return;
+      const follow = ((_a3 = settingsOf()) == null ? void 0 : _a3.terminalFollowRepo) ?? true;
+      void call("terminal.ensure", {
+        cols: 80,
+        rows: 24,
+        cwd: follow ? ((_b2 = repoOf()) == null ? void 0 : _b2.workDir) ?? null : null,
+        shellKind: active.shellKind,
+        sessionId: active.sessionId
+      });
+    };
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "toolbar", children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "input", value: shellKind, onChange: (e) => setShellKind(e.target.value), children: [
-          /* @__PURE__ */ jsxRuntime.jsx("option", { value: "powershell", children: "PowerShell" }),
-          /* @__PURE__ */ jsxRuntime.jsx("option", { value: "cmd", children: "CMD" }),
-          /* @__PURE__ */ jsxRuntime.jsx("option", { value: "bash", children: "Git Bash" })
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-wrap", ref: wrapRef, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-tabs", children: [
+          tabs.map((tab) => /* @__PURE__ */ jsxRuntime.jsxs(
+            "div",
+            {
+              className: "term-tab" + (tab.sessionId === activeId ? " active" : ""),
+              title: labelOf(tab.shellKind),
+              onClick: () => setActiveId(tab.sessionId),
+              onAuxClick: (e) => {
+                if (e.button === 1) void closeTab(tab);
+              },
+              children: [
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "term-tab-ico", children: tab.shellKind === "bash" ? "bash" : tab.shellKind === "cmd" ? ">_" : "PS" }),
+                /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "term-tab-label", children: [
+                  labelOf(tab.shellKind),
+                  exits[tab.sessionId] !== void 0 ? "（已退出）" : ""
+                ] }),
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "span",
+                  {
+                    className: "term-tab-x",
+                    title: t("Common_Close"),
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      void closeTab(tab);
+                    },
+                    children: "✕"
+                  }
+                )
+              ]
+            },
+            tab.sessionId
+          )),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "term-tab-new",
+              title: t("Terminal_NewTab", labelOf(((_a2 = settingsOf()) == null ? void 0 : _a2.terminalShell) ?? "powershell")),
+              onClick: () => {
+                var _a3;
+                return void openTab(((_a3 = settingsOf()) == null ? void 0 : _a3.terminalShell) ?? "powershell");
+              },
+              children: "＋"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "profile-menu-anchor", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "term-tab-new term-tab-profile",
+                "aria-expanded": menuOpen,
+                title: t("Terminal_NewTabProfile"),
+                onClick: () => setMenuOpen(!menuOpen),
+                children: /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "12", height: "8", viewBox: "0 0 12 8", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2.2 2.6L6 6.4L9.8 2.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round", strokeLinejoin: "round" }) })
+              }
+            ),
+            menuOpen && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "profile-menu", children: PROFILES.map((p) => {
+              var _a3;
+              return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "profile-menu-item", onClick: () => {
+                setMenuOpen(false);
+                void openTab(p.value);
+              }, children: [
+                /* @__PURE__ */ jsxRuntime.jsx("span", { children: p.label }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "profile-menu-k", children: p.value === (((_a3 = settingsOf()) == null ? void 0 : _a3.terminalShell) ?? "powershell") ? t("Terminal_ProfileDefault") : "" })
+              ] }, p.value);
+            }) })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", title: t("Terminal_Restart"), onClick: restartActive, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
         ] }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Terminal_Restart"), onClick: () => void ensureSession(), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 11, color: "var(--c-text3)" }, children: status })
+        tabs.map((tab) => /* @__PURE__ */ jsxRuntime.jsx(
+          "div",
+          {
+            className: "term-host",
+            ref: (el) => {
+              hostsRef.current.set(tab.sessionId, el);
+            },
+            style: { display: tab.sessionId === activeId ? "block" : "none" }
+          },
+          tab.sessionId
+        )),
+        tabs.length === 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "big", children: "＋" }),
+          t("Terminal_EmptyHint")
+        ] })
       ] }),
-      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "term-wrap", ref: hostRef }),
-      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "term-status", children: /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("Terminal_CopyHint") }) })
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-status", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { children: activeStatus }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { marginLeft: "auto" }, children: t("Terminal_CopyHint") })
+      ] })
     ] });
   }
   const K = () => {
@@ -6340,6 +6505,8 @@ WARNING: This link could potentially be dangerous`)) {
   K().registerMarkdownPlugin;
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
+  K().Select;
+  K().ScrollArea;
   window.GITTER_UI.registerPage({ id: "bash" }, (container) => {
     var _a2;
     const host = container;

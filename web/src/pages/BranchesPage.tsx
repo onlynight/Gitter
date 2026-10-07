@@ -94,8 +94,8 @@ export function BranchesPage() {
     if (list.length === 0) return null;
     return (
       <>
-        <div className="pane-card" style={{ marginBottom: 12, display: "block" }}>
-        <div className="group-header"><span>{title}</span><span style={{ color: "var(--c-text3)", fontWeight: 400 }}>{list.length}</span></div>
+        <div className="pane-card" style={{ marginBottom: 12, display: "block", overflow: "hidden" }}>
+        <div className="group-header solid"><span>{title}</span><span style={{ color: "var(--c-text3)", fontWeight: 400 }}>{list.length}</span></div>
         {list.map((b) => (
           <div
             key={b.name}

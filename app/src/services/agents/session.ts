@@ -13,6 +13,7 @@ import { commitCheckpoint, headSha } from "./checkpoint";
 import { resolveTaskType } from "./taskTypes";
 import { buildToolset, type PermissionRequest, type ShellRecord, type ToolEnv } from "./registry";
 import "./builtinTools"; // 内置工具自举注册（§14.4：与插件同接缝，import 副作用）
+import "./webTools"; // Web 工具自举注册（§21.2.2：web_search / web_fetch）
 import "./builtinHooks"; // 内置 turn 钩子自举（§20.3.6：todo 防腐，与插件钩子同接缝）
 import { runLoop } from "./loop";
 import { collectRepoContext, composeSystemPrompt, wrapReminder, type RepoContext } from "./prompts";
@@ -52,6 +53,11 @@ export interface AgentSessionDeps {
   onBusEvent?: (name: string, payload: Record<string, unknown>) => void;
   /** U5 生命周期钩子 */
   onLifecycle?: (event: "created" | "resumed" | "stopped" | "removed", record: AgentTaskRecord) => void;
+  /** D5 任务完成 OS 通知（bridge 实现：窗口未聚焦时弹系统通知） */
+  notifyTaskDone?: (task: { taskId: string; title: string; state: string; summary: string | null }) => void;
+  /** D8 模型硬失败自动降级（§21.3.3）：挑一个 ≠ 失败档案的备用（default 优先，否则首个可用） */
+  alternateModel?: (excludeRef: string) =>
+    { ok: true; model: import("ai").LanguageModel; profileRef: string; contextWindow: number } | { ok: false; error: string };
 }
 
 interface LiveSession {
@@ -93,6 +99,10 @@ interface LiveSession {
   lastInProgress: string | null;
   /** F12.2 防死循环：(tool:argsHash) → 连续失败次数 */
   toolFails: Map<string, number>;
+  /** D8 降级链：本轮已换过模型（一次为限） */
+  degradedOnce?: boolean;
+  /** D8 降级链：强制使用的备用模型档案 */
+  forceModelRef?: string | null;
   /** 本轮开始时刻（§20.3.6 turn.completed durationMs） */
   turnStartTs: number;
 }
@@ -232,6 +242,7 @@ export class AgentSessionManager {
   async createTask(args: {
     harness?: string; name?: string; prompt: string; taskType?: string; model?: string;
     thinking?: ThinkingLevel; loopId?: string; mode?: PermissionMode;
+    attachments?: { name?: string; dataBase64: string }[];
   }): Promise<AgentTaskRecord> {
     const repo = this.needRepo();
     if (args.harness && args.harness !== BUILTIN_HARNESS_ID) {
@@ -279,13 +290,19 @@ export class AgentSessionManager {
     this.putRecord(record);
     this.deps.onLifecycle?.("created", record);
     const input = tt.spec.promptTemplate.replace("{input}", args.prompt.trim());
-    this.ensureLive(record, tt.spec, wt.path, [{ role: "user", content: input }]);
+    const imgs = await this.ingestAttachments(record, args.attachments);
+    const textPart = { type: "text" as const, text: input };
+    const initial: ModelMessage[] = [imgs.parts.length > 0
+      ? { role: "user", content: [textPart, ...imgs.parts] }
+      : { role: "user", content: input }];
+    this.ensureLive(record, tt.spec, wt.path, initial);
+    for (const rel of imgs.rels) this.emit(record, { type: "file-change", path: rel, kind: "read-image" });
     void this.startTurn(record, `任务下发：${title}`);
     return record;
   }
 
   /** 续跑：历史重放 + 追加输入。 */
-  async resumeTask(args: { taskId: string; prompt: string; thinking?: ThinkingLevel; mode?: PermissionMode }): Promise<AgentTaskRecord> {
+  async resumeTask(args: { taskId: string; prompt: string; thinking?: ThinkingLevel; mode?: PermissionMode; attachments?: { name?: string; dataBase64: string }[] }): Promise<AgentTaskRecord> {
     const repo = this.needRepo();
     if (!args.prompt.trim()) throw new Error("输入不能为空");
     if (this.isRunning(args.taskId)) throw new Error("会话仍在运行，请用排队投递（agent.task.queue）");
@@ -295,7 +312,14 @@ export class AgentSessionManager {
     const tt = resolveTaskType(this.deps.store, record.taskType);
     const sf = loadSessionFile(repo, args.taskId);
     const live = this.ensureLive(record, tt.spec, record.worktreePath, sf.messages, sf);
-    live.messages.push({ role: "user", content: args.prompt.trim() });
+    const mention = this.resolveTaskMentions(record, args.prompt.trim());
+    const imgs = await this.ingestAttachments(record, args.attachments);
+    const textPart = { type: "text" as const, text: mention.prompt };
+    live.messages.push(imgs.parts.length > 0
+      ? { role: "user", content: [textPart, ...imgs.parts] }
+      : { role: "user", content: mention.prompt });
+    if (mention.reminder) live.messages.push({ role: "user", content: wrapReminder(mention.reminder) });
+    for (const rel of imgs.rels) this.emit(record, { type: "file-change", path: rel, kind: "read-image" });
     record.state = "starting";
     record.archived = false;
     record.lastActiveAt = new Date().toISOString();
@@ -315,7 +339,10 @@ export class AgentSessionManager {
     const file = loadAgentTasks(repo);
     const record = live?.record ?? findTask(file, args.taskId);
     if (!record) throw new Error("任务不存在");
-    record.queued.push(args.prompt.trim());
+    const mention = this.resolveTaskMentions(record, args.prompt.trim());
+    record.queued.push(mention.reminder ? `${mention.prompt}
+
+${wrapReminder(mention.reminder)}` : mention.prompt);
     this.journalHuman(record, live, `排队：${args.prompt.trim().slice(0, 60)}`);
     this.putRecord(record);
     this.deps.send("agent.tasks.changed", {});
@@ -562,6 +589,155 @@ export class AgentSessionManager {
     return out.length > 256_000 ? out.slice(0, 256_000) + "\n…（diff 已截断）" : out;
   }
 
+  /** D9 文件只读预览（§21.3.4）：resolveSafe 读 worktree 文件，文本 cap 64KB，二进制返回嗅探说明。 */
+  async taskPreview(args: { taskId: string; path: string }): Promise<{ content: string; truncated: boolean; binary: boolean; size: number }> {
+    const record = this.recordOf(args.taskId);
+    const rel = String(args.path ?? "").replace(/\\/g, "/");
+    const abs = await (async () => {
+      const { resolveSafe } = await import("./fsx");
+      return resolveSafe(record.worktreePath, rel);
+    })();
+    const st = await fsp.stat(abs).catch(() => null);
+    if (!st || !st.isFile()) return { content: `（文件不存在：${rel}）`, truncated: false, binary: false, size: 0 };
+    if (st.size > 8 * 1024 * 1024) return { content: `（文件过大 ${Math.round(st.size / 1024)}KB，不支持预览）`, truncated: true, binary: false, size: st.size };
+    const buf = await fsp.readFile(abs);
+    if (buf.subarray(0, 8192).includes(0)) {
+      return { content: `（二进制文件，${st.size} 字节）`, truncated: false, binary: true, size: st.size };
+    }
+    const text = buf.toString("utf8");
+    const cap = 64_000;
+    return {
+      content: text.length > cap ? text.slice(0, cap) : text,
+      truncated: text.length > cap,
+      binary: false,
+      size: st.size,
+    };
+  }
+
+  /** D1 图片输入（§21.2.1）：vision 门控 + 附件写盘（.git 内，不进工作区）→ 多段消息 image parts。
+   * journal 记 read-image 事件（历史回放走既有 AgentImage/previewImage 通道）。 */
+  private async ingestAttachments(
+    record: AgentTaskRecord,
+    attachments?: { name?: string; dataBase64: string }[],
+  ): Promise<{ parts: { type: "image"; image: Buffer }[]; rels: string[] }> {
+    const list = (attachments ?? []).slice(0, 4);
+    if (list.length === 0) return { parts: [], rels: [] };
+    const s = this.deps.settings.current;
+    const profile = (s.models ?? []).find((m) => m.id === record.modelRef)
+      ?? (s.models ?? []).find((m) => m.id === s.defaultModelId);
+    if (profile?.capabilities?.vision !== true) {
+      throw new Error("当前模型档案未声明多模态（vision）能力，无法接收图片——请在 设置 → 模型档案 勾选「视觉」后重试");
+    }
+    // 任务 worktree 的 .git 是指针文件（git worktree add）——附件落主仓库 gitdir（会话文件同根）
+    const repo = this.deps.repoOf();
+    if (!repo) return { parts: [], rels: [] };
+    const dirAbs = path.join(repo, ".git", "gitter", "agent-sessions", record.taskId, "attachments");
+    await fsp.mkdir(dirAbs, { recursive: true });
+    const parts: { type: "image"; image: Buffer }[] = [];
+    const rels: string[] = [];
+    for (const a of list) {
+      const base64 = String(a.dataBase64 ?? "").replace(/^data:[^,]*,/, "");
+      const buf = Buffer.from(base64, "base64");
+      if (buf.length === 0) continue;
+      if (buf.length > 4 * 1024 * 1024) throw new Error(`图片超过 4MB 上限：${a.name ?? "image"}`);
+      const extRaw = path.extname(a.name ?? "").toLowerCase().replace(".", "");
+      const ext = ["png", "jpg", "jpeg", "gif", "webp"].includes(extRaw) ? extRaw : "png";
+      const safeName = `${Date.now().toString(36)}-${String(a.name ?? "image").replace(/[\/:*?"<>|]/g, "_").slice(0, 40)}.${ext}`;
+      const rel = `gitter-attachment:${record.taskId}/${safeName}`;
+      await fsp.writeFile(path.join(dirAbs, safeName), buf);
+      parts.push({ type: "image", image: buf });
+      rels.push(rel);
+    }
+    return { parts, rels };
+  }
+
+  /** D7 @任务引用（§21.3.2）：@<短id|任务名前缀> → 同仓库其他任务（≤2 个），附摘要 reminder、原文替换为任务指引。 */
+  private resolveTaskMentions(record: AgentTaskRecord, prompt: string): { prompt: string; reminder: string | null } {
+    const repo = this.deps.repoOf();
+    if (!repo || !prompt.includes("@")) return { prompt, reminder: null };
+    const all = loadAgentTasks(repo).tasks.filter((t) => t.taskId !== record.taskId && !t.archived);
+    if (all.length === 0) return { prompt, reminder: null };
+    const mentioned: typeof all = [];
+    const replaced = prompt.replace(/@([^\s@]{2,60})/g, (m: string, token: string) => {
+      if (mentioned.length >= 2) return m;
+      const hit = all.find((t) =>
+        t.taskId === token || t.taskId.startsWith(token) ||
+        t.title === token || t.title.startsWith(token));
+      if (!hit) return m;
+      mentioned.push(hit);
+      return `任务「${hit.title}」`;
+    });
+    if (mentioned.length === 0) return { prompt, reminder: null };
+    const lines = mentioned.map((t) => {
+      const todos = t.todoState ?? [];
+      const prog = todos.length > 0 ? ` · todo ${todos.filter((x) => x.status === "completed").length}/${todos.length}` : "";
+      return `- 「${t.title}」（${t.state} · ${t.branch}${prog}）：${(t.lastMessage ?? "（无消息）").slice(0, 200)}`;
+    });
+    return {
+      prompt: replaced,
+      reminder: `用户引用了以下任务（跨任务上下文，仅供了解背景，不要修改这些任务）：\n${lines.join("\n")}`,
+    };
+  }
+
+  /** D6 会话导出（§21.3.1）：journal → markdown。渲染层拿到文本后经 agent.task.exportSave 落盘。 */
+  async exportTaskMarkdown(args: { taskId: string }): Promise<{ markdown: string; title: string }> {
+    const repo = this.needRepo();
+    const record = this.recordOf(args.taskId);
+    const disk = loadJournalRange(repo, args.taskId, {});
+    const live = this.live.get(args.taskId);
+    const entries: SessionJournalEntry[] = live
+      ? [...disk.entries, ...live.journal]
+      : disk.entries;
+    const out: string[] = [
+      `# ${record.title}`,
+      "",
+      `- 分支：\`${record.branch}\``,
+      `- 状态：${record.state} · 模式：${record.permissionMode ?? "default"}`,
+      `- 创建：${record.createdAt} · 最近活动：${record.lastActiveAt ?? record.createdAt}`,
+      `- worktree：\`${record.worktreePath}\``,
+      "",
+      "---",
+      "",
+    ];
+    let lastRole = "";
+    for (const je of entries) {
+      if (je.kind === "text") {
+        out.push(`## 👤 用户`, "", (je.text ?? "").trim(), "");
+        lastRole = "user";
+        continue;
+      }
+      const ev = (je.event ?? {}) as Record<string, unknown>;
+      const t = ev.type as string;
+      if (t === "output" && ev.stream === "assistant") {
+        if (lastRole !== "assistant") out.push(`## 🤖 助手`, "");
+        out.push(String(ev.text ?? ""));
+        out.push("");
+        lastRole = "assistant";
+      } else if (t === "tool") {
+        const name = String(ev.name ?? "tool");
+        const a = (ev.args ?? {}) as Record<string, unknown>;
+        const arg = typeof a.command === "string" ? a.command : typeof a.path === "string" ? a.path : "";
+        const result = String(ev.result ?? "").split(/\r?\n/)[0]?.slice(0, 160) ?? "";
+        out.push(`> 🔧 \`${name}${arg ? ` ${arg.slice(0, 120)}` : ""}\`${ev.isError ? " ❌" : ""}${result ? ` → ${result}` : ""}`);
+        lastRole = "tool";
+      } else if (t === "todo") {
+        const todos = (ev.todos ?? []) as { content: string; status: string }[];
+        out.push("", "**任务清单**", "", ...todos.map((x) => `- [${x.status === "completed" ? "x" : x.status === "in_progress" ? "~" : " "}] ${x.content}`), "");
+        lastRole = "todo";
+      } else if (t === "plan") {
+        out.push("", "> 📋 计划提交（详见对话）", "");
+      } else if (t === "checkpoint") {
+        out.push(`> ✔ checkpoint \`${String(ev.commitSha ?? "").slice(0, 8)}\``);
+      } else if (t === "turn-completed") {
+        const u = (ev.usage ?? {}) as { input?: number; output?: number };
+        out.push("", `*（轮结束 · in ${u.input ?? "?"} / out ${u.output ?? "?"} tokens）*`, "");
+        lastRole = "turn";
+      }
+    }
+    if (record.lastMessage) out.push("", "---", "", `**最后消息**：${record.lastMessage}`);
+    return { markdown: out.join("\n"), title: record.title };
+  }
+
   async taskCheckpoints(args: { taskId: string }): Promise<{ sha: string; summary: string; date: string }[]> {
     const record = this.recordOf(args.taskId);
     const r = await tryGit(record.worktreePath, [
@@ -610,6 +786,23 @@ export class AgentSessionManager {
   /** 图片预览（F2.1：read-image 附件数据源；base64 data URL，cap 2MB）。 */
   async previewImage(args: { taskId: string; path: string }): Promise<{ dataUrl: string } | { error: string }> {
     const record = this.recordOf(args.taskId);
+    // D1 附件协议：gitter-attachment:<taskId>/<file> → 主仓库 gitdir（worktree 的 .git 是指针文件，不可落盘）
+    if (args.path.startsWith("gitter-attachment:")) {
+      const spec = args.path.slice("gitter-attachment:".length);
+      const slash = spec.indexOf("/");
+      const ownerId = slash > 0 ? spec.slice(0, slash) : args.taskId;
+      const name = slash > 0 ? spec.slice(slash + 1) : spec;
+      if (/[\/]/.test(name)) return { error: "非法附件名" };
+      const repo = this.deps.repoOf();
+      if (!repo) return { error: "仓库未打开" };
+      const abs = path.join(repo, ".git", "gitter", "agent-sessions", ownerId, "attachments", name);
+      const st = await fsp.stat(abs).catch(() => null);
+      if (!st || !st.isFile()) return { error: "附件不存在" };
+      const ext = path.extname(abs).toLowerCase().replace(".", "") || "png";
+      const mime = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext) ? (ext === "jpg" ? "jpeg" : ext) : "png";
+      const buf = await fsp.readFile(abs);
+      return { dataUrl: `data:image/${mime};base64,${buf.toString("base64")}` };
+    }
     const { resolveSafe } = await import("./fsx");
     const abs = await resolveSafe(record.worktreePath, args.path);
     const st = await fsp.stat(abs).catch(() => null);
@@ -718,7 +911,7 @@ export class AgentSessionManager {
       this.deps.onBusEvent?.("agent.turn.started", { taskId: record.taskId, mode: record.permissionMode ?? "default" });
       this.scheduleSave();
 
-      const rr = this.deps.resolveModel(record.modelRef, record.thinking);
+      const rr = this.deps.resolveModel(live.forceModelRef ?? record.modelRef, record.thinking);
       if (!rr.ok) {
         record.state = "failed";
         record.lastMessage = rr.error;
@@ -887,6 +1080,15 @@ export class AgentSessionManager {
           }
         }
       } else {
+        // D8 降级链（§21.3.3）：硬失败且本轮未降级过 → 切备用模型续跑一次（再失败按原样 failed）
+        const alt = !live.degradedOnce && this.deps.alternateModel ? this.deps.alternateModel(rr.profileRef) : null;
+        if (alt?.ok) {
+          live.degradedOnce = true;
+          live.forceModelRef = alt.profileRef;
+          this.emit(record, { type: "log", level: "warn", text: `模型 ${rr.profileRef} 失败（${(result.error ?? "").slice(0, 100)}），自动切换至备用模型 ${alt.profileRef} 继续本轮` });
+          live.messages.push({ role: "user", content: wrapReminder(`上一模型调用持续失败，已切换至备用模型 ${alt.profileRef}。请从中断处继续当前任务。`) });
+          continue;
+        }
         record.state = "failed";
         record.lastMessage = result.error ?? result.lastMessage ?? "循环失败";
       }
@@ -917,6 +1119,12 @@ export class AgentSessionManager {
         outcome: record.state,
         usage: result.usage ?? null,
         durationMs: Date.now() - live.turnStartTs,
+      });
+      this.deps.notifyTaskDone?.({
+        taskId: record.taskId,
+        title: record.title,
+        state: record.state,
+        summary: record.lastMessage,
       });
 
       // 计划获批 → 注入计划文本自动开执行轮（F8.2：新轮按 default 工具面重建）

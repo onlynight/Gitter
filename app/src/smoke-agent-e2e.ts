@@ -2,7 +2,7 @@
  * Agent v4 编排端到端烟雾（agent-harness-v4.md §十七：假 provider 脚本化 tool-call 流）：
  * 真实 AgentSessionManager + 真实 git 临时仓库 + 脚本化 LanguageModel——
  * 覆盖：E1 历史回写（P0）/ E2 读→patch 写链 / E3 前缀规则门 / E4 ask_user 回传 /
- * E5 plan 批准自动续执行轮 / E6 子代理结果回传 / E7 排队投递注入 / E8 journal+会话落盘。
+ * E5 plan 批准自动续执行轮 / E6 子代理结果回传 / E7 排队投递注入 / E8 journal+会话落盘 / E9 图片输入（D1）。
  * 运行：node dist/smoke-agent-e2e.js（app/ 下，先 npm run build）
  */
 import * as fs from "fs";
@@ -281,6 +281,33 @@ async function main() {
     unregisterTurnHooksByPackage("smoke");
   });
 
+  // ---- E9 图片输入（D1 §21.2.1：vision 门控 + 多段消息 + 附件落盘 + read-image 事件）----
+  await scenario("E9 图片输入", async () => {
+    const PNG_1PX = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const mkProfile = (vision: boolean) => ({
+      id: "mock/m1", name: "m", kind: "openai-compatible" as const, baseURL: "http://x", modelId: "m",
+      apiKeyProtected: null, capabilities: { tools: true, streaming: true, ...(vision ? { vision: true } : {}) }, tags: [],
+    });
+    const env = await makeEnv([textChunks("看到图了")]);
+    env.settings.update({ models: [mkProfile(false)], defaultModelId: "mock/m1" } as never);
+    const record = await env.agents.createTask({ prompt: "图片任务" });
+    await waitFor("E9 首轮结束", () => env.agents.listTasks()[0]?.state === "awaiting-input");
+    await sleep(1500); // 首轮收尾（checkpoint/钩子/abort 清理）完成窗口
+    let rejected = "";
+    try {
+      await env.agents.resumeTask({ taskId: record.taskId, prompt: "看图", attachments: [{ name: "a.png", dataBase64: PNG_1PX }] });
+    } catch (e) { rejected = (e as Error).message; }
+    check("E9 非 vision 拒绝", rejected.includes("vision"), "rejected=" + rejected.slice(0, 100));
+    env.settings.update({ models: [mkProfile(true)], defaultModelId: "mock/m1" } as never);
+    await env.agents.resumeTask({ taskId: record.taskId, prompt: "再看图", attachments: [{ name: "shot.png", dataBase64: PNG_1PX }] });
+    await waitFor("E9 续轮结束", () => env.agents.listTasks()[0]?.lastMessage === "看到图了");
+    const hist = env.agents.taskHistory({ taskId: record.taskId });
+    const imgMsg = hist.messages.find((m) => m.role === "user" && Array.isArray(m.content) && m.content.some((pt) => (pt as { type?: string }).type === "image"));
+    check("E9 image part 进模型消息", !!imgMsg && JSON.stringify(imgMsg.content).includes("看图"));
+    const onDisk = fs.existsSync(env.repo) && fs.existsSync(path.join(env.repo, ".git", "gitter", "agent-sessions", record.taskId, "attachments"));
+    check("E9 附件落盘（主仓库 gitdir）", onDisk);
+    check("E9 read-image 事件", env.events.some((e) => e.event.type === "file-change" && (e.event as { kind?: string }).kind === "read-image"));
+  });
   console.log(`\n${failures === 0 ? "全部通过 ✔" : `${failures} 项失败 ✘`}`);
   if (failures > 0) process.exit(1);
 }

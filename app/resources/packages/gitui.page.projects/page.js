@@ -115,6 +115,8 @@
   K().registerMarkdownPlugin;
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
+  K().Select;
+  K().ScrollArea;
   window.GITTER_UI.registerPage({ id: "projects" }, (container) => {
     var _a2;
     const host = container;

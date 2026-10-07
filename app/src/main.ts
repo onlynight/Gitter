@@ -1,5 +1,6 @@
 import * as fs from "fs";
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from "electron";
+import * as os from "os";
 import * as path from "path";
 import { Bridge, SharedServices } from "./bridge";
 import { SettingsStore } from "./services/settings";
@@ -19,14 +20,101 @@ import { bindToolRegistry } from "./services/extensions/agentLoop";
 const bridges = new Map<number, Bridge>();
 let shared: SharedServices;
 
+/** 窗口背景材质（Windows 11 22H2+ 的 Mica/Acrylic，Codex 式模糊窗口）：
+ * backgroundMaterial 需要 backgroundColor 全透明才会透出材质；
+ * 不支持的系统（Win10 / 非 Windows）一律回退 none + 不透明底色。 */
+function windowMaterialSupported(): boolean {
+  if (process.platform !== "win32") return false;
+  const build = Number(os.release().split(".")[2] ?? 0);
+  return build >= 22621;
+}
+
+function resolveWindowMaterial(material?: string | null): "none" | "mica" | "acrylic" {
+  const requested = material === "mica" || material === "acrylic" ? material : "none";
+  if (requested === "none" || !windowMaterialSupported()) return "none";
+  return requested;
+}
+
+/** CSS 颜色 → 与 ground 合成的不透明 hex（材质关闭时窗口底色用：主题 Base 自带 alpha，
+ * 直接透传会被 Electron 当黑底合成——按基座亮暗选 ground 压平）。 */
+function flattenColorToOpaque(raw: string | undefined, ground: { r: number; g: number; b: number }): string | null {
+  if (!raw) return null;
+  const v = raw.trim();
+  const hex = /^#([0-9a-f]{3,8})$/i.exec(v);
+  let r: number, g: number, b: number, a = 1;
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+    if (h.length === 6) h += "ff";
+    if (h.length !== 8) return null;
+    const n = parseInt(h, 16);
+    r = (n >>> 24) & 255; g = (n >>> 16) & 255; b = (n >>> 8) & 255; a = (n & 255) / 255;
+  } else {
+    const rgb = /^rgba?\(([^)]+)\)$/i.exec(v);
+    if (!rgb) return null;
+    const parts = rgb[1].split(",").map((s) => parseFloat(s.trim()));
+    if (parts.length < 3 || parts.slice(0, 3).some((n) => Number.isNaN(n))) return null;
+    r = parts[0]; g = parts[1]; b = parts[2];
+    a = parts.length >= 4 && !Number.isNaN(parts[3]) ? Math.min(1, Math.max(0, parts[3])) : 1;
+  }
+  const ch = (c: number, gr: number) => Math.round(c * a + gr * (1 - a));
+  return "#" + [ch(r, ground.r), ch(g, ground.g), ch(b, ground.b)].map((c) => c.toString(16).padStart(2, "0")).join("");
+}
+
+/** 材质关闭时的窗口不透明底色 = 当前主题 Base 压平（亮色基座合成白底、暗色合成黑底）。 */
+function currentOpaqueBackground(): string {
+  if (shared?.themes && shared?.settings) {
+    try {
+      const theme = shared.themes.resolve(shared.settings.current.themePackageId, "dark");
+      const ground = theme.base === "light" ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 };
+      return flattenColorToOpaque(theme.tokens.Base, ground) ?? "#1E1F22";
+    } catch {
+      // 主题服务未就绪：回退缺省底色
+    }
+  }
+  return "#1E1F22";
+}
+
+/** 当前主题包声明的窗口材质（窗口效果唯一事实源 = 主题包；系统不支持时由 resolveWindowMaterial 回退 none）。 */
+function activeThemeMaterial(): "none" | "mica" | "acrylic" {
+  try {
+    return shared?.themes?.resolve(shared?.settings?.current?.themePackageId ?? null, "dark")?.material ?? "none";
+  } catch {
+    return "none";
+  }
+}
+
+/** 应用亮暗模式声明 → DWM 材质（Mica/Acrylic）与 Chromium（prefers-color-scheme、标题栏/菜单）
+ * 跟随应用主题而非系统——暗色主题下系统材质底才会变暗，Base 无需高不透明度即可保住对比度。 */
+function syncNativeTheme(): void {
+  nativeTheme.themeSource = shared?.settings?.current?.theme ?? "system";
+}
+
+function applyWindowMaterialToAll(): void {
+  syncNativeTheme();
+  const resolved = resolveWindowMaterial(activeThemeMaterial());
+  const opaqueBg = resolved === "none" ? currentOpaqueBackground() : "#00000000";
+  for (const w of BrowserWindow.getAllWindows()) {
+    try {
+      w.setBackgroundMaterial(resolved);
+      w.setBackgroundColor(opaqueBg);
+    } catch {
+      // 旧 Electron/系统无此 API：静默保持不透明
+    }
+  }
+}
+
 /** 窗口创建（首窗 / 命令面板与项目·任务页"新窗口"/ second-instance）。 */
 function createWindow(repoPath?: string): void {
+  syncNativeTheme();
+  const material = resolveWindowMaterial(activeThemeMaterial());
   const win = new BrowserWindow({
     width: Number(process.env.GITTER_WIN?.split("x")[0]) || 1120,
     height: Number(process.env.GITTER_WIN?.split("x")[1]) || 700,
     minWidth: 720,
     minHeight: 480,
-    backgroundColor: "#1E1F22",
+    backgroundColor: material === "none" ? currentOpaqueBackground() : "#00000000",
+    backgroundMaterial: material,
     titleBarStyle: "hidden",
     frame: false,
     show: false,
@@ -158,6 +246,7 @@ app.whenReady().then(() => {
     userPackagesRoot: path.join(userData, "packages"),
     userThemesRoot: path.join(userData, "themes"),
     createWindow: (repoPath?: string) => createWindow(repoPath),
+    applyWindowMaterial: () => applyWindowMaterialToAll(),
   };
 
   registerIpc();
@@ -203,7 +292,11 @@ app.whenReady().then(() => {
           const kit = !!window.GITTER_KIT && !!window.GITTER_KIT.React && !!window.GITTER_KIT.DiffView;
           const pageMounted = !!document.querySelector('.page .toolbar') || !!document.querySelector('.page .settings-page') || !!document.querySelector('.page .empty-state');
           const navLabels = [...document.querySelectorAll('.nav-top .nav-item .nav-label')].map((e) => e.textContent ?? "");
-          return { navCount, rootRendered, gitterUi, kit, pageMounted, navLabels };
+          const wm = document.documentElement.dataset.windowMaterial ?? null;
+          // 主题令牌已自带 alpha（#RRGGBBAA）时 body 可能原样透传——两种形态都算混合生效
+          const cb = document.body.style.getPropertyValue("--c-base");
+          const wmBlend = wm && wm !== "none" ? (cb.includes("rgba(") || cb.replace("#", "").length === 8) : true;
+          return { navCount, rootRendered, gitterUi, kit, pageMounted, navLabels, wm, wmBlend };
         })()`);
         const slots = ["projects", "log", "changes", "branches", "tasks", "bash", "settings"];
         const resolved: Record<string, { source: string; isBuiltInPackage: boolean } | null> = {};
@@ -214,7 +307,11 @@ app.whenReady().then(() => {
         const slotsOk = slots.every((s) => resolved[s] && resolved[s]!.source === "package" && resolved[s]!.isBuiltInPackage);
         // 首个主导航 = projects（注册表 order 排序防回潮：包元数据继承内置身份 order）
         const firstNavOk = !!r.navLabels[0] && /projects|项目/i.test(r.navLabels[0]);
-        const ok = r.navCount >= 7 && r.rootRendered && r.gitterUi && r.kit && r.pageMounted && slotsOk && firstNavOk;
+        // 窗口材质链路（竞态安全：渲染层主题路径未跑完时 dataset 为空则跳过）：
+        // dataset 已标 → 必须与主进程 resolve 结果一致，且非 none 时 --c-base 已混成 rgba（body 内联）
+        const expectedMaterial = resolveWindowMaterial(activeThemeMaterial());
+        const wmOk = !r.wm ? true : r.wm === expectedMaterial && (r.wm === "none" || r.wmBlend === true);
+        const ok = r.navCount >= 7 && r.rootRendered && r.gitterUi && r.kit && r.pageMounted && slotsOk && firstNavOk && wmOk;
         process.stdout.write("[boot] UI 断言: " + JSON.stringify({ ...r, slots: Object.fromEntries(slots.map((s) => [s, resolved[s]?.isBuiltInPackage === true ? "builtin-package" : resolved[s]?.source ?? null])) }) + "\n");
         try {
           // 语言切换探测（永久回归门）：触发 reapplyLanguage + reloadExternalPages →

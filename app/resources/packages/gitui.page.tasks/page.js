@@ -15,7 +15,7 @@
   K().wordDiff;
   K().SplitPane;
   K().Banner;
-  K().Modal;
+  const Modal = K().Modal;
   K().useContextMenu;
   K().SyncBar;
   K().useSyncProgress;
@@ -23,6 +23,8 @@
   K().registerMarkdownPlugin;
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
+  const Select = K().Select;
+  K().ScrollArea;
   function U$1() {
     const g = window.GITTER_UI;
     if (!g) throw new Error("GITTER_UI 未注入（外部页必须经宿主 pageLoader 装载）");
@@ -93,6 +95,8 @@
     yolo: { label: "⚡ Yolo", color: "var(--c-red)" }
   };
   const TOOL_LABELS = {
+    web_search: "网络搜索",
+    web_fetch: "读取网页",
     repo_status: "工作区状态",
     repo_diff: "读取 diff",
     repo_log: "提交历史",
@@ -124,7 +128,19 @@
     { name: "model", arg: "<id>", hint: "切换模型档案" },
     { name: "thinking", arg: "<level>", hint: "切换思考深度" },
     { name: "fork", hint: "分叉任务" },
-    { name: "skill", arg: "<名称>", hint: "注入技能指引" }
+    { name: "skill", arg: "<名称>", hint: "注入技能指引" },
+    { name: "export", hint: "导出会话为 Markdown 文件" },
+    // 模板命令（D3/D4）：与包命令同一分发语义（busy 排队 / idle 续跑，零新增 RPC）
+    {
+      name: "review",
+      hint: "审查当前工作区改动（review 子代理）",
+      template: "请用 task 工具（mode=review）审查当前工作区改动：先 repo_status / repo_diff 获取变更，逐文件审查正确性、边界条件与测试影响，产出问题清单（文件:行号 + 高/中/低 + 修复建议），最后给出可合并结论。${input}"
+    },
+    {
+      name: "init",
+      hint: "分析仓库并生成/更新 AGENTS.md",
+      template: "请分析当前仓库（目录结构、构建/测试/lint 命令、代码约定、现有文档），在仓库根生成或更新 AGENTS.md：项目简介、常用命令、目录导览、代码约定与注意事项。已存在时合并改进而非覆盖。${input}"
+    }
   ];
   const MAX_BLOCKS = 400;
   function pushCap(arr, b) {
@@ -239,12 +255,13 @@
         return { label: "Stopped", color: "var(--c-text3)" };
     }
   }
-  function permOptions(b) {
+  function permOptions(b, showFullAccess = false) {
     const sig = b.command ?? b.title;
     const prefix = sig ? sig.slice(0, 24) : null;
     const opts = [{ label: "1. 是，执行一次", reply: { ok: true } }];
     if (b.rememberable !== false) opts.push({ label: "2. 是，本会话不再询问", reply: { ok: true, remember: true } });
     if (prefix) opts.push({ label: `3. 是，总是允许前缀 “${prefix}”`, reply: { ok: true, remember: true, rulePrefix: prefix } });
+    if (showFullAccess) opts.push({ label: `${opts.length + 1}. 完全访问：批准并切换（后续免询问，推送/高危除外）`, reply: { ok: true, remember: true, fullAccess: true } });
     opts.push({ label: `${opts.length + 1}. 否，告诉 agent 改用其他方式`, reply: { ok: false } });
     return opts;
   }
@@ -279,7 +296,7 @@
   function MentionPopover(props) {
     const { mention, items, onPick } = props;
     if (!mention || items.length === 0) return null;
-    return /* @__PURE__ */ jsxRuntime.jsx("div", { style: { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4, maxHeight: 180, overflowY: "auto", background: "var(--c-panel)", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }, children: items.map((it) => /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "4px 10px", fontSize: 12, cursor: "pointer" }, onMouseDown: (e) => {
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mention-pop", style: { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 180, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }, children: items.map((it) => /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "4px 10px", fontSize: 12, cursor: "pointer" }, onMouseDown: (e) => {
       e.preventDefault();
       onPick(it.insert);
     }, children: it.label }, it.label)) });
@@ -351,7 +368,7 @@
       restore: "恢复"
     };
     const kind = ((_a2 = b.payload) == null ? void 0 : _a2.kind) ?? "command";
-    const options = permOptions(b);
+    const options = permOptions(b, props.showFullAccess);
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: `1px solid ${decided ? "var(--c-border)" : "var(--c-amber)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }, children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: decided ? "var(--c-text3)" : "var(--c-amber)", fontWeight: 700, marginBottom: 4 }, children: [
         "◈ 授权请求 · ",
@@ -377,7 +394,8 @@
           {
             onClick: () => {
               props.onSel(b.requestId, i);
-              if (o.reply.rulePrefix !== void 0 && o.reply.rulePrefix !== null && o.reply.ok) props.onReply(b.requestId, true, true, o.reply.rulePrefix);
+              if (o.reply.fullAccess) props.onFullAccess(b.requestId);
+              else if (o.reply.rulePrefix !== void 0 && o.reply.rulePrefix !== null && o.reply.ok) props.onReply(b.requestId, true, true, o.reply.rulePrefix);
               else props.onReply(b.requestId, o.reply.ok, o.reply.remember);
             },
             style: { display: "flex", gap: 8, padding: "4px 10px", borderRadius: 8, cursor: "pointer", border: `1px solid ${sel === i ? "var(--c-border)" : "transparent"}`, background: sel === i ? "var(--c-panel)" : "transparent" },
@@ -548,7 +566,11 @@
           (ctx == null ? void 0 : ctx.viewFile) && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { fontSize: 10.5, marginLeft: 8, padding: "0 6px" }, onClick: () => {
             var _a2;
             return (_a2 = ctx.viewFile) == null ? void 0 : _a2.call(ctx, b.path);
-          }, children: "查看" })
+          }, children: "查看" }),
+          (ctx == null ? void 0 : ctx.previewFile) && b.changeKind !== "deleted" && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { fontSize: 10.5, marginLeft: 4, padding: "0 6px" }, onClick: () => {
+            var _a2;
+            return (_a2 = ctx.previewFile) == null ? void 0 : _a2.call(ctx, b.path);
+          }, children: "预览" })
         ] });
       }
     },
@@ -613,7 +635,7 @@
   }
   registerBuiltinAgentUI();
   function TasksPage() {
-    var _a2, _b2;
+    var _a2, _b2, _c;
     const app = useAppState();
     const repo = app.repo;
     const [worktrees, setWorktrees] = react.useState(null);
@@ -649,6 +671,33 @@
     const [hasMoreHistory, setHasMoreHistory] = react.useState(false);
     const [loadingOlder, setLoadingOlder] = react.useState(false);
     const [pendingFile, setPendingFile] = react.useState(null);
+    const [pendingImages, setPendingImages] = react.useState([]);
+    const addImages = react.useCallback((files) => {
+      setPendingImages((cur) => {
+        const next = [...cur, ...files].slice(0, 4);
+        return next;
+      });
+    }, []);
+    const filesToImages = react.useCallback((files) => {
+      const imgs = files.filter((f) => /^image\//.test(f.type)).slice(0, 4);
+      for (const f of imgs) {
+        if (f.size > 4 * 1024 * 1024) {
+          setError(`图片超过 4MB 上限：${f.name}`);
+          continue;
+        }
+        const reader = new FileReader();
+        reader.onload = () => addImages([{ name: f.name || "image.png", dataUrl: String(reader.result) }]);
+        reader.readAsDataURL(f);
+      }
+    }, [addImages]);
+    const [preview, setPreview] = react.useState(null);
+    const [previewLoading, setPreviewLoading] = react.useState(false);
+    const previewFile = react.useCallback((path) => {
+      if (!selectedTask) return;
+      setPreviewLoading(true);
+      setPreview({ path, content: "", truncated: false, binary: false, size: 0 });
+      void call("agent.task.previewFile", { taskId: selectedTask, path }).then((r) => setPreview({ path, ...r })).catch((e) => setPreview({ path, content: `（读取失败：${e.message}）`, truncated: false, binary: false, size: 0 })).finally(() => setPreviewLoading(false));
+    }, [selectedTask]);
     const [cpCount, setCpCount] = react.useState(0);
     const [diffCount, setDiffCount] = react.useState(0);
     const timelineRef = react.useRef(null);
@@ -829,7 +878,6 @@
       }
       return null;
     })();
-    pendingPerm ? permOptions(pendingPerm).length : 0;
     const replyPerm = react.useCallback(async (requestId, ok, remember, rulePrefix) => {
       setDecided((d) => ({ ...d, [requestId]: ok ? rulePrefix ? "rule" : "ok" : "deny" }));
       try {
@@ -850,10 +898,23 @@
         setError(e.message);
       }
     }, [selectedTask, evMap]);
+    const replyFullAccess = react.useCallback(async (requestId) => {
+      if (!selected) return;
+      setDecided((d) => ({ ...d, [requestId]: "ok" }));
+      try {
+        await call("agent.perm.reply", { requestId, ok: true, remember: true });
+        await call("agent.task.setMode", { taskId: selected.taskId, mode: "yolo" });
+        setMode("yolo");
+        await reloadAgents();
+      } catch (e) {
+        setError(e.message);
+      }
+    }, [selected, reloadAgents]);
+    const showFullAccess = ((selected == null ? void 0 : selected.permissionMode) ?? "default") !== "yolo";
     react.useEffect(() => {
       if (!pendingPerm || !selectedTask) return;
       const requestId = pendingPerm.requestId;
-      const opts = permOptions(pendingPerm);
+      const opts = permOptions(pendingPerm, showFullAccess);
       const h = (e) => {
         var _a3;
         const tag = (_a3 = e.target) == null ? void 0 : _a3.tagName;
@@ -861,7 +922,8 @@
         const cur = permSel[requestId] ?? 0;
         const apply = (idx) => {
           const o = opts[Math.min(idx, opts.length - 1)];
-          if (o.reply.rulePrefix !== void 0 && o.reply.rulePrefix !== null && o.reply.ok) replyPerm(requestId, true, true, o.reply.rulePrefix);
+          if (o.reply.fullAccess) void replyFullAccess(requestId);
+          else if (o.reply.rulePrefix !== void 0 && o.reply.rulePrefix !== null && o.reply.ok) replyPerm(requestId, true, true, o.reply.rulePrefix);
           else replyPerm(requestId, o.reply.ok, o.reply.remember);
         };
         if (e.key === "ArrowDown") {
@@ -883,7 +945,7 @@
       };
       window.addEventListener("keydown", h);
       return () => window.removeEventListener("keydown", h);
-    }, [pendingPerm, selectedTask, permSel, replyPerm]);
+    }, [pendingPerm, selectedTask, permSel, replyPerm, replyFullAccess, showFullAccess]);
     const cycleMode = react.useCallback(() => {
       if (!selected) return;
       const cur = selected.permissionMode ?? "default";
@@ -940,6 +1002,22 @@
         try {
           if (builtin) {
             const name = builtin.name;
+            if (name === "export") {
+              try {
+                await call("agent.task.export", { taskId: selected.taskId });
+              } catch (err) {
+                setError(err.message);
+              }
+              setInputText("");
+              return;
+            }
+            if (builtin.template) {
+              const expanded = builtin.template.replace(/\$\{input\}/g, arg);
+              if (BUSY_STATES.has(selected.state)) await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded });
+              else await call("agent.task.resume", { taskId: selected.taskId, prompt: expanded, thinking, mode });
+              setInputText("");
+              return;
+            }
             if (name === "compact") await call("agent.task.compact", { taskId: selected.taskId });
             else if (name === "clear") await call("agent.task.clear", { taskId: selected.taskId });
             else if (name === "plan" || name === "default" || name === "yolo" || name === "approvals") {
@@ -989,15 +1067,25 @@ ${target.instructions}
         setInputText("");
         return;
       }
+      if (pendingImages.length > 0 && !visionOk) {
+        setError("当前模型档案未声明视觉（vision）能力，无法发送图片——请在 设置 → 模型档案 勾选「视觉」");
+        return;
+      }
       inputHistory.current = [text, ...inputHistory.current.filter((x) => x !== text)].slice(0, 20);
       historyIdx.current = -1;
       setEvMap((m) => ({ ...m, [selected.taskId]: pushCap(m[selected.taskId] ?? [], { kind: "human", text }) }));
       setInputText("");
       setSending(true);
+      const attachments = attachmentsPayload;
+      setPendingImages([]);
       const busy2 = BUSY_STATES.has(selected.state);
       try {
-        if (busy2) await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
-        else await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode });
+        if (busy2) {
+          if (attachments.length > 0) setError("任务运行中：图片将不随排队消息注入，请等本轮结束再发送");
+          await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
+        } else {
+          await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode, ...attachments.length > 0 ? { attachments } : {} });
+        }
         await reloadAgents();
       } catch (e) {
         setError(e.message);
@@ -1006,17 +1094,27 @@ ${target.instructions}
       }
     };
     const createFromCompose = async () => {
+      var _a3;
       if (!composeText.trim() || sending) return;
       setSending(true);
       try {
+        if (pendingImages.length > 0) {
+          const chosen = modelProfiles.find((m) => m.id === modelId) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
+          if (((_a3 = chosen == null ? void 0 : chosen.capabilities) == null ? void 0 : _a3.vision) !== true) {
+            setError("所选模型档案未声明视觉（vision）能力，无法带图创建任务");
+            return;
+          }
+        }
         const record = await call("agent.task.create", {
           prompt: composeText.trim(),
           taskType: taskTypeId || void 0,
           model: modelId || void 0,
           thinking,
-          mode
+          mode,
+          ...pendingImages.length > 0 ? { attachments: attachmentsPayload } : {}
         });
         setComposeText("");
+        setPendingImages([]);
         setSelectedTask(record.taskId);
         setEvMap((m) => ({ ...m, [record.taskId]: [{ kind: "human", text: composeText.trim() }] }));
         await reloadAgents();
@@ -1058,7 +1156,15 @@ ${target.instructions}
         setMentionItems([]);
         return;
       }
-      void Promise.resolve(provider.source(query).catch(() => [])).then((items) => setMentionItems(items.slice(0, 50)));
+      void Promise.resolve(provider.source(query).catch(() => [])).then((items) => {
+        if (prefix !== "@") {
+          setMentionItems(items.slice(0, 50));
+          return;
+        }
+        const q = query.toLowerCase();
+        const taskItems = (agentTasks ?? []).filter((t2) => t2.taskId !== (selected == null ? void 0 : selected.taskId)).filter((t2) => !q || t2.title.toLowerCase().includes(q) || t2.taskId.startsWith(query)).slice(0, 6).map((t2) => ({ label: `任务：${t2.title}`, insert: t2.taskId.slice(0, 8) }));
+        setMentionItems([...taskItems, ...items].slice(0, 50));
+      });
     };
     const insertMention = (insert, setter, current) => {
       if (!mention) return;
@@ -1069,7 +1175,7 @@ ${target.instructions}
     const renderBlock = (b, key) => {
       switch (b.kind) {
         case "permission":
-          return /* @__PURE__ */ jsxRuntime.jsx(PermissionCard, { b, decided: decided[b.requestId], sel: permSel[b.requestId] ?? 0, onSel: (id, i) => setPermSel((m) => ({ ...m, [id]: i })), onReply: replyPerm }, key);
+          return /* @__PURE__ */ jsxRuntime.jsx(PermissionCard, { b, decided: decided[b.requestId], sel: permSel[b.requestId] ?? 0, showFullAccess, onSel: (id, i) => setPermSel((m) => ({ ...m, [id]: i })), onReply: replyPerm, onFullAccess: (id) => void replyFullAccess(id) }, key);
         case "question":
           return /* @__PURE__ */ jsxRuntime.jsx(QuestionCard, { b, decided: decided[b.requestId], onAnswer: replyAnswer }, key);
         case "plan":
@@ -1083,6 +1189,7 @@ ${target.instructions}
           setPendingFile(path);
           setTab("diff");
         },
+        previewFile,
         contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : void 0,
         renderChildren: (children) => /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: children.map((c, i) => renderBlock(c, `${key}-${i}`)) })
       };
@@ -1145,8 +1252,15 @@ ${target.instructions}
       );
     };
     const busy = selected ? BUSY_STATES.has(selected.state) : false;
+    const activeProfile = modelProfiles.find((m) => m.id === ((selected == null ? void 0 : selected.modelRef) ?? "")) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
+    const visionOk = ((_b2 = activeProfile == null ? void 0 : activeProfile.capabilities) == null ? void 0 : _b2.vision) === true;
+    const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", flex: 1, minHeight: 0, height: "100%" }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderRight: "1px solid var(--c-border)", display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, background: "var(--c-panel)" }, children: [
+      preview && /* @__PURE__ */ jsxRuntime.jsxs(Modal, { title: `预览：${preview.path}`, confirmText: "关闭", onConfirm: () => setPreview(null), onClose: () => setPreview(null), children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 11, color: "var(--c-text3)", marginBottom: 6 }, children: previewLoading ? "加载中…" : `${preview.binary ? "二进制文件" : `${(preview.size / 1024).toFixed(1)} KB`}${preview.truncated ? " · 已截断（前 64KB）" : ""}` }),
+        /* @__PURE__ */ jsxRuntime.jsx("pre", { style: { maxHeight: 420, overflow: "auto", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "8px 10px", fontSize: 11.5, fontFamily: "var(--mono, monospace)", whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }, children: preview.content })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderRight: "1px solid var(--c-border)", display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }, children: [
         error && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner error", children: [
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: error }),
           /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setError(null), children: "✕" })
@@ -1161,7 +1275,7 @@ ${target.instructions}
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", gap: 2, padding: "6px 14px 0", borderBottom: "1px solid var(--c-border)", background: "var(--c-panel)" }, children: [["chat", "对话"], ["diff", `改动${diffCount ? ` ${diffCount}` : ""}`], ["cp", `检查点${cpCount ? ` ${cpCount}` : ""}`]].map(([id, label]) => /* @__PURE__ */ jsxRuntime.jsx(
+        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", gap: 2, padding: "6px 14px 0", borderBottom: "1px solid var(--c-border)" }, children: [["chat", "对话"], ["diff", `改动${diffCount ? ` ${diffCount}` : ""}`], ["cp", `检查点${cpCount ? ` ${cpCount}` : ""}`]].map(([id, label]) => /* @__PURE__ */ jsxRuntime.jsx(
           "div",
           {
             onClick: () => setTab(id),
@@ -1171,7 +1285,7 @@ ${target.instructions}
           id
         )) }),
         tab === "chat" && selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", background: "var(--c-panel)", flexWrap: "wrap" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }, children: [
             /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { fontSize: 11.5, padding: "1px 10px", borderRadius: 999, border: `1px solid ${stateChip(selected.state).color}`, color: stateChip(selected.state).color }, children: [
               stateChip(selected.state).label,
               busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1e3)) + "s" : ""
@@ -1207,7 +1321,7 @@ ${target.instructions}
               ] })
             }
           ),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", background: "var(--c-panel)", padding: "4px 20px 2px" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", display: "flex", gap: 16, rowGap: 2, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "4px 20px 2px" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", display: "flex", gap: 16, rowGap: 2, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)" }, children: [
             runningTool ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)" }, children: [
               "● ",
               TOOL_LABELS[runningTool.name] ?? runningTool.name,
@@ -1215,7 +1329,7 @@ ${target.instructions}
               ((Date.now() - runningTool.startTs) / 1e3).toFixed(1),
               "s"
             ] }) : /* @__PURE__ */ jsxRuntime.jsx("span", { children: "○ 空闲" }),
-            (((_b2 = selected.queued) == null ? void 0 : _b2.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)" }, children: [
+            (((_c = selected.queued) == null ? void 0 : _c.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)" }, children: [
               "⏳ 排队 ",
               selected.queued.length
             ] }) : null,
@@ -1227,9 +1341,30 @@ ${target.instructions}
             ] }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { marginLeft: "auto" }, children: "Esc 中断 · Esc×2 回滚 · Shift+Tab 模式 · ↑↓ 历史" })
           ] }) }),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", background: "var(--c-panel)", padding: "8px 20px 8px" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
             pendingPerm && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)" }, children: "◈ 等待授权（↑↓+Enter 或数字直选上方卡片选项）" }),
             mention && /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, onPick: (x) => insertMention(x, setInputText, inputText) }),
+            pendingImages.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
+              pendingImages.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
+                /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "button",
+                  {
+                    className: "tool-btn",
+                    title: "移除",
+                    style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 },
+                    onClick: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)),
+                    children: "✕"
+                  }
+                )
+              ] }, `${img.name}:${i}`)),
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", style: { alignSelf: "center" }, children: [
+                "图片 ",
+                pendingImages.length,
+                "/4",
+                !visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""
+              ] })
+            ] }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: `1px solid ${inputText.trim() ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 12, padding: "8px 12px 6px" }, children: [
               /* @__PURE__ */ jsxRuntime.jsx(
                 "textarea",
@@ -1238,6 +1373,20 @@ ${target.instructions}
                   placeholder: busy ? "agent 正在工作——输入将排队，本轮结束后自动注入（Esc 中断 / Esc×2 回滚）" : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式",
                   value: inputText,
                   onChange: (e) => onComposeChange(e.target.value, setInputText),
+                  onPaste: (e) => {
+                    const files = [...e.clipboardData.files];
+                    if (files.some((f) => f.type.startsWith("image/"))) {
+                      e.preventDefault();
+                      filesToImages(files);
+                    }
+                  },
+                  onDrop: (e) => {
+                    const files = [...e.dataTransfer.files];
+                    if (files.some((f) => f.type.startsWith("image/"))) {
+                      e.preventDefault();
+                      filesToImages(files);
+                    }
+                  },
                   onKeyDown: (e) => {
                     if (e.key === "Escape") {
                       void stopTask(selected.taskId);
@@ -1266,27 +1415,24 @@ ${target.instructions}
               ),
               /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap", rowGap: 6 }, children: [
                 /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", onClick: cycleMode, title: "Shift+Tab 循环", children: MODE_META[selected.permissionMode ?? "default"].label }),
-                /* @__PURE__ */ jsxRuntime.jsxs(
-                  "select",
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  Select,
                   {
-                    className: "input",
-                    style: { width: 130, fontSize: 11.5, padding: "1px 6px", border: "1px solid var(--c-border)", borderRadius: 999, background: "transparent", color: "var(--c-text3)" },
+                    className: "select-inline",
+                    style: { width: 130 },
                     value: selected.modelRef ?? "",
                     disabled: busy && selected.state !== "awaiting-input",
-                    onChange: async (e) => {
+                    onChange: async (v) => {
                       try {
-                        await call("agent.task.setModel", { taskId: selected.taskId, model: e.target.value });
+                        await call("agent.task.setModel", { taskId: selected.taskId, model: v });
                         await reloadAgents();
                       } catch (err) {
                         setError(err.message);
                       }
                     },
-                    children: [
-                      (modelProfiles ?? []).filter((m) => m.configured).map((m) => /* @__PURE__ */ jsxRuntime.jsxs("option", { value: m.id, children: [
-                        m.name,
-                        m.isDefault ? " ★" : ""
-                      ] }, m.id)),
-                      selected.modelRef && !(modelProfiles ?? []).some((m) => m.id === selected.modelRef) ? /* @__PURE__ */ jsxRuntime.jsx("option", { value: selected.modelRef, children: selected.modelRef }) : null
+                    options: [
+                      ...(modelProfiles ?? []).filter((m) => m.configured).map((m) => ({ value: m.id, label: m.name + (m.isDefault ? " ★" : "") })),
+                      ...selected.modelRef && !(modelProfiles ?? []).some((m) => m.id === selected.modelRef) ? [{ value: selected.modelRef, label: selected.modelRef }] : []
                     ]
                   }
                 ),
@@ -1334,6 +1480,26 @@ ${target.instructions}
             " → ",
             t("Agents_OpenSettings")
           ] }) : null,
+          pendingImages.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
+            pendingImages.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "tool-btn",
+                  title: "移除",
+                  style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 },
+                  onClick: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)),
+                  children: "✕"
+                }
+              )
+            ] }, `${img.name}:${i}`)),
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", style: { alignSelf: "center" }, children: [
+              "图片 ",
+              pendingImages.length,
+              "/4（随首条消息发送）"
+            ] })
+          ] }),
           /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: `1px solid ${composeText.trim() ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 12, padding: "10px 12px 6px", position: "relative" }, children: [
             mention && /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, onPick: (x) => insertMention(x, setComposeText, composeText) }),
             /* @__PURE__ */ jsxRuntime.jsx(
@@ -1345,6 +1511,20 @@ ${target.instructions}
 支持 @文件 提及；规划类任务先切「◇ 规划」模式（Shift+Tab）`,
                 value: composeText,
                 onChange: (e) => onComposeChange(e.target.value, setComposeText),
+                onPaste: (e) => {
+                  const files = [...e.clipboardData.files];
+                  if (files.some((f) => f.type.startsWith("image/"))) {
+                    e.preventDefault();
+                    filesToImages(files);
+                  }
+                },
+                onDrop: (e) => {
+                  const files = [...e.dataTransfer.files];
+                  if (files.some((f) => f.type.startsWith("image/"))) {
+                    e.preventDefault();
+                    filesToImages(files);
+                  }
+                },
                 onKeyDown: (e) => {
                   if (e.key === "Tab" && e.shiftKey) {
                     e.preventDefault();
@@ -1357,50 +1537,41 @@ ${target.instructions}
             ),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap", rowGap: 6 }, children: [
               /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", onClick: () => setMode(MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length]), title: "Shift+Tab 循环", children: MODE_META[mode].label }),
-              /* @__PURE__ */ jsxRuntime.jsxs(
-                "select",
+              /* @__PURE__ */ jsxRuntime.jsx(
+                Select,
                 {
-                  className: "input",
-                  style: { width: 140, fontSize: 11.5, padding: "1px 6px", border: "1px solid var(--c-border)", borderRadius: 999, background: "transparent", color: "var(--c-text3)" },
+                  className: "select-inline",
+                  style: { width: 140 },
                   value: taskTypeId,
-                  onChange: (e) => setTaskTypeId(e.target.value),
+                  onChange: (v) => setTaskTypeId(v),
                   title: t("Agents_TaskType"),
-                  children: [
-                    /* @__PURE__ */ jsxRuntime.jsx("option", { value: "", children: t("Agents_TaskTypeFree") }),
-                    taskTypes.filter((tt) => !tt.error).map((tt) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: tt.fullId, children: tt.name }, tt.fullId))
-                  ]
+                  options: [{ value: "", label: t("Agents_TaskTypeFree") }, ...taskTypes.filter((tt) => !tt.error).map((tt) => ({ value: tt.fullId, label: tt.name }))]
                 }
               ),
-              /* @__PURE__ */ jsxRuntime.jsxs(
-                "select",
+              /* @__PURE__ */ jsxRuntime.jsx(
+                Select,
                 {
-                  className: "input",
-                  style: { width: 150, fontSize: 11.5, padding: "1px 6px", border: "1px solid var(--c-border)", borderRadius: 999, background: "transparent", color: "var(--c-text3)" },
+                  className: "select-inline",
+                  style: { width: 150 },
                   value: modelId,
-                  onChange: (e) => setModelId(e.target.value),
+                  onChange: (v) => setModelId(v),
                   title: t("Agents_Model"),
-                  children: [
-                    /* @__PURE__ */ jsxRuntime.jsx("option", { value: "", children: t("Agents_ModelDefault") }),
-                    modelProfiles.filter((m) => m.configured).map((m) => /* @__PURE__ */ jsxRuntime.jsxs("option", { value: m.id, children: [
-                      m.name,
-                      m.isDefault ? " ★" : ""
-                    ] }, m.id))
-                  ]
+                  options: [{ value: "", label: t("Agents_ModelDefault") }, ...modelProfiles.filter((m) => m.configured).map((m) => ({ value: m.id, label: m.name + (m.isDefault ? " ★" : "") }))]
                 }
               ),
-              /* @__PURE__ */ jsxRuntime.jsxs(
-                "select",
+              /* @__PURE__ */ jsxRuntime.jsx(
+                Select,
                 {
-                  className: "input",
-                  style: { width: 100, fontSize: 11.5, padding: "1px 6px", border: "1px solid var(--c-border)", borderRadius: 999, background: "transparent", color: "var(--c-text3)" },
+                  className: "select-inline",
+                  style: { width: 100 },
                   value: thinking,
-                  onChange: (e) => setThinking(e.target.value),
+                  onChange: (v) => setThinking(v),
                   title: t("Agents_Thinking"),
-                  children: [
-                    /* @__PURE__ */ jsxRuntime.jsx("option", { value: "high", children: t("Agents_ThinkingHigh") }),
-                    /* @__PURE__ */ jsxRuntime.jsx("option", { value: "medium", children: t("Agents_ThinkingMedium") }),
-                    /* @__PURE__ */ jsxRuntime.jsx("option", { value: "low", children: t("Agents_ThinkingLow") }),
-                    /* @__PURE__ */ jsxRuntime.jsx("option", { value: "off", children: t("Agents_ThinkingOff") })
+                  options: [
+                    { value: "high", label: t("Agents_ThinkingHigh") },
+                    { value: "medium", label: t("Agents_ThinkingMedium") },
+                    { value: "low", label: t("Agents_ThinkingLow") },
+                    { value: "off", label: t("Agents_ThinkingOff") }
                   ]
                 }
               ),
@@ -1483,7 +1654,7 @@ ${target.instructions}
       setDiffs([]);
     };
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", background: "var(--c-panel)", flexWrap: "wrap" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: "改动" }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }, children: props.branch }),
         /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: [
@@ -1591,7 +1762,7 @@ ${target.instructions}
       };
     }, [viewSha]);
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)", background: "var(--c-panel)" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)" }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: "检查点" }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }, children: props.branch }),
         /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: [

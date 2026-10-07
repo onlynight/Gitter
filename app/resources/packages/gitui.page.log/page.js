@@ -1600,6 +1600,8 @@
   K().registerMarkdownPlugin;
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
+  const Select = K().Select;
+  K().ScrollArea;
   const GAP_WINDOW_MS = 30 * 60 * 1e3;
   function groupSessions(commitsDesc) {
     const sessions = [];
@@ -1761,26 +1763,20 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
       const emittedSessions = /* @__PURE__ */ new Set();
       const out = [];
       let curDay = "";
+      let dayCollapsed = false;
       let count = 0;
-      const pushGroup = () => {
-        if (curDay) {
-          out.push({
-            kind: "group",
-            key: curDay,
-            title: dayTitle(new Date(curDay)),
-            count,
-            collapsed: collapsedDays.has(curDay)
-          });
-        }
-      };
       for (const c of commits) {
         const day = new Date(c.committerDate * 1e3).toISOString().slice(0, 10);
         if (day !== curDay) {
-          pushGroup();
           curDay = day;
+          dayCollapsed = collapsedDays.has(day);
           count = 0;
+          out.push({ kind: "group", key: curDay, title: dayTitle(new Date(curDay)), count: 0, collapsed: dayCollapsed });
         }
         count++;
+        const last = out[out.length - 1];
+        if (last.kind === "group") last.count = count;
+        if (dayCollapsed) continue;
         const session = sessionOfSha.get(c.sha);
         if (session) {
           if (sessionHeadSha.has(c.sha) && !emittedSessions.has(session.sessionId)) {
@@ -1803,7 +1799,6 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
           ai: c.assistedBy[0]
         });
       }
-      pushGroup();
       return out;
     }, [commits, collapsedDays, collapsedSessions, selectedSha]);
     const virtualizer = useVirtualizer({
@@ -1857,13 +1852,12 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "toolbar", children: [
         /* @__PURE__ */ jsxRuntime.jsx(
-          "select",
+          Select,
           {
-            className: "input",
             value: branch,
-            onChange: (e) => setBranch(e.target.value),
+            onChange: (v) => setBranch(v),
             title: t("Log_BranchFilter"),
-            children: [.../* @__PURE__ */ new Set([branches.current ?? "", ...branches.names])].filter(Boolean).map((n) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: n, children: n }, n))
+            options: [.../* @__PURE__ */ new Set([branches.current ?? "", ...branches.names])].filter(Boolean).map((n) => ({ value: n, label: n }))
           }
         ),
         /* @__PURE__ */ jsxRuntime.jsx(

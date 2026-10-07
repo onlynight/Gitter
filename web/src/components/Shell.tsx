@@ -102,7 +102,6 @@ export function Sidebar() {
           ))}
         </>
       )}
-      <div className="nav-sep" />
       {navButton(SETTINGS_NAV)}
     </div>
   );

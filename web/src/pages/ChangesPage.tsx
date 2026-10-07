@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Banner, DiffView, Modal, SplitPane, SyncBar, useSyncProgress, useContextMenu, type CtxMenuItem } from "../kit";
+import { Banner, DiffView, Modal, ScrollArea, Select, SplitPane, SyncBar, useSyncProgress, useContextMenu, type CtxMenuItem } from "../kit";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -367,7 +367,7 @@ export function ChangesPage() {
     const collapsed = collapsedGroups.has(gkey);
     return (
       <div>
-        <div className="group-header" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleGroup(gkey)}>
+        <div className="group-header solid" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleGroup(gkey)}>
           {allowCheck && eligible.length > 0 && (
             <input
               type="checkbox"
@@ -550,7 +550,7 @@ export function ChangesPage() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px 12px 12px" }}>
       <SplitPane settingKey="changesSplitterFraction" initial={0.38} a={
         <div className="split-pane" style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ flex: 1, overflow: "auto" }}>
+          <ScrollArea className="file-scroll" style={{ flex: 1 }}>
             {state && (
               <>
                 {group("conflicts", t("Changes_Conflicts"), state.conflicts, false, false)}
@@ -565,7 +565,7 @@ export function ChangesPage() {
                 )}
               </>
             )}
-          </div>
+          </ScrollArea>
 
           <div className="commit-box">
             <div className="prefix-row">
@@ -627,7 +627,7 @@ export function ChangesPage() {
               ) : (
                 <>
                   <button
-                    className="tool-btn primary icon"
+                    className="tool-btn icon"
                     data-tip={t("Changes_StageFile")}
                     disabled={busy}
                     onClick={() => void run(async () => { await call("changes.stage", { paths: [selected.path] }); setSelected(null); setDiff(null); return t("Changes_Staged"); })}
@@ -636,7 +636,7 @@ export function ChangesPage() {
                   </button>
                   {hasSelectedHunks && (
                     <button
-                      className="tool-btn primary icon"
+                      className="tool-btn icon"
                       data-tip={t("Changes_StageHunkSelected", selectedHunks.size)}
                       disabled={busy}
                       onClick={() => void run(async () => { await call("changes.stageHunks", { path: selected.path, indices: [...selectedHunks] }); return t("Changes_StagedHunks"); })}
@@ -647,9 +647,6 @@ export function ChangesPage() {
                 </>
               )}
               <span className="grow" />
-              <button className="tool-btn icon" data-tip={t("Changes_OpenInEditor")} onClick={() => void call("shell.openPath", { path: selected.path, editor: true })}>
-                <span className="glyph">{""}</span>
-              </button>
             </div>
           )}
           {selected?.isConflict && (

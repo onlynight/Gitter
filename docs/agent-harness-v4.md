@@ -9,6 +9,9 @@
 > **补充 v5.0（2026-10-07，同日）：Agent 全阶段插件化（§二十，最新裁决）**——用户裁决"agent 实现不是单纯的页面插件化，要把 agent 的**全部阶段**都开放出来插件化，用户要能完全自定义"。§二十对一轮 turn 的完整流水线 T0–T12 逐阶段盘点差距（含代码证据：三处接缝残缺、八处硬编码、一处 P0 级假授权门），给出十条新接缝的完整契约、内置实现自举改造清单与 C1–C7 实施路线；原则从"数据可插件，引擎不插件"细化为"**编排可插件，裁决不迁移**"。§二十是 §十四 的替代与深化，两者冲突处以 §二十 为准
 > **C 系列实施进度（2026-10-07 第三轮，C1–C6 主体落地）**：C3-P0 假授权门真闭环（loopAdapter 经 LoopOptions.services.requestPermission 真挂起真回执，无服务面时安全缺省拒绝）+ ctx.registerLoop 升级 v2 契约（LoopOptions 直注册统一注册表）；C1 提示词槽位化（seams 12 槽枚举 + boundary 锁死非内置拒注册 + 九内置段自举 + composeSystemPrompt/SubagentPrompt/compactionSystemPrompt 全部改槽位渲染 + 尾部双锚定行）；C2 contextFiles L1 数据注入 + 采集器 3s 超时 + 压缩数据面调参（settings.agentsCompactionPolicy）+ taskType.compactor 选择链 + validateMessageSequence 宿主校验与 turn 末自愈；C4 commandRiskRules（max 只上调）/agentPermissionRules（deny-only 包声明）数据化 + ctx.registerSubagentPreset + 预设编译校验收紧（readonly⇒只读工具面、timeout≤600s）；C5 EVENT_NAMES 扩展五事件 + agent.tool.called 载荷最小化（去 args 明细）+ turn.completed 带 usage/durationMs + post-turn turnHooks（2s 超时、cap 2000、system-reminder 注入下一轮、settings 总开关）；C6 agent.command 会话命令页内模板展开 + 任务页斜杠补全动态列出包命令；渲染层 registerAgentUI/timelineRenderers/composerProviders/@多前缀（§14.6 已落地）。smoke 扩展至 57 项（boundary 锁死/规则只上调/序列校验自愈/E8 钩子注入新场景）；示例包扩展 contextFiles/commandRiskRules/agentPermissionRules/agent.command。**未完成（下一轮）**：设置页"提示词段/采集器/钩子"三审计视图、内置十类渲染器迁移注册表（第 2 期）、内置斜杠命令数据化自举、todo 防腐改造为内置钩子（暂留引擎，钩子接缝已开）、F10.3 图片输入进模型上下文
 > **实际插件化落地（2026-10-07 第四轮）**：内置 agent 能力真实包化——**agent.builtin.prompts**（boundary/context/workflow/tools/output/compaction/subagent 七段 L1 模板化，`{{worktree.path}}/{{branch}}/{{status}}/{{mode}}` 引擎侧插值；boundary 仅随应用分发的内置包可写，用户包声明在 sync 拒绝 + registerPromptSection 双重防线）与 **agent.builtin.presets**（explore/act 数据化，task 工具裸名按唯一后缀解析、写全名精确命中）两个内置包落入 resources/packages，经 PackageStore 正常扫描/启停——**停用即能力消失，拔除测试语义真实成立**；prompts.ts/subagents.ts 自举段相应瘦身（仅余 identity/mode/skills 三个真动态段与组装循环）；todo 防腐改造为内置钩子 `builtin.hook.todo-stale`（builtinHooks.ts，与插件钩子同接缝）；内置斜杠命令表数据化（BUILTIN_SLASH 表驱动分发）；`agent.seams.audit` RPC + 设置页"贡献审计"折叠视图（段/采集器/钩子/压缩器/预设逐包可见）；e2e builtinRoots 指向真实内置包根（包化链路端到端验证）。验证：smoke-agent-v4 57 项 + e2e 8 场景 + 六套回归全绿，双侧构建干净。**余项**：内置十类渲染器迁移注册表（第 2 期，接缝已开语义自洽）、F10.3 图片输入进模型上下文
+> **D1 图片输入（2026-10-07 第九轮，D 系列关账）**：§21.2.1 全部落地——模型档案 `capabilities.vision` 门控（设置页新档案「视觉」勾选，models.save 透传）；composer 粘贴/拖拽附件条（两 composer 共用 ≤4 张、单图 ≤4MB、缩略图可移除、非 vision 档案拒发提示）；`agent.task.resume/create` 增 attachments → 宿主 `ingestAttachments` 写主仓库 gitdir（worktree 的 .git 是指针文件不可落盘——`gitter-attachment:` 前缀协议 + previewImage 解析复用 AgentImage 回放）+ 多段 user 消息（text + image Buffer）+ journal read-image 事件。**E9 场景四断言全绿**（非 vision 拒绝 / image part 进模型消息 / 附件落盘 / read-image 事件），e2e 扩至 9 场景。D1–D9 全部完成，§二十一 D 系列关账；架构级差异（沙箱等）保持裁决不变。
+> **D 系列功能补齐第二批 P1（2026-10-07 第八轮）**：§21.3 D6–D9 落地——`/export` 会话导出（journal → markdown + 主进程保存框）；`@任务` 跨任务引用（宿主 resume/queue 解析 短id/任务名前缀 → system-reminder 附摘要，≤2 个；@ 浮层混排任务条目）；模型硬失败自动降级（alternateModel 备用链 + 一轮一次 + 时间线可见）；文件只读预览（`agent.task.previewFile` RPC + 时间线/改动页「预览」Modal，cap 64KB、二进制嗅探）。新 RPC 权限域登记（export=agent.config、previewFile=git.read，smoke-u2 分级表断言护航）。**余项：D1 图片输入（唯一 P0）**
+> **D 系列功能补齐第一批（2026-10-07 第七轮）**：§二十一 D 系列路线落地（D2–D5）——`web_search`/`web_fetch` 内置工具（DuckDuckGo 免钥 + 正文剥离，session 权限、readonly、私网地址防护）；内置 `review` 子代理预设 + `/review`、`/init` 模板命令（模板命令走 resume/queue 分发，零新增 RPC）；任务完成 OS 通知（completed/failed/interrupted、窗口未聚焦时弹、点击聚焦、`agentsNotify` 开关）。D1 图片输入 / D6–D9 列入下轮（§21.3）。
 > **任务页渲染层第 2 期迁移 + 溢出根治（2026-10-07 第五轮）**：agentUIRegistry 升级三级提供者（user > builtin > host，特异性（工具精确>前缀>blockKind）×层级×rank 竞争 + 版本号响应式）；**注册表单源回宿主**——页面包此前把 registry 打包成自己的副本（外部包贡献根本到不了任务页的接线断裂），现 build 面经 external/agentUIShim 消费 GITTER_UI 查询面（resolveTimelineRenderer/composerProviders/onAgentUIChanged）；gitui.page.tasks **十类展示块 + @文件 provider 以 builtin 层自举注册**，renderBlock 仅余裁决面三卡（授权/提问/计划）硬接线（§20.3.7 语义达成，§20.5"任务页十类块硬 switch"行关闭）；composer 提及匹配通用化（长前缀优先、prefix 不竞争并存、同前缀用户包覆盖内置）；pageLoader 包注销连带 unregisterAgentUI（修注册残留泄漏）。**任务页窗口溢出根治**：grid `1fr`→`minmax(0,1fr)` + 右栏 minWidth:0（grid item 自动最小尺寸回收——对话内容的 min-content 宽度不再撑破窗口轨道）、时间线 overflowX hidden、状态行/输入台行 flexWrap、检查点行换行、md-body img/table 限宽、工具卡 tail break-all、ChangesTab 文件头路径省略；Electron 夹具（真实 page.js + 真实注册表 + 假外部包）760/900/1000/1280 四档 docScrollW==clientWidth 全绿 + 接缝断言（builtin 10 渲染器自举、user 包 tool 精确渲染卡命中、@ 与 #qa 双 provider 浮层）。
 > **插件挂载树（2026-10-07 第六轮）**：设置页扩展管理支持**树状视图**（默认）——页面（槽位）→ 页面提供者（含 agent UI 本页自举计数）/ 挂载其下的插件（时间线渲染器、输入台 provider、会话命令 agent.command、同槽位替补提供者）→ 贡献明细卡（启停/卸载/配置沿用原卡片）；非页面级包（主题/模型/安全规则…）归入"全局（非页面级）"分支按类型分组；保留"类型分组"视图切换。数据面 = PageSurface 新增 `extTree()` 快照（uiPages 胜者 + uiPageProvidersFor 替补 + agentUIRegistrations，surface.ts 单一源，pageSdk/GITTER_UI 双面同实现，gen-ui-sdk d.ts 已同步）；渲染层注册表数据不出进程（RPC 不可达），设置页经 pageSdk 消费。顺带修复：gitui.page.tasks manifest 补声明 `settings.write` 权限域——授权卡"总是允许前缀"写持久规则调 settings.set 此前缺声明（运行时会被桥拒绝，smoke-ui-pages 权限足迹断言抓获）。回归：tsc / check-page-imports / boot-check / e2e-pages-check（node-pty ConPTY agent 在本机 shell 偶发 AttachConsole 崩溃为环境抖动，探针断言恒 PASS）/ smoke-agent-v4 / smoke-ui-pages / smoke-ui-runtime 全绿。**余项**：F10.3 图片输入进模型上下文
 > 阅读顺序：§〇 缺口矩阵（先看）→ §一 架构 → §二~§十三 功能分册 F1–F12 → §十四 全插件化（v4.1，被 §二十 深化）→ §十五 协议汇总 → §十六 配置增量 → §十七 路线 B1–B6 → **§二十 全阶段插件化 v5.0（当前设计前沿）**
@@ -1125,3 +1128,74 @@ GITTER_UI.registerAgentUI({
 - **token 估算器接缝**：无真实定制需求，接缝反引入口径分裂（20.3.3）；
 - **跨任务多 agent 编排 / 工作流引擎**：v4 §十九 边界不变，子代理仍单层服务单任务；
 - **L3 沙箱循环开放**：触发条件不变（§14.1），LoopOptions 契约保持对 L3 友好即可。
+
+---
+
+## 二十一、D 系列——对照 Codex / ZCode 的功能补齐（2026-10-07）
+
+> 状态：v5.1 增补提案，当日落地 D2–D5。§二十回答"接缝"（怎么开放），本册回答"能力"（还缺什么）——以 Codex CLI/desktop 与 ZCode（Claude Code）为对照的 agent 功能缺口盘点与补齐路线。
+> 盘点方法：全量扫描 web/src 与 app/src/services/agents，交叉核对在册余项；误判项已排除（fastModelId 快慢分工已接线、重试退避已有、MCP 工具入循环已有、AGENTS.md 层级读取已有、完全访问升级已有）。
+
+### 21.1 缺口矩阵
+
+| # | 能力 | Codex | ZCode | Gitter 现状 | 定级 | 分册 |
+|---|---|---|---|---|---|---|
+| D1 | 图片/多模态输入 | ✓ 贴图进上下文 | ✓ | composer 占位被禁（F10.3 在册余项） | P0 | 21.2.1（下轮） |
+| D2 | Web 检索/网页读取 | web_search | WebSearch/WebFetch | 工具面无任何网络工具 | P0 | 21.2.2 ✅ |
+| D3 | 一键代码审查 | /review | 审查流 | 接缝齐（preset+command）无内置 review | P0 | 21.2.3 ✅ |
+| D4 | /init 生成 AGENTS.md | ✓ | — | 只读不生成 | P0 | 21.2.4 ✅ |
+| D5 | 任务完成 OS 通知 | ✓ | ✓ | 无 | P1 | 21.2.5 ✅ |
+| D6 | 会话导出 /export（markdown） | ✓ | ✓ | 无 | P1 | 21.3（下轮） |
+| D7 | @任务 跨任务引用（F10.1 设计过） | — | — | @ 只匹配文件 | P1 | 21.3（下轮） |
+| D8 | 模型硬失败自动降级续跑 | ✓ 兜底链 | ✓ | 重试退避已有，provider 失败即 failed | P1 | 21.3（下轮） |
+| D9 | 生成文件只读预览（非 diff） | IDE 内联 | ✓ | 只有 diff 视图 | P1 | 21.3（下轮） |
+
+### 21.2 P0/P1 分册
+
+#### 21.2.1 D1 图片/多模态输入（F10.3，下轮）
+- 范围：模型档案 `vision` 门控 → composer 粘贴/拖拽附件条 → `agent.task.resume` 增 attachments → 消息构造为多段 content（text + image base64）；复用 agent.previewImage 的读取与二进制嗅探。多图 ≤4、单图 ≤4MB。
+- 验收：vision 模型贴截图报错可复现修复；非 vision 模型 toast 拒绝；历史回放显示附件卡。
+
+#### 21.2.2 D2 Web 工具 ✅
+- `web_search`（DuckDuckGo HTML 端点，免钥；标题/URL/摘要 ≤8 条）+ `web_fetch`（URL → 正文文本，HTML 剥离标签，cap 32KB，超时 20s）。
+- 安全：仅 http/https；禁 localhost/私网/链路本机地址（防注入探测内网）；permissionClass=session（首次询问可记住）；readonly=true（plan 模式可调研网络）；描述声明不可靠性（摘要可能过期）。
+
+#### 21.2.3 D3 内置 review ✅
+- agent.builtin.presets 增 `review` 预设（只读工具面 + 审查产出规范 addendum：文件:行号 + 高/中/低 + 修复建议 + 可合并结论）。
+- 任务页 `/review` 斜杠命令：引导主 agent 以 task(mode=review) 审查当前工作区改动；busy 走排队、idle 走续跑（零新增 RPC）。
+
+#### 21.2.4 D4 /init ✅
+- 任务页 `/init` 斜杠命令：分析仓库结构/构建/测试约定/现有文档 → 生成或合并更新仓库根 AGENTS.md（写文件走既有授权卡）。
+
+#### 21.2.5 D5 任务完成 OS 通知 ✅
+- `agent.turn.completed`（completed/failed/interrupted）→ Electron Notification（标题=任务名、正文=结果/摘要）；窗口聚焦时不打扰；点击通知聚焦窗口。设置页 Agent 区开关（默认开）。
+
+### 21.3 P1 分册（D6–D9，本轮落地）
+
+#### 21.3.1 D6 `/export` 会话导出 ✅
+- `agent.task.export` RPC：journal（含 disk 分页段）→ markdown——头部元信息（标题/分支/状态/轮数）+ 逐条时间线（用户/助手全文、工具卡一行摘要、计划/todo/checkpoint 行）；主进程 `dialog.showSaveDialog` 落盘，返回路径回显时间线。
+- 页面 `/export` 模板命令触发；零新增权限域（走 agent.config）。
+
+#### 21.3.2 D7 `@任务` 跨任务引用 ✅
+- 解析在宿主（resume/queue 入口）：`@<短id|任务名前缀>` → 同仓库其他任务（≤2 个引用），以 system-reminder 附该任务 标题/状态/分支/lastMessage/todo 进度；原文中的 @标记 替换为已展开说明。
+- composer @ 浮层混合列出文件 + 本仓库任务（label「任务：标题」，insert 短 id）；无匹配任务静默跳过（可能是普通 @路径）。
+
+#### 21.3.3 D8 模型硬失败自动降级 ✅
+- deps 增 `alternateModel(excludeRef)`（default 优先、否则首个 ≠ 失败档案；解密同 resolveModel）。
+- turn 失败（重试耗尽/不可重试）且本轮未降级过 → 切替代模型续跑一次：注入 system-reminder「模型 X 失败，已切换至 Y 继续任务」，usage 记账跟随新档案；再失败按原样 failed（不无限循环）。时间线 log 可见切换。
+
+#### 21.3.4 D9 生成文件只读预览 ✅
+- `agent.task.previewFile` RPC：resolveSafe 读 worktree 文件 → { content(cap 64KB+truncated), binary, size }；二进制返回嗅探说明。
+- UI：时间线 file 块与改动页文件头加「预览」→ Modal 展示 pre（等宽、可复制）；read-image 走既有 AgentImage 不变。
+
+### 21.4 架构级差异（裁决，非缺口——与 Codex/ZCode 的有意不同）
+- **命令沙箱**：Codex 用 OS 沙箱（Seatbelt/受限令牌）；Gitter 靠 worktree 隔离 + 授权卡，L3 沙箱按 §14.1 条件封存——Windows 上与 Codex 安全模型差距最大的一项，如需对齐须单独立项。
+- **pre-tool 钩子**：ZCode 可挂钩改工具行为；Gitter 只开放 post-turn（§20.4 裁决面不开放）。
+- **子代理形态**：ZCode 支持后台异步 agent；Gitter 同步并发、深度 1、单任务（§19）。
+- **云端任务 / best-of-N**：Codex cloud；Gitter 本地单机（§19 明确不做）。
+
+### 21.5 验收
+1. D2：`/`对话中让 agent 搜索某库的最新 issue → web_search 返回结果 → web_fetch 读取正文；私网地址被拒；plan 模式可用。
+2. D3：`/review` → review 子代理产出问题清单（文件:行号 + 级别），零文件修改（工具面断言）。
+3. D4：`/init` → 仓库根出现/更新 AGENTS.md（过授权卡）；再跑一次为合并改进。
+4. D5：任务 completed/failed → OS 通知出现；窗口聚焦时静默；设置开关关闭后静默。

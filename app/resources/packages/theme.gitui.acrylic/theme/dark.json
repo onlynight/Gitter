@@ -1,0 +1,42 @@
+{
+  "id": "gitui.theme.acrylic-dark",
+  "name": "深色",
+  "base": "dark",
+  "inherits": null,
+  "tokens": {
+    "Base": "#14161B99",
+    "Panel": "#FFFFFF0A",
+    "Panel2": "#FFFFFF12",
+    "Hover": "#FFFFFF14",
+    "Selected": "#FFFFFF2B",
+    "Border": "#FFFFFF21",
+    "BorderStrong": "#FFFFFF40",
+    "Accent": "#EAEAEA",
+    "AccentHover": "#FFFFFF",
+    "AccentPressed": "#C9C9C9",
+    "AccentSoft": "#EAEAEA1F",
+    "OnAccent": "#14161B",
+    "Text": "#EAEAEA",
+    "Text2": "#A8B0BC",
+    "Text3": "#78828E",
+    "Link": "#6BABF5",
+    "Green": "#3FB950",
+    "Red": "#F0655A",
+    "Amber": "#E3B341",
+    "ChipBlueBg": "#25324480",
+    "ChipBlueFg": "#8DB8F5",
+    "ChipPurpleBg": "#2B244080",
+    "ChipPurpleFg": "#B9A3EC"
+  },
+  "syntax": {
+    "keyword": "#569CD6",
+    "string": "#6A9955",
+    "comment": "#6A9955",
+    "number": "#B5CEA8",
+    "type": "#4EC9B0",
+    "function": "#DCDCAA",
+    "variable": "#9CDCFE",
+    "operator": "#D4D4D4",
+    "punctuation": "#D4D4D4"
+  }
+}

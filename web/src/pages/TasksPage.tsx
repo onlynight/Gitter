@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { DiffView, renderMarkdown } from "../kit";
+import { DiffView, Modal, renderMarkdown, Select } from "../kit";
 import type {
   AgentCheckpointDTO, AgentContextStatsDTO, AgentEventDTO, AgentHarnessDTO, AgentTaskDTO,
   AgentTaskFileDTO, DiffDTO, ModelProfileDTO, TaskTypeDTO, WorktreeDTO,
@@ -24,6 +24,7 @@ const MODE_META: Record<string, { label: string; color: string }> = {
 };
 
 const TOOL_LABELS: Record<string, string> = {
+  web_search: "网络搜索", web_fetch: "读取网页",
   repo_status: "工作区状态", repo_diff: "读取 diff", repo_log: "提交历史",
   repo_read_file: "读文件", repo_list_files: "列文件", repo_glob: "找文件", repo_grep: "搜索内容",
   review_get_state: "验收反馈", file_write: "写文件", file_patch: "编辑文件",
@@ -33,7 +34,7 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 /** 内置斜杠命令表（§20.3.8 数据化自举：补全列表与分发表同一数据源；包命令走 agent.command 贡献） */
-const BUILTIN_SLASH: { name: string; arg?: string; hint: string }[] = [
+const BUILTIN_SLASH: { name: string; arg?: string; hint: string; template?: string }[] = [
   { name: "compact", hint: "立即压缩上下文" },
   { name: "clear", hint: "重置会话（保留 worktree/checkpoint）" },
   { name: "plan", hint: "切规划模式" },
@@ -45,6 +46,12 @@ const BUILTIN_SLASH: { name: string; arg?: string; hint: string }[] = [
   { name: "thinking", arg: "<level>", hint: "切换思考深度" },
   { name: "fork", hint: "分叉任务" },
   { name: "skill", arg: "<名称>", hint: "注入技能指引" },
+  { name: "export", hint: "导出会话为 Markdown 文件" },
+  // 模板命令（D3/D4）：与包命令同一分发语义（busy 排队 / idle 续跑，零新增 RPC）
+  { name: "review", hint: "审查当前工作区改动（review 子代理）",
+    template: "请用 task 工具（mode=review）审查当前工作区改动：先 repo_status / repo_diff 获取变更，逐文件审查正确性、边界条件与测试影响，产出问题清单（文件:行号 + 高/中/低 + 修复建议），最后给出可合并结论。${input}" },
+  { name: "init", hint: "分析仓库并生成/更新 AGENTS.md",
+    template: "请分析当前仓库（目录结构、构建/测试/lint 命令、代码约定、现有文档），在仓库根生成或更新 AGENTS.md：项目简介、常用命令、目录导览、代码约定与注意事项。已存在时合并改进而非覆盖。${input}" },
 ];
 
 // ---- 时间线块模型（v3：⏺ 工具卡折叠 / ⎿ 结果缩进）----
@@ -179,15 +186,17 @@ function stateChip(s: AgentTaskDTO["state"]): { label: string; color: string } {
 
 // ---- ZCode 式交互组件 ----
 
-type PermOption = { label: string; reply: { ok: boolean; remember?: boolean; rulePrefix?: string | null } };
+type PermOption = { label: string; reply: { ok: boolean; remember?: boolean; rulePrefix?: string | null; fullAccess?: boolean } };
 
-/** 授权卡编号选项生成（§四：一次 / 本会话 / 总是允许前缀 / 否）。 */
-function permOptions(b: Extract<Block, { kind: "permission" }>): PermOption[] {
+/** 授权卡编号选项生成（§四 + Codex 式升级）：一次 / 本会话 / 总是允许前缀 / 完全访问（切 yolo）/ 否。
+ * fullAccess = 批准当前请求并把任务切到 yolo 模式（后续免询问；推送/高危命令由安全内核恒拦，不可放宽）。 */
+function permOptions(b: Extract<Block, { kind: "permission" }>, showFullAccess = false): PermOption[] {
   const sig = b.command ?? b.title;
   const prefix = sig ? sig.slice(0, 24) : null;
   const opts: PermOption[] = [{ label: "1. 是，执行一次", reply: { ok: true } }];
   if (b.rememberable !== false) opts.push({ label: "2. 是，本会话不再询问", reply: { ok: true, remember: true } });
   if (prefix) opts.push({ label: `3. 是，总是允许前缀 “${prefix}”`, reply: { ok: true, remember: true, rulePrefix: prefix } });
+  if (showFullAccess) opts.push({ label: `${opts.length + 1}. 完全访问：批准并切换（后续免询问，推送/高危除外）`, reply: { ok: true, remember: true, fullAccess: true } });
   opts.push({ label: `${opts.length + 1}. 否，告诉 agent 改用其他方式`, reply: { ok: false } });
   return opts;
 }
@@ -219,7 +228,7 @@ function MentionPopover(props: {
   const { mention, items, onPick } = props;
   if (!mention || items.length === 0) return null;
   return (
-    <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4, maxHeight: 180, overflowY: "auto", background: "var(--c-panel)", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }}>
+    <div className="mention-pop" style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 180, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }}>
       {items.map((it) => (
         <div key={it.label} style={{ padding: "4px 10px", fontSize: 12, cursor: "pointer" }} onMouseDown={(e) => { e.preventDefault(); onPick(it.insert); }}>
           {it.label}
@@ -294,8 +303,10 @@ function PermissionCard(props: {
   b: Extract<Block, { kind: "permission" }>;
   decided: string | undefined;
   sel: number;
+  showFullAccess: boolean;
   onSel: (requestId: string, i: number) => void;
   onReply: (requestId: string, ok: boolean, remember?: boolean, rulePrefix?: string | null) => void;
+  onFullAccess: (requestId: string) => void;
 }) {
   const { b, decided, sel } = props;
   const kindLabel: Record<string, string> = {
@@ -303,7 +314,7 @@ function PermissionCard(props: {
     mcp: "MCP", plugin: "插件", restore: "恢复",
   };
   const kind = b.payload?.kind ?? "command";
-  const options = permOptions(b);
+  const options = permOptions(b, props.showFullAccess);
   return (
     <div style={{ border: `1px solid ${decided ? "var(--c-border)" : "var(--c-amber)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }}>
       <div style={{ color: decided ? "var(--c-text3)" : "var(--c-amber)", fontWeight: 700, marginBottom: 4 }}>
@@ -327,7 +338,8 @@ function PermissionCard(props: {
               <div key={o.label}
                 onClick={() => {
                   props.onSel(b.requestId, i);
-                  if (o.reply.rulePrefix !== undefined && o.reply.rulePrefix !== null && o.reply.ok) props.onReply(b.requestId, true, true, o.reply.rulePrefix);
+                  if (o.reply.fullAccess) props.onFullAccess(b.requestId);
+                  else if (o.reply.rulePrefix !== undefined && o.reply.rulePrefix !== null && o.reply.ok) props.onReply(b.requestId, true, true, o.reply.rulePrefix);
                   else props.onReply(b.requestId, o.reply.ok, o.reply.remember);
                 }}
                 style={{ display: "flex", gap: 8, padding: "4px 10px", borderRadius: 8, cursor: "pointer", border: `1px solid ${sel === i ? "var(--c-border)" : "transparent"}`, background: sel === i ? "var(--c-panel)" : "transparent" }}>
@@ -514,6 +526,9 @@ const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
           {ctx?.viewFile && (
             <button className="tool-btn" style={{ fontSize: 10.5, marginLeft: 8, padding: "0 6px" }} onClick={() => ctx.viewFile?.(b.path)}>查看</button>
           )}
+          {ctx?.previewFile && b.changeKind !== "deleted" && (
+            <button className="tool-btn" style={{ fontSize: 10.5, marginLeft: 4, padding: "0 6px" }} onClick={() => ctx.previewFile?.(b.path)}>预览</button>
+          )}
         </div>
       );
     },
@@ -611,6 +626,35 @@ export function TasksPage() {
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [pendingFile, setPendingFile] = useState<string | null>(null);
+  // D1 图片输入（§21.2.1）：粘贴/拖拽附件（继续对话与新任务 composer 共用，互斥显示）
+  const [pendingImages, setPendingImages] = useState<{ name: string; dataUrl: string }[]>([]);
+  const addImages = useCallback((files: { name: string; dataUrl: string }[]) => {
+    setPendingImages((cur) => {
+      const next = [...cur, ...files].slice(0, 4);
+      return next;
+    });
+  }, []);
+  const filesToImages = useCallback((files: File[]) => {
+    const imgs = files.filter((f) => /^image\//.test(f.type)).slice(0, 4);
+    for (const f of imgs) {
+      if (f.size > 4 * 1024 * 1024) { setError(`图片超过 4MB 上限：${f.name}`); continue; }
+      const reader = new FileReader();
+      reader.onload = () => addImages([{ name: f.name || "image.png", dataUrl: String(reader.result) }]);
+      reader.readAsDataURL(f);
+    }
+  }, [addImages]);
+  // D9 只读预览（§21.3.4）
+  const [preview, setPreview] = useState<{ path: string; content: string; truncated: boolean; binary: boolean; size: number } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewFile = useCallback((path: string) => {
+    if (!selectedTask) return;
+    setPreviewLoading(true);
+    setPreview({ path, content: "", truncated: false, binary: false, size: 0 });
+    void call<{ content: string; truncated: boolean; binary: boolean; size: number }>("agent.task.previewFile", { taskId: selectedTask, path })
+      .then((r) => setPreview({ path, ...r }))
+      .catch((e) => setPreview({ path, content: `（读取失败：${(e as Error).message}）`, truncated: false, binary: false, size: 0 }))
+      .finally(() => setPreviewLoading(false));
+  }, [selectedTask]);
   const [cpCount, setCpCount] = useState(0);
   const [diffCount, setDiffCount] = useState(0);
   const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -790,7 +834,6 @@ export function TasksPage() {
     }
     return null;
   })();
-  const permOptionCount = pendingPerm ? permOptions(pendingPerm).length : 0;
 
   const replyPerm = useCallback(async (requestId: string, ok: boolean, remember?: boolean, rulePrefix?: string | null) => {
     setDecided((d) => ({ ...d, [requestId]: ok ? (rulePrefix ? "rule" : "ok") : "deny" }));
@@ -812,18 +855,32 @@ export function TasksPage() {
     } catch (e) { setError((e as Error).message); }
   }, [selectedTask, evMap]);
 
+  // Codex 式升级：批准当前请求并把任务切到完全访问（yolo）——安全内核（推送/高危恒拦）不受影响
+  const replyFullAccess = useCallback(async (requestId: string) => {
+    if (!selected) return;
+    setDecided((d) => ({ ...d, [requestId]: "ok" }));
+    try {
+      await call("agent.perm.reply", { requestId, ok: true, remember: true });
+      await call("agent.task.setMode", { taskId: selected.taskId, mode: "yolo" });
+      setMode("yolo");
+      await reloadAgents();
+    } catch (e) { setError((e as Error).message); }
+  }, [selected, reloadAgents]);
+
   // 授权卡键盘：↑↓/Enter/数字直选（焦点不在输入框时）
+  const showFullAccess = (selected?.permissionMode ?? "default") !== "yolo";
   useEffect(() => {
     if (!pendingPerm || !selectedTask) return;
     const requestId = pendingPerm.requestId;
-    const opts = permOptions(pendingPerm);
+    const opts = permOptions(pendingPerm, showFullAccess);
     const h = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "TEXTAREA" || tag === "INPUT") return;
       const cur = permSel[requestId] ?? 0;
       const apply = (idx: number) => {
         const o = opts[Math.min(idx, opts.length - 1)];
-        if (o.reply.rulePrefix !== undefined && o.reply.rulePrefix !== null && o.reply.ok) replyPerm(requestId, true, true, o.reply.rulePrefix);
+        if (o.reply.fullAccess) void replyFullAccess(requestId);
+        else if (o.reply.rulePrefix !== undefined && o.reply.rulePrefix !== null && o.reply.ok) replyPerm(requestId, true, true, o.reply.rulePrefix);
         else replyPerm(requestId, o.reply.ok, o.reply.remember);
       };
       if (e.key === "ArrowDown") { e.preventDefault(); setPermSel((m) => ({ ...m, [requestId]: Math.min(cur + 1, opts.length - 1) })); }
@@ -836,7 +893,7 @@ export function TasksPage() {
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [pendingPerm, selectedTask, permSel, replyPerm]);
+  }, [pendingPerm, selectedTask, permSel, replyPerm, replyFullAccess, showFullAccess]);
 
   // Shift+Tab 权限模式循环
   const cycleMode = useCallback(() => {
@@ -889,6 +946,22 @@ export function TasksPage() {
       try {
         if (builtin) {
           const name = builtin.name;
+          if (name === "export") {
+            // D6 会话导出：主进程生成 markdown 并弹保存框
+            try {
+              await call<{ canceled: boolean; path?: string }>("agent.task.export", { taskId: selected.taskId });
+            } catch (err) { setError((err as Error).message); }
+            setInputText("");
+            return;
+          }
+          if (builtin.template) {
+            // 模板命令（review/init）：展开后走 resume/queue（同包命令语义）
+            const expanded = builtin.template.replace(/\$\{input\}/g, arg);
+            if (BUSY_STATES.has(selected.state)) await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded });
+            else await call("agent.task.resume", { taskId: selected.taskId, prompt: expanded, thinking, mode });
+            setInputText("");
+            return;
+          }
           if (name === "compact") await call("agent.task.compact", { taskId: selected.taskId });
           else if (name === "clear") await call("agent.task.clear", { taskId: selected.taskId });
           else if (name === "plan" || name === "default" || name === "yolo" || name === "approvals") {
@@ -933,15 +1006,26 @@ export function TasksPage() {
       return;
     }
 
+    if (pendingImages.length > 0 && !visionOk) {
+      setError("当前模型档案未声明视觉（vision）能力，无法发送图片——请在 设置 → 模型档案 勾选「视觉」");
+      return;
+    }
     inputHistory.current = [text, ...inputHistory.current.filter((x) => x !== text)].slice(0, 20);
     historyIdx.current = -1;
     setEvMap((m) => ({ ...m, [selected.taskId]: pushCap(m[selected.taskId] ?? [], { kind: "human", text }) }));
     setInputText("");
     setSending(true);
+    const attachments = attachmentsPayload;
+    setPendingImages([]);
     const busy = BUSY_STATES.has(selected.state);
     try {
-      if (busy) await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
-      else await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode });
+      if (busy) {
+        // 排队轮不支持多模态注入：busy 时图片随文本提示走下轮（主进程忽略排队附件）
+        if (attachments.length > 0) setError("任务运行中：图片将不随排队消息注入，请等本轮结束再发送");
+        await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
+      } else {
+        await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode, ...(attachments.length > 0 ? { attachments } : {}) });
+      }
       await reloadAgents();
     } catch (e) { setError((e as Error).message); } finally { setSending(false); }
   };
@@ -950,11 +1034,20 @@ export function TasksPage() {
     if (!composeText.trim() || sending) return;
     setSending(true);
     try {
+      if (pendingImages.length > 0) {
+        const chosen = modelProfiles.find((m) => m.id === modelId) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
+        if (chosen?.capabilities?.vision !== true) {
+          setError("所选模型档案未声明视觉（vision）能力，无法带图创建任务");
+          return;
+        }
+      }
       const record = await call<AgentTaskDTO>("agent.task.create", {
         prompt: composeText.trim(), taskType: taskTypeId || undefined, model: modelId || undefined,
         thinking, mode,
+        ...(pendingImages.length > 0 ? { attachments: attachmentsPayload } : {}),
       });
       setComposeText("");
+      setPendingImages([]);
       setSelectedTask(record.taskId);
       setEvMap((m) => ({ ...m, [record.taskId]: [{ kind: "human", text: composeText.trim() }] }));
       await reloadAgents();
@@ -987,7 +1080,17 @@ export function TasksPage() {
     const provider = providers.find((x) => x.prefix === prefix);
     if (!provider) { setMentionItems([]); return; }
     void Promise.resolve(provider.source(query).catch(() => []))
-      .then((items) => setMentionItems(items.slice(0, 50)));
+      .then((items) => {
+        // D7 @任务：本仓库其他任务混入补全（insert 短 id，宿主 resume/queue 解析展开）
+        if (prefix !== "@") { setMentionItems(items.slice(0, 50)); return; }
+        const q = query.toLowerCase();
+        const taskItems = (agentTasks ?? [])
+          .filter((t) => t.taskId !== selected?.taskId)
+          .filter((t) => !q || t.title.toLowerCase().includes(q) || t.taskId.startsWith(query))
+          .slice(0, 6)
+          .map((t) => ({ label: `任务：${t.title}`, insert: t.taskId.slice(0, 8) }));
+        setMentionItems([...taskItems, ...items].slice(0, 50));
+      });
   };
   const insertMention = (insert: string, setter: (v: string) => void, current: string) => {
     if (!mention) return;
@@ -1001,7 +1104,7 @@ export function TasksPage() {
   const renderBlock = (b: Block, key: string | number): ReactNode => {
     switch (b.kind) {
       case "permission":
-        return <PermissionCard key={key} b={b} decided={decided[b.requestId]} sel={permSel[b.requestId] ?? 0} onSel={(id, i) => setPermSel((m) => ({ ...m, [id]: i }))} onReply={replyPerm} />;
+        return <PermissionCard key={key} b={b} decided={decided[b.requestId]} sel={permSel[b.requestId] ?? 0} showFullAccess={showFullAccess} onSel={(id, i) => setPermSel((m) => ({ ...m, [id]: i }))} onReply={replyPerm} onFullAccess={(id) => void replyFullAccess(id)} />;
       case "question":
         return <QuestionCard key={key} b={b} decided={decided[b.requestId]} onAnswer={replyAnswer} />;
       case "plan":
@@ -1014,6 +1117,7 @@ export function TasksPage() {
     const ctx: TimelineCardCtx = {
       taskId: selectedTask ?? "",
       viewFile: (path) => { setPendingFile(path); setTab("diff"); },
+      previewFile,
       contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : undefined,
       renderChildren: (children) => <Fragment>{(children as Block[]).map((c, i) => renderBlock(c, `${key}-${i}`))}</Fragment>,
     };
@@ -1051,11 +1155,23 @@ export function TasksPage() {
   };
 
   const busy = selected ? BUSY_STATES.has(selected.state) : false;
+  // D1 vision 门控：当前生效档案（任务绑定 → 默认★）未声明 vision 时拒发图片
+  const activeProfile = modelProfiles.find((m) => m.id === (selected?.modelRef ?? "")) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
+  const visionOk = activeProfile?.capabilities?.vision === true;
+  const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", flex: 1, minHeight: 0, height: "100%" }}>
+      {preview && (
+        <Modal title={`预览：${preview.path}`} confirmText="关闭" onConfirm={() => setPreview(null)} onClose={() => setPreview(null)}>
+          <div style={{ fontSize: 11, color: "var(--c-text3)", marginBottom: 6 }}>
+            {previewLoading ? "加载中…" : `${preview.binary ? "二进制文件" : `${(preview.size / 1024).toFixed(1)} KB`}${preview.truncated ? " · 已截断（前 64KB）" : ""}`}
+          </div>
+          <pre style={{ maxHeight: 420, overflow: "auto", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "8px 10px", fontSize: 11.5, fontFamily: "var(--mono, monospace)", whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>{preview.content}</pre>
+        </Modal>
+      )}
       {/* ═══ 左：任务列表（Codex 任务卡）═══ */}
-      <div style={{ borderRight: "1px solid var(--c-border)", display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, background: "var(--c-panel)" }}>
+      <div style={{ borderRight: "1px solid var(--c-border)", display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
         {error && <div className="banner error"><span className="banner-text">{error}</span><button className="tool-btn" onClick={() => setError(null)}>✕</button></div>}
         <div onClick={() => { setSelectedTask(null); setTab("chat"); }} style={{ margin: "10px 10px 6px", padding: "9px 12px", border: "2px dashed var(--c-border)", borderRadius: 8, color: "var(--c-text3)", textAlign: "center", cursor: "pointer", fontSize: 12.5 }}>
           ＋ 新任务（描述目标，Ctrl+N）
@@ -1071,7 +1187,7 @@ export function TasksPage() {
       {/* ═══ 右：详情（页签 = 全局导航；三页互斥独立）═══ */}
       {/* minWidth: 0 = grid item 自动最小尺寸回收：对话内容的 min-content 宽度不再把 1fr 轨道撑破窗口 */}
       <div style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
-        <div style={{ display: "flex", gap: 2, padding: "6px 14px 0", borderBottom: "1px solid var(--c-border)", background: "var(--c-panel)" }}>
+        <div style={{ display: "flex", gap: 2, padding: "6px 14px 0", borderBottom: "1px solid var(--c-border)" }}>
           {([["chat", "对话"], ["diff", `改动${diffCount ? ` ${diffCount}` : ""}`], ["cp", `检查点${cpCount ? ` ${cpCount}` : ""}`]] as const).map(([id, label]) => (
             <div key={id} onClick={() => setTab(id)}
               style={{ padding: "5px 14px", fontSize: 12.5, color: tab === id ? "var(--c-text)" : "var(--c-text3)", cursor: "pointer", border: `1px solid ${tab === id ? "var(--c-border)" : "transparent"}`, borderBottom: "none", borderRadius: "8px 8px 0 0" }}>
@@ -1083,7 +1199,7 @@ export function TasksPage() {
         {/* ═══ 对话页 ═══ */}
         {tab === "chat" && selected && (
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", background: "var(--c-panel)", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }}>
               <span style={{ fontSize: 11.5, padding: "1px 10px", borderRadius: 999, border: `1px solid ${stateChip(selected.state).color}`, color: stateChip(selected.state).color }}>
                 {stateChip(selected.state).label}{busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1000)) + "s" : ""}
               </span>
@@ -1118,7 +1234,7 @@ export function TasksPage() {
                 )}
               </div>
             </div>
-            <div style={{ borderTop: "1px solid var(--c-border)", background: "var(--c-panel)", padding: "4px 20px 2px" }}>
+            <div style={{ borderTop: "1px solid var(--c-border)", padding: "4px 20px 2px" }}>
               <div style={{ maxWidth: 880, margin: "0 auto", display: "flex", gap: 16, rowGap: 2, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)" }}>
                 {runningTool ? (
                   <span style={{ color: "var(--c-amber)" }}>● {(TOOL_LABELS[runningTool.name] ?? runningTool.name)} 运行中 {((Date.now() - runningTool.startTs) / 1000).toFixed(1)}s</span>
@@ -1128,13 +1244,25 @@ export function TasksPage() {
                 <span style={{ marginLeft: "auto" }}>Esc 中断 · Esc×2 回滚 · Shift+Tab 模式 · ↑↓ 历史</span>
               </div>
             </div>
-            <div style={{ borderTop: "1px solid var(--c-border)", background: "var(--c-panel)", padding: "8px 20px 8px" }}>
+            <div style={{ borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px" }}>
               <div style={{ maxWidth: 880, margin: "0 auto", position: "relative" }}>
                 {pendingPerm && (
                   <div style={{ marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)" }}>◈ 等待授权（↑↓+Enter 或数字直选上方卡片选项）</div>
                 )}
                 {mention && (
                   <MentionPopover mention={mention} items={mentionItems} onPick={(x) => insertMention(x, setInputText, inputText)} />
+                )}
+                {pendingImages.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                    {pendingImages.map((img, i) => (
+                      <div key={`${img.name}:${i}`} style={{ position: "relative" }}>
+                        <img src={img.dataUrl} alt={img.name} style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" }} />
+                        <button className="tool-btn" title="移除" style={{ position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 }}
+                          onClick={() => setPendingImages((cur) => cur.filter((_, j) => j !== i))}>✕</button>
+                      </div>
+                    ))}
+                    <span className="hint" style={{ alignSelf: "center" }}>图片 {pendingImages.length}/4{!visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""}</span>
+                  </div>
                 )}
                 <div style={{ border: `1px solid ${inputText.trim() ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 12, padding: "8px 12px 6px" }}>
                   <textarea
@@ -1144,6 +1272,14 @@ export function TasksPage() {
                       : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式"}
                     value={inputText}
                     onChange={(e) => onComposeChange(e.target.value, setInputText)}
+                    onPaste={(e) => {
+                      const files = [...e.clipboardData.files];
+                      if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); filesToImages(files); }
+                    }}
+                    onDrop={(e) => {
+                      const files = [...e.dataTransfer.files];
+                      if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); filesToImages(files); }
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") { void stopTask(selected.taskId); return; }
                       if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); cycleMode(); return; }
@@ -1164,14 +1300,16 @@ export function TasksPage() {
                   />
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap", rowGap: 6 }}>
                     <span className="chip" onClick={cycleMode} title="Shift+Tab 循环">{MODE_META[selected.permissionMode ?? "default"].label}</span>
-                    <select className="input" style={{ width: 130, fontSize: 11.5, padding: "1px 6px", border: "1px solid var(--c-border)", borderRadius: 999, background: "transparent", color: "var(--c-text3)" }}
+                    <Select className="select-inline" style={{ width: 130 }}
                       value={selected.modelRef ?? ""} disabled={busy && selected.state !== "awaiting-input"}
-                      onChange={async (e) => {
-                        try { await call("agent.task.setModel", { taskId: selected.taskId, model: e.target.value }); await reloadAgents(); } catch (err) { setError((err as Error).message); }
-                      }}>
-                      {(modelProfiles ?? []).filter((m) => m.configured).map((m) => (<option key={m.id} value={m.id}>{m.name}{m.isDefault ? " ★" : ""}</option>))}
-                      {selected.modelRef && !(modelProfiles ?? []).some((m) => m.id === selected.modelRef) ? (<option value={selected.modelRef}>{selected.modelRef}</option>) : null}
-                    </select>
+                      onChange={async (v) => {
+                        try { await call("agent.task.setModel", { taskId: selected.taskId, model: v }); await reloadAgents(); } catch (err) { setError((err as Error).message); }
+                      }}
+                      options={[
+                        ...(modelProfiles ?? []).filter((m) => m.configured).map((m) => ({ value: m.id, label: m.name + (m.isDefault ? " ★" : "") })),
+                        ...(selected.modelRef && !(modelProfiles ?? []).some((m) => m.id === selected.modelRef) ? [{ value: selected.modelRef, label: selected.modelRef }] : []),
+                      ]}
+                    />
                     <span className="chip" title="@ 文件 / @任务 提及">@</span>
                     <span className="chip" title="粘贴图片附加" onClick={() => setError("当前模型档案未声明多模态能力，图片输入暂不可用")}>🖼</span>
                     <span style={{ flex: 1 }} />
@@ -1207,6 +1345,18 @@ export function TasksPage() {
                   ● {t("Agents_ModelMissing")} → {t("Agents_OpenSettings")}
                 </button>
               ) : null}
+              {pendingImages.length > 0 && (
+                <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                  {pendingImages.map((img, i) => (
+                    <div key={`${img.name}:${i}`} style={{ position: "relative" }}>
+                      <img src={img.dataUrl} alt={img.name} style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" }} />
+                      <button className="tool-btn" title="移除" style={{ position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 }}
+                        onClick={() => setPendingImages((cur) => cur.filter((_, j) => j !== i))}>✕</button>
+                    </div>
+                  ))}
+                  <span className="hint" style={{ alignSelf: "center" }}>图片 {pendingImages.length}/4（随首条消息发送）</span>
+                </div>
+              )}
               <div style={{ border: `1px solid ${composeText.trim() ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 12, padding: "10px 12px 6px", position: "relative" }}>
                 {mention && <MentionPopover mention={mention} items={mentionItems} onPick={(x) => insertMention(x, setComposeText, composeText)} />}
                 <textarea
@@ -1215,6 +1365,14 @@ export function TasksPage() {
                   placeholder={`${t("Agents_ComposePlaceholder")}\n支持 @文件 提及；规划类任务先切「◇ 规划」模式（Shift+Tab）`}
                   value={composeText}
                   onChange={(e) => onComposeChange(e.target.value, setComposeText)}
+                  onPaste={(e) => {
+                    const files = [...e.clipboardData.files];
+                    if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); filesToImages(files); }
+                  }}
+                  onDrop={(e) => {
+                    const files = [...e.dataTransfer.files];
+                    if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); filesToImages(files); }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); setMode(MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length]); return; }
                     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void createFromCompose();
@@ -1222,23 +1380,23 @@ export function TasksPage() {
                 />
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap", rowGap: 6 }}>
                   <span className="chip" onClick={() => setMode(MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length])} title="Shift+Tab 循环">{MODE_META[mode].label}</span>
-                  <select className="input" style={{ width: 140, fontSize: 11.5, padding: "1px 6px", border: "1px solid var(--c-border)", borderRadius: 999, background: "transparent", color: "var(--c-text3)" }}
-                    value={taskTypeId} onChange={(e) => setTaskTypeId(e.target.value)} title={t("Agents_TaskType")}>
-                    <option value="">{t("Agents_TaskTypeFree")}</option>
-                    {taskTypes.filter((tt) => !tt.error).map((tt) => (<option key={tt.fullId} value={tt.fullId}>{tt.name}</option>))}
-                  </select>
-                  <select className="input" style={{ width: 150, fontSize: 11.5, padding: "1px 6px", border: "1px solid var(--c-border)", borderRadius: 999, background: "transparent", color: "var(--c-text3)" }}
-                    value={modelId} onChange={(e) => setModelId(e.target.value)} title={t("Agents_Model")}>
-                    <option value="">{t("Agents_ModelDefault")}</option>
-                    {modelProfiles.filter((m) => m.configured).map((m) => (<option key={m.id} value={m.id}>{m.name}{m.isDefault ? " ★" : ""}</option>))}
-                  </select>
-                  <select className="input" style={{ width: 100, fontSize: 11.5, padding: "1px 6px", border: "1px solid var(--c-border)", borderRadius: 999, background: "transparent", color: "var(--c-text3)" }}
-                    value={thinking} onChange={(e) => setThinking(e.target.value as "off" | "low" | "medium" | "high")} title={t("Agents_Thinking")}>
-                    <option value="high">{t("Agents_ThinkingHigh")}</option>
-                    <option value="medium">{t("Agents_ThinkingMedium")}</option>
-                    <option value="low">{t("Agents_ThinkingLow")}</option>
-                    <option value="off">{t("Agents_ThinkingOff")}</option>
-                  </select>
+                  <Select className="select-inline" style={{ width: 140 }}
+                    value={taskTypeId} onChange={(v) => setTaskTypeId(v)} title={t("Agents_TaskType")}
+                    options={[{ value: "", label: t("Agents_TaskTypeFree") }, ...taskTypes.filter((tt) => !tt.error).map((tt) => ({ value: tt.fullId, label: tt.name }))]}
+                  />
+                  <Select className="select-inline" style={{ width: 150 }}
+                    value={modelId} onChange={(v) => setModelId(v)} title={t("Agents_Model")}
+                    options={[{ value: "", label: t("Agents_ModelDefault") }, ...modelProfiles.filter((m) => m.configured).map((m) => ({ value: m.id, label: m.name + (m.isDefault ? " ★" : "") }))]}
+                  />
+                  <Select className="select-inline" style={{ width: 100 }}
+                    value={thinking} onChange={(v) => setThinking(v as "off" | "low" | "medium" | "high")} title={t("Agents_Thinking")}
+                    options={[
+                      { value: "high", label: t("Agents_ThinkingHigh") },
+                      { value: "medium", label: t("Agents_ThinkingMedium") },
+                      { value: "low", label: t("Agents_ThinkingLow") },
+                      { value: "off", label: t("Agents_ThinkingOff") },
+                    ]}
+                  />
                   <span style={{ flex: 1 }} />
                   <button onClick={() => void createFromCompose()} disabled={sending || !composeText.trim()}
                     style={{ border: "none", background: "var(--c-text)", color: "var(--c-panel)", borderRadius: 8, width: 30, height: 30, fontSize: 14, cursor: "pointer", opacity: sending || !composeText.trim() ? 0.4 : 1 }}>➤</button>
@@ -1317,7 +1475,7 @@ function ChangesTab(props: {
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", background: "var(--c-panel)", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }}>
         <b style={{ fontSize: 12.5 }}>改动</b>
         <span style={{ color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }}>{props.branch}</span>
         <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{files.length} 个文件 · 基于 {baselineSha.slice(0, 8)}^</span>
@@ -1409,7 +1567,7 @@ function CheckpointsTab(props: {
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)", background: "var(--c-panel)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)" }}>
         <b style={{ fontSize: 12.5 }}>检查点</b>
         <span style={{ color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }}>{props.branch}</span>
         <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{cps.length} 个托管提交 · Esc×2 快捷回此页</span>

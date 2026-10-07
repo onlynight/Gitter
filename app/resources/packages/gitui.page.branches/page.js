@@ -52,6 +52,8 @@
   K().registerMarkdownPlugin;
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
+  K().Select;
+  K().ScrollArea;
   const { call, t, openSettings } = pageSdk;
   const useApp = useAppState;
   function isNoUpstreamError(msg) {
@@ -139,8 +141,8 @@
     const renderGroup = (title, remote) => {
       const list = remote ? (state == null ? void 0 : state.remote) ?? [] : (state == null ? void 0 : state.local) ?? [];
       if (list.length === 0) return null;
-      return /* @__PURE__ */ jsxRuntime.jsx(jsxRuntime.Fragment, { children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "pane-card", style: { marginBottom: 12, display: "block" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "group-header", children: [
+      return /* @__PURE__ */ jsxRuntime.jsx(jsxRuntime.Fragment, { children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "pane-card", style: { marginBottom: 12, display: "block", overflow: "hidden" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "group-header solid", children: [
           /* @__PURE__ */ jsxRuntime.jsx("span", { children: title }),
           /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontWeight: 400 }, children: list.length })
         ] }),

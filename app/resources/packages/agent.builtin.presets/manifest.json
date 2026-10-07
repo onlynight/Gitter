@@ -10,7 +10,16 @@
         "id": "explore",
         "name": "调研",
         "description": "只读检索/阅读/汇总，零副作用",
-        "tools": ["repo_status", "repo_diff", "repo_log", "repo_read_file", "repo_list_files", "repo_glob", "repo_grep", "review_get_state"],
+        "tools": [
+          "repo_status",
+          "repo_diff",
+          "repo_log",
+          "repo_read_file",
+          "repo_list_files",
+          "repo_glob",
+          "repo_grep",
+          "review_get_state"
+        ],
         "readonly": true,
         "addendum": "本次子任务是只读调研：只用只读工具检索与阅读，产出结论 + 证据（文件:行号）+ 未解决项。",
         "timeoutMs": 300000
@@ -23,6 +32,23 @@
         "readonly": false,
         "addendum": "本次子任务是执行型：可直接改文件/跑命令，但 git 写与命令会向人类请求授权；完成后报告做了什么、改了哪些文件。",
         "timeoutMs": 600000
+      },
+      {
+        "id": "review",
+        "name": "审查",
+        "description": "只读代码审查：逐文件检查改动，产出问题清单（不修改文件）",
+        "tools": [
+          "repo_status",
+          "repo_diff",
+          "repo_log",
+          "repo_read_file",
+          "repo_list_files",
+          "repo_glob",
+          "repo_grep"
+        ],
+        "readonly": true,
+        "addendum": "本次子任务是代码审查：只报告问题，不修改任何文件。逐文件检查正确性、边界条件、并发/资源问题与测试影响；每条问题给出 文件:行号、严重级别（高/中/低）、问题说明与修复建议。最后按级别汇总数量，并给出是否可合并的结论。",
+        "timeoutMs": 300000
       }
     ]
   }

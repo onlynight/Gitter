@@ -15,6 +15,26 @@ export class SettingsStore {
     this.filePath = path.join(userDataDir, "settings.json");
     this.data = SettingsStore.defaults();
     this.load();
+    this.migrateWindowMaterialToTheme();
+  }
+
+  /**
+   * 一次性迁移：窗口效果主题包化（三包 acrylic/mica/solid 各含亮暗）——
+   * 旧 settings.windowMaterial 字段删除，效果由 themePackageId 唯一决定；
+   * 旧亮暗包 id（theme.gitui.dark/light，含 gitui.theme.* 别名）并入 theme.gitui.acrylic。
+   * 用户显式选过 mica/none 的迁到对应包；acrylic 或从未设置 → acrylic 包（亮暗由 theme 决定）。
+   */
+  private migrateWindowMaterialToTheme(): void {
+    const s = this.data as SettingsDTO & { windowMaterial?: string };
+    const legacyIds = new Set(["theme.gitui.dark", "theme.gitui.light", "gitui.theme.dark", "gitui.theme.light"]);
+    if (s.themePackageId && legacyIds.has(s.themePackageId)) s.themePackageId = "theme.gitui.acrylic";
+    const m = s.windowMaterial;
+    if (m === "mica" || m === "none") {
+      if (!s.themePackageId || s.themePackageId === "theme.gitui.acrylic") {
+        s.themePackageId = m === "mica" ? "theme.gitui.mica" : "theme.gitui.solid";
+      }
+    }
+    delete s.windowMaterial;
   }
 
   static defaults(): SettingsDTO {
@@ -57,6 +77,7 @@ export class SettingsStore {
       agentsCompaction: "auto",
       agentsCompactionPolicy: { threshold: 0.8, keepLast: 8 },
       agentsPostTurnHooks: true,
+      agentsNotify: true,
       agentsMaxSubagents: 3,
       agentsExternalMcpTools: false,
       models: [],
@@ -108,7 +129,7 @@ export class SettingsStore {
       "aiApiKeyProtected", "safetyNet", "mcpEnabled",
       "logSplitterFraction", "changesSplitterFraction", "packages", "confirmedCommands", "allowCodePlugins", "externalMcpEnabled",
       "agentsCheckpoint", "agentsOnExit", "agentRules", "agentsCompaction", "agentsCompactionPolicy",
-      "agentsPostTurnHooks", "agentsMaxSubagents", "agentsExternalMcpTools",
+      "agentsPostTurnHooks", "agentsMaxSubagents", "agentsExternalMcpTools", "agentsNotify",
       "models", "defaultModelId", "fastModelId", "modelUsage",
     ];
     for (const key of allowed) {

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "id": "theme.gitui.acrylic",
+  "name": "亚克力",
+  "version": "1.0.0",
+  "description": "亚克力窗口主题（亮/暗随系统切换）",
+  "contributes": {
+    "themes": [
+      {
+        "id": "dark",
+        "path": "theme/dark.json",
+        "base": "dark",
+        "material": "acrylic"
+      },
+      {
+        "id": "light",
+        "path": "theme/light.json",
+        "base": "light",
+        "material": "acrylic"
+      }
+    ]
+  }
+}

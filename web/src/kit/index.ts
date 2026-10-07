@@ -10,6 +10,8 @@ export { DiffView, diffStatusLetter } from "./DiffView";
 export { renderSegments, wordDiff } from "./wordDiff";
 export { SplitPane } from "./SplitPane";
 export { Banner, Modal, useContextMenu, type CtxMenuItem } from "./Dialogs";
+export { Select, type SelectOption } from "./Select";
+export { ScrollArea } from "./ScrollArea";
 export { SyncBar, useSyncProgress, type SyncProgressState } from "./SyncBar";
 export { registerMarkdownPlugin, renderMarkdown } from "./markdown";
 export { PageErrorBoundary } from "./PageErrorBoundary";

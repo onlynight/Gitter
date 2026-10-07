@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import type { ExtTreeSnapshot } from "../pageSdk";
-import { NavIcon } from "../kit";
+import { NavIcon, Select } from "../kit";
 import type { ExtensionPackageDTO, ModelProfileDTO, SettingsDTO, TerminalProfileDTO, ThemePackageDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -348,8 +348,8 @@ export function SettingsPage() {
     );
   };
   const [modelProfiles, setModelProfiles] = useState<ModelProfileDTO[]>([]);
-  const [newModel, setNewModel] = useState<{ name: string; kind: "openai-compatible" | "anthropic"; baseURL: string; modelId: string; apiKey: string }>({
-    name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "",
+  const [newModel, setNewModel] = useState<{ name: string; kind: "openai-compatible" | "anthropic"; baseURL: string; modelId: string; apiKey: string; vision: boolean }>({
+    name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "", vision: false,
   });
   const [modelTest, setModelTest] = useState<{ testing: boolean; result: string | null; ok: boolean }>({ testing: false, result: null, ok: false });
 
@@ -549,15 +549,12 @@ export function SettingsPage() {
     const inherited = cfgInherited(key);
     return (
       <>
-        <select
-          className="input"
+        <Select
           value={value}
           disabled={configScope === "repo" && noRepo}
-          onChange={(e) => void saveConfig(key, e.target.value === "" ? null : e.target.value)}
-        >
-          <option value="">{t("Settings_Unset")}</option>
-          {options.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
+          onChange={(v) => void saveConfig(key, v === "" ? null : v)}
+          options={[{ value: "", label: t("Settings_Unset") }, ...options.map((o) => ({ value: o, label: o }))]}
+        />
         {inherited !== null && <span className="hint">{t("Settings_GitInheritGlobal", inherited)}</span>}
       </>
     );
@@ -597,12 +594,15 @@ export function SettingsPage() {
             </div>
             <div className="settings-row">
               <label>{t("Settings_ThemePackage")}</label>
-              <select className="input" value={s.themePackageId ?? ""} onChange={(e) => void patch({ themePackageId: e.target.value || null })}>
-                <option value="">{t("Settings_ThemeDefault")}</option>
-                {themes.map((tp) => (
-                  <option key={tp.id} value={tp.id}>{tp.name}（{tp.base === "dark" ? t("Settings_Dark") : t("Settings_Light")}）</option>
-                ))}
-              </select>
+              <Select value={s.themePackageId ?? ""} onChange={(v) => void patch({ themePackageId: v || null })}
+                options={[
+                  { value: "", label: t("Settings_ThemeDefault") },
+                  ...themes.map((tp) => {
+                    const covers = (tp.bases?.length ?? 1) > 1;
+                    return { value: tp.id, label: covers ? tp.name : `${tp.name}（${tp.base === "dark" ? t("Settings_Dark") : t("Settings_Light")}）` };
+                  }),
+                ]}
+              />
             </div>
             <div className="settings-row">
               <label>{t("Settings_Language")}</label>
@@ -904,15 +904,18 @@ export function SettingsPage() {
                   <div style={{ fontSize: 12, fontWeight: 600, color: "var(--c-text)" }}>{t("Settings_ModelsAdd")}</div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                     <input className="input" style={{ width: 140 }} placeholder={t("Settings_ModelsName")} value={newModel.name} onChange={(e) => setNewModel({ ...newModel, name: e.target.value })} />
-                    <select className="input" style={{ width: 150 }} value={newModel.kind} onChange={(e) => { setNewModel({ ...newModel, kind: e.target.value as "openai-compatible" | "anthropic", modelId: "" }); setModelTest({ testing: false, result: null, ok: false }); }}>
-                      <option value="openai-compatible">OpenAI 兼容</option>
-                      <option value="anthropic">Anthropic</option>
-                    </select>
+                    <Select style={{ width: 150 }} value={newModel.kind}
+                      onChange={(v) => { setNewModel({ ...newModel, kind: v as "openai-compatible" | "anthropic", modelId: "" }); setModelTest({ testing: false, result: null, ok: false }); }}
+                      options={[{ value: "openai-compatible", label: "OpenAI 兼容" }, { value: "anthropic", label: "Anthropic" }]}
+                    />
                     <input className="input" style={{ flex: 1, minWidth: 180 }} placeholder={newModel.kind === "anthropic" ? "https://api.anthropic.com" : "https://api.deepseek.com/v1（或 Ollama: http://127.0.0.1:11434/v1）"} value={newModel.baseURL} onChange={(e) => setNewModel({ ...newModel, baseURL: e.target.value })} />
                   </div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                     <input className="input" type="password" style={{ width: 220 }} placeholder={t("Settings_ModelsApiKey")} value={newModel.apiKey} onChange={(e) => setNewModel({ ...newModel, apiKey: e.target.value })} />
                     <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={t("Settings_ModelsIdPlaceholder")} value={newModel.modelId} onChange={(e) => setNewModel({ ...newModel, modelId: e.target.value })} />
+                    <label className="hint" style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="可接收图片输入（任务页贴图）">
+                      <input type="checkbox" checked={newModel.vision} onChange={(e) => setNewModel({ ...newModel, vision: e.target.checked })} />视觉
+                    </label>
                     <button className="tool-btn" disabled={modelTest.testing || !newModel.baseURL.trim()} onClick={() => void testModelConn()}>
                       {modelTest.testing ? "…" : t("Settings_ModelsTestConn")}
                     </button>
@@ -921,11 +924,11 @@ export function SettingsPage() {
                       disabled={!newModel.name.trim() || !newModel.baseURL.trim() || !newModel.modelId.trim()}
                       onClick={async () => {
                         try {
-                          const r = await call<{ id: string }>("models.save", { profile: { name: newModel.name.trim(), kind: newModel.kind, baseURL: newModel.baseURL.trim(), modelId: newModel.modelId.trim() } });
+                          const r = await call<{ id: string }>("models.save", { profile: { name: newModel.name.trim(), kind: newModel.kind, baseURL: newModel.baseURL.trim(), modelId: newModel.modelId.trim(), vision: newModel.vision } });
                           if (newModel.apiKey.length >= 8) {
                             await call("models.setKey", { id: r.id, key: newModel.apiKey });
                           }
-                          setNewModel({ name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "" });
+                          setNewModel({ name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "", vision: false });
                           setModelTest({ testing: false, result: null, ok: false });
                           await loadModels();
                         } catch (e) {
@@ -1020,6 +1023,11 @@ export function SettingsPage() {
               <label>轮末钩子</label>
               <input type="checkbox" checked={s.agentsPostTurnHooks ?? true} onChange={(e) => void patch({ agentsPostTurnHooks: e.target.checked })} />
               <span className="hint">插件 post-turn 钩子产物以 system-reminder 注入下一轮</span>
+            </div>
+            <div className="settings-row">
+              <label>完成通知</label>
+              <input type="checkbox" checked={s.agentsNotify ?? true} onChange={(e) => void patch({ agentsNotify: e.target.checked })} />
+              <span className="hint">任务完成/失败时弹系统通知（窗口聚焦时静默）</span>
             </div>
             <div className="settings-row">
               <label>子代理并发上限</label>
@@ -1285,13 +1293,10 @@ function AgentRulesEditor(props: {
           </div>
         ))}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <select className="input" style={{ width: 150 }} value={tool} onChange={(e) => setTool(e.target.value)}>
-            {AGENT_RULE_TOOLS.map((x) => <option key={x} value={x}>{x}</option>)}
-          </select>
-          <select className="input" style={{ width: 90 }} value={effect} onChange={(e) => setEffect(e.target.value as "allow" | "deny")}>
-            <option value="allow">允许</option>
-            <option value="deny">拒绝</option>
-          </select>
+          <Select style={{ width: 150 }} value={tool} onChange={(v) => setTool(v)}
+            options={AGENT_RULE_TOOLS.map((x) => ({ value: x, label: x }))} />
+          <Select style={{ width: 90 }} value={effect} onChange={(v) => setEffect(v as "allow" | "deny")}
+            options={[{ value: "allow", label: "允许" }, { value: "deny", label: "拒绝" }]} />
           <input className="input" style={{ flex: 1 }} placeholder="前缀（空 = 工具全量），如 npm test" value={pattern} onChange={(e) => setPattern(e.target.value)} />
           <button className="tool-btn primary" disabled={!!rules.find((r) => r.tool === tool && r.effect === effect && (r.pattern ?? "") === (pattern.trim() || null))} onClick={add}>添加</button>
         </div>

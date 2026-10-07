@@ -50,6 +50,8 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   // agent 改动预览读面（agent-harness-v4.md F6）
   "repo.files": "git.read", "agent.task.files": "git.read",
   "agent.task.diff": "git.read", "agent.task.diffText": "git.read", "agent.task.checkpoints": "git.read",
+  // D6/D9：导出（弹系统保存框）与文件只读预览——均为会话级读取面
+  "agent.task.export": "agent.config", "agent.task.previewFile": "git.read",
   "agent.previewImage": "git.read",
 
   // ---- git.read ----
