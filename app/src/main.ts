@@ -143,8 +143,11 @@ function createWindow(repoPath?: string): void {
     });
   }
 
-  // 产物经 vite 构建到 ../web/dist
-  win.loadFile(path.join(__dirname, "..", "..", "web", "dist", "index.html"));
+  // 产物经 vite 构建到仓库根 ../web/dist（开发态）；打包后由 extraResources 复制到 resources/web/dist
+  const webIndex = app.isPackaged
+    ? path.join(process.resourcesPath, "web", "dist", "index.html")
+    : path.join(__dirname, "..", "..", "web", "dist", "index.html");
+  win.loadFile(webIndex);
 }
 
 /** 全局 IPC：只在启动时注册一次。窗口级 handle 重复注册会抛异常，
