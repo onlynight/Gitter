@@ -2,8 +2,17 @@ import * as path from "path";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const require_: NodeRequire = eval("require") as NodeRequire;
 import { tryGit } from "../gitexec";
-import { registerAgentLoop, unregisterAgentLoop } from "./agentLoop";
+import { registerHarnessLoop, unregisterHarnessLoop } from "../agents/loop";
 import { registerAiProvider, unregisterAiProvider } from "../ai";
+import { agentToolCatalog, registerAgentTool, unregisterAgentToolsByPackage } from "../agents/registry";
+import {
+  registerPromptSection, unregisterPromptSectionsByPackage,
+  registerContextCollector, unregisterContextCollectorsByPackage,
+  registerCompactor, unregisterCompactorsByPackage,
+  registerTurnHook, unregisterTurnHooksByPackage,
+} from "../agents/seams";
+import { registerSubagentPreset, unregisterSubagentPresetsByPackage } from "../agents/subagents";
+import { z } from "zod";
 
 /** L3 隔离子进程通道（extension-system-v2.md §16.6 F 阶段）。
  * 双适配器：Electron utilityProcess（main 注入）/ Node child_process.fork（无头冒烟）。 */
@@ -83,7 +92,55 @@ export interface PluginCtx {
   /** diff 侧栏注记（E 阶段收尾：按文件路径的只读注记） */
   registerDiffNote(fn: (filePath: string) => Promise<string | null> | string | null): void;
   /** 注册 Agent 循环（§15：id 自动加 ext.<pkg>. 前缀；bridge 按 provider 路由默认循环） */
-  registerLoop(id: string, impl: (req: import("./agentLoop").AgentRunRequest, config: import("../ai").AiConfig) => Promise<import("./agentLoop").AgentRunResult>): void;
+  /** 注册 Agent 循环（§20.3.4 循环契约 v2：LoopOptions 统一契约 + services 只读代理面；<pkg>.<id> 命名空间） */
+  registerLoop(id: string, impl: (o: import("../agents/loop").LoopOptions) => Promise<import("../agents/loop").LoopResult>): void;
+  /** 注册 agent 工具（agent-harness-v4.md §14.4：与内置工具同一条入表路径；名称自动加 ext.<pkg>. 命名空间；权限缺省 each-time） */
+  registerAgentTool(def: {
+    id: string;
+    description: string;
+    parametersSchema?: unknown;
+    permissionClass?: "auto" | "session" | "each-time";
+    execute(args: Record<string, unknown>, ctx: { workDir: string; signal: AbortSignal }): Promise<string> | string;
+  }): void;
+  /** 注册系统提示词槽位贡献（§14.5：context/skills/addendum/output；identity/boundary 锁死不开放） */
+  registerPromptSection(def: {
+    id: string;
+    slot: import("../agents/seams").PromptPublicSlot;
+    order?: number;
+    /** 静态文本或动态提供者（null = 本轮省略） */
+    content?: string;
+    provide?: (ctx: { worktreePath: string; repoPath: string | null; mode: string }) => Promise<string | null> | string | null;
+  }): void;
+  /** 注册仓库上下文采集器（§14.5：tokenBudget 预算感知；软失败） */
+  registerContextCollector(def: {
+    id: string;
+    order?: number;
+    tokenBudget?: number;
+    collect(ctx: { worktreePath: string; repoPath: string | null }): Promise<string | null> | string | null;
+  }): void;
+  /** 注册子代理预设（§20.3.5：task 工具 mode 枚举扩展；tools ⊆ 注册表全集，编译期剔除） */
+  registerSubagentPreset(def: {
+    id: string;
+    name: string;
+    description?: string;
+    tools?: string[];
+    readonly?: boolean;
+    addendum?: string;
+    timeoutMs?: number;
+  }): void;
+  /** 注册 post-turn 钩子（§20.3.6：产物由宿主以 system-reminder 注入下一轮，cap 2000；pre-turn 不开放） */
+  registerTurnHook(def: {
+    id: string;
+    order?: number;
+    hook(info: { taskId: string; outcome: string; lastMessage: string | null; todoState: unknown[] | null }): Promise<string | null> | string | null;
+  }): void;
+  /** 注册压缩策略（§14.5：单槽覆盖——活跃非内置压缩器优先于 builtin.summarizer） */
+  registerCompactor(def: {
+    id: string;
+    compact(input: {
+      messages: unknown[]; contextWindow: number; systemEstTokens: number; model: unknown; signal?: AbortSignal;
+    }): Promise<{ messages: unknown[]; record: { ts: string; removedCount: number; tokensBefore: number; tokensAfter: number; summary: string } } | null>;
+  }): void;
   /** 注册 AI provider（openai 兼容/anthropic 自定义传输；apiKey 永不下发插件） */
   registerAiProvider(name: string, impl: {
     isConfigured(c: import("../ai").AiConfig): boolean;
@@ -257,9 +314,88 @@ export class PluginHost {
         });
       },
       registerLoop: (loopId, impl) => {
+        // §20.3.4 循环契约 v2：直注册统一注册表（LoopOptions 契约）；门/工具面由宿主 LoopOptions 注入
         const fullId = `ext.${packageId}.${loopId}`;
-        registerAgentLoop(fullId, impl);
-        cleanup(() => unregisterAgentLoop(fullId));
+        registerHarnessLoop(fullId, impl as never);
+        cleanup(() => unregisterHarnessLoop(fullId));
+      },
+      registerAgentTool: (def) => {
+        const name = `ext.${packageId}.${def.id}`;
+        const schema = def.parametersSchema instanceof z.ZodType ? def.parametersSchema : z.object({});
+        registerAgentTool({
+          name,
+          description: def.description,
+          parametersSchema: schema,
+          permissionClass: def.permissionClass ?? "each-time",
+          source: "plugin",
+          execute: async (env, args) => {
+            // 插件工具执行：workDir 锁 worktree；signal 透传；权限门已在 buildToolset 包装层生效
+            return await def.execute(args, { workDir: env.worktreePath, signal: env.signal });
+          },
+        });
+        cleanup(() => unregisterAgentToolsByPackage(`ext.${packageId}`));
+      },
+      registerPromptSection: (def) => {
+        
+        registerPromptSection({
+          id: `ext.${packageId}.${def.id}`,
+          slot: def.slot,
+          order: def.order ?? 100,
+          source: "package",
+          packageId,
+          content: def.content,
+          provide: def.provide ? async (ctx) => await def.provide!(ctx) : undefined,
+        });
+        cleanup(() => unregisterPromptSectionsByPackage(packageId));
+      },
+      registerContextCollector: (def) => {
+        
+        registerContextCollector({
+          id: `ext.${packageId}.${def.id}`,
+          order: def.order ?? 100,
+          tokenBudget: def.tokenBudget ?? 800,
+          source: "package",
+          packageId,
+          collect: (ctx) => Promise.resolve(def.collect(ctx)),
+        });
+        cleanup(() => unregisterContextCollectorsByPackage(packageId));
+      },
+      registerSubagentPreset: (def) => {
+        const known = new Set(agentToolCatalog().map((t) => t.name));
+        const readonlyNames = new Set(agentToolCatalog().filter((t) => t.readonly).map((t) => t.name));
+        const isReadonly = !!def.readonly;
+        let tools = (def.tools ?? []).filter((t) => known.has(t));
+        if (isReadonly) tools = tools.filter((t) => readonlyNames.has(t));
+        registerSubagentPreset({
+          id: `${packageId}/${def.id}`,
+          name: def.name,
+          description: def.description ?? "",
+          tools: tools.length > 0 ? tools : null,
+          readonly: isReadonly,
+          addendum: def.addendum ?? "",
+          timeoutMs: Math.min(Math.max(def.timeoutMs ?? 600_000, 30_000), 600_000),
+        });
+        cleanup(() => unregisterSubagentPresetsByPackage(packageId));
+      },
+      registerTurnHook: (def) => {
+        registerTurnHook({
+          id: `ext.${packageId}.${def.id}`,
+          order: def.order ?? 100,
+          source: "package",
+          packageId,
+          hook: (info) => Promise.resolve(def.hook(info)),
+        });
+        cleanup(() => unregisterTurnHooksByPackage(packageId));
+      },
+      registerCompactor: (def) => {
+        
+        registerCompactor({
+          id: `ext.${packageId}.${def.id}`,
+          source: "package",
+          packageId,
+          compact: def.compact as never,
+        });
+        cleanup(() => unregisterCompactorsByPackage(packageId));
       },
       registerAiProvider: (name, impl) => {
         const fullName = `ext.${packageId}.${name}`;

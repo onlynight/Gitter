@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<title>Gitter 任务页 v2 设计稿 —— ZCode 交互 × Codex 信息架构</title>
+<style>
+  /* 配色规范（§十二）：选中/聚焦一律黑白灰（暗色=近白、亮色=近黑）；
+     绿/红/琥珀/紫 为语义色（状态/风险/工具），不用于选中框。双主题。 */
+  :root{
+    --bg:#101216; --panel:#171a20; --panel2:#1d2129; --border:#2a2f38; --border2:#343b46;
+    --text:#d7dde5; --dim:#8a939f; --dim2:#5c6570;
+    --sel:#b9c0c8; --sel-fg:#101216;           /* 选中/聚焦：暗色主题用中灰（近白过刺眼） */
+    --user-bg:rgba(126,231,135,.05);
+    --green:#7ee787; --red:#ff7b72; --amber:#d29922; --purple:#b490ff;
+    --diff-add:rgba(126,231,135,.16); --diff-del:rgba(255,123,114,.16);
+    --mono:"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+  }
+  body.light{
+    --bg:#f5f6f7; --panel:#ffffff; --panel2:#eceef0; --border:#d9dde2; --border2:#c6ccd3;
+    --text:#17191c; --dim:#5a6470; --dim2:#8a939f;
+    --sel:#4a5158; --sel-fg:#f5f6f7;           /* 选中/聚焦：亮色主题用中深灰（近黑过刺眼） */
+    --user-bg:rgba(26,127,55,.06);
+    --green:#1a7f37; --red:#cf222e; --amber:#9a6700; --purple:#8250df;
+    --diff-add:rgba(26,127,55,.14); --diff-del:rgba(207,34,46,.14);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:2px solid var(--border);background:var(--panel)}
+  .topbar b{font-size:13px}
+  .topbar .crumb{color:var(--dim);font-size:12px}
+  .topbar .sp{flex:1}
+  .chip{display:inline-flex;align-items:center;gap:5px;border:2px solid var(--border2);border-radius:999px;padding:1px 10px;font-size:11.5px;color:var(--dim);cursor:pointer;user-select:none}
+  .chip:hover{color:var(--text);border-color:var(--dim)}
+  .main{flex:1;display:grid;grid-template-columns:300px 1fr;min-height:0}
+  .list{border-right:2px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--panel)}
+  .list .new{margin:10px 10px 6px;padding:9px 12px;border:2px dashed var(--border2);border-radius:8px;color:var(--dim);text-align:center;cursor:pointer;font-size:12.5px}
+  .list .new:hover{color:var(--text);border-color:var(--dim)}
+  .list .scroll{overflow-y:auto;flex:1;padding:4px 10px 10px;display:flex;flex-direction:column;gap:8px}
+  .tcard{border:2px solid var(--border);border-radius:10px;padding:9px 11px;cursor:pointer;background:var(--panel2)}
+  .tcard:hover{border-color:var(--dim)}
+  .tcard.sel{border-color:var(--sel)}          /* 选中框：黑白灰 */
+  .tcard .t1{display:flex;align-items:center;gap:7px}
+  .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .dot.work{background:var(--green);animation:pulse 1.4s infinite}
+  .dot.done{background:var(--dim2)} .dot.plan{background:var(--purple)} .dot.err{background:var(--red)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .tcard .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;font-weight:600}
+  .tcard .t2{color:var(--dim);font-size:11px;margin-top:3px;display:flex;gap:8px;align-items:center}
+  .tcard .branch{font-family:var(--mono);color:var(--dim)}
+  .tcard .t3{color:var(--dim2);font-size:11px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .detail{display:flex;flex-direction:column;min-height:0}
+  .toolbar{display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:2px solid var(--border);background:var(--panel);flex-wrap:wrap}
+  .statechip{font-size:11.5px;padding:1px 10px;border-radius:999px;border:2px solid var(--green);color:var(--green)}
+  .toolbar .sp{flex:1}
+  .tbtn{border:2px solid var(--border2);background:transparent;color:var(--dim);border-radius:6px;padding:2px 9px;font-size:11.5px;cursor:pointer}
+  .tbtn:hover{color:var(--text);border-color:var(--dim)}
+  .pagehead{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:2px solid var(--border);background:var(--panel);flex-wrap:wrap}
+  .pagehead .sp{flex:1}
+  .tabs{display:flex;gap:2px;padding:6px 14px 0;border-bottom:2px solid var(--border);background:var(--panel)}
+  .tab{padding:5px 14px;font-size:12.5px;color:var(--dim);cursor:pointer;border:2px solid transparent;border-bottom:none;border-radius:8px 8px 0 0}
+  .tab.on{color:var(--text);background:var(--bg);border-color:var(--border)}
+  .tab .n{color:var(--dim)}
+  .body{flex:1;min-height:0;display:flex;flex-direction:column}
+  .page{flex:1;min-height:0;overflow-y:auto;display:none}
+  .page.on{display:block}
+  /* 对话页激活态：纵向 flex（页头 + 块流 + composer），页签切换才真正隐藏其它页 */
+  #p-chat.on{display:flex;flex-direction:column;overflow:hidden}
+  .stream{max-width:880px;margin:0 auto;padding:18px 20px 26px;display:flex;flex-direction:column;gap:14px}
+  .usermsg{border-left:3px solid var(--green);padding:6px 12px;background:var(--user-bg);border-radius:0 8px 8px 0;white-space:pre-wrap}
+  .usermsg .who{color:var(--green);font-size:11px;margin-bottom:2px}
+  .asst{padding:0 4px}
+  .asst p{margin:4px 0}
+  .asst code{font-family:var(--mono);font-size:12px;background:var(--panel2);border:2px solid var(--border);border-radius:4px;padding:0 4px}
+  .tool{font-family:var(--mono);font-size:12.5px}
+  .tool .head{display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 6px;border-radius:6px}
+  .tool .head:hover{background:var(--panel2)}
+  .tool .glyph{color:var(--purple)}
+  .tool .glyph.ok{color:var(--green)} .tool .glyph.run{color:var(--amber);animation:pulse 1.2s infinite}
+  .tool .name{font-weight:700}
+  .tool .args{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .tool .ms{color:var(--dim2);font-size:11px}
+  .tool .result{margin:2px 0 0 22px;border-left:2px solid var(--border);padding:2px 10px;color:var(--dim);white-space:pre-wrap;word-break:break-word;font-size:12px;max-height:120px;overflow:hidden}
+  .tool.open .result{max-height:none;color:var(--text)}
+  .tool .result .ln-add{color:var(--green)} .tool .result .ln-del{color:var(--red)}
+  .tool .hint{color:var(--dim2);font-size:10.5px;margin-left:22px}
+  .todo{border:2px solid var(--border);border-radius:10px;padding:9px 13px;max-width:640px}
+  .todo .h{color:var(--dim);font-size:11px;margin-bottom:4px}
+  .todo .it{display:flex;gap:8px;align-items:baseline;font-size:12.5px}
+  .todo .it.done{color:var(--dim2);text-decoration:line-through}
+  .todo .it.now{color:var(--text);font-weight:600}
+  .plan{border:2px solid var(--purple);border-radius:12px;padding:12px 15px;max-width:720px}
+  .plan .h{color:var(--purple);font-weight:700;margin-bottom:6px}
+  .plan ol{margin:6px 0 6px 20px}
+  .plan .risk{color:var(--amber);font-size:12px;margin-top:4px}
+  .opts{margin-top:10px;display:flex;flex-direction:column;gap:2px;font-size:12.5px}
+  .opt{display:flex;gap:8px;padding:5px 10px;border-radius:8px;cursor:pointer;border:2px solid transparent}
+  .opt:hover,.opt.sel{background:var(--panel2);border-color:var(--border2)}
+  .opt .cur{color:var(--text);width:12px}       /* 光标 ❯：黑白灰 */
+  .perm{border:2px solid var(--amber);border-radius:12px;padding:11px 15px;max-width:720px}
+  .perm .h{color:var(--amber);font-weight:700;margin-bottom:6px}
+  .perm .cmd{font-family:var(--mono);font-size:12px;background:var(--panel2);border:2px solid var(--border);border-radius:8px;padding:7px 11px;margin:6px 0;white-space:pre-wrap;word-break:break-all}
+  .perm .risk{color:var(--red);font-size:11.5px}
+  .perm .note{color:var(--dim2);font-size:11px;margin-top:8px}
+  .cp{display:flex;align-items:center;gap:8px;color:var(--dim);font-size:12px;font-family:var(--mono)}
+  .cp .tip{color:var(--dim2);font-size:11px;font-family:inherit}
+  .turnfoot{color:var(--dim2);font-size:11px;font-family:var(--mono);display:flex;gap:14px;padding:0 6px}
+  .sysline{color:var(--dim2);font-size:11.5px;display:flex;gap:8px;align-items:baseline}
+  .sysline .g{color:var(--dim)}
+  .composerwrap{border-top:2px solid var(--border);background:var(--panel);padding:10px 20px 8px}
+  .composer{max-width:880px;margin:0 auto;position:relative}
+  .queued{display:flex;gap:8px;color:var(--amber);font-size:11.5px;margin-bottom:6px}
+  .cbox{border:2px solid var(--border2);border-radius:12px;background:var(--bg);padding:10px 12px 8px}
+  .cbox:focus-within{border-color:var(--sel)}   /* 聚焦框：黑白灰 */
+  .cbox textarea{width:100%;background:transparent;border:none;outline:none;resize:none;color:var(--text);font:13px/1.55 inherit;height:44px}
+  .crow{display:flex;align-items:center;gap:8px;margin-top:6px}
+  .crow .sp{flex:1}
+  .crow .meta{color:var(--dim2);font-size:11px}
+  .ctxbar{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim)}
+  .ctxbar .bar{width:90px;height:4px;border-radius:2px;background:var(--border);overflow:hidden}
+  .ctxbar .fill{height:100%;width:62%;background:var(--dim)}   /* 用量条：灰 */
+  .ctxbar.low .fill{background:var(--amber)} .ctxbar.low{color:var(--amber)}
+  /* 发送/停止合一（§7 修订）：仅图标，idle=➤ 发送 / working=⏹ 停止，黑白反色 */
+  .send{border:none;background:var(--sel);color:var(--sel-fg);border-radius:8px;width:30px;height:30px;font-size:14px;line-height:1;cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center}
+  .menu{position:absolute;left:12px;bottom:100%;margin-bottom:6px;width:420px;background:var(--panel2);border:2px solid var(--border2);border-radius:10px;overflow:hidden;display:none}
+  .menu.on{display:block}
+  .menu .mi{padding:6px 12px;display:flex;gap:10px;align-items:baseline;cursor:pointer;font-size:12.5px}
+  .menu .mi:hover,.menu .mi.sel{background:var(--bg)}
+  .menu .mi .k{font-family:var(--mono);color:var(--text);font-weight:600;width:170px;flex:none}
+  .menu .mi .d{color:var(--dim);font-size:11.5px}
+  .menu .mh{padding:5px 12px;color:var(--dim2);font-size:10.5px;border-bottom:2px solid var(--border)}
+  .kbd{font-family:var(--mono);font-size:10.5px;color:var(--dim);border:2px solid var(--border2);border-radius:4px;padding:0 5px}
+  .statline{max-width:880px;margin:0 auto;display:flex;gap:16px;color:var(--dim2);font-size:11px;padding:2px 4px 0;font-family:var(--mono)}
+  .statline .run{color:var(--amber)}
+  .diffpage{display:grid;grid-template-columns:250px 1fr;height:100%}
+  .dlist{border-right:2px solid var(--border);overflow-y:auto;padding:8px}
+  .df{padding:6px 9px;border-radius:8px;cursor:pointer;font-size:12px;display:flex;gap:6px}
+  .df:hover,.df.sel{background:var(--panel2)}
+  .df.sel{border:2px solid var(--sel)}
+  .df .l{font-family:var(--mono);font-weight:700}
+  .df .p{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:11.5px}
+  .df .s{color:var(--dim2);font-family:var(--mono);font-size:10.5px}
+  .add{color:var(--green)} .del{color:var(--red)} .mod{color:var(--amber)}
+  .dview{overflow-y:auto;padding:12px 16px}
+  .dview .fh{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .dview pre{font-family:var(--mono);font-size:12px;line-height:1.5;background:var(--panel);border:2px solid var(--border);border-radius:10px;padding:10px 12px;overflow-x:auto}
+  .dview .a{color:var(--text);background:var(--diff-add);display:inline-block;width:100%}
+  .dview .d{color:var(--text);background:var(--diff-del);display:inline-block;width:100%}
+  .dview .h2{color:var(--dim2)}
+  .filebtns{display:flex;gap:6px;margin-left:auto}
+  .cppage{max-width:880px;margin:0 auto;padding:18px 20px}
+  .cprow{display:flex;align-items:center;gap:10px;border:2px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-family:var(--mono);font-size:12px}
+  .cprow .sha{color:var(--dim)}
+  .cprow .sum{flex:1;color:var(--text);font-family:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cprow .tm{color:var(--dim2);font-size:11px}
+  .legend{padding:6px 14px;color:var(--dim2);font-size:11px;border-top:2px solid var(--border);background:var(--panel)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <b>⚡ Gitter 任务</b><span class="crumb">设计稿 · ZCode 交互 × Codex 信息架构 · 静态示意（可点击：工具折叠/页签/模式循环/授权选项/主题切换）</span>
+  <span class="sp"></span>
+  <span class="chip" id="modechip" title="Shift+Tab 循环">模式：● 默认</span>
+  <span class="chip">模型：DeepSeek V4 ★</span>
+  <span class="chip" id="themechip" onclick="toggleTheme()">外观：暗</span>
+</div>
+<div class="main">
+  <div class="list">
+    <div class="new">＋ 新任务（Ctrl+N）</div>
+    <div class="scroll">
+      <div class="tcard sel">
+        <div class="t1"><span class="dot work"></span><span class="title">修复 Changes 页 diff 渲染卡顿</span></div>
+        <div class="t2"><span class="branch">task/fix-diff-lag</span><span>· 2m</span><span>· ⏳排队 1</span></div>
+        <div class="t3">正在跑 npm test 验证…</div>
+      </div>
+      <div class="tcard">
+        <div class="t1"><span class="dot plan"></span><span class="title">重构 worktree 服务层</span></div>
+        <div class="t2"><span class="branch">task/refactor-wt</span><span>· 1h</span></div>
+        <div class="t3">◇ 规划模式 · 等待计划批准</div>
+      </div>
+      <div class="tcard">
+        <div class="t1"><span class="dot done"></span><span class="title">升级 vite 到最新大版本</span></div>
+        <div class="t2"><span class="branch">task/vite-upgrade</span><span>· 昨天</span></div>
+        <div class="t3">✔ 已完成 · checkpoint ×6 · +412 −96</div>
+      </div>
+      <div class="tcard">
+        <div class="t1"><span class="dot err"></span><span class="title">发布 v2.3 到 GitHub Release</span></div>
+        <div class="t2"><span class="branch">task/release-2-3</span><span>· 昨天</span></div>
+        <div class="t3">✕ push 被拒绝（保护分支）</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="detail">
+    <div class="tabs">
+      <div class="tab on" data-p="chat">对话</div>
+      <div class="tab" data-p="diff">改动 <span class="n">3</span></div>
+      <div class="tab" data-p="cp">检查点 <span class="n">5</span></div>
+    </div>
+    <div class="body">
+      <div class="page on" id="p-chat">
+        <div class="pagehead">
+          <span class="statechip">● Working · 48s</span>
+          <span style="color:var(--dim);font-size:11.5px;font-family:var(--mono)">task/fix-diff-lag</span>
+          <span class="sp"></span>
+          <button class="tbtn">送验收</button>
+          <button class="tbtn">新窗口</button>
+        </div>
+        <div style="flex:1;overflow-y:auto">
+          <div class="stream">
+            <div class="usermsg"><div class="who">▸ 你 · 14:02</div>修复 Changes 页 diff 渲染卡顿：大 diff 滚动掉帧，定位原因并修复</div>
+
+            <div class="todo">
+              <div class="h">任务清单 · 2/4</div>
+              <div class="it done">☑ 复现：构造 3000 行 diff 页面</div>
+              <div class="it done">☑ 定位：wordDiff 每帧全量重算</div>
+              <div class="it now">◉ 修改 DiffView 增加行缓存</div>
+              <div class="it">☐ 跑 npm test 验证</div>
+            </div>
+
+            <div class="tool open">
+              <div class="head" onclick="this.parentElement.classList.toggle('open')">
+                <span class="glyph ok">⏺</span><span class="name">repo_grep</span>
+                <span class="args">{ pattern: "renderDiff", glob: "web/src/**/*.ts*" }</span>
+                <span class="ms">0.4s</span>
+              </div>
+              <div class="result">web/src/kit/DiffView.tsx:118:  const rows = useMemo(() =&gt; renderDiff(diff), [diff]);
+web/src/kit/DiffView.tsx:204:  renderDiff(diff, changedOnly);
+web/src/pages/ChangesPage.tsx:66:  const d = renderDiff(f);
+<span class="hint">（点击工具行折叠 / 展开）</span></div>
+            </div>
+
+            <div class="tool">
+              <div class="head" onclick="this.parentElement.classList.toggle('open')">
+                <span class="glyph ok">⏺</span><span class="name">file_patch</span>
+                <span class="args">{ path: "web/src/kit/DiffView.tsx", edits: 2 }</span>
+                <span class="ms">12ms</span>
+              </div>
+              <div class="result"><span class="ln-del">-  const rows = useMemo(() =&gt; renderDiff(diff), [diff]);</span>
+<span class="ln-add">+  const rows = useMemo(() =&gt; renderDiff(diff, viewport), [diff, viewport]);</span>
+<span class="ln-add">+  const viewport = useVisibleRange(listRef, ROW_H);</span>
+已编辑 web/src/kit/DiffView.tsx（2 处修改，+3 −2）</div>
+            </div>
+
+            <div class="tool">
+              <div class="head" onclick="this.parentElement.classList.toggle('open')">
+                <span class="glyph run">⏺</span><span class="name">terminal_run</span>
+                <span class="args">npm test -- DiffView</span>
+                <span class="ms">运行中 6.2s</span>
+              </div>
+              <div class="result">…（实时 tail 4 行）PASS src/kit/wordDiff.test.ts
+PASS src/kit/DiffView.cache.test.ts  ◂ 等待退出码…</div>
+            </div>
+
+            <div class="sysline"><span class="g">⎿</span> 3 个文件变更 +18 −7 · ChangeSet 已更新（改动页签可审）</div>
+
+            <div class="perm">
+              <div class="h">◈ 授权请求 · 命令 <span class="risk" style="float:right">■ 注意</span></div>
+              <div class="cmd">$ npm run build &amp;&amp; npm run e2e -- changes</div>
+              <div class="opts" id="perm-opts">
+                <div class="opt sel"><span class="cur">❯</span><span>1. 是，执行一次</span></div>
+                <div class="opt"><span class="cur"></span><span>2. 是，本会话不再询问（terminal_run）</span></div>
+                <div class="opt"><span class="cur"></span><span>3. 是，总是允许前缀 “npm run”</span></div>
+                <div class="opt"><span class="cur"></span><span>4. 否，告诉 agent 改用其他方式</span></div>
+              </div>
+              <div class="note">↑↓ 选择 · Enter 确认 · 选择结果会回给 agent 继续工作</div>
+            </div>
+
+            <div class="asst">
+              <p>定位完成：卡顿源于 <code>renderDiff</code> 在滚动事件里全量重算字级 diff。已加入视口范围缓存（仅重算可见行），预计大 diff 滚动帧时间从 48ms 降到 6ms。正在跑测试验证，通过后提交。</p>
+            </div>
+
+            <div class="cp"><span>✔</span><span>cp 7f3a2c1</span><span style="color:var(--text);font-family:inherit">checkpoint: diff 视口缓存 + 测试</span><span class="tip">· 双击 Esc 可回滚到此处</span></div>
+
+            <div class="turnfoot"><span>⎡ turn #3</span><span>12.4k tokens（9.1k in / 3.3k out）</span><span>48s</span><span>context 62%</span></div>
+
+            <div class="usermsg"><div class="who">▸ 你 · 排队注入 · 14:06</div>（用户在工作期间补充）顺手把行号列也虚拟化</div>
+
+            <div class="sysline"><span class="g">✻</span> 正在思考…（Esc 中断 · Shift+Tab 切模式）</div>
+          </div>
+        </div>
+        <div class="composerwrap">
+          <div class="composer">
+            <div class="statline"><span class="run">● terminal_run 运行中 6.2s</span><span>⏳ 排队 1 条</span><span>子代理 0/3</span><span style="margin-left:auto">Esc 中断 · Esc×2 回滚 · Shift+Tab 模式 · ↑↓ 历史</span></div>
+            <div class="cbox">
+              <div class="menu on" id="slashmenu">
+                <div class="mh">斜杠命令 — 内置</div>
+                <div class="mi sel"><span class="k">/compact</span><span class="d">立即压缩上下文</span></div>
+                <div class="mi"><span class="k">/clear</span><span class="d">重置会话</span></div>
+                <div class="mi"><span class="k">/model &lt;id&gt;</span><span class="d">切换模型档案</span></div>
+                <div class="mi"><span class="k">/approvals</span><span class="d">切换审批模式（同 Shift+Tab）</span></div>
+                <div class="mh">包命令 — agent.command</div>
+                <div class="mi"><span class="k">/hello-agent-tool:review</span><span class="d">审查当前工作区改动（com.example.hello-agent-tool）</span></div>
+              </div>
+              <textarea placeholder="继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式、粘贴图片直接附上">/</textarea>
+              <div class="crow">
+                <span class="chip" id="mode2" title="Shift+Tab 循环">◇ 规划</span>
+                <span class="chip">DeepSeek V4 ★</span>
+                <span class="chip" title="@ 文件 / @任务 提及">@ 提及</span>
+                <span class="chip" title="粘贴图片附加">🖼 图片</span>
+                <span class="sp"></span>
+                <div class="ctxbar"><span>context</span><div class="bar"><div class="fill"></div></div><span>62% · 41.2k / 64k</span></div>
+                <button class="send" id="sendstop" title="⏹ 停止（Esc 同效）" onclick="toggleSendStop()">⏹</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="p-diff">
+        <div class="pagehead">
+          <b style="font-size:12.5px">改动</b>
+          <span style="color:var(--dim);font-size:11.5px;font-family:var(--mono)">task/fix-diff-lag</span>
+          <span class="card-path" style="color:var(--dim2);font-size:11px">3 个文件 · +18 −7 · 基于 7f3a2c1^</span>
+          <span class="sp"></span>
+          <button class="tbtn">在 Changes 中打开</button>
+          <button class="tbtn">全部送验收</button>
+          <button class="tbtn">复制 diff</button>
+        </div>
+        <div class="diffpage" style="height:calc(100% - 46px)">
+          <div class="dlist">
+            <div style="padding:4px 9px;color:var(--dim2);font-size:10.5px">会话内全部改动 · 点击文件查看</div>
+            <div class="df sel"><span class="l mod">M</span><span class="p">web/src/kit/DiffView.tsx</span><span class="s">+9 −4</span></div>
+            <div class="df"><span class="l add">A</span><span class="p">web/src/kit/useVisibleRange.ts</span><span class="s">+62 −0</span></div>
+            <div class="df"><span class="l mod">M</span><span class="p">web/src/pages/ChangesPage.tsx</span><span class="s">+2 −1</span></div>
+            <div style="padding:4px 9px;color:var(--dim2);font-size:10.5px">逐文件操作（Codex per-file review × Gitter 语义）：<br>[还原此文件] = 回到会话基线版本</div>
+          </div>
+          <div class="dview">
+            <div class="fh">
+              <span style="font-family:var(--mono);font-size:12.5px">web/src/kit/DiffView.tsx</span>
+              <span style="color:var(--dim2);font-size:11px">+9 −4</span>
+              <div class="filebtns">
+                <button class="tbtn">还原此文件</button>
+                <button class="tbtn">复制</button>
+              </div>
+            </div>
+            <pre><span class="h2">@@ -115,9 +115,12 @@ export function DiffView(props)</span>
+    const diff = props.diff;
+<span class="d">-   const rows = useMemo(() =&gt; renderDiff(diff), [diff]);</span>
+<span class="a">+   const viewport = useVisibleRange(listRef, ROW_H);</span>
+<span class="a">+   const rows = useMemo(</span>
+<span class="a">+     () =&gt; renderDiff(diff, viewport),</span>
+<span class="a">+     [diff, viewport.first, viewport.last],</span>
+<span class="a">+   );</span></pre>
+            <div style="color:var(--dim2);font-size:11px;margin-top:8px">并排 / 内联 切换沿用现有 DiffView（kit 组件，设计稿从略）</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="p-cp">
+        <div class="pagehead">
+          <b style="font-size:12.5px">检查点</b>
+          <span style="color:var(--dim);font-size:11.5px;font-family:var(--mono)">task/fix-diff-lag</span>
+          <span class="card-path" style="color:var(--dim2);font-size:11px">5 个托管提交 · Esc×2 快捷回此页</span>
+        </div>
+        <div class="cppage">
+          <div style="color:var(--dim);font-size:12px;margin-bottom:10px">每轮结束自动托管 checkpoint。回滚 = ZCode rewind：恢复 worktree 到该轮之前（消息历史保留，可重新续跑）。<span class="kbd">Esc</span> <span class="kbd">Esc</span> 快捷打开本页。</div>
+          <div class="cprow"><span class="sha">cp 7f3a2c1</span><span class="sum">diff 视口缓存 + 测试</span><span class="tm">14:06 · +18 −7</span><button class="tbtn">查看该轮 diff</button><button class="tbtn">回滚到此处</button></div>
+          <div class="cprow"><span class="sha">cp 3b91e04</span><span class="sum">wordDiff 增加视口参数（半成品）</span><span class="tm">14:04 · +31 −2</span><button class="tbtn">查看该轮 diff</button><button class="tbtn">回滚到此处</button></div>
+          <div class="cprow"><span class="sha">cp 90cc7d2</span><span class="sum">复现脚本 + 基线测量</span><span class="tm">14:03 · +88 −0</span><button class="tbtn">查看该轮 diff</button><button class="tbtn">回滚到此处</button></div>
+          <div style="margin-top:10px;color:var(--dim2);font-size:11px">基线 90cc7d2^ · 整体 squash 合并走既有验收台流程（送验收 → 新窗口 Changes）</div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">图例：<span style="color:var(--green)">▸ 用户</span> · <span style="color:var(--purple)">⏺ 工具调用（默认折叠一行，⎿ 结果缩进，点击展开）</span> · <span style="color:var(--amber)">◈ 授权卡（编号选项，↑↓+Enter）</span> · <span style="color:var(--purple)">◇ 计划卡</span> · <span>✔ checkpoint（Esc×2 回滚，黑白灰）</span> · ⎡ turn 用量脚注 · <b>选中/聚焦一律黑白灰，双主题</b></div>
+  </div>
+</div>
+<script>
+  // 主题切换（暗 / 亮）
+  function toggleTheme() {
+    var light = document.body.classList.toggle("light");
+    document.getElementById("themechip").textContent = light ? "外观：亮" : "外观：暗";
+  }
+  document.querySelectorAll(".tab").forEach(function (t) {
+    t.onclick = function () {
+      document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("on"); });
+      document.querySelectorAll(".page").forEach(function (x) { x.classList.remove("on"); });
+      t.classList.add("on");
+      document.getElementById("p-" + t.dataset.p).classList.add("on");
+    };
+  });
+  document.querySelectorAll(".tool .head").forEach(function (h) {
+    h.onclick = function () { h.parentElement.classList.toggle("open"); };
+  });
+  var opts = Array.prototype.slice.call(document.querySelectorAll("#perm-opts .opt"));
+  var sel = 0;
+  function draw() {
+    opts.forEach(function (o, i) {
+      o.classList.toggle("sel", i === sel);
+      o.querySelector(".cur").textContent = i === sel ? "❯" : "";
+    });
+  }
+  opts.forEach(function (o, i) {
+    o.onclick = function () { sel = i; draw(); o.style.borderColor = "var(--sel)"; };
+  });
+  var modeIdx = 0;
+  var MODES = ["模式：● 默认", "模式：⚡ Yolo", "模式：◇ 规划"];
+  function cycleMode() {
+    modeIdx = (modeIdx + 1) % MODES.length;
+    document.getElementById("modechip").textContent = MODES[modeIdx];
+    document.getElementById("mode2").textContent = MODES[modeIdx].replace("模式：", "");
+  }
+  document.getElementById("modechip").onclick = cycleMode;
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowDown") { sel = Math.min(sel + 1, opts.length - 1); draw(); }
+    if (e.key === "ArrowUp") { sel = Math.max(sel - 1, 0); draw(); }
+    if (e.key === "Tab") { e.preventDefault(); cycleMode(); }
+  });
+  // 发送/停止合一按钮演示：working=⏹ 停止，idle=➤ 发送
+  var running = true;
+  function toggleSendStop() {
+    running = !running;
+    var b = document.getElementById("sendstop");
+    b.textContent = running ? "⏹" : "➤";
+    b.title = running ? "⏹ 停止（Esc 同效）" : "➤ 发送（Ctrl+Enter 同效）";
+    var run = document.querySelector(".statline .run");
+    if (run) run.textContent = running ? "● terminal_run 运行中 6.2s" : "○ 空闲";
+  }
+  var ta = document.querySelector(".cbox textarea");
+  var menu = document.getElementById("slashmenu");
+  ta.addEventListener("input", function () { menu.classList.toggle("on", ta.value === "/"); });
+  ta.addEventListener("blur", function () { setTimeout(function () { menu.classList.remove("on"); }, 200); });
+  ta.addEventListener("focus", function () { if (ta.value === "/") menu.classList.add("on"); });
+</script>
+</body>
+</html>

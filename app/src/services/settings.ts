@@ -53,6 +53,12 @@ export class SettingsStore {
       externalMcpEnabled: false,
       agentsCheckpoint: true,
       agentsOnExit: "terminate",
+      agentRules: [],
+      agentsCompaction: "auto",
+      agentsCompactionPolicy: { threshold: 0.8, keepLast: 8 },
+      agentsPostTurnHooks: true,
+      agentsMaxSubagents: 3,
+      agentsExternalMcpTools: false,
       models: [],
       defaultModelId: null,
       fastModelId: null,
@@ -101,7 +107,8 @@ export class SettingsStore {
       "aiProvider", "aiEndpoint", "aiModel", "aiCliCommand", "aiPrivacy", "aiAppendTrailer",
       "aiApiKeyProtected", "safetyNet", "mcpEnabled",
       "logSplitterFraction", "changesSplitterFraction", "packages", "confirmedCommands", "allowCodePlugins", "externalMcpEnabled",
-      "agentsCheckpoint", "agentsOnExit",
+      "agentsCheckpoint", "agentsOnExit", "agentRules", "agentsCompaction", "agentsCompactionPolicy",
+      "agentsPostTurnHooks", "agentsMaxSubagents", "agentsExternalMcpTools",
       "models", "defaultModelId", "fastModelId", "modelUsage",
     ];
     for (const key of allowed) {

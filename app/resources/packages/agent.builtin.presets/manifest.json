@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "id": "agent.builtin.presets",
+  "name": "Agent 内置子代理预设",
+  "version": "1.0.0",
+  "description": "task 工具的内置预设（§20.3.5 数据化自举）：explore 只读调研 / act 执行。停用本包 = task 工具无预设可用（深度 1 与信号量限流为内核不受影响）。",
+  "contributes": {
+    "subagentPresets": [
+      {
+        "id": "explore",
+        "name": "调研",
+        "description": "只读检索/阅读/汇总，零副作用",
+        "tools": ["repo_status", "repo_diff", "repo_log", "repo_read_file", "repo_list_files", "repo_glob", "repo_grep", "review_get_state"],
+        "readonly": true,
+        "addendum": "本次子任务是只读调研：只用只读工具检索与阅读，产出结论 + 证据（文件:行号）+ 未解决项。",
+        "timeoutMs": 300000
+      },
+      {
+        "id": "act",
+        "name": "执行",
+        "description": "可执行子任务（写操作仍过授权卡，冒泡到父时间线）",
+        "tools": [],
+        "readonly": false,
+        "addendum": "本次子任务是执行型：可直接改文件/跑命令，但 git 写与命令会向人类请求授权；完成后报告做了什么、改了哪些文件。",
+        "timeoutMs": 600000
+      }
+    ]
+  }
+}

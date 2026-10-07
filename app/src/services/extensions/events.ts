@@ -16,6 +16,12 @@ export const EVENT_NAMES = [
   "agent.task.resumed",
   "agent.task.stopped",
   "agent.task.removed",
+  // §20.3.6 事件面细化（全部只读广播；pre-tool 拦截不开放）
+  "agent.turn.started",
+  "agent.turn.completed",
+  "agent.tool.called",
+  "agent.permission.raised",
+  "agent.permission.decided",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];

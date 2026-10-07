@@ -217,3 +217,77 @@ export function isExempt(p: string, exemptPaths: string[]): boolean {
   }
   return false;
 }
+
+// ---- 危险命令分级（agent-harness-v4.md F4.3：terminal_run 授权卡风险条 + yolo 豁口）----
+// 纯函数；规则表数据化，safetyRules 包可按同一形状扩展（v4.1 数据可插件原则）。
+
+export type CommandRisk = "high" | "medium";
+
+/** high：不可逆/破坏性命令——yolo 模式仍强制 each-time 授权。 */
+const HIGH_RISK_PATTERNS: RegExp[] = [
+  /\brm\s+(-[a-z-]*\s+)*-[a-z-]*[rf][a-z-]*\b/i, // rm -rf / -fr 等
+  /\b(rm|del|rd|rmdir|erase)\b.*\b(\/s\b|\/q\b|-r\b|--recursive\b)/i,
+  /\bformat\b[a-z]*\s+[a-z]:/i,
+  /\bdiskpart\b/i,
+  /\bmkfs/i,
+  /\breg\s+(delete|add)\b/i,
+  /\bgit\s+push\b.*(--force|-f)\b/i,
+  /\bgit\s+reset\s+--hard\b/i,
+  /\bgit\s+clean\s+-[a-z]*[fd]/i,
+  /\bgit\s+branch\s+-D\b/i,
+  /\bgit\s+filter-branch\b/i,
+  /\b(shutdown|reboot)\b/i,
+  /\btaskkill\s+\/f\s+\/im\b/i,
+  /\bRemove-Item\b.*(-Recurse|-Force)/i,
+  /\bFormat-Volume\b/i,
+  /\bdrop\s+(database|table)\b/i,
+  /\btruncate\s+table\b/i,
+];
+
+/** medium：可恢复但有副作用——授权卡黄条提示。 */
+const MEDIUM_RISK_PATTERNS: RegExp[] = [
+  /\bgit\s+checkout\b[^&;|]*--/,
+  /\bgit\s+restore\b/,
+  /\bgit\s+clean\b/,
+  /\bgit\s+reset\b/,
+  /\bgit\s+rebase\b/,
+  /\bgit\s+branch\s+-d\b/,
+  /\bgit\s+stash\s+(drop|clear)\b/,
+  /\bnpm\s+(uninstall|ci)\b/,
+  /\bpnpm\s+(remove|install)\b.*--force/i,
+  /\bdel\b\s+\/q\b/i,
+  /\bRemove-Item\b/i,
+  /\bgit\s+push\s+--delete\b/,
+];
+
+// ---- 包规则（§20.3.9：commandRiskRules L1，只上调不下降——max 语义合并）----
+
+export interface PackageRiskRule {
+  packageId: string;
+  pattern: RegExp;
+  risk: CommandRisk;
+}
+
+const PACKAGE_RISK_RULES: PackageRiskRule[] = [];
+
+/** 包贡献的风险规则注册（bridge 在包装载/变更时全量重建）。 */
+export function setPackageRiskRules(rules: PackageRiskRule[]): void {
+  PACKAGE_RISK_RULES.splice(0, PACKAGE_RISK_RULES.length, ...rules);
+}
+
+/** 命令风险评估：拆分 ; && || 换行 后逐段匹配，任一段命中取最高级（内置表 + 包规则 max 合并）。 */
+export function commandRisk(command: string): CommandRisk | null {
+  const segments = command.split(/(?:&&|\|\||;|\r?\n)/g).map((s) => s.trim()).filter(Boolean);
+  let risk: CommandRisk | null = null;
+  for (const seg of segments) {
+    if (HIGH_RISK_PATTERNS.some((re) => re.test(seg))) return "high";
+    if (risk === null && MEDIUM_RISK_PATTERNS.some((re) => re.test(seg))) risk = "medium";
+    for (const r of PACKAGE_RISK_RULES) {
+      if (r.pattern.test(seg)) {
+        if (r.risk === "high") return "high";
+        if (risk === null) risk = "medium";
+      }
+    }
+  }
+  return risk;
+}

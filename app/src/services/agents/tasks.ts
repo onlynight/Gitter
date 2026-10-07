@@ -3,7 +3,12 @@ import * as path from "path";
 import type { ModelMessage } from "ai";
 import type { AgentTaskRecord } from "./types";
 
-// ---- 会话文件（消息历史 + 事件日志，agent-harness.md v3.0 历史读取）----
+/**
+ * 会话持久化（agent-harness-v4.md F1.2）：
+ * - 会话文件 v2：<taskId>.json = messages（完整回写）+ compactions + usageHistory；
+ * - journal 分段：<taskId>/journal-<n>.json，每段 500 条，追加滚动；
+ * - v1 迁移：旧单体文件里的 events 搬入 journal-0。
+ */
 
 export type SessionActor = "human" | "agent" | "host";
 
@@ -16,24 +21,30 @@ export interface SessionJournalEntry {
   event?: unknown;
 }
 
+/** 压缩记账（F7.2）。 */
+export interface CompactionRecord {
+  ts: string;
+  removedCount: number;
+  tokensBefore: number;
+  tokensAfter: number;
+  summary: string;
+}
+
+export interface UsageEntry {
+  ts: string;
+  input?: number;
+  output?: number;
+}
+
 export interface SessionFile {
-  version: 1;
+  version: 2;
   taskId: string;
   messages: ModelMessage[];
-  events: SessionJournalEntry[];
+  compactions: CompactionRecord[];
+  usageHistory: UsageEntry[];
 }
 
-const MAX_JOURNAL = 500;
-
-export function capJournal(j: SessionJournalEntry[]): SessionJournalEntry[] {
-  return j.length > MAX_JOURNAL ? j.slice(j.length - MAX_JOURNAL) : j;
-}
-
-/**
- * 任务↔会话账本（agent-harness-codex.md v2.0 §三/§四）：
- * 持久化于 <repo>/.git/gitter/agent-tasks.json —— 跟随克隆走、按仓库隔离、不入版本控制。
- * Gitter 重启后非终态任务标 interrupted（外部会话文件仍存续，续跑无损）。
- */
+// ---- 任务账本（<repo>/.git/gitter/agent-tasks.json）----
 
 const NON_TERMINAL: AgentTaskRecord["state"][] = ["starting", "working", "awaiting-input", "awaiting-permission"];
 
@@ -86,28 +97,143 @@ export function findTask(file: AgentTaskFile, taskId: string): AgentTaskRecord |
   return file.tasks.find((t) => t.taskId === taskId);
 }
 
-const sessionsDir = (repoDir: string): string => path.join(repoDir, ".git", "gitter", "agent-sessions");
+/** 记录字段补默认（旧账本兼容：v4 新字段缺省）。 */
+export function normalizeRecord(r: AgentTaskRecord): AgentTaskRecord {
+  return {
+    ...r,
+    permissionMode: r.permissionMode ?? "default",
+    todoState: r.todoState ?? null,
+    planHistory: r.planHistory ?? [],
+    queued: r.queued ?? [],
+  };
+}
 
+// ---- 会话文件 + journal 分段 ----
+
+const sessionsDir = (repoDir: string): string => path.join(repoDir, ".git", "gitter", "agent-sessions");
+const journalDirOf = (repoDir: string, taskId: string): string => path.join(sessionsDir(repoDir), taskId);
+const JOURNAL_SEG = 500;
+
+function sessionPath(repoDir: string, taskId: string): string {
+  return path.join(sessionsDir(repoDir), `${taskId}.json`);
+}
+
+export function emptySessionFile(taskId: string): SessionFile {
+  return { version: 2, taskId, messages: [], compactions: [], usageHistory: [] };
+}
+
+/**
+ * 读取会话文件；v1 → v2 就地迁移（旧 events 搬入 journal-0，一次写入）。
+ */
 export function loadSessionFile(repoDir: string, taskId: string): SessionFile {
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(sessionsDir(repoDir), `${taskId}.json`), "utf8")) as Partial<SessionFile>;
-    return {
-      version: 1,
+    const raw = JSON.parse(fs.readFileSync(sessionPath(repoDir, taskId), "utf8")) as Partial<SessionFile> & {
+      events?: SessionJournalEntry[];
+    };
+    const file: SessionFile = {
+      version: 2,
       taskId,
       messages: Array.isArray(raw.messages) ? (raw.messages as ModelMessage[]) : [],
-      events: Array.isArray(raw.events) ? (raw.events as SessionJournalEntry[]) : [],
+      compactions: Array.isArray(raw.compactions) ? raw.compactions : [],
+      usageHistory: Array.isArray(raw.usageHistory) ? raw.usageHistory : [],
     };
+    if (Array.isArray(raw.events) && raw.events.length > 0 && !fs.existsSync(journalDirOf(repoDir, taskId))) {
+      appendJournalFile(repoDir, taskId, raw.events as SessionJournalEntry[]);
+    }
+    return file;
   } catch {
-    return { version: 1, taskId, messages: [], events: [] };
+    return emptySessionFile(taskId);
   }
 }
 
 export function saveSessionFile(repoDir: string, file: SessionFile): void {
   const dir = sessionsDir(repoDir);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, `${file.taskId}.json`), JSON.stringify({ ...file, events: capJournal(file.events) }, null, 2), "utf8");
+  fs.writeFileSync(sessionPath(repoDir, file.taskId), JSON.stringify(file, null, 2), "utf8");
 }
 
 export function deleteSessionFile(repoDir: string, taskId: string): void {
-  fs.rmSync(path.join(sessionsDir(repoDir), `${taskId}.json`), { force: true });
+  fs.rmSync(sessionPath(repoDir, taskId), { force: true });
+  fs.rmSync(journalDirOf(repoDir, taskId), { recursive: true, force: true });
+}
+
+// ---- journal 分段（agent-harness-v4.md F1.2）----
+
+function segmentPath(repoDir: string, taskId: string, n: number): string {
+  return path.join(journalDirOf(repoDir, taskId), `journal-${n}.json`);
+}
+
+function listSegments(repoDir: string, taskId: string): number[] {
+  try {
+    return fs
+      .readdirSync(journalDirOf(repoDir, taskId))
+      .map((f) => /^journal-(\d+)\.json$/.exec(f))
+      .filter((m): m is RegExpExecArray => !!m)
+      .map((m) => parseInt(m[1], 10))
+      .sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
+/** 追加条目到末段（满 500 滚新段）。同步 IO（journal 批量冲刷时调用，量小）。 */
+export function appendJournalFile(repoDir: string, taskId: string, entries: SessionJournalEntry[]): void {
+  if (entries.length === 0) return;
+  fs.mkdirSync(journalDirOf(repoDir, taskId), { recursive: true });
+  const segs = listSegments(repoDir, taskId);
+  const last = segs.length > 0 ? segs[segs.length - 1] : 0;
+  const p = segmentPath(repoDir, taskId, last);
+  let cur: SessionJournalEntry[] = [];
+  try {
+    cur = JSON.parse(fs.readFileSync(p, "utf8")) as SessionJournalEntry[];
+  } catch {
+    /* 新段 */
+  }
+  let rest = entries;
+  if (cur.length + rest.length > JOURNAL_SEG) {
+    const take = JOURNAL_SEG - cur.length;
+    cur.push(...rest.slice(0, take));
+    fs.writeFileSync(p, JSON.stringify(cur), "utf8");
+    rest = rest.slice(take);
+    let n = last + 1;
+    while (rest.length > 0) {
+      const chunk = rest.slice(0, JOURNAL_SEG);
+      rest = rest.slice(JOURNAL_SEG);
+      fs.writeFileSync(segmentPath(repoDir, taskId, n), JSON.stringify(chunk), "utf8");
+      n++;
+    }
+    return;
+  }
+  cur.push(...rest);
+  fs.writeFileSync(p, JSON.stringify(cur), "utf8");
+}
+
+/** journal 分页读取（F1.2：before 之前、最多 limit 条；返回 hasMore 供"加载更早"）。 */
+export function loadJournalRange(
+  repoDir: string,
+  taskId: string,
+  opts?: { before?: string; limit?: number },
+): { entries: SessionJournalEntry[]; hasMore: boolean } {
+  const limit = Math.max(1, Math.min(opts?.limit ?? 200, 500));
+  const segs = listSegments(repoDir, taskId);
+  const collected: SessionJournalEntry[] = [];
+  let hasMore = false;
+  for (let i = segs.length - 1; i >= 0 && !hasMore; i--) {
+    let entries: SessionJournalEntry[] = [];
+    try {
+      entries = JSON.parse(fs.readFileSync(segmentPath(repoDir, taskId, segs[i]), "utf8")) as SessionJournalEntry[];
+    } catch {
+      continue;
+    }
+    for (let j = entries.length - 1; j >= 0; j--) {
+      const e = entries[j];
+      if (opts?.before && e.ts >= opts.before) continue;
+      if (collected.length >= limit) {
+        hasMore = true;
+        break;
+      }
+      collected.push(e);
+    }
+  }
+  return { entries: collected.reverse(), hasMore };
 }

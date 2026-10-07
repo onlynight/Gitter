@@ -195,11 +195,34 @@ export interface SettingsDTO {
   /** Agent 宿主（agent-harness-codex.md v2.0 §六）：托管 checkpoint 与退出策略 */
   agentsCheckpoint: boolean;
   agentsOnExit: "terminate" | "keep";
+  /** Agent 权限规则（agent-harness-v4.md F5.3：deny > allow > 分级基线） */
+  agentRules: AgentPermissionRuleDTO[];
+  /** 上下文压缩策略（F7：auto=80% 阈值自动 / manual=仅 /compact / off） */
+  agentsCompaction: "auto" | "manual" | "off";
+  /** 压缩数据面调参（§20.3.3：threshold ∈ [0.5,0.95]，keepLast ∈ [4,32]） */
+  agentsCompactionPolicy: { threshold?: number; keepLast?: number };
+  /** post-turn 钩子总开关（§20.3.6，默认开） */
+  agentsPostTurnHooks: boolean;
+  /** 子代理并发上限（F9） */
+  agentsMaxSubagents: number;
+  /** MCP 工具入 agent 循环（F12.4：信任门，默认关；server 级随 externalMcpEnabled） */
+  agentsExternalMcpTools: boolean;
   /** 模型档案（task-model-modules.md §二）：用户档案 + 缺省链 + 用量累计 */
   models: UserModelProfileDTO[];
   defaultModelId: string | null;
   fastModelId: string | null;
   modelUsage: Record<string, { turns: number; inputTokens: number; outputTokens: number }>;
+}
+
+/** 持久授权规则（settings.agentRules；pattern null=工具全量，否则签名前缀）。 */
+export interface AgentPermissionRuleDTO {
+  id: string;
+  tool: string;
+  pattern: string | null;
+  effect: "allow" | "deny";
+  scope: "global" | "repo";
+  repoPath?: string | null;
+  createdAt: string;
 }
 
 /** 用户模型档案（settings.models[]；包模板实例化后也落在这里，同 fullId 遮蔽模板）。 */

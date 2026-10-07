@@ -22,8 +22,8 @@ let shared: SharedServices;
 /** 窗口创建（首窗 / 命令面板与项目·任务页"新窗口"/ second-instance）。 */
 function createWindow(repoPath?: string): void {
   const win = new BrowserWindow({
-    width: 1120,
-    height: 700,
+    width: Number(process.env.GITTER_WIN?.split("x")[0]) || 1120,
+    height: Number(process.env.GITTER_WIN?.split("x")[1]) || 700,
     minWidth: 720,
     minHeight: 480,
     backgroundColor: "#1E1F22",
@@ -258,6 +258,31 @@ app.whenReady().then(() => {
             "window.GITTER_UI && window.GITTER_UI.navigate(" + JSON.stringify(shotPage) + ")");
           await new Promise((r) => setTimeout(r, 900)); // 惰性装载 + 渲染稳定
         }
+        // 水平溢出探测：报告整页与各面板的超宽（定位“最小宽度过大”类问题）
+        try {
+          const fit = await win.webContents.executeJavaScript(`(() => {
+            const pageOver = document.documentElement.scrollWidth - document.documentElement.clientWidth;
+            const offenders = [...document.querySelectorAll('.page *')]
+              .map((el) => ({ el, tag: el.tagName, cls: String(el.className).slice(0, 40),
+                r: el.getBoundingClientRect(), sw: el.scrollWidth }))
+              .filter((x) => x.r.right > window.innerWidth + 2 || x.sw - x.r.width > 4)
+              .sort((a, b) => b.r.right - a.r.right).slice(0, 8)
+              .map((x) => {
+                const chain: string[] = [];
+                let e: HTMLElement | null = x.el as HTMLElement;
+                while (e && e !== document.body && chain.length < 6) {
+                  chain.push(e.tagName + (e.id ? "#" + e.id : "") + (e.className ? "." + String(e.className).split(" ")[0] : ""));
+                  e = e.parentElement;
+                }
+                return { chain: chain.join(" < "), right: Math.round(x.r.right), w: Math.round(x.r.width) };
+              });
+            return { pageOver, offenders };
+          })()`);
+          if (fit.pageOver > 2 || fit.offenders.length > 0) {
+            process.stdout.write("[fit] 页面水平溢出 " + fit.pageOver + "px; 元素: " + JSON.stringify(fit.offenders) + "\n");
+          }
+        } catch {}
+
         const img = await win.webContents.capturePage();
         fs.writeFileSync(shotPath, img.toPNG());
         process.stdout.write("[shot] saved " + shotPath + "\n");

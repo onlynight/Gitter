@@ -19,6 +19,9 @@ import { importGpkFile, uninstallPackageDir } from "./services/extensions/gpk";
 import { buildRawTheme } from "./services/extensions/grammar";
 import { AgentSessionManager } from "./services/agents/session";
 import { pickRepairTarget } from "./services/agents/session";
+import { registerAgentTool, unregisterAgentToolsBySource } from "./services/agents/registry";
+import { auditSeams } from "./services/agents/seams";
+import { z } from "zod";
 import { checkCallerAccess, type CallerIdentity } from "./services/extensions/rpcScopes";
 import { HOST_API_VERSION } from "./services/extensions/store";
 import { DATA_API_VERSION } from "./shared/apiVersion";
@@ -107,7 +110,7 @@ export class Bridge {
         const key = this.decryptProfileKey(p.apiKeyProtected);
         const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking });
         return r.ok
-          ? { ok: true as const, model: r.model, profileRef: p.id }
+          ? { ok: true as const, model: r.model, profileRef: p.id, contextWindow: p.capabilities?.contextTokens ?? 128_000 }
           : { ok: false as const, error: r.error };
       },
       // 用量记账（task-model-modules.md §2.3）
@@ -137,6 +140,10 @@ export class Bridge {
       },
       send: (method: string, params: unknown) => {
         if (!win.isDestroyed()) win.webContents.send("evt", { method, params });
+      },
+      // §14.7 只读事件广播 → 插件 EventBus（pre-tool 拦截不开放，引擎不插件）
+      onBusEvent: (name, payload) => {
+        void this.shared.events.emit(name, { repo: this.repo, ...payload });
       },
     });
     this.registerAll();
@@ -327,19 +334,55 @@ export class Bridge {
     R("tasks.list", () => worktrees.listWorktrees(this.needRepo()));
     R("tasks.create", (args: { name: string }) => worktrees.createTaskWorktree(this.needRepo(), args.name));
     R("tasks.remove", (args: { path: string }) => worktrees.removeTaskWorktree(this.needRepo(), args.path));
+    // 仓库文件清单（TasksPage @ 提及补全数据源；子串过滤，cap 50）
+    R("repo.files", async (args: { query?: string }) => {
+      const r = await tryGit(this.needRepo(), ["ls-files", "-co", "--exclude-standard"]);
+      let lines = r.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      const q = (args?.query ?? "").trim().toLowerCase();
+      if (q) {
+        lines = lines
+          .map((l) => {
+            const low = l.toLowerCase();
+            const idx = low.lastIndexOf(q);
+            return { l, score: idx < 0 ? 1e9 : idx + low.length - q.length };
+          })
+          .filter((x) => x.score < 1e9)
+          .sort((a, b) => a.score - b.score || a.l.length - b.l.length)
+          .map((x) => x.l);
+      }
+      return lines.slice(0, 50);
+    });
 
-    // ---- Agent 宿主（agent-harness-codex.md v2.0 §三/§八）----
+    // ---- Agent 宿主（agent-harness-codex.md v2.0 §三/§八 + v4.0 F1/F5/F6/F7/F10）----
     R("agents.list", () => this.agents.listHarnesses());
     R("agent.tasks", () => this.agents.listTasks());
-    R("agent.task.create", (args: { name?: string; prompt: string; taskType?: string; model?: string; thinking?: string }) =>
-      this.agents.createTask({ name: args?.name, prompt: args?.prompt ?? "", taskType: args?.taskType, model: args?.model, thinking: args?.thinking as never }));
-    R("agent.task.resume", (args: { taskId: string; prompt: string; thinking?: string }) => this.agents.resumeTask({ ...args, thinking: args?.thinking as never }));
+    R("agent.task.create", (args: { name?: string; prompt: string; taskType?: string; model?: string; thinking?: string; mode?: string }) =>
+      this.agents.createTask({ name: args?.name, prompt: args?.prompt ?? "", taskType: args?.taskType, model: args?.model, thinking: args?.thinking as never, mode: args?.mode as never }));
+    R("agent.task.resume", (args: { taskId: string; prompt: string; thinking?: string; mode?: string }) =>
+      this.agents.resumeTask({ ...args, thinking: args?.thinking as never, mode: args?.mode as never }));
+    R("agent.task.queue", (args: { taskId: string; prompt: string }) => this.agents.queueTask(args) ?? {});
+    R("agent.task.setMode", (args: { taskId: string; mode: string }) => this.agents.setMode({ ...args, mode: args.mode as never }) ?? {});
     R("agent.task.stop", (args: { taskId: string }) => this.agents.stopTask(args) ?? {});
     R("agent.task.feedback", (args: { taskId: string; feedback: string }) => this.agents.sendFeedback(args));
-    // 任务历史读取（时间线回放 + 插件读取面）：记录 + 事件日志 + 消息历史
-    R("agent.task.history", (args: { taskId: string }) => this.agents.taskHistory(args));
-    R("agent.perm.reply", (args: { requestId: string; ok: boolean; remember?: boolean }) =>
+    // 任务历史读取（时间线回放 + journal 分页）：记录 + 事件日志 + 消息历史
+    R("agent.task.history", (args: { taskId: string; before?: string; limit?: number }) => this.agents.taskHistory(args));
+    R("agent.perm.reply", (args: { requestId: string; ok: boolean; remember?: boolean; answer?: string; optionIndex?: number }) =>
       this.agents.replyPermission(args));
+    // 改动预览（F6）：文件列表 / diff（DiffDTO）/ diff 原文（复制）/ checkpoint 索引 / 恢复
+    R("agent.task.files", (args: { taskId: string }) => this.agents.taskFiles(args));
+    R("agent.task.diff", (args: { taskId: string; path?: string; since?: string }) => this.agents.taskDiff(args));
+    R("agent.task.diffText", (args: { taskId: string; path?: string; since?: string }) => this.agents.taskDiffText(args));
+    R("agent.task.checkpoints", (args: { taskId: string }) => this.agents.taskCheckpoints(args));
+    R("agent.task.restore", (args: { taskId: string; sha: string; path?: string }) => this.agents.restore(args));
+    // 上下文与压缩（F7）
+    R("agent.context.stats", (args: { taskId: string }) => this.agents.contextStats(args));
+    R("agent.task.compact", (args: { taskId: string }) => this.agents.compactTask(args));
+    R("agent.task.clear", (args: { taskId: string }) => this.agents.clearTask(args));
+    // §20.6 审计视图（提示词段/采集器/钩子/压缩器/预设 逐包可见）
+    R("agent.seams.audit", () => auditSeams());
+    // 后台 shell 面板（F4 逃生舱联动）+ 图片预览（F2.1）
+    R("agent.task.shells", (args: { taskId: string }) => this.agents.taskShells(args));
+    R("agent.previewImage", (args: { taskId: string; path: string }) => this.agents.previewImage(args));
     R("agent.task.setModel", (args: { taskId: string; model: string }) => this.agents.setModel(args) ?? {});
     R("agent.task.fork", (args: { taskId: string; model?: string }) => this.agents.fork(args));
     R("agent.task.archive", (args: { taskId: string; archived: boolean }) => this.agents.archive(args) ?? {});
@@ -1131,6 +1174,7 @@ export class Bridge {
       allowCode: this.shared.settings.current.allowCodePlugins,
     });
     void this.syncExternalMcp();
+    this.syncPackageAgentRules();
     this.emit("extensions.changed", { allowCodePlugins: this.shared.settings.current.allowCodePlugins });
   }
 
@@ -1139,14 +1183,52 @@ export class Bridge {
     if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method, params });
   }
 
-  /** mcpServers 接缝：包声明的外部 server 全量重连（信任门 settings.externalMcpEnabled）。 */
+  /** §20.3.9 规则数据化：包 commandRiskRules → safety（只上调 max 语义）；agentPermissionRules(deny) 由 session 直读 store。 */
+  private syncPackageAgentRules(): void {
+    try {
+      const rules = this.shared.pkgStore.commandRiskRulesOf().map((r) => ({
+        packageId: r.packageId,
+        pattern: new RegExp(r.pattern),
+        risk: r.risk,
+      }));
+      safety.setPackageRiskRules(rules);
+    } catch (e) {
+      console.warn("[commandRiskRules] 注册失败:", (e as Error).message);
+    }
+  }
+
+  /** mcpServers 接缝：包声明的外部 server 全量重连（信任门 settings.externalMcpEnabled）。
+   *  F12.4：agentsExternalMcpTools 开启时，MCP 工具同步注册进 agent 注册表（mcp. 命名空间，恒 each-time）。 */
   private async syncExternalMcp(): Promise<void> {
     const mgr = this.shared.mcpMgr;
     mgr.disconnectAll();
+    unregisterAgentToolsBySource("mcp");
     if (!this.shared.settings.current.externalMcpEnabled) return;
+    const intoAgent = this.shared.settings.current.agentsExternalMcpTools === true;
     for (const cfg of this.shared.pkgStore.mcpServersOf()) {
       const r = await mgr.connect(cfg, this.shared.tools);
-      if (r.error) console.warn(`[mcpServers] ${cfg.id} 连接失败:`, r.error);
+      if (r.error) {
+        console.warn(`[mcpServers] ${cfg.id} 连接失败:`, r.error);
+        continue;
+      }
+      if (!intoAgent) continue;
+      for (const info of this.shared.tools.list().filter((t) => t.source === "mcp" && t.name.startsWith(`${cfg.id}.`))) {
+        registerAgentTool({
+          name: `mcp.${info.name}`,
+          description: `[MCP] ${info.description}`,
+          parametersSchema: z.record(z.string(), z.unknown()),
+          permissionClass: "each-time",
+          source: "mcp",
+          execute: async (env, args) => {
+            // agent 侧授权门（each-time）已在 buildToolset 生效，此处放行 extensions 门
+            const out = await this.shared.tools.call(info.name, args, {
+              workDir: env.worktreePath,
+              requestApproval: async () => true,
+            });
+            return out ?? "（空结果）";
+          },
+        });
+      }
     }
   }
 

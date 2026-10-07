@@ -172,11 +172,34 @@ export interface SettingsDTO {
   /** Agent 宿主（agent-harness.md v3.0 §六）：托管 checkpoint 与退出策略 */
   agentsCheckpoint: boolean;
   agentsOnExit: "terminate" | "keep";
+  /** Agent 权限规则（agent-harness-v4.md F5.3） */
+  agentRules: AgentPermissionRuleDTO[];
+  /** 上下文压缩策略（F7） */
+  agentsCompaction: "auto" | "manual" | "off";
+  /** 压缩数据面调参（§20.3.3） */
+  agentsCompactionPolicy: { threshold?: number; keepLast?: number };
+  /** post-turn 钩子总开关（§20.3.6） */
+  agentsPostTurnHooks: boolean;
+  /** 子代理并发上限（F9） */
+  agentsMaxSubagents: number;
+  /** MCP 工具入 agent 循环（F12.4 信任门，默认关） */
+  agentsExternalMcpTools: boolean;
   /** 模型档案（task-model-modules.md §二） */
   models: UserModelProfileDTO[];
   defaultModelId: string | null;
   fastModelId: string | null;
   modelUsage: Record<string, { turns: number; inputTokens: number; outputTokens: number }>;
+}
+
+/** 持久授权规则（settings.agentRules；pattern null=工具全量，否则签名前缀）。 */
+export interface AgentPermissionRuleDTO {
+  id: string;
+  tool: string;
+  pattern: string | null;
+  effect: "allow" | "deny";
+  scope: "global" | "repo";
+  repoPath?: string | null;
+  createdAt: string;
 }
 
 /** 用户模型档案（settings.models[]；包模板实例化后同 fullId 遮蔽）。 */
@@ -323,11 +346,34 @@ export type AgentTaskDTO = {
   modelRef: string | null;
   taskType: string | null;
   thinking?: "off" | "low" | "medium" | "high";
+  permissionMode?: "plan" | "default" | "yolo";
+  todoState?: { content: string; status: "pending" | "in_progress" | "completed" }[] | null;
+  planHistory?: { ts: string; plan: string; decision: "approved" | "revised"; feedback?: string }[];
+  queued?: string[];
   archived: boolean;
 };
 
+export type AgentContextStatsDTO = {
+  estTokens: number;
+  contextWindow: number;
+  budget: number;
+  ratio: number;
+  breakdown: { system: number; messages: number; reserved: number };
+  compactions: number;
+};
+
+export type AgentPermissionPayloadDTO = {
+  kind: "command" | "git-stage" | "git-commit" | "git-push" | "mcp" | "plugin" | "restore";
+  paths?: string[];
+  diffStat?: string;
+  risk?: "high" | "medium" | null;
+  source?: string | null;
+};
+
 export type AgentEventDTO = {
-  type: "status" | "output" | "checkpoint" | "permission" | "question" | "completed" | "session-meta" | "file-change" | "turn-completed" | "log";
+  type:
+    | "status" | "output" | "checkpoint" | "permission" | "question" | "plan" | "completed"
+    | "session-meta" | "file-change" | "turn-completed" | "log" | "tool" | "todo" | "subtask";
   phase?: string;
   summary?: string;
   text?: string;
@@ -337,8 +383,13 @@ export type AgentEventDTO = {
   detail?: string;
   command?: string | null;
   requestId?: string;
+  toolName?: string;
   question?: string;
   options?: string[];
+  plan?: string;
+  todos?: { content: string; status: "pending" | "in_progress" | "completed" }[];
+  payload?: AgentPermissionPayloadDTO;
+  rememberable?: boolean;
   outcome?: "completed" | "failed" | "cancelled";
   exitCode?: number | null;
   externalSessionId?: string;
@@ -347,4 +398,29 @@ export type AgentEventDTO = {
   usage?: { input?: number; output?: number };
   lastMessage?: string;
   level?: "debug" | "info" | "warn" | "error";
+  // tool / subtask 事件
+  callId?: string;
+  name?: string;
+  args?: unknown;
+  result?: string;
+  durationMs?: number;
+  isError?: boolean;
+  source?: string | null;
+  subtaskId?: string;
+  state?: "running" | "completed" | "failed" | "timeout" | "cancelled";
+  finalMessage?: string;
+  mode?: string;
+};
+
+export type AgentTaskFileDTO = {
+  path: string;
+  kind: string;
+  added: number | null;
+  deleted: number | null;
+};
+
+export type AgentCheckpointDTO = {
+  sha: string;
+  summary: string;
+  date: string;
 };

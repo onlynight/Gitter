@@ -44,7 +44,13 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "tasks.list": "open", "projects.list": "open",
   "app.gitVersion": "open", "agent.task.history": "open", "api.info": "open",
   "agent.tasks": "git.read", "highlight.file": "open", "extensions.pages": "open",
+  "agent.context.stats": "open",
+  "agent.task.shells": "open", "agent.seams.audit": "open",
   "remote.list": "git.read",
+  // agent 改动预览读面（agent-harness-v4.md F6）
+  "repo.files": "git.read", "agent.task.files": "git.read",
+  "agent.task.diff": "git.read", "agent.task.diffText": "git.read", "agent.task.checkpoints": "git.read",
+  "agent.previewImage": "git.read",
 
   // ---- git.read ----
   "log.query": "git.read", "log.branches": "git.read", "log.detail": "git.read", "log.fileDiff": "git.read",
@@ -76,9 +82,14 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "agent.task.feedback": "agent.run", "agent.task.setModel": "agent.run",
   "agent.task.fork": "agent.run", "agent.task.archive": "agent.run", "agent.task.delete": "agent.run",
   "agent.loop.run": "agent.run", "review.repair": "agent.run",
+  "agent.task.queue": "agent.run", "agent.task.setMode": "agent.run",
+  "agent.task.compact": "agent.run", "agent.task.clear": "agent.run",
 
   // ---- agent.config ----
   "agent.perm.reply": "agent.config",
+
+  // ---- git.write（任务 worktree 恢复；host 侧 agent.restore 仅作用任务 worktree） ----
+  "agent.task.restore": "git.write",
 
   // ---- extensions.admin ----
   "extensions.importGpk": "extensions.admin", "extensions.installFromCatalog": "extensions.admin",

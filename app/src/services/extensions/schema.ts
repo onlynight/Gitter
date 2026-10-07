@@ -192,6 +192,58 @@ export interface TaskTypeContribution {
   defaultModelRef: string | null;
   /** 循环实现 id（G7：taskType→loop 绑定；缺省 builtin.default） */
   defaultLoop: string | null;
+  /** 单任务步数上限（F12.2：缺省 50，上限 200） */
+  maxSteps: number | null;
+  /** 压缩器选择（§20.3.3 选择链：taskType.compactor → settings → builtin） */
+  compactor: string | null;
+}
+
+/** agentTools 声明（F12.3：L2 运行时经 ctx.registerAgentTool 注册；本声明用于能力展示/校验） */
+export interface AgentToolDeclaration {
+  id: string;
+  description: string;
+  permission: "auto" | "session" | "each-time";
+}
+
+/** promptSections 静态段（§14.5：L1 纯文本提示词贡献） */
+export interface PromptSectionContribution {
+  id: string;
+  slot: "identity" | "boundary" | "context" | "workflow" | "tools" | "skills" | "mode" | "task" | "free" | "output" | "compaction" | "subagent";
+  order: number;
+  content: string;
+}
+
+/** contextFiles（§20.3.2：L1 数据先行——固定文件注入上下文） */
+export interface ContextFileContribution {
+  path: string;
+  label: string | null;
+  capChars: number | null;
+}
+
+/** commandRiskRules（§20.3.9：只上调不下降，max 语义合并） */
+export interface CommandRiskRuleContribution {
+  pattern: string;
+  risk: "high" | "medium";
+  message: string | null;
+}
+
+/** agentPermissionRules（§20.3.9：包只能贡献 deny——加严） */
+export interface AgentPermissionRuleContribution {
+  tool: string;
+  pattern: string | null;
+  effect: "deny";
+}
+
+/** subagentPresets 预设（§14.2 #6：task 工具 mode 枚举扩展） */
+export interface SubagentPresetContribution {
+  id: string;
+  name: string;
+  description: string | null;
+  /** 工具白名单（⊆ 当前注册表全集，编译期剔除未知） */
+  tools: string[];
+  readonly: boolean | null;
+  addendum: string | null;
+  timeoutMs: number | null;
 }
 
 export interface Manifest {
@@ -225,6 +277,12 @@ export interface Manifest {
     harnesses: HarnessContribution[];
     models: ModelContribution[];
     taskTypes: TaskTypeContribution[];
+    agentTools: AgentToolDeclaration[];
+    promptSections: PromptSectionContribution[];
+    subagentPresets: SubagentPresetContribution[];
+    contextFiles: ContextFileContribution[];
+    commandRiskRules: CommandRiskRuleContribution[];
+    agentPermissionRules: AgentPermissionRuleContribution[];
   };
 }
 
@@ -501,6 +559,68 @@ const manifestV2 = z.object({
               .default({}),
             defaultModelRef: z.string().nullish(),
             defaultLoop: z.string().nullish(),
+            maxSteps: z.number().int().min(1).max(200).nullish(),
+            compactor: z.string().min(1).nullish(),
+          }),
+        )
+        .optional(),
+      contextFiles: z
+        .array(
+          z.object({
+            path: z.string().min(1),
+            label: z.string().nullish(),
+            capChars: z.number().int().min(100).max(16_000).nullish(),
+          }),
+        )
+        .optional(),
+      commandRiskRules: z
+        .array(
+          z.object({
+            pattern: z.string().min(1),
+            risk: z.enum(["high", "medium"]),
+            message: z.string().nullish(),
+          }),
+        )
+        .optional(),
+      agentPermissionRules: z
+        .array(
+          z.object({
+            tool: z.string().min(1),
+            pattern: z.string().nullish(),
+            effect: z.literal("deny"),
+          }),
+        )
+        .optional(),
+      agentTools: z
+        .array(
+          z.object({
+            id: z.string().regex(/^[a-z0-9][a-z0-9.-]*$/i, "agentTool id 只允许字母数字与 .-"),
+            description: z.string().min(1),
+            permission: z.enum(["auto", "session", "each-time"]).default("each-time"),
+          }),
+        )
+        .optional(),
+      promptSections: z
+        .array(
+          z.object({
+            id: z.string().regex(/^[a-z0-9][a-z0-9.-]*$/i, "promptSection id 只允许字母数字与 .-"),
+            // 全槽放行：boundary 仅随应用分发的内置包可用（sync 时按 isBuiltIn 裁决，用户包拒注册）
+            slot: z.enum(["identity", "boundary", "context", "workflow", "tools", "skills", "mode", "task", "free", "output", "compaction", "subagent"]),
+            order: z.number().int().default(100),
+            content: z.string().min(1),
+          }),
+        )
+        .optional(),
+      subagentPresets: z
+        .array(
+          z.object({
+            id: z.string().regex(/^[a-z0-9][a-z0-9.-]*$/i, "subagentPreset id 只允许字母数字与 .-"),
+            name: z.string().min(1),
+            description: z.string().nullish(),
+            tools: z.array(z.string().min(1)).default([]),
+            readonly: z.boolean().nullish(),
+            addendum: z.string().nullish(),
+            timeoutMs: z.number().int().min(30_000).max(1_800_000).nullish(),
           }),
         )
         .optional(),
@@ -655,6 +775,43 @@ export function normalizeManifest(raw: unknown): ManifestResult {
             permissionPolicy: { ...t.permissionPolicy },
             defaultModelRef: t.defaultModelRef ?? null,
             defaultLoop: t.defaultLoop ?? null,
+            maxSteps: t.maxSteps ?? null,
+            compactor: t.compactor ?? null,
+          })),
+          agentTools: (c.agentTools ?? []).map((a) => ({
+            id: a.id,
+            description: a.description,
+            permission: a.permission,
+          })),
+          promptSections: (c.promptSections ?? []).map((s) => ({
+            id: s.id,
+            slot: s.slot,
+            order: s.order,
+            content: s.content,
+          })),
+          subagentPresets: (c.subagentPresets ?? []).map((s) => ({
+            id: s.id,
+            name: s.name,
+            description: s.description ?? null,
+            tools: [...s.tools],
+            readonly: s.readonly ?? null,
+            addendum: s.addendum ?? null,
+            timeoutMs: s.timeoutMs ?? null,
+          })),
+          contextFiles: (c.contextFiles ?? []).map((f) => ({
+            path: f.path,
+            label: f.label ?? null,
+            capChars: f.capChars ?? null,
+          })),
+          commandRiskRules: (c.commandRiskRules ?? []).map((r) => ({
+            pattern: r.pattern,
+            risk: r.risk,
+            message: r.message ?? null,
+          })),
+          agentPermissionRules: (c.agentPermissionRules ?? []).map((r) => ({
+            tool: r.tool,
+            pattern: r.pattern ?? null,
+            effect: r.effect,
           })),
         },
       },
@@ -701,6 +858,12 @@ export function normalizeManifest(raw: unknown): ManifestResult {
         harnesses: [],
         models: [],
         taskTypes: [],
+        agentTools: [],
+        promptSections: [],
+        subagentPresets: [],
+        contextFiles: [],
+        commandRiskRules: [],
+        agentPermissionRules: [],
       },
     },
   };

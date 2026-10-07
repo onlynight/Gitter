@@ -833,3 +833,5 @@ Common_Expand	Expand	展开
 Common_Collapse	Collapse	收起
 Common_OpenDetails	Open	点击打开
 Changes_JumpToFinding	Jump to line	跳转到问题行
+Settings_AgentRules	Agent permission rules	Agent 权限规则
+Settings_AgentCompaction	Context compaction	上下文压缩

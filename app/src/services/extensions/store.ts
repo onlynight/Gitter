@@ -36,6 +36,8 @@ const ALL_KINDS = [
   "menus", "keybindings", "terminalProfiles", "safetyRules",
   "skills", "mcpServers", "emptyHints", "pages",
   "harness", "models", "taskTypes",
+  "agentTools", "promptSections", "subagentPresets",
+  "contextFiles", "commandRiskRules", "agentPermissionRules",
 ] as const;
 export type ExtensionKind = (typeof ALL_KINDS)[number];
 
@@ -147,6 +149,12 @@ export class PackageStore {
     if (c.mcpServers.length) kinds.push("mcpServers");
     if (c.emptyHints.length) kinds.push("emptyHints");
     if (c.pages.length) kinds.push("pages");
+    if (c.agentTools.length) kinds.push("agentTools");
+    if (c.promptSections.length) kinds.push("promptSections");
+    if (c.subagentPresets.length) kinds.push("subagentPresets");
+    if (c.contextFiles.length) kinds.push("contextFiles");
+    if (c.commandRiskRules.length) kinds.push("commandRiskRules");
+    if (c.agentPermissionRules.length) kinds.push("agentPermissionRules");
     return kinds;
   }
 
@@ -257,6 +265,91 @@ export class PackageStore {
           instructions: k.instructions,
           tools: [...k.tools],
         });
+      }
+    }
+    return out;
+  }
+
+  /** Agent 能力贡献（agent-harness-v4.md §14.2：agentTools 声明 / promptSections 静态段 / subagentPresets）。 */
+  agentToolDeclarationsOf(): { packageId: string; id: string; description: string; permission: string }[] {
+    const out: { packageId: string; id: string; description: string; permission: string }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.agentTools === false) continue;
+      for (const a of e.manifest.contributes.agentTools) {
+        out.push({ packageId: e.manifest.id, id: `ext.${e.manifest.id}.${a.id}`, description: a.description, permission: a.permission });
+      }
+    }
+    return out;
+  }
+
+  promptSectionsOf(): { packageId: string; id: string; slot: string; order: number; content: string; isBuiltIn: boolean }[] {
+    const out: { packageId: string; id: string; slot: string; order: number; content: string; isBuiltIn: boolean }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.promptSections === false) continue;
+      for (const s of e.manifest.contributes.promptSections) {
+        out.push({ packageId: e.manifest.id, id: `${e.manifest.id}.${s.id}`, slot: s.slot, order: s.order, content: s.content, isBuiltIn: e.isBuiltIn });
+      }
+    }
+    return out;
+  }
+
+  subagentPresetsOf(): {
+    packageId: string; id: string; name: string; description: string | null;
+    tools: string[]; readonly: boolean; addendum: string | null; timeoutMs: number | null; isBuiltIn: boolean;
+  }[] {
+    const out: {
+      packageId: string; id: string; name: string; description: string | null;
+      tools: string[]; readonly: boolean; addendum: string | null; timeoutMs: number | null; isBuiltIn: boolean;
+    }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.subagentPresets === false) continue;
+      for (const s of e.manifest.contributes.subagentPresets) {
+        out.push({
+          packageId: e.manifest.id, id: `${e.manifest.id}/${s.id}`, name: s.name,
+          description: s.description, tools: [...s.tools], readonly: s.readonly ?? false,
+          addendum: s.addendum, timeoutMs: s.timeoutMs, isBuiltIn: e.isBuiltIn,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** §20.3.2 contextFiles / §20.3.9 规则数据化 访问器 */
+  contextFilesOf(): { packageId: string; path: string; label: string | null; capChars: number }[] {
+    const out: { packageId: string; path: string; label: string | null; capChars: number }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.contextFiles === false) continue;
+      for (const f of e.manifest.contributes.contextFiles) {
+        out.push({ packageId: e.manifest.id, path: f.path, label: f.label, capChars: f.capChars ?? 2000 });
+      }
+    }
+    return out;
+  }
+
+  commandRiskRulesOf(): { packageId: string; pattern: string; risk: "high" | "medium"; message: string | null }[] {
+    const out: { packageId: string; pattern: string; risk: "high" | "medium"; message: string | null }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.commandRiskRules === false) continue;
+      for (const r of e.manifest.contributes.commandRiskRules) {
+        out.push({ packageId: e.manifest.id, pattern: r.pattern, risk: r.risk, message: r.message });
+      }
+    }
+    return out;
+  }
+
+  agentPermissionRulesOf(): { packageId: string; tool: string; pattern: string | null; effect: "deny" }[] {
+    const out: { packageId: string; tool: string; pattern: string | null; effect: "deny" }[] = [];
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.agentPermissionRules === false) continue;
+      for (const r of e.manifest.contributes.agentPermissionRules) {
+        if (r.effect !== "deny") continue; // §20.3.9 包只能贡献 deny
+        out.push({ packageId: e.manifest.id, tool: r.tool, pattern: r.pattern, effect: "deny" });
       }
     }
     return out;

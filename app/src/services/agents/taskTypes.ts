@@ -1,6 +1,6 @@
 import type { PackageStore } from "../extensions/store";
-import type { PermissionClass } from "./tools";
-import { PERM } from "./tools";
+import type { PermissionClass } from "./registry";
+import { PERM, RANK, agentToolNames } from "./registry";
 
 /**
  * 任务型编译（task-model-modules.md §3.1/§3.2）：
@@ -23,6 +23,10 @@ export interface CompiledTaskType {
   defaultModelRef: string | null;
   /** 循环实现 id（G7：taskType→loop 绑定；缺省 builtin.default） */
   defaultLoop: string | null;
+  /** 单任务步数上限（F12.2：缺省 50，上限 200） */
+  maxSteps: number | null;
+  /** 压缩器选择（§20.3.3：taskType.compactor → settings → builtin） */
+  compactor: string | null;
 }
 
 export interface TaskTypeEntry {
@@ -36,9 +40,7 @@ export interface TaskTypeEntry {
   error: string | null;
 }
 
-const RANK: Record<PermissionClass, number> = { auto: 0, session: 1, "each-time": 2 };
-
-const TOOL_SET = new Set(Object.keys(PERM));
+const TOOL_SET = new Set<string>([...Object.keys(PERM), ...agentToolNames()]);
 
 /** 内置 free：全工具 + 基线策略 + 原样输入（恒可用，不进 PackageStore）。 */
 export const FREE_TASK_TYPE: CompiledTaskType = {
@@ -52,12 +54,14 @@ export const FREE_TASK_TYPE: CompiledTaskType = {
   policy: {},
   defaultModelRef: null,
   defaultLoop: null,
+  maxSteps: null,
+  compactor: null,
 };
 
 function compileOne(packageId: string, t: {
   id: string; name: string; promptTemplate: string; systemAddendum: string | null;
   tools: string[]; permissionPolicy: Record<string, PermissionClass>; defaultModelRef: string | null;
-  defaultLoop: string | null;
+  defaultLoop: string | null; maxSteps: number | null; compactor: string | null;
 }): { spec: CompiledTaskType | null; error: string | null } {
   const unknownTools = t.tools.filter((x) => !TOOL_SET.has(x));
   if (unknownTools.length > 0) {
@@ -87,6 +91,8 @@ function compileOne(packageId: string, t: {
       policy: { ...t.permissionPolicy },
       defaultModelRef: t.defaultModelRef,
       defaultLoop: t.defaultLoop ?? null,
+      maxSteps: t.maxSteps ?? null,
+      compactor: t.compactor ?? null,
     },
     error: null,
   };
