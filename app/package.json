@@ -45,9 +45,14 @@
     },
     "files": [
       "dist/**/*",
-      "web/dist/**/*",
       "resources/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web/dist"
+      }
     ],
     "asarUnpack": [
       "node_modules/node-pty/**"
