@@ -8,13 +8,15 @@
     "build": "tsc -p tsconfig.json",
     "postbuild": "electron-rebuild -f -w node-pty || echo WARN: electron-rebuild failed, terminal may need manual rebuild",
     "start": "npm run build && electron .",
-    "smoke": "npm run build && node dist/smoke.js"
+    "smoke": "npm run build && node dist/smoke.js",
+    "release": "npm run build && electron-builder --win nsis zip"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@types/node": "^26.6.4",
     "@types/semver": "^7.8.0",
     "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.3"
   },
   "dependencies": {
@@ -30,5 +32,35 @@
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2",
     "zod": "^4.6.5"
+  },
+  "productName": "Gitter",
+  "build": {
+    "appId": "com.gitter.app",
+    "productName": "Gitter",
+    "buildVersion": "0.1.0.0",
+    "artifactName": "Gitter-0.1.0.0-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "web/dist/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }
