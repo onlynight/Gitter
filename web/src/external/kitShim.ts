@@ -28,5 +28,7 @@ export const renderMarkdown = K().renderMarkdown as typeof import("../kit")["ren
 export const registerMarkdownPlugin = K().registerMarkdownPlugin as typeof import("../kit")["registerMarkdownPlugin"];
 export const PageErrorBoundary = K().PageErrorBoundary as typeof import("../kit")["PageErrorBoundary"];
 export const NavIcon = K().NavIcon as typeof import("../kit")["NavIcon"];
+export const Select = K().Select as typeof import("../kit")["Select"];
+export const ScrollArea = K().ScrollArea as typeof import("../kit")["ScrollArea"];
 
 export type { CtxMenuItem, SyncProgressState } from "../kit";

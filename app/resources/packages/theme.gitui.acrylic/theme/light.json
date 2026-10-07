@@ -1,0 +1,42 @@
+{
+  "id": "gitui.theme.acrylic-light",
+  "name": "亮色",
+  "base": "light",
+  "inherits": null,
+  "tokens": {
+    "Base": "#FFFFFF8C",
+    "Panel": "#F7F7F814",
+    "Panel2": "#EFEFF11F",
+    "Hover": "#EBEBEC40",
+    "Selected": "#E0E1E359",
+    "Border": "#E5E5E580",
+    "BorderStrong": "#D0D0D0B3",
+    "Accent": "#1B1B1B",
+    "AccentHover": "#000000",
+    "AccentPressed": "#3A3A3A",
+    "AccentSoft": "#1B1B1B14",
+    "OnAccent": "#FFFFFF",
+    "Text": "#1B1B1B",
+    "Text2": "#5C5C5C",
+    "Text3": "#8F8F8F",
+    "Link": "#0B6BCB",
+    "Green": "#1A7F37",
+    "Red": "#CF222E",
+    "Amber": "#BF8700",
+    "ChipBlueBg": "#DDF4FF66",
+    "ChipBlueFg": "#0B6BCB",
+    "ChipPurpleBg": "#FBEFFF66",
+    "ChipPurpleFg": "#8250DF"
+  },
+  "syntax": {
+    "keyword": "#569CD6",
+    "string": "#6A9955",
+    "comment": "#6A9955",
+    "number": "#B5CEA8",
+    "type": "#4EC9B0",
+    "function": "#DCDCAA",
+    "variable": "#9CDCFE",
+    "operator": "#D4D4D4",
+    "punctuation": "#D4D4D4"
+  }
+}

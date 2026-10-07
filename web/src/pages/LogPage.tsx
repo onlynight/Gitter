@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Banner, DiffView, Modal, SplitPane, useContextMenu, type CtxMenuItem } from "../kit";
+import { Banner, DiffView, Modal, ScrollArea, Select, SplitPane, useContextMenu, type CtxMenuItem } from "../kit";
 import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge/types";
 import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
 
@@ -141,22 +141,21 @@ export function LogPage() {
 
     const out: Row[] = [];
     let curDay = "";
+    let dayCollapsed = false;
     let count = 0;
-    const pushGroup = () => {
-      if (curDay) {
-        out.push({
-          kind: "group",
-          key: curDay,
-          title: dayTitle(new Date(curDay)),
-          count,
-          collapsed: collapsedDays.has(curDay),
-        });
-      }
-    };
     for (const c of commits) {
       const day = new Date(c.committerDate * 1000).toISOString().slice(0, 10);
-      if (day !== curDay) { pushGroup(); curDay = day; count = 0; }
+      if (day !== curDay) {
+        // 分组头先于成员行发出（旧实现把头部推在换天时刻——每天最早几条会渲染到自己分组头的上方）
+        curDay = day;
+        dayCollapsed = collapsedDays.has(day);
+        count = 0;
+        out.push({ kind: "group", key: curDay, title: dayTitle(new Date(curDay)), count: 0, collapsed: dayCollapsed });
+      }
       count++;
+      const last = out[out.length - 1];
+      if (last.kind === "group") last.count = count; // 回填计数
+      if (dayCollapsed) continue; // 折叠日：成员行（含会话卡）不出现
 
       const session = sessionOfSha.get(c.sha);
       if (session) {
@@ -182,7 +181,6 @@ export function LogPage() {
         ai: c.assistedBy[0],
       });
     }
-    pushGroup();
     return out;
   }, [commits, collapsedDays, collapsedSessions, selectedSha]);
 
@@ -241,16 +239,12 @@ export function LogPage() {
   return (
     <>
       <div className="toolbar">
-        <select
-          className="input"
+        <Select
           value={branch}
-          onChange={(e) => setBranch(e.target.value)}
+          onChange={(v) => setBranch(v)}
           title={t("Log_BranchFilter")}
-        >
-          {[...new Set([branches.current ?? "", ...branches.names])].filter(Boolean).map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </select>
+          options={[...new Set([branches.current ?? "", ...branches.names])].filter(Boolean).map((n) => ({ value: n, label: n }))}
+        />
         <input
           className="input"
           style={{ width: 220 }}

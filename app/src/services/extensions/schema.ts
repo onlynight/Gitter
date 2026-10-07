@@ -10,8 +10,12 @@ import { z } from "zod";
 const ID_RE = /^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/; // 反向域名
 
 export interface ThemeContribution {
+  /** 包内文档 id（多主题包必填且唯一；单文档可省） */
+  id?: string | null;
   path: string;
   base: "dark" | "light" | null;
+  /** 窗口背景材质（主题包化后 = 窗口效果唯一事实源；缺省 none = 不透明） */
+  material?: "none" | "mica" | "acrylic" | null;
 }
 
 export interface GrammarContribution {
@@ -304,10 +308,22 @@ const manifestV2 = z.object({
       themes: z
         .array(
           z.object({
+            id: z.string().min(1).nullish(),
             path: z.string().min(1),
             base: z.enum(["dark", "light"]).nullish(),
+            material: z.enum(["none", "mica", "acrylic"]).nullish(),
           }),
         )
+        .superRefine((entries, ctx) => {
+          // 多主题包（亮/暗双档）：id 与 base 各自唯一；材质整包一致（取第一项）
+          if (entries.length > 1) {
+            const ids = entries.map((e) => e.id ?? "");
+            if (ids.some((x) => !x)) ctx.addIssue({ code: "custom", message: "多主题包每项必须携带 id" });
+            if (new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", message: "主题文档 id 重复" });
+            const bases = entries.map((e) => e.base ?? "dark");
+            if (new Set(bases).size !== bases.length) ctx.addIssue({ code: "custom", message: "主题文档 base 重复（应一亮一暗）" });
+          }
+        })
         .optional(),
       grammars: z
         .array(
@@ -657,7 +673,7 @@ export function normalizeManifest(raw: unknown): ManifestResult {
         permissions: [...(r.data.permissions ?? [])],
         apiVersion: r.data.apiVersion ?? null,
         contributes: {
-          themes: (c.themes ?? []).map((t) => ({ path: t.path, base: t.base ?? null })),
+          themes: (c.themes ?? []).map((t) => ({ id: t.id ?? null, path: t.path, base: t.base ?? null, material: t.material ?? null })),
           grammars: (c.grammars ?? []).map((g) => ({
             language: g.language,
             extensions: g.extensions.map(normExt),

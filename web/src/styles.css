@@ -16,6 +16,7 @@
   --radius-md: 8px;         /* 卡片/横幅 */
   --radius-lg: 10px;        /* 浮层/大面板 */
   --mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  color-scheme: dark;       /* 原生表单控件（select 弹层等）默认深色，随主题底色切换 */
 
   /* 动效 tokens（mockup §四）：只做状态反馈，全部 ≤240ms，减速曲线 */
   --dur-fast: 150ms;
@@ -32,7 +33,18 @@
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+  /* 豁免：侧边栏折叠/展开是功能性状态切换（宽度骤变无过渡会显得破碎），保留 300ms */
+  .main { transition-duration: 300ms !important; }
 }
+
+/* 主题底色标记（store.applyThemeToDom 写 html[data-base]）→ 原生控件配色方案同步 */
+:root[data-base="dark"] { color-scheme: dark; }
+:root[data-base="light"] { color-scheme: light; }
+
+/* 原生控件配色声明：<select> 弹出列表/滚动条/复选框由 Chromium 按 color-scheme 绘制——
+ * 不声明时半透明页面底色会让原生弹出层透壁纸；随主题亮暗切换（data-base 由 applyThemeToDom 落） */
+html[data-base="dark"] { color-scheme: dark; }
+html[data-base="light"] { color-scheme: light; }
 
 html, body, #root { height: 100%; overflow: hidden; }
 body {
@@ -58,7 +70,7 @@ body {
   display: flex; align-items: center; gap: 10px;
   -webkit-app-region: drag;
   background: var(--c-base);
-  padding-left: 10px;
+  padding-left: 6px; /* 汉堡中心 x=22 = 侧边栏导航图标中心（展开/折叠一致） */
 }
 .titlebar .tb-title { font-size: 12px; font-weight: 600; color: var(--c-text2); }
 .titlebar .tb-spacer { flex: 1; }
@@ -91,12 +103,13 @@ body {
 }
 
 /* ---- 主区 ---- */
-.main { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 0; }
+.main { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 0; transition: grid-template-columns 300ms var(--ease-std); }
 .main.collapsed { grid-template-columns: var(--sidebar-w-collapsed) 1fr; }
 
 /* ---- 侧栏 ---- */
 .sidebar {
-  background: var(--c-panel); overflow: hidden; padding: 10px 0;
+  background: var(--c-base); /* 与窗口底/边框同色：左缘无色差（模糊窗口下侧栏融入壳层） */
+  overflow: hidden; padding: 10px 0;
   display: flex; flex-direction: column; min-height: 0;
 }
 .nav-top { flex: 1; min-height: 0; overflow-y: auto; }
@@ -125,7 +138,7 @@ body {
 }
 .nav-item .nav-label { overflow: hidden; text-overflow: ellipsis; }
 .collapsed .nav-label { display: none; }
-.collapsed .nav-item { justify-content: center; padding: 0; }
+.collapsed .nav-item { justify-content: center; padding: 0; margin: 1px 2px; width: calc(100% - 4px); } /* 图标中心 x=22：与展开态、标题栏汉堡对齐 */
 .collapsed .nav-item.active::before { display: none; }
 
 /* ---- 状态栏 ---- */
@@ -138,6 +151,93 @@ body {
 
 /* ---- 页面通用 ---- */
 .page { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; }
+/* 内容列着色 = 与边框严格同层数：边框元素（sidebar/titlebar/statusbar）各自画一层 Base
+ * 叠在 body 的 Base 上（共 2 层）；内容列 .page-root 同样只画一层 Base（共 2 层）——
+ * 观感逐像素一致，暗 acrylic 全窗 ≈84%、亮 ≈70%（即边框当前观感，不再加层）；
+ * 内层 .page/.page-slot（ExternalPageHost/keep-alive）保持透明，防止层数再次膨胀 */
+.page-root { background: transparent; }
+html[data-window-material="acrylic"] .page-root { background: var(--c-base); }
+/* 弹出悬浮层（命令面板/右键菜单/弹窗/tooltip/提及下拉/toast）：
+ * 材质（一层 Base）之上再叠 panel2 提亮层——"材质 + 悬浮层"，不再全透明透出壁纸；
+ * solid 主题保持原 --c-panel2 实色不变 */
+html[data-window-material="mica"] .palette,
+html[data-window-material="acrylic"] .palette,
+html[data-window-material="mica"] .ctxmenu,
+html[data-window-material="acrylic"] .ctxmenu,
+html[data-window-material="mica"] .modal,
+html[data-window-material="acrylic"] .modal,
+html[data-window-material="mica"] .gtip,
+html[data-window-material="acrylic"] .gtip,
+html[data-window-material="mica"] .mention-pop,
+html[data-window-material="acrylic"] .mention-pop,
+html[data-window-material="mica"] .select-pop,
+html[data-window-material="acrylic"] .select-pop,
+html[data-window-material="mica"] .profile-menu,
+html[data-window-material="acrylic"] .profile-menu,
+html[data-window-material="mica"] .toast-stack .banner,
+html[data-window-material="acrylic"] .toast-stack .banner,
+html[data-window-material="mica"] .select-pop,
+html[data-window-material="acrylic"] .select-pop {
+  /* 三重 Base + panel2 提亮 ≈98% 不透明：弹出小浮面必须实底，
+   * 一层 Base（60/55%）在暖亮壁纸上仍然明显透底（用户实测） */
+  background-color: var(--c-base);
+  background-image: linear-gradient(var(--c-panel2, var(--c-panel)), var(--c-panel2, var(--c-panel))),
+    linear-gradient(var(--c-base), var(--c-base)), linear-gradient(var(--c-base), var(--c-base));
+}
+.mention-pop { background: var(--c-panel2, var(--c-panel)); }
+/* 自绘下拉（kit/Select）：触发器无边框 + 右侧箭头 + hover 圆角底；
+ * 弹出层复用右键菜单视觉（panel2 实底 + 边框 + 阴影；磨砂材质下悬浮规则再加 Base 层） */
+/* 触发器宽度 = 内容宽 + 内边距（auto），默认透明、hover 高亮圆角（--c-hover 随亮暗主题） */
+.select-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 24px 0 10px;
+  border: none; border-radius: var(--radius-md); background: transparent;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M2.2 2.6L6 6.4L9.8 2.6' fill='none' stroke='%23989ea8' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 9px center;
+  color: var(--c-text); font-family: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-std);
+}
+.select-trigger[aria-expanded="true"] {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M2.2 5.4L6 1.6L9.8 5.4' fill='none' stroke='%23989ea8' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+}
+.select-trigger:hover { background-color: var(--c-hover); }
+.select-trigger:disabled { opacity: .5; cursor: default; }
+.select-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; width: max-content; max-width: 340px;
+  z-index: 120; max-height: 260px; overflow-y: auto;
+  background: var(--c-panel2, var(--c-panel)); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  padding: 4px; box-shadow: 0 12px 32px color-mix(in srgb, #000 45%, transparent);
+}
+.select-pop.up { top: auto; bottom: calc(100% + 6px); }
+.select-pop .select-opt {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 5px 10px; border: 0; border-radius: var(--radius); background: transparent;
+  color: var(--c-text); font-family: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-std);
+}
+.select-pop .select-opt:hover, .select-pop .select-opt.hi { background: var(--c-hover); }
+.select-pop .select-opt.sel { font-weight: 600; }
+.select-pop .select-opt-check { width: 14px; flex: none; color: var(--c-text2); font-size: 11px; }
+/* 磨砂材质下大分区容器透明：内容与边框同源同透（卡片式白底叠在彩色材质上会形成灰白色差）；
+ * solid 主题不受影响（Base 实色下 --c-panel 卡片照常） */
+html[data-window-material="mica"] .split-pane,
+html[data-window-material="acrylic"] .split-pane { background: transparent; }
+/* 浮动滚动条（kit/ScrollArea）：列表容器隐藏原生滚动条（gutter 裁剪行背景、磨砂下成白板），
+ * 渲染半透明悬浮条——滚动/hover 显现、800ms 隐藏、可拖拽；铺满右缘不再有白板 */
+.scroll-area { position: relative; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+.scroll-area::-webkit-scrollbar { width: 0; height: 0; }
+.scroll-area-bar {
+  position: absolute; top: 2px; right: 3px; width: 6px; min-height: 40px;
+  border-radius: 3px; background: var(--c-text3); opacity: 0; z-index: 6;
+  transition: opacity 200ms var(--ease-std);
+}
+.scroll-area:hover .scroll-area-bar, .scroll-area.scrolling .scroll-area-bar { opacity: .45; }
+.scroll-area-bar:active { opacity: .75; }
+.file-scroll { flex: 1; min-height: 0; }
+/* 原生 <select> 的弹出列表由 Chromium 按 select 自身 background-color 绘制——
+ * 半透明色会让弹出窗直透壁纸；磨砂材质下改用压平的不透明 Base。
+ * 下拉框样式：无边框 + 右侧箭头（appearance:none 自绘）+ hover 圆角底 + 文字垂直居中 */
 /* keep-alive 槽位入场（display 切换触发重播：切页瞬时淡入，不卸载） */
 .page-slot { animation: page-in var(--dur-base) var(--ease-out); }
 @keyframes page-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -145,7 +245,7 @@ body {
 .toolbar {
   display: flex; align-items: center; gap: 8px;
   height: var(--toolbar-h); padding: 0 12px; flex: none;
-  background: var(--c-base); border-bottom: 1px solid var(--c-border);
+  background: transparent; /* 顶部无分割线；与内容的间距由各页内容区边距承担 */
 }
 .toolbar .grow { flex: 1; }
 
@@ -173,7 +273,7 @@ body {
 .tool-btn.danger { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 40%, transparent); }
 .tool-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 12%, transparent); }
 
-.input, select.input {
+.input {
   background: var(--c-panel); color: var(--c-text);
   border: 1px solid var(--c-border-strong); border-radius: var(--radius);
   height: 28px; padding: 0 10px; font-family: inherit; font-size: 12px;
@@ -230,7 +330,7 @@ body {
 /* 分组标签：11px 大写 + 字距（组头可点折叠） */
 .group-header {
   display: flex; align-items: center; gap: 8px;
-  height: 28px; padding: 0 10px; margin-top: 4px;
+  height: 28px; padding: 0 10px;
   font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase;
   color: var(--c-text3); background: var(--c-panel);
   cursor: pointer; position: sticky; top: 0; z-index: 1;
@@ -238,6 +338,17 @@ body {
   transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
 }
 .group-header:hover { background: var(--c-hover); color: var(--c-text2); }
+/* 变更/分支页分类器（.solid）：实底悬浮层（对齐弹出层），铺满容器、随滚动恒定可见 */
+.group-header.solid {
+  margin-top: 0;
+  background-color: var(--c-base);
+  background-image: linear-gradient(var(--c-panel2, var(--c-panel)), var(--c-panel2, var(--c-panel))),
+    linear-gradient(var(--c-base), var(--c-base)), linear-gradient(var(--c-base), var(--c-base));
+  border-bottom: 1px solid var(--c-border-strong);
+}
+/* 分支页：分类器位于 pane-card 顶部——吃掉 4px 上边距、贴合卡片圆角（10px 外框 - 1px 边框） */
+.pane-card .group-header.solid { border-radius: 9px 9px 0 0; }
+/* 列表行 hover/selected 背景右缘铺满（自定义滚动条占位 8px 的补偿） */
 
 .badge {
   font-size: 10px; padding: 1px 7px; border-radius: var(--r-pill, 999px); flex: none;
@@ -296,7 +407,57 @@ body {
 .eof-note { color: var(--c-text3); font-style: italic; padding: 0 10px; }
 
 /* ---- 终端（深色惯例：不随浅色主题翻转——term 区由 xterm 自绘底色） ---- */
-.term-wrap { flex: 1; min-height: 0; padding: 8px 10px; }
+.term-wrap {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  position: relative;
+  margin: 4px 12px 8px; padding: 4px 6px 6px;
+  border: 1px solid var(--c-border); border-radius: 10px;
+  background: color-mix(in srgb, var(--c-base) 70%, transparent);
+  overflow: hidden;
+}
+/* 标签条（Windows Terminal 式）：框内顶部；＋/⌄ 幽灵按钮；激活标签凸出 */
+.term-tabs { display: flex; align-items: flex-end; gap: 4px; height: 32px; padding: 0 4px; flex: none; }
+.term-tab {
+  display: inline-flex; align-items: center; gap: 7px; height: 25px; margin-bottom: 3px;
+  padding: 0 8px 0 10px; border-radius: 6px; font-size: 12px; color: var(--c-text3);
+  cursor: pointer; user-select: none;
+}
+.term-tab:hover { background: var(--c-hover); color: var(--c-text2); }
+.term-tab.active { background: var(--c-base-solid, var(--c-panel2, var(--c-panel))); color: var(--c-text); }
+.term-tab-ico { font-family: var(--mono); font-size: 9.5px; color: var(--c-text3); }
+.term-tab.active .term-tab-ico { color: var(--c-text2); }
+.term-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.term-tab-x {
+  width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 4px; font-size: 9px; color: var(--c-text3); visibility: hidden;
+}
+.term-tab:hover .term-tab-x { visibility: visible; }
+.term-tab-x:hover { background: var(--c-hover); color: var(--c-text); }
+.term-tab-new, .term-tab-profile {
+  width: 25px; height: 25px; margin-bottom: 3px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 6px; background: transparent;
+  color: var(--c-text3); font-size: 13px; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
+}
+.term-tab-new:hover, .term-tab-profile:hover { background: var(--c-hover); color: var(--c-text); }
+.term-tab-profile { font-size: 10px; }
+.term-tab-profile svg { display: block; transition: transform 200ms var(--ease-std); }
+.term-tab-profile[aria-expanded="true"] svg { transform: rotate(180deg); }
+.profile-menu-anchor { position: relative; display: inline-flex; }
+.term-host { flex: 1; min-height: 0; padding: 4px 2px 2px 10px; }
+.profile-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; width: 180px; z-index: 60;
+  background: var(--c-panel2, var(--c-panel)); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  padding: 4px; box-shadow: 0 12px 32px color-mix(in srgb, #000 45%, transparent);
+}
+.profile-menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 6px 12px; border-radius: var(--radius); font-size: 12px; color: var(--c-text); cursor: pointer;
+}
+.profile-menu-item:hover { background: var(--c-hover); }
+.profile-menu-k { color: var(--c-text3); font-size: 10px; }
+.term-host { flex: 1; min-height: 0; }
 .term-wrap .xterm { height: 100%; }
 .term-status {
   display: flex; align-items: center; gap: 10px; padding: 0 12px;
@@ -307,7 +468,7 @@ body {
 /* ---- 命令面板（浮层：panel2 + pop 入场） ---- */
 .palette-overlay {
   position: fixed; inset: 0; z-index: 100;
-  background: color-mix(in srgb, var(--c-base) 45%, transparent);
+  background: color-mix(in srgb, #000 45%, transparent); /* 固定黑：不随 --c-base 透明度衰减 */
   display: flex; align-items: flex-start; justify-content: center; padding-top: 84px;
   animation: fade-in 200ms ease-out;
 }
@@ -321,8 +482,10 @@ body {
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pop-in { from { opacity: 0; transform: scale(.985) translateY(-4px); } to { opacity: 1; transform: none; } }
 .palette input {
-  height: 44px; border: 0; outline: none; background: transparent; color: var(--c-text);
-  font-family: inherit; font-size: 13px; padding: 0 16px;
+  flex: none; /* .palette 是 flex 列容器——禁止列表内容把输入框压瘪（曾 44px 被压到 23.5px 贴分割线） */
+  height: 38px; margin: 3px 8px 5px; width: calc(100% - 16px);
+  border: 0; outline: none; background: transparent; color: var(--c-text);
+  font-family: inherit; font-size: 13px; padding: 0 8px;
   border-bottom: 1px solid var(--c-border); user-select: text;
 }
 .palette-list { overflow: auto; flex: 1; }
@@ -536,13 +699,21 @@ input[type="checkbox"]:indeterminate::after {
 }
 input[type="checkbox"]:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-link) 25%, transparent); }
 
-/* ---- 自绘 select（自绘箭头） ---- */
+/* ---- 自绘 select（自绘箭头随主题 + 原生弹层随 color-scheme） ----
+   箭头描边取主题 Text2（深 #A0A0A0 / 浅 #5C5C5C）——data-URI 无法引用 var()，
+   是本文件唯一字面色例外，改动时与 theme 包的 Text2 令牌保持一致。 */
 select.input {
   appearance: none; padding-right: 28px; cursor: pointer;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%238f8f8f' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
-  background-repeat: no-repeat; background-position: right 9px center;
+  text-overflow: ellipsis;
 }
-
+:root[data-base="light"] select.input {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%235C5C5C' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+:root[data-base="dark"] select.input, :root:not([data-base]) select.input {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23A0A0A0' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
 /* ---- 自绘 tooltip 层（tooltip.ts 挂 .gtip；跟随 [data-tip]） ---- */
 .gtip {
   position: fixed; z-index: 300; pointer-events: none;

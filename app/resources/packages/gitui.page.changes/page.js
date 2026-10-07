@@ -55,6 +55,8 @@
   K().registerMarkdownPlugin;
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
+  K().Select;
+  const ScrollArea = K().ScrollArea;
   const { call, t, navigate, refresh: refreshCurrent, openSettings, setContext: setSharedContext } = pageSdk;
   const useApp = useAppState;
   const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
@@ -369,7 +371,7 @@
       });
       const collapsed = collapsedGroups.has(gkey);
       return /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "group-header", style: { cursor: "pointer", userSelect: "none" }, onClick: () => toggleGroup(gkey), children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "group-header solid", style: { cursor: "pointer", userSelect: "none" }, onClick: () => toggleGroup(gkey), children: [
           allowCheck && eligible.length > 0 && /* @__PURE__ */ jsxRuntime.jsx(
             "input",
             {
@@ -575,7 +577,7 @@
         }
       ),
       /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px 12px 12px" }, children: /* @__PURE__ */ jsxRuntime.jsx(SplitPane, { settingKey: "changesSplitterFraction", initial: 0.38, a: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane", style: { display: "flex", flexDirection: "column" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "auto" }, children: state && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntime.jsx(ScrollArea, { className: "file-scroll", style: { flex: 1 }, children: state && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           group("conflicts", t("Changes_Conflicts"), state.conflicts, false, false),
           group("staged", t("Changes_StagedGroup"), state.staged, true, true),
           group("changes", t("Changes_ChangesGroup"), state.changes, false, true),
@@ -646,7 +648,7 @@
             /* @__PURE__ */ jsxRuntime.jsx(
               "button",
               {
-                className: "tool-btn primary icon",
+                className: "tool-btn icon",
                 "data-tip": t("Changes_StageFile"),
                 disabled: busy,
                 onClick: () => void run(async () => {
@@ -661,7 +663,7 @@
             hasSelectedHunks && /* @__PURE__ */ jsxRuntime.jsx(
               "button",
               {
-                className: "tool-btn primary icon",
+                className: "tool-btn icon",
                 "data-tip": t("Changes_StageHunkSelected", selectedHunks.size),
                 disabled: busy,
                 onClick: () => void run(async () => {
@@ -672,8 +674,7 @@
               }
             )
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Changes_OpenInEditor"), onClick: () => void call("shell.openPath", { path: selected.path, editor: true }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" })
         ] }),
         (selected == null ? void 0 : selected.isConflict) && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "banner", children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: t("Changes_ConflictCompareHint") }) }),
         /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "auto", minHeight: 0 }, children: selected && preview ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }, children: [

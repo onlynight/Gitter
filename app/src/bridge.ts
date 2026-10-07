@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, shell, safeStorage } from "electron";
+import { BrowserWindow, dialog, Notification, shell, safeStorage } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import { tryGit, looksLikeRepo } from "./services/gitexec";
@@ -59,6 +59,8 @@ export interface SharedServices {
   userThemesRoot: string;
   /** 新窗口创建（命令面板"新窗口"用；由 main 注入，避免循环 require）。 */
   createWindow: (repoPath?: string) => void;
+  /** 窗口材质重应用（主题/亮暗切换后从主题包重新解析材质与底色；由 main 注入）。 */
+  applyWindowMaterial: () => void;
 }
 
 type Handler = (args: any) => Promise<unknown> | unknown;
@@ -113,6 +115,18 @@ export class Bridge {
           ? { ok: true as const, model: r.model, profileRef: p.id, contextWindow: p.capabilities?.contextTokens ?? 128_000 }
           : { ok: false as const, error: r.error };
       },
+      // D8 降级链（§21.3.3）：备用模型 = default 优先、否则首个 ≠ 失败档案的可用档案
+      alternateModel: (excludeRef: string) => {
+        const s = this.shared.settings.current;
+        const pool = (s.models ?? []).filter((m) => m.id !== excludeRef);
+        const p = pickProfileRef(pool, s.defaultModelId);
+        if (!p) return { ok: false as const, error: "没有备用模型档案" };
+        const key = this.decryptProfileKey(p.apiKeyProtected);
+        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params });
+        return r.ok
+          ? { ok: true as const, model: r.model, profileRef: p.id, contextWindow: p.capabilities?.contextTokens ?? 128_000 }
+          : { ok: false as const, error: r.error };
+      },
       // 用量记账（task-model-modules.md §2.3）
       // U5 生命周期钩子 → EventBus（L2 插件 ctx.on("agent.task.*") 订阅）
       onLifecycle: (event, record) => {
@@ -140,6 +154,30 @@ export class Bridge {
       },
       send: (method: string, params: unknown) => {
         if (!win.isDestroyed()) win.webContents.send("evt", { method, params });
+      },
+      // D5 任务完成 OS 通知：completed/failed/interrupted 且窗口未聚焦时弹；点击聚焦窗口
+      notifyTaskDone: (task) => {
+        if (this.shared.settings.current.agentsNotify === false) return;
+        const label = task.state === "awaiting-input" ? "已完成"
+          : task.state === "failed" ? "失败"
+          : task.state === "interrupted" ? "已中断" : "";
+        if (!label || win.isDestroyed() || win.isFocused()) return;
+        try {
+          const n = new Notification({
+            title: `Agent ${label}：${task.title}`,
+            body: (task.summary ?? "").slice(0, 160),
+            silent: false,
+          });
+          n.on("click", () => {
+            if (win.isDestroyed()) return;
+            if (win.isMinimized()) win.restore();
+            win.show();
+            win.focus();
+          });
+          n.show();
+        } catch {
+          // 系统不支持通知：静默跳过
+        }
       },
       // §14.7 只读事件广播 → 插件 EventBus（pre-tool 拦截不开放，引擎不插件）
       onBusEvent: (name, payload) => {
@@ -373,6 +411,19 @@ export class Bridge {
     R("agent.task.diff", (args: { taskId: string; path?: string; since?: string }) => this.agents.taskDiff(args));
     R("agent.task.diffText", (args: { taskId: string; path?: string; since?: string }) => this.agents.taskDiffText(args));
     R("agent.task.checkpoints", (args: { taskId: string }) => this.agents.taskCheckpoints(args));
+    R("agent.task.previewFile", (args: { taskId: string; path: string }) => this.agents.taskPreview(args));
+    // D6 /export：markdown 生成后弹保存框落盘（主进程 dialog；渲染层零新增权限域）
+    R("agent.task.export", async (args: { taskId: string }) => {
+      const { markdown, title } = await this.agents.exportTaskMarkdown(args);
+      const r = await dialog.showSaveDialog(this.win, {
+        title: "导出会话为 Markdown",
+        defaultPath: `${title.replace(/[\/:*?"<>|]/g, "_")}.md`,
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (r.canceled || !r.filePath) return { canceled: true as const };
+      await (await import("fs/promises")).writeFile(r.filePath, markdown, "utf8");
+      return { canceled: false as const, path: r.filePath };
+    });
     R("agent.task.restore", (args: { taskId: string; sha: string; path?: string }) => this.agents.restore(args));
     // 上下文与压缩（F7）
     R("agent.context.stats", (args: { taskId: string }) => this.agents.contextStats(args));
@@ -430,7 +481,7 @@ export class Bridge {
       }
       return out;
     });
-    R("models.save", (args: { profile: { id?: string; name: string; kind: "openai-compatible" | "anthropic"; baseURL: string; modelId: string; tags?: string[] } }) => {
+    R("models.save", (args: { profile: { id?: string; name: string; kind: "openai-compatible" | "anthropic"; baseURL: string; modelId: string; tags?: string[]; vision?: boolean } }) => {
       const p = args.profile;
       if (!p.name.trim() || !p.baseURL.trim() || !p.modelId.trim()) throw new BridgeError("name/baseURL/modelId 均必填");
       const s = this.shared.settings.current;
@@ -444,7 +495,7 @@ export class Bridge {
         id, name: p.name.trim(), kind: p.kind, baseURL: p.baseURL.trim(), modelId: p.modelId.trim(),
         apiKeyProtected: prev?.apiKeyProtected ?? null,
         params: prev?.params,
-        capabilities: prev?.capabilities ?? { tools: true, streaming: true },
+        capabilities: { ...(prev?.capabilities ?? { tools: true, streaming: true }), vision: p.vision ?? prev?.capabilities?.vision },
         tags: p.tags ?? prev?.tags ?? [],
       };
       const i = models.findIndex((m) => m.id === id);
@@ -571,6 +622,10 @@ export class Bridge {
       return {};
     });
     R("terminal.list", () => this.terminals.list());
+    R("terminal.close", (args: { id: string }) => {
+      this.terminals.close(args.id);
+      return {};
+    });
 
     // ---- 设置 / 主题 / 语言 ----
     R("settings.get", () => settings.current);
@@ -609,6 +664,10 @@ export class Bridge {
       settings.update(args.patch ?? {});
       if (args.patch?.externalMcpEnabled !== undefined) void this.syncExternalMcp();
       if (args.patch?.allowCodePlugins !== undefined) this.refreshExtensions();
+      // 主题/亮暗切换 → 从主题包重新解析窗口材质与底色（窗口效果唯一事实源 = 主题包）
+      if (args.patch?.theme !== undefined || args.patch?.themePackageId !== undefined) {
+        this.shared.applyWindowMaterial();
+      }
       return settings.current;
     });
     R("settings.rememberCommand", (args: { id: string }) => {

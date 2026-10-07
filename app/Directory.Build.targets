@@ -1,0 +1,13 @@
+<Project>
+  <!-- node-pty 的 Windows 工程 (node_modules/node-pty/build/*.vcxproj) 自带
+       <SpectreMitigation>Spectre</SpectreMitigation>，要求本机 VS Build Tools 安装
+       “MSVC Spectre 缓解库”组件，否则报 MSB8040；且该设置在工程主体里求值，
+       会把 LIB 搜索路径烤成 lib\spectre\<arch>，未装该组件时链接报 LNK1181 (delayimp.lib)。
+       此文件由 MSBuild 在每个工程末尾自动导入（晚于工程主体），在这里关闭 Spectre 缓解，
+       并把 LibraryPath 里已被烤进去的 \spectre\ 段还原为普通库目录。
+       详见 https://learn.microsoft.com/visualstudio/msbuild/customize-your-build -->
+  <PropertyGroup>
+    <SpectreMitigation>false</SpectreMitigation>
+    <LibraryPath>$([System.String]::Copy('$(LibraryPath)').Replace('\spectre\','\'))</LibraryPath>
+  </PropertyGroup>
+</Project>

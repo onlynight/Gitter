@@ -60,6 +60,8 @@
   K().registerMarkdownPlugin;
   const PageErrorBoundary = K().PageErrorBoundary;
   const NavIcon = K().NavIcon;
+  const Select = K().Select;
+  K().ScrollArea;
   const { call, t, updateSettings, applySettings, clearSettingsFocus, reloadTheme } = pageSdk;
   const useApp = useAppState;
   const GIT_KEYS = {
@@ -392,7 +394,8 @@
       kind: "openai-compatible",
       baseURL: "",
       modelId: "",
-      apiKey: ""
+      apiKey: "",
+      vision: false
     });
     const [modelTest, setModelTest] = react.useState({ testing: false, result: null, ok: false });
     const loadModels = react.useCallback(async () => {
@@ -561,17 +564,13 @@
       const value = configScope === "repo" ? cfgGet(localCfg, key) ?? "" : cfgGet(globalCfg, key) ?? "";
       const inherited = cfgInherited(key);
       return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntime.jsxs(
-          "select",
+        /* @__PURE__ */ jsxRuntime.jsx(
+          Select,
           {
-            className: "input",
             value,
             disabled: configScope === "repo" && noRepo,
-            onChange: (e) => void saveConfig(key, e.target.value === "" ? null : e.target.value),
-            children: [
-              /* @__PURE__ */ jsxRuntime.jsx("option", { value: "", children: t("Settings_Unset") }),
-              options.map((o) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: o, children: o }, o))
-            ]
+            onChange: (v) => void saveConfig(key, v === "" ? null : v),
+            options: [{ value: "", label: t("Settings_Unset") }, ...options.map((o) => ({ value: o, label: o }))]
           }
         ),
         inherited !== null && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Settings_GitInheritGlobal", inherited) })
@@ -602,15 +601,21 @@
             ] }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_ThemePackage") }),
-              /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "input", value: s.themePackageId ?? "", onChange: (e) => void patch({ themePackageId: e.target.value || null }), children: [
-                /* @__PURE__ */ jsxRuntime.jsx("option", { value: "", children: t("Settings_ThemeDefault") }),
-                themes.map((tp) => /* @__PURE__ */ jsxRuntime.jsxs("option", { value: tp.id, children: [
-                  tp.name,
-                  "（",
-                  tp.base === "dark" ? t("Settings_Dark") : t("Settings_Light"),
-                  "）"
-                ] }, tp.id))
-              ] })
+              /* @__PURE__ */ jsxRuntime.jsx(
+                Select,
+                {
+                  value: s.themePackageId ?? "",
+                  onChange: (v) => void patch({ themePackageId: v || null }),
+                  options: [
+                    { value: "", label: t("Settings_ThemeDefault") },
+                    ...themes.map((tp) => {
+                      var _a4;
+                      const covers = (((_a4 = tp.bases) == null ? void 0 : _a4.length) ?? 1) > 1;
+                      return { value: tp.id, label: covers ? tp.name : `${tp.name}（${tp.base === "dark" ? t("Settings_Dark") : t("Settings_Light")}）` };
+                    })
+                  ]
+                }
+              )
             ] }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_Language") }),
@@ -921,18 +926,27 @@
                   /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, fontWeight: 600, color: "var(--c-text)" }, children: t("Settings_ModelsAdd") }),
                   /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }, children: [
                     /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { width: 140 }, placeholder: t("Settings_ModelsName"), value: newModel.name, onChange: (e) => setNewModel({ ...newModel, name: e.target.value }) }),
-                    /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "input", style: { width: 150 }, value: newModel.kind, onChange: (e) => {
-                      setNewModel({ ...newModel, kind: e.target.value, modelId: "" });
-                      setModelTest({ testing: false, result: null, ok: false });
-                    }, children: [
-                      /* @__PURE__ */ jsxRuntime.jsx("option", { value: "openai-compatible", children: "OpenAI 兼容" }),
-                      /* @__PURE__ */ jsxRuntime.jsx("option", { value: "anthropic", children: "Anthropic" })
-                    ] }),
+                    /* @__PURE__ */ jsxRuntime.jsx(
+                      Select,
+                      {
+                        style: { width: 150 },
+                        value: newModel.kind,
+                        onChange: (v) => {
+                          setNewModel({ ...newModel, kind: v, modelId: "" });
+                          setModelTest({ testing: false, result: null, ok: false });
+                        },
+                        options: [{ value: "openai-compatible", label: "OpenAI 兼容" }, { value: "anthropic", label: "Anthropic" }]
+                      }
+                    ),
                     /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { flex: 1, minWidth: 180 }, placeholder: newModel.kind === "anthropic" ? "https://api.anthropic.com" : "https://api.deepseek.com/v1（或 Ollama: http://127.0.0.1:11434/v1）", value: newModel.baseURL, onChange: (e) => setNewModel({ ...newModel, baseURL: e.target.value }) })
                   ] }),
                   /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }, children: [
                     /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", type: "password", style: { width: 220 }, placeholder: t("Settings_ModelsApiKey"), value: newModel.apiKey, onChange: (e) => setNewModel({ ...newModel, apiKey: e.target.value }) }),
                     /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { flex: 1, minWidth: 140 }, placeholder: t("Settings_ModelsIdPlaceholder"), value: newModel.modelId, onChange: (e) => setNewModel({ ...newModel, modelId: e.target.value }) }),
+                    /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "hint", style: { display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }, title: "可接收图片输入（任务页贴图）", children: [
+                      /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: newModel.vision, onChange: (e) => setNewModel({ ...newModel, vision: e.target.checked }) }),
+                      "视觉"
+                    ] }),
                     /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: modelTest.testing || !newModel.baseURL.trim(), onClick: () => void testModelConn(), children: modelTest.testing ? "…" : t("Settings_ModelsTestConn") }),
                     /* @__PURE__ */ jsxRuntime.jsx(
                       "button",
@@ -941,11 +955,11 @@
                         disabled: !newModel.name.trim() || !newModel.baseURL.trim() || !newModel.modelId.trim(),
                         onClick: async () => {
                           try {
-                            const r = await call("models.save", { profile: { name: newModel.name.trim(), kind: newModel.kind, baseURL: newModel.baseURL.trim(), modelId: newModel.modelId.trim() } });
+                            const r = await call("models.save", { profile: { name: newModel.name.trim(), kind: newModel.kind, baseURL: newModel.baseURL.trim(), modelId: newModel.modelId.trim(), vision: newModel.vision } });
                             if (newModel.apiKey.length >= 8) {
                               await call("models.setKey", { id: r.id, key: newModel.apiKey });
                             }
-                            setNewModel({ name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "" });
+                            setNewModel({ name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "", vision: false });
                             setModelTest({ testing: false, result: null, ok: false });
                             await loadModels();
                           } catch (e) {
@@ -1061,6 +1075,11 @@
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: "轮末钩子" }),
               /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: s.agentsPostTurnHooks ?? true, onChange: (e) => void patch({ agentsPostTurnHooks: e.target.checked }) }),
               /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "插件 post-turn 钩子产物以 system-reminder 注入下一轮" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: "完成通知" }),
+              /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: s.agentsNotify ?? true, onChange: (e) => void patch({ agentsNotify: e.target.checked }) }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "任务完成/失败时弹系统通知（窗口聚焦时静默）" })
             ] }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: "子代理并发上限" }),
@@ -1310,11 +1329,24 @@
           /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => onChange(rules.filter((x) => x.id !== r.id)), children: "删除" })
         ] }, r.id)),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx("select", { className: "input", style: { width: 150 }, value: tool, onChange: (e) => setTool(e.target.value), children: AGENT_RULE_TOOLS.map((x) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: x, children: x }, x)) }),
-          /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "input", style: { width: 90 }, value: effect, onChange: (e) => setEffect(e.target.value), children: [
-            /* @__PURE__ */ jsxRuntime.jsx("option", { value: "allow", children: "允许" }),
-            /* @__PURE__ */ jsxRuntime.jsx("option", { value: "deny", children: "拒绝" })
-          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            Select,
+            {
+              style: { width: 150 },
+              value: tool,
+              onChange: (v) => setTool(v),
+              options: AGENT_RULE_TOOLS.map((x) => ({ value: x, label: x }))
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            Select,
+            {
+              style: { width: 90 },
+              value: effect,
+              onChange: (v) => setEffect(v),
+              options: [{ value: "allow", label: "允许" }, { value: "deny", label: "拒绝" }]
+            }
+          ),
           /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { flex: 1 }, placeholder: "前缀（空 = 工具全量），如 npm test", value: pattern, onChange: (e) => setPattern(e.target.value) }),
           /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", disabled: !!rules.find((r) => r.tool === tool && r.effect === effect && (r.pattern ?? "") === (pattern.trim() || null)), onClick: add, children: "添加" })
         ] })

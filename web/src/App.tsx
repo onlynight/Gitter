@@ -312,7 +312,9 @@ export function App() {
       <TitleBar />
       <div className={"main" + (app.settings?.sidebarCollapsed ? " collapsed" : "")}>
         <Sidebar />
-        <div className="page">
+        {/* page-root：内容列唯一的 Base 着色点（与 sidebar/titlebar/statusbar 同为单层叠涂，
+         * 观感对齐边框）；内层 .page/.page-slot 保持透明——多层 .page 嵌套会把底色叠成 3-4 层 */}
+        <div className="page page-root">
           <PageOutlet pageId={app.page} />
         </div>
       </div>
@@ -367,7 +369,7 @@ export function App() {
         </div>
       )}
       {toasts.length > 0 && (
-        <div style={{ position: "fixed", right: 16, bottom: 16, display: "flex", flexDirection: "column", gap: 8, zIndex: 1000 }}>
+        <div className="toast-stack" style={{ position: "fixed", right: 16, bottom: 16, display: "flex", flexDirection: "column", gap: 8, zIndex: 1000 }}>
           {toasts.map((x) => (
             <div key={x.id} className="banner" style={{ minWidth: 240, maxWidth: 360 }}>
               <div style={{ fontWeight: 600 }}>{x.title}</div>

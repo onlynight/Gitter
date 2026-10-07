@@ -189,12 +189,77 @@ export function applyDiffModeToDom(mode: "sideBySide" | "inline") {
   document.documentElement.dataset.diff = mode === "inline" ? "inline" : "side";
 }
 
+// ---- 窗口模糊材质（Windows 11 Mica/Acrylic，Codex 式）----
+// 窗口效果唯一事实源 = 主题包（ThemeStateDTO.material，reapplyTheme 随主题切换刷新）；
+// 主进程吃 backgroundMaterial（需要窗口背景全透明才透出材质）。渲染层透明度策略：磨砂均匀化——
+// Base 30%（窗口背景），表面 Panel/Panel2 仅轻微提亮（第三方不透明主题兜底档 10%/14%），
+// 叠一层后总底 ≈36–40% 与壳层视觉一致；层级靠描边承担。
+// 主题令牌已用 #RRGGBBAA 自带 alpha → 原样保留；不透明令牌（第三方）→ 套档位；
+// 主题原始值内联在 <html>，body 内联仅做兼容覆写。
+const BLUR_VARS: [string, number][] = [
+  // 表面：轻微提亮（叠层补偿后 ≈ 窗口背景档）
+  ["--c-base", 0.3], ["--c-panel", 0.1], ["--c-panel2", 0.14],
+  // 交互叠加层（在近均匀底上可辨）
+  ["--c-hover", 0.25], ["--c-selected", 0.35],
+  // 结构线与柔和强调（描边承担层级）
+  ["--c-border", 0.5], ["--c-border-strong", 0.7],
+  ["--c-accent-soft", 0.15],
+  ["--c-chip-blue-bg", 0.4], ["--c-chip-purple-bg", 0.4],
+];
+
+/** 解析 CSS 颜色 → RGBA；支持 #RGB/#RRGGBB/#RRGGBBAA/rgb()/rgba()，不可解析返回 null。 */
+function parseColor(raw: string): { r: number; g: number; b: number; a: number } | null {
+  const v = raw.trim();
+  const hex = /^#([0-9a-f]{3,8})$/i.exec(v);
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+    if (h.length === 6) h += "ff";
+    if (h.length !== 8) return null;
+    const n = parseInt(h, 16);
+    return { r: (n >>> 24) & 255, g: (n >>> 16) & 255, b: (n >>> 8) & 255, a: (n & 255) / 255 };
+  }
+  const rgb = /^rgba?\(([^)]+)\)$/i.exec(v);
+  if (rgb) {
+    const parts = rgb[1].split(",").map((s) => parseFloat(s.trim()));
+    if (parts.length >= 3 && parts.slice(0, 3).every((n) => !Number.isNaN(n))) {
+      return {
+        r: parts[0], g: parts[1], b: parts[2],
+        a: parts.length >= 4 && !Number.isNaN(parts[3]) ? Math.min(1, Math.max(0, parts[3])) : 1,
+      };
+    }
+  }
+  return null;
+}
+
+export function applyWindowMaterialToDom(theme: ThemeStateDTO): void {
+  const root = document.documentElement;
+  const active = (theme.material ?? "none") !== "none";
+  root.dataset.windowMaterial = theme.material ?? "none";
+  const computed = getComputedStyle(root);
+  for (const [name, tierAlpha] of BLUR_VARS) {
+    let value: string | null = null;
+    if (active) {
+      const raw = computed.getPropertyValue(name);
+      const parsed = parseColor(raw);
+      if (parsed) {
+        // 已自带透明度（主题令牌 #RRGGBBAA）→ 保留主题意图；不透明 → 套档位
+        value = parsed.a < 0.99 ? raw.trim() : `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${tierAlpha})`;
+      }
+    }
+    if (value) document.body.style.setProperty(name, value);
+    else document.body.style.removeProperty(name);
+  }
+  // （历史：--c-base-solid 曾供原生 select 弹出列表使用；select 已组件化，无消费方）
+}
+
 /** 重取主题并落到 DOM（设置页/面板切换后调用）。 */
 export async function reapplyTheme(settings: SettingsDTO) {
   const systemBase = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
   const theme = await call<ThemeStateDTO>("themes.state", { systemBase });
   setState({ theme });
   applyThemeToDom(theme);
+  applyWindowMaterialToDom(theme);
 }
 
 /** 重取语言字典（设置页/面板切换后调用）。 */

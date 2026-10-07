@@ -623,6 +623,11 @@ Tasks_Current	Current	当前
 Tasks_EmptyHint	No task worktrees yet	还没有任务 worktree
 Terminal_Restart	Restart	重启
 Terminal_CopyHint	Ctrl+Shift+C copy · Ctrl+Shift+V paste	Ctrl+Shift+C 复制 · Ctrl+Shift+V 粘贴
+Terminal_NewTab	New tab ({name})	新建标签（{name}）
+Terminal_NewTabProfile	New tab from profile	选择配置文件新建
+Terminal_ProfileDefault	default	默认
+Terminal_CloseRunningConfirm	{name} is still running. Close this tab?	{name} 仍在运行，确定关闭该标签？
+Terminal_EmptyHint	＋ open a new terminal	＋ 打开新终端
 Diff_BinaryFile	Binary file (not shown)	二进制文件（不显示）
 Diff_NoNewlineAtEof	No newline at end of file	文件末尾无换行符
 Settings_AppearanceSection	Appearance	外观

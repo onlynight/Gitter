@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>终端多标签设计稿 · terminal-tabs</title>
+<style>
+  :root {
+    --c-bg: #101216; --c-panel: #171a20; --c-border: #2a2f38; --c-border-strong: #3a4150;
+    --c-text: #d7dde5; --c-text2: #aab3bf; --c-text3: #7d8794;
+    --c-hover: rgba(255,255,255,.08); --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1b1410; background-image: radial-gradient(ellipse at 30% 20%, #3a2a1a, transparent 60%), radial-gradient(ellipse at 80% 80%, #221a2e, transparent 50%);
+         color: var(--c-text); font: 13px/1.5 "Segoe UI", "Microsoft YaHei UI", sans-serif; padding: 40px; }
+  h1 { font-size: 16px; margin-bottom: 6px; }
+  .note { color: var(--c-text3); font-size: 12px; margin-bottom: 28px; }
+  .demo { margin-bottom: 44px; }
+  .demo-title { font-size: 12px; color: #989ea8; margin-bottom: 10px; }
+  .label { color: #e3b341; font-size: 11px; margin: 0 0 10px 4px; display: flex; align-items: center; gap: 6px; }
+  .label::before { content: ""; width: 8px; height: 1px; background: #e3b341; }
+
+  /* ---- 终端圆角框 + 标签条（对齐 term-wrap 设计） ---- */
+  .term-frame {
+    width: 860px; height: 380px; display: flex; flex-direction: column;
+    border: 1px solid var(--c-border); border-radius: 10px;
+    background: linear-gradient(var(--c-panel2, #202020), var(--c-panel2, #202020)), #14161B;
+    background-color: rgba(20, 22, 27, .92);
+    box-shadow: 0 18px 48px rgba(0,0,0,.5); overflow: hidden;
+  }
+  .term-tabs {
+    display: flex; align-items: flex-end; gap: 4px; height: 34px; padding: 0 6px;
+    background: rgba(255,255,255,.04); border-bottom: 1px solid var(--c-border); flex: none;
+  }
+  .tab {
+    display: inline-flex; align-items: center; gap: 8px; height: 26px; margin-bottom: 4px;
+    padding: 0 10px; border-radius: 6px; font-size: 12px; color: var(--c-text3);
+    cursor: pointer; position: relative; user-select: none;
+  }
+  .tab:hover { background: var(--c-hover); color: var(--c-text2); }
+  .tab.active { background: #14161B; color: var(--c-text); box-shadow: 0 0 0 1px var(--c-border-strong); }
+  .tab .ico { font-family: var(--mono); font-size: 10px; color: #6a8caf; }
+  .tab .x { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 4px; font-size: 10px; color: var(--c-text3); visibility: hidden; }
+  .tab:hover .x, .tab.active .x { visibility: visible; }
+  .tab .x:hover { background: var(--c-hover); color: var(--c-text); }
+  .tab-new, .tab-profile {
+    width: 26px; height: 26px; margin-bottom: 4px; display: inline-flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 6px; background: transparent; color: var(--c-text3); font-size: 13px; cursor: pointer;
+  }
+  .tab-new:hover, .tab-profile:hover { background: var(--c-hover); color: var(--c-text); }
+  .tab-profile { font-size: 10px; }
+  .tab-spacer { flex: 1; }
+
+  .term-body { flex: 1; padding: 10px 14px; font-family: var(--mono); font-size: 12.5px; color: #cfd6de; }
+  .term-body .ps1 { color: #7ee787; }
+  .term-body .caret { display: inline-block; width: 7px; height: 15px; background: #cfd6de; vertical-align: -3px; }
+
+  /* ---- ⌄ 配置文件菜单（对齐右键菜单视觉） ---- */
+  .profile-menu {
+    position: absolute; width: 190px; z-index: 5;
+    background: #202020; border: 1px solid var(--c-border-strong); border-radius: 8px; padding: 4px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.45);
+  }
+  .profile-menu .mi {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 6px 12px; border-radius: 5px; font-size: 12px; color: var(--c-text); cursor: pointer;
+  }
+  .profile-menu .mi:hover { background: rgba(255,255,255,.08); }
+  .profile-menu .mi .k { color: var(--c-text3); font-size: 10px; }
+
+  .pos-rel { position: relative; display: inline-block; }
+</style>
+</head>
+<body>
+  <h1>终端页多标签 · 设计稿</h1>
+  <div class="note">Windows Terminal 交互形式 · 标签条嵌于圆角框内顶部 · ＋ 新建（默认配置文件）· ⌄ 下拉选择配置文件新建 · × 关闭 · Ctrl+Tab 切换 · 设计详情见 docs/terminal-tabs.md</div>
+
+  <div class="demo">
+    <div class="demo-title">① 常态：三标签 + ＋/⌄（暗色 · 亚克力）</div>
+    <div class="label">标签条（框内顶部）：激活标签 = 框内容底色凸出；× 仅 hover 显现（激活标签常显）</div>
+    <div class="term-frame">
+      <div class="term-tabs">
+        <div class="tab active"><span class="ico">PS</span> PowerShell <span class="x">✕</span></div>
+        <div class="tab"><span class="ico">&gt;_</span> CMD <span class="x">✕</span></div>
+        <div class="tab"><span class="ico">bash</span> Git Bash <span class="x">✕</span></div>
+        <button class="tab-new" title="新建标签（默认配置文件）">＋</button>
+        <button class="tab-profile" title="选择配置文件新建">⌄</button>
+        <div class="tab-spacer"></div>
+      </div>
+      <div class="term-body">
+        <span class="ps1">PS D:\Code\Gitter&gt;</span> git status<br>
+        On branch dev<br>
+        nothing to commit, working tree clean<br><br>
+        <span class="ps1">PS D:\Code\Gitter&gt;</span> <span class="caret"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo">
+    <div class="demo-title">② ⌄ 下拉：选择配置文件新建（弹层 = 右键菜单同款实底）</div>
+    <div class="label">配置文件菜单：点击即以该配置新建标签；随主题亮暗（实底悬浮层规则已覆盖同族）</div>
+    <div class="pos-rel" style="width: 860px; height: 220px;">
+      <div class="term-frame" style="position: absolute; inset: 0; opacity: .35;">
+        <div class="term-tabs">
+          <div class="tab active"><span class="ico">PS</span> PowerShell <span class="x">✕</span></div>
+          <button class="tab-new">＋</button>
+          <button class="tab-profile">⌄</button>
+          <div class="tab-spacer"></div>
+        </div>
+      </div>
+      <div class="profile-menu" style="left: 176px; top: 8px;">
+        <div class="mi"><span>PowerShell</span><span class="k">默认</span></div>
+        <div class="mi"><span>CMD</span></div>
+        <div class="mi"><span>Git Bash</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo">
+    <div class="demo-title">③ 亮色 · 云母（同一套令牌，亮暗自适应）</div>
+    <style>
+      .light .term-frame { background-color: rgba(255,255,255,.86); border-color: #d9dde2;
+        --c-bg: #f5f6f7; --c-panel: #fff; --c-border: #d9dde2; --c-border-strong: #c4c9d0;
+        --c-text: #17191c; --c-text2: #4a5158; --c-text3: #8a9099; --c-hover: rgba(0,0,0,.06); }
+      .light .term-body { color: #17191c; }
+      .light .term-body .ps1 { color: #1a7f37; }
+      .light .term-body .caret { background: #17191c; }
+      .light .tab.active { background: #fff; color: #17191c; }
+      .light .tab-profile, .light .tab-new { color: #4a5158; }
+    </style>
+    <div class="light">
+      <div class="term-frame">
+        <div class="term-tabs">
+          <div class="tab active"><span class="ico">PS</span> PowerShell <span class="x">✕</span></div>
+          <div class="tab"><span class="ico">bash</span> Git Bash <span class="x">✕</span></div>
+          <button class="tab-new">＋</button>
+          <button class="tab-profile">⌄</button>
+          <div class="tab-spacer"></div>
+        </div>
+        <div class="term-body">
+          <span class="ps1">PS D:\Code\Gitter&gt;</span> npm run dev<br>
+          <span class="caret"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top: 8px;">
+    层级模型：标签条底 = 材质上一层（同框）；激活标签 = 框内容底色（凸出）；⌄ 菜单 = 弹出悬浮层实底规则（三重 Base + panel2 提亮，与右键菜单同族）。
+  </div>
+</body>
+</html>

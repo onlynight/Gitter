@@ -44,26 +44,53 @@ export class TerminalManager {
     }));
   }
 
-  /** 确保会话存在且匹配 cwd/shell；不匹配或已退出则重启（对齐 TerminalFollowRepo）。 */
-  ensure(opts: { cols: number; rows: number; cwd?: string | null; shellKind?: string }): TerminalSessionDTO {
+  /** 确保会话存在且匹配 cwd/shell；不匹配或已退出则重启（对齐 TerminalFollowRepo）。
+   *  多标签：带 sessionId 时按 id 定位——存在且 running 直接返回（标签切换/恢复，
+   *  不因 shellKind/cwd 变化重启）；不存在或已退出则以该 id 重建；
+   *  无 sessionId 走旧单会话兼容路径（首个 running 复用/重启）。 */
+  ensure(opts: { cols: number; rows: number; cwd?: string | null; shellKind?: string; sessionId?: string }): TerminalSessionDTO {
     const shellKind = opts.shellKind ?? "powershell";
     const cwd = opts.cwd ?? null;
+    if (opts.sessionId) {
+      const byId = this.sessions.get(opts.sessionId);
+      if (byId) {
+        if (!byId.running) {
+          this.kill(byId);
+          return this.dto(this.spawn(opts.sessionId, shellKind, cwd, opts.cols, opts.rows));
+        }
+        return this.dto(byId);
+      }
+      const created = this.spawn(opts.sessionId, shellKind, cwd, opts.cols, opts.rows);
+      return this.dto(created);
+    }
     const existing = [...this.sessions.values()].find((s) => s.running);
     if (existing && existing.shellKind === shellKind && samePath(existing.cwd, cwd)) {
       return this.dto(existing);
     }
     if (existing) this.kill(existing);
+    const created = this.spawn(`term-${++this.seq}`, shellKind, cwd, opts.cols, opts.rows);
+    return this.dto(created);
+  }
 
-    const id = `term-${++this.seq}`;
+  /** 关闭并移除会话（标签 ×）。 */
+  close(id: string): void {
+    const s = this.sessions.get(id);
+    if (s) {
+      this.kill(s);
+      this.sessions.delete(s.id);
+    }
+  }
+
+  private spawn(id: string, shellKind: string, cwd: string | null, cols = 120, rows = 30): Session {
     const session: Session = { id, backend: "conpty", shellKind, cwd, running: false, exitCode: null, pty: null };
     this.sessions.set(id, session);
 
-    const [file, args] = this.shellFor(shellKind, opts.cwd ?? null);
+    const [file, args] = this.shellFor(shellKind, cwd);
     const p = pty.spawn(file, args, {
       name: "xterm-256color",
-      cols: Math.max(20, Math.min(500, Math.floor(opts.cols) || 120)),
-      rows: Math.max(5, Math.min(200, Math.floor(opts.rows) || 30)),
-      cwd: opts.cwd && fs.existsSync(opts.cwd) ? opts.cwd : os.homedir(),
+      cols: Math.max(20, Math.min(500, Math.floor(cols) || 120)),
+      rows: Math.max(5, Math.min(200, Math.floor(rows) || 30)),
+      cwd: cwd && fs.existsSync(cwd) ? cwd : os.homedir(),
       env: process.env as Record<string, string>,
       useConpty: true,
     });
@@ -100,7 +127,7 @@ export class TerminalManager {
       session.exitCode = exitCode;
       this.win.send("evt", { method: "terminal.exit", params: { id, exitCode } });
     });
-    return this.dto(session);
+    return session;
   }
 
   write(id: string, dataB64: string) {

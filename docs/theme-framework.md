@@ -157,3 +157,15 @@ public sealed class TokenRuntime {
 | 框架键动态字典在部分控件上不即时刷新 | 框架键集合来自现网已验证的覆盖清单；每次主题切换后走一遍 UIA 三页冒烟 |
 | 令牌收编遗漏（某处硬编码漏网） | P1 验收用 grep 断言 + Diff/终端页人工对比截图 |
 | 包主题与系统主题偏好冲突 | 包声明 `base`；`ThemePreference.System` 时按系统明暗选同基座包，不匹配的包置灰 |
+
+## 窗口效果主题包化（2026-10-07）
+
+窗口背景材质（Windows 11 Mica/Acrylic，Codex 式模糊）从 settings 独立设置迁入**主题包声明**——窗口效果唯一事实源 = 当前主题包：
+
+- **三内置包**（各含亮/暗两份主题文档，`contributes.themes[].material` 声明材质，schema 编译期校验多文档 id/base 唯一）：
+  - `theme.gitui.acrylic` 亚克力（实时模糊 · 默认包；未选主题/旧 `theme.gitui.dark|light` id 均落到这里）；
+  - `theme.gitui.mica` 云母（Base 全透明 `#00000000/#FFFFFF00`——壁纸染色直接作窗口背景，表面层轻微提亮）；
+  - `theme.gitui.solid` 不透明（模糊改造前实色令牌盘）。
+- **settings.windowMaterial 字段删除**：一次性迁移（SettingsStore.migrateWindowMaterialToTheme）——旧显式 mica/none 迁到对应包，旧亮暗包 id 并入 acrylic；windowMaterial 键从 settings.json 清除。
+- **解析**：`ThemeService.resolve(packageId, base)` 多主题包按解析后亮暗选文档（单文档第三方包忽略 base 直接命中）；`ThemeStateDTO` 增 `material`/`themeId`，渲染层（data-window-material、终端画布 alpha）与主进程（`BrowserWindow.backgroundMaterial` + 材质关闭时 Base 压平底色）全部改从主题态取值；`settings.set` 的 theme/themePackageId 变更触发主进程材质重应用。
+- **兼容**：第三方单文档主题 material 缺省 none（不透明），配半透明兜底档（渲染层 BLUR_VARS）在 acrylic 语境下自动套档；Win10/非 Win11 由 DWM 守卫回退 none，实色合成观感 = 普通主题。第三方主题包可在自己的 theme doc/manifest 声明 material 自定义窗口效果（声明式，无代码）。

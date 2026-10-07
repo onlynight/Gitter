@@ -123,12 +123,20 @@ export interface ThemePackageDTO {
   id: string;
   name: string;
   base: "dark" | "light";
+  /** 包覆盖的亮暗档（多主题包 = ["dark","light"]；第三方单文档 = 单元素） */
+  bases: ("dark" | "light")[];
+  /** 窗口背景材质（窗口效果唯一事实源） */
+  material: "none" | "mica" | "acrylic";
   isBuiltIn: boolean;
 }
 
 export interface ThemeStateDTO {
   base: "dark" | "light";
   activeId: string | null;
+  /** 窗口背景材质（来自主题包声明；none = 不透明） */
+  material: "none" | "mica" | "acrylic";
+  /** 包内命中的主题文档 id（多主题包 = "dark"/"light"） */
+  themeId: string | null;
   tokens: Record<string, string>;
   diff: Record<string, string>;
   terminal: Record<string, string>;
@@ -180,6 +188,8 @@ export interface SettingsDTO {
   agentsCompactionPolicy: { threshold?: number; keepLast?: number };
   /** post-turn 钩子总开关（§20.3.6） */
   agentsPostTurnHooks: boolean;
+  /** D5 任务完成 OS 通知 */
+  agentsNotify: boolean;
   /** 子代理并发上限（F9） */
   agentsMaxSubagents: number;
   /** MCP 工具入 agent 循环（F12.4 信任门，默认关） */
@@ -211,7 +221,7 @@ export interface UserModelProfileDTO {
   modelId: string;
   apiKeyProtected: string | null;
   params?: { temperature?: number; maxOutputTokens?: number };
-  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number };
+  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; /** D1 多模态：可接收图片输入 */ vision?: boolean };
   tags: string[];
 }
 
@@ -227,7 +237,7 @@ export interface ModelProfileDTO {
   enabled: boolean;
   hasKey: boolean;
   keyHint: string | null;
-  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number };
+  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; /** D1 多模态：可接收图片输入 */ vision?: boolean };
   tags: string[];
   isDefault: boolean;
   isFast: boolean;
