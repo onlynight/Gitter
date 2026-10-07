@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.models.ollama",
+  "name": "Ollama 本地模型档案",
+  "version": "1.0.0",
+  "description": "预置 Ollama 本地端点档案：无需密钥，按本机已拉取的模型名修改 modelId 即用",
+  "engines": { "gitter": ">=0.1.0" },
+  "contributes": {
+    "models": [
+      {
+        "id": "ollama-local",
+        "name": "Ollama 本地",
+        "kind": "openai-compatible",
+        "baseURL": "http://127.0.0.1:11434/v1",
+        "modelId": "qwen2.5-coder:7b",
+        "keyHint": null,
+        "params": { "temperature": 0.2 },
+        "capabilities": { "tools": true, "streaming": true, "contextTokens": 32768 },
+        "tags": ["local", "fast"]
+      }
+    ]
+  }
+}

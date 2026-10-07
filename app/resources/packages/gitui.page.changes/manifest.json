@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.page.changes",
+  "name": "内置页面：变更",
+  "version": "0.1.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——工作区变更（三层 stage 模型/提交盒/AI 助手入口/hunk 级暂存）",
+  "contributes": {
+    "pages": [
+      {
+        "id": "changes",
+        "slot": "changes",
+        "title": "%Nav_Changes%",
+        "entry": "page.js",
+        "icon": null,
+        "svg": "M2 4.25 5 8l-3 3.75V4.25zM6 3h1.5v10H6V3zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3z",
+        "lazy": true,
+        "permissions": [
+          "git.read",
+          "git.write",
+          "ai.invoke",
+          "agent.run",
+          "window"
+        ]
+      }
+    ]
+  }
+}

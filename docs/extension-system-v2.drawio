@@ -1,0 +1,154 @@
+<mxfile host="app.diagrams.net" agent="ZCode" version="24.7.8">
+  <diagram id="extension-system-v2" name="插件系统v2-框架与宿主关系">
+    <mxGraphModel dx="1426" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1320" pageHeight="1060" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Gitter 插件系统 v2 —— 插件框架与宿主关系（对应 docs/extension-system-v2.md）" style="text;html=1;align=center;verticalAlign=middle;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="2" width="620" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="host" value="&lt;b&gt;Gitter 宿主 —— Electron 主进程&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;fontSize=13;opacity=60;" vertex="1" parent="1">
+          <mxGeometry x="360" y="40" width="560" height="660" as="geometry" />
+        </mxCell>
+        <mxCell id="store" value="&lt;b&gt;PackageStore（自写薄内核，目标 &amp;lt;500 行）&lt;/b&gt;&lt;br/&gt;扫描 → zod 校验 → semver engines 门槛 → 按 kind 注册 → 启停/错误账本&lt;br/&gt;.gpk 导入 / 卸载（fflate zip 容器）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="380" y="90" width="520" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="theme" value="&lt;b&gt;ThemeService&lt;/b&gt;&lt;br/&gt;令牌合并 · 继承链（现有）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="380" y="240" width="155" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="gram" value="&lt;b&gt;GrammarService&lt;/b&gt;&lt;br/&gt;逐行分词 → TokenRun[]&lt;br/&gt;降级链：TM→声明式→plain" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="555" y="240" width="155" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="cmd" value="&lt;b&gt;CommandReg（自写 ~80 行）&lt;/b&gt;&lt;br/&gt;面板 / 菜单 / 快捷键&lt;br/&gt;共用数据源" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="730" y="240" width="155" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="builtin" value="&lt;b&gt;内置资源包&lt;/b&gt;&lt;br/&gt;tm-grammars · tm-themes&lt;br/&gt;resources/packages（自举）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="380" y="340" width="155" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tm" value="&lt;b&gt;vscode-textmate&lt;/b&gt;&lt;br/&gt;+ vscode-oniguruma（WASM）&lt;br/&gt;[MIT]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="555" y="340" width="155" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="mcpsdk" value="&lt;b&gt;@modelcontextprotocol/sdk&lt;/b&gt;&lt;br/&gt;client：接入外部 MCP server&lt;br/&gt;[MIT]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="730" y="340" width="155" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="hostts" value="&lt;b&gt;host.ts —— L2 插件契约&lt;/b&gt;&lt;br/&gt;activate(ctx) ⇒ dispose()&lt;br/&gt;ctx.registerCommand / registerAiProvider / getConfig" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="380" y="430" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ph" value="&lt;b&gt;PackageHost（P5）&lt;/b&gt;&lt;br/&gt;utilityProcess + MessageChannel&lt;br/&gt;崩溃 / 死循环只杀子进程" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="430" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="cordis" value="Cordis（@cordisjs/core）[MIT]&lt;br/&gt;P5 备选生命周期内核&lt;br/&gt;（触发信号 ×2 → 整体替换 host.ts）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;dashed=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="380" y="530" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ais" value="&lt;b&gt;AI 接缝&lt;/b&gt;&lt;br/&gt;provider 注册表（自写）&lt;br/&gt;内置 openai / anthropic / cli 自举注册" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="530" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="safety" value="safety.ts 人审门 —— L3 / MCP / 写命令的写操作一律 60s 审批（现有）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="380" y="630" width="520" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="bridge" value="preload bridge —— IPC 契约不变（现有）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="360" y="740" width="560" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="render" value="&lt;b&gt;web/ 渲染层（现有）&lt;/b&gt;&lt;br/&gt;SettingsPage「扩展」卡片 · 命令面板 · DiffView（消费 TokenRun[]，契约不变）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="360" y="820" width="560" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="l0" value="&lt;b&gt;L0 数据包&lt;/b&gt;&lt;br/&gt;主题包 · 语法包（.gpk / 目录）&lt;br/&gt;纯 JSON —— 坏包跳过不致命" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="l1" value="&lt;b&gt;L1 声明式贡献包&lt;/b&gt;&lt;br/&gt;manifest contributes：受限命令 / 配置项&lt;br/&gt;无代码，覆盖 80% 场景" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="l2" value="&lt;b&gt;L2 受信代码插件&lt;/b&gt;&lt;br/&gt;JS 模块 —— 主进程内运行&lt;br/&gt;第一方 / 审核渠道分发" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="430" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="l3" value="&lt;b&gt;L3 隔离代码插件（P5）&lt;/b&gt;&lt;br/&gt;任意 JS —— utilityProcess 子进程&lt;br/&gt;权限清单 + 人审门" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="530" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="mcp" value="&lt;b&gt;外部 MCP Server&lt;/b&gt;&lt;br/&gt;独立进程 · stdio / HTTP&lt;br/&gt;第三方生态直接接入" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="960" y="340" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg1" value="" style="rounded=0;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="40" y="952" width="24" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lgt1" value="自写胶水（薄内核）" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="70" y="946" width="130" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg2" value="" style="rounded=0;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="230" y="952" width="24" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lgt2" value="开源框架" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="260" y="946" width="90" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg3" value="" style="rounded=0;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="380" y="952" width="24" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lgt3" value="数据/资源（L0 · L1 · 内置包）" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="410" y="946" width="200" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg4" value="" style="rounded=0;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="640" y="952" width="24" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lgt4" value="隔离进程（L3 / P5）" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="670" y="946" width="140" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg5" value="" style="rounded=0;html=1;fillColor=#f5f5f5;strokeColor=#999999;" vertex="1" parent="1">
+          <mxGeometry x="840" y="952" width="24" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lgt5" value="外部进程 / IPC 边界" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="946" width="140" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg6" value="" style="rounded=0;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="952" width="24" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="lgt6" value="宿主 / 渲染层" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="946" width="110" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="fflate 解包 · zod 校验 · semver 门槛" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.4;" edge="1" parent="1" source="l0" target="store">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="manifest（contributes）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.85;" edge="1" parent="1" source="l1" target="store">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="activate / dispose" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="l2" target="hostts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="comlink RPC（MessageChannel）· 崩溃只杀子进程" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;startArrow=classic;startFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.7;" edge="1" parent="1" source="l3" target="ph">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="stdio / HTTP · JSON-RPC（MCP 规范）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;startArrow=classic;startFill=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="mcp" target="mcpsdk">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="同构契约 · 可整体替换" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="hostts" target="cordis">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="kind=theme" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.15;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="store" target="theme">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="kind=grammar" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="store" target="gram">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="commands / configuration" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.85;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="store" target="cmd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="内置 = 同一格式（自举）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;dashed=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="builtin" target="gram">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="使用" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gram" target="tm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="使用" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="ais" target="mcpsdk">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" value="ctx.registerAiProvider(name, complete)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1;entryX=0.2;entryY=0;" edge="1" parent="1" source="l2" target="ais">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" value="IPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="host" target="bridge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" value="call() / 事件推送" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="bridge" target="render">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,98 @@
+{
+  "id": "gitui.theme.dark",
+  "name": "深色",
+  "base": "dark",
+  "inherits": null,
+  "tokens": {
+    "Base": "#FF0D0D0D",
+    "Panel": "#FF171717",
+    "Hover": "#FF272727",
+    "Selected": "#FF333333",
+    "Border": "#FF2B2B2B",
+    "BorderStrong": "#FF3E3E3E",
+    "Accent": "#FFE9EBEE",
+    "AccentHover": "#FFFFFFFF",
+    "AccentPressed": "#FFD5D8DC",
+    "AccentSoft": "#26E9EBEE",
+    "OnAccent": "#FF0C0D0F",
+    "Text": "#FFEAEAEA",
+    "Text2": "#FFA0A0A0",
+    "Text3": "#FF6E6E6E",
+    "Green": "#FF3FB950",
+    "Red": "#FFF0655A",
+    "Amber": "#FFE3B341",
+    "ChipBlueBg": "#FF1C2735",
+    "ChipBlueFg": "#FF8DB8F5",
+    "ChipPurpleBg": "#FF241F33",
+    "ChipPurpleFg": "#FFB9A3EC",
+    "Panel2": "#FF202020",
+    "Link": "#FF6BABF5"
+  },
+  "syntax": {
+    "keyword": "#569CD6",
+    "string": "#6A9955",
+    "comment": "#6A9955",
+    "number": "#B5CEA8",
+    "type": "#4EC9B0",
+    "function": "#DCDCAA",
+    "variable": "#9CDCFE",
+    "operator": "#D4D4D4",
+    "punctuation": "#D4D4D4"
+  },
+  "tokenColors": [
+    {
+      "scope": "keyword",
+      "settings": {
+        "foreground": "#569CD6"
+      }
+    },
+    {
+      "scope": "string",
+      "settings": {
+        "foreground": "#6A9955"
+      }
+    },
+    {
+      "scope": "comment",
+      "settings": {
+        "foreground": "#6A9955"
+      }
+    },
+    {
+      "scope": "constant.numeric",
+      "settings": {
+        "foreground": "#B5CEA8"
+      }
+    },
+    {
+      "scope": "entity.name.type",
+      "settings": {
+        "foreground": "#4EC9B0"
+      }
+    },
+    {
+      "scope": "entity.name.function",
+      "settings": {
+        "foreground": "#DCDCAA"
+      }
+    },
+    {
+      "scope": "variable",
+      "settings": {
+        "foreground": "#9CDCFE"
+      }
+    },
+    {
+      "scope": "keyword.operator",
+      "settings": {
+        "foreground": "#D4D4D4"
+      }
+    },
+    {
+      "scope": "punctuation",
+      "settings": {
+        "foreground": "#D4D4D4"
+      }
+    }
+  ]
+}

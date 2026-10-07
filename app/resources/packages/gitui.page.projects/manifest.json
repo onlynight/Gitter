@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.page.projects",
+  "name": "内置页面：项目",
+  "version": "0.1.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——项目页（仓库卡片/打开/移除/新窗口）",
+  "contributes": {
+    "pages": [
+      {
+        "id": "projects",
+        "slot": "projects",
+        "title": "%Nav_Projects%",
+        "entry": "page.js",
+        "icon": "",
+        "svg": null,
+        "lazy": true,
+        "permissions": [
+          "window"
+        ]
+      }
+    ]
+  }
+}

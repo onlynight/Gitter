@@ -1,0 +1,837 @@
+# GitUI 本地化字符串表（docs/i18n.md）
+# 格式：key <TAB> en <TAB> zh-Hans；# 开头为注释；值内换行写作 \n；{n} 为占位符（中英必须一致）
+# 修改后运行 scripts/gen-localization.ps1 重新生成 resx 与 Designer。
+# 注意：中性语言 = 英文（缺 key 由 key-parity 测试兜底）；UIA 冒烟脚本锁定 zh-Hans。
+
+# ==== Common（跨页复用）====
+Common.Cancel	Cancel	取消
+Common.FollowSystem	System	跟随系统
+Common.Light	Light	浅色
+Common.Dark	Dark	深色
+Common.On	On	开
+Common.Off	Off	关
+Common.Search	Search	搜索
+Common.Refresh	Refresh	刷新
+Common.Loading	Loading…	加载中…
+Common.ErrorPrefix	Error: {0}	错误: {0}
+Common.UnknownError	Unknown error	未知错误
+Common.NoProjectSelected	No project selected	未选择项目
+Common.SwitchProject	Switch Project	切换项目
+Common.NoRepoOpen	No repository open	未打开仓库
+Common.CopyErrorDetail	Copy Error Details	复制错误详情
+Common.SideBySide	Side by Side	并排
+Common.Inline	Inline	内联
+Common.NoDiff	No changes	无差异
+Common.BinaryNoDiff	Binary file changed; cannot compare	二进制文件已修改，无法比较
+Common.BinarySuffix	(binary)	(二进制)
+Common.Builtin	Built-in	内置
+Common.Custom	Custom	自定义
+Common.ToggleSidebar	Toggle Sidebar	切换侧边栏
+Common.DiffViewAutomation	Diff view	Diff 视图
+Common.TerminalOutputAutomation	Terminal output	终端输出区
+Common.PaneDividerAutomation	Resize panes	调整左右面板宽度
+Common.FileListAutomation	File list	文件列表
+
+# ==== Nav（侧边导航 / 页签）====
+Nav.Projects	Projects	项目
+Nav.Log	Log	Log
+Nav.Changes	Changes	变更
+Nav.Branches	Branches	分支
+Nav.Terminal	Terminal	终端
+Nav.Settings	Settings	设置
+
+# ==== Main（主窗口 chrome）====
+Main.WindowTitle	{0} - GitUI	{0} - GitUI
+Main.StatusHint	Ctrl+1..6 switch pages · F5 refresh	Ctrl+1..6 切换页签 · F5 刷新
+
+# ==== Palette（命令面板）====
+Palette.Title	Command Palette	命令面板
+Palette.InputPlaceholder	Type a command…	输入命令…
+Palette.FooterKeys	↑↓ select · ↵ run · Esc close	↑↓ 选择 · ↵ 执行 · Esc 关闭
+Palette.FooterAt	@category to jump	@分类名 直接索引
+Palette.NoMatches	No matching commands (Esc to close)	没有匹配的命令（Esc 关闭）
+Palette.Recent	Recently used	最近使用
+Palette.HitCount	{0} hits	命中 {0}
+Palette.CategoryAutomation	Category {0}	分类 {0}
+
+# ==== Cat（命令面板分类）====
+Cat.Nav	Navigation	导航
+Cat.Repo	Repository	仓库
+Cat.Commit	Commit	提交
+Cat.Branch	Branch	分支
+Cat.Sync	Sync	同步
+Cat.View	View	视图
+Cat.Settings	Settings	设置
+
+# ==== Cmd（命令面板条目标题；id 常量见 Core/Settings/CommandIds.cs）====
+Cmd.GotoProjects	Go to Projects	转到项目
+Cmd.GotoLog	Go to Log	转到 Log
+Cmd.GotoChanges	Go to Changes	转到变更
+Cmd.GotoBranches	Go to Branches	转到分支
+Cmd.GotoTerminal	Go to Terminal	转到终端
+Cmd.GotoSettings	Go to Settings	转到设置
+Cmd.RefreshPage	Refresh Current Page	刷新当前页
+Cmd.NewWindow	New Window	新建窗口
+Cmd.SwitchProject	Switch Project	切换项目
+Cmd.Commit	Commit	提交
+Cmd.CommitPush	Commit and Push	提交并推送
+Cmd.StageAll	Stage All	全部暂存
+Cmd.UnstageAll	Unstage All	全部撤销暂存
+Cmd.CheckoutBranch	Checkout Selected Branch	检出选中分支
+Cmd.CreateBranch	Create Branch…	创建分支…
+Cmd.RenameBranch	Rename Branch	重命名分支
+Cmd.DeleteBranch	Delete Branch	删除分支
+Cmd.MergeBranch	Merge into Current Branch	合并到当前分支
+Cmd.RebaseBranch	Rebase onto This Branch	变基到该分支
+Cmd.FastForward	Fast-forward	快进
+Cmd.Pull	Pull	Pull
+Cmd.PullRebase	Pull Rebase	Pull Rebase
+Cmd.Push	Push	Push
+Cmd.DiffSideBySide	Diff Mode: Side by Side	Diff 模式：并排
+Cmd.DiffInline	Diff Mode: Inline	Diff 模式：内联
+Cmd.ThemeSystem	Theme: Follow System	主题：跟随系统
+Cmd.ThemeLight	Theme: Light	主题：浅色
+Cmd.ThemeDark	Theme: Dark	主题：深色
+Cmd.ExportSettings	Export Settings	导出设置
+Cmd.ImportSettings	Import Settings	导入设置
+
+# ==== Settings（设置页）====
+Settings.Title	Settings	设置
+Settings.Theme	Theme	主题
+Settings.Base	Base	基座
+Settings.ThemePackages	Theme Packages	主题包
+Settings.FollowBaseBuiltin	Follow base (built-in)	跟随基座（内置）
+Settings.ImportThemePackage	Import theme package .gpk…	导入主题包 .gpk…
+Settings.ImportUnavailable	Import unavailable in this window (missing host handle)	当前窗口不支持导入（缺少宿主句柄）
+Settings.Extensions	Extensions	扩展
+Settings.ExtensionsHint	Enable/disable extension packages by kind (theme / syntax); uninstall is available for custom packages only.	按种类启用/禁用扩展包（主题 / 语法高亮）；卸载仅对自定义包可用。
+Settings.DiffMode	Diff Mode	Diff 模式
+Settings.DevTools	Developer Tools	开发工具
+Settings.OpenDiffPreview	Open Diff render preview (S3 check)	打开 Diff 渲染预览（S3 验证）
+Settings.SettingsFile	Settings File	设置文件
+Settings.Export	Export to file…	导出到文件…
+Settings.Import	Import from file…	从文件导入…
+Settings.Language	Language	语言
+Settings.LanguageHint	Changes apply immediately.	更改立即生效。
+Settings.ThemePackageRowFormat	{0} ({1} · {2})	{0}（{1} · {2}）
+Settings.ThemePackageAutomation	Theme package {0}	主题包 {0}
+Settings.EnableKindAutomation	Enable {0} {1}	启用 {0} {1}
+Settings.Uninstall	Uninstall	卸载
+Settings.UninstallAutomation	Uninstall {0}	卸载 {0}
+Settings.EnabledStatus	Enabled: {0}	已启用：{0}
+Settings.DisabledStatus	Disabled: {0}	已禁用：{0}
+Settings.Uninstalled	Uninstalled: {0}	已卸载：{0}
+Settings.UninstallFailed	Uninstall failed (built-in package or undeletable directory)	卸载失败（内置包或目录不可删）
+Kind.Theme	Theme	主题
+Kind.Syntax	Syntax	语法
+ThemePkg.Light	Light	亮色
+ThemePkg.Dark	Dark	深色
+
+# ==== Log（Log 页）====
+Log.BranchPlaceholder	Branch	分支
+Log.BranchPickerAutomation	Branch picker	分支选择
+Log.SearchPlaceholder	author: branch: after: before: topic: free text	author: branch: after: before: topic: 自由词
+Log.SearchAutomation	Log search	Log 搜索
+Log.SetCompareBase	Set Compare Base	设为比较基准
+Log.ClearCompareBase	Clear Compare Base	清除比较基准
+Log.CompareNoBase	No base set: showing diff against parent	未设置基准：显示与父提交的差异
+Log.CompareWithBase	Base {0}: showing diff of selected commit against base	基准 {0}：所选提交显示与基准的差异
+Log.CommitDetailsAutomation	Commit details	提交详情
+Log.CanvasIdle	Select a commit and file to view diff	选择提交与文件查看差异
+Log.CommitsOne	1 commit	1 个提交
+Log.CommitsMany	{0} commits	{0} 个提交
+Log.GroupAutomation	Group {0}	分组 {0}
+Log.CommitRowAutomation	Commit {0} {1}	提交 {0} {1}
+Log.CopyShaFull	Copy full commit ID	复制提交 ID（完整）
+Log.CopyShaShort	Copy short ID	复制短 ID
+Log.CopySubject	Copy commit message	复制提交消息
+Log.CopyFullMessage	Copy full message (with body)	复制完整提交消息（含正文）
+Log.CopyAuthor	Copy author	复制作者
+Log.CopySummaryLine	Copy one-line summary (short ID + subject)	复制单行摘要（短 ID + 标题）
+Log.MergeCommitSuffix	merge commit	合并提交
+Log.LoadingChanges	Loading changes…	加载变更中…
+Log.FileAutomation	File {0}	文件 {0}
+Log.ReadChangesFailed	Failed to load changes: {0}	读取变更失败: {0}
+Log.RootNoDiff	Root commit has no parent; no diff	根提交没有父提交，无差异
+Log.SelectFileAbove	Select a file above to view its diff	选择上方文件查看差异
+Log.OpenRepoFailed	Failed to open repository: {0}	打开仓库失败：{0}
+Log.EmptyNoProject	No project selected: add one on the Projects page (Ctrl+1) and double-click to open	未选择项目：在左侧「项目」页添加并双击选择（Ctrl+1）
+Log.EmptyNoMatches	No matching commits (adjust the search or clear it)	没有匹配的提交（调整搜索词，或清空搜索）
+Log.EmptyRepo	Empty repository: no commits yet	空仓库：还没有任何提交
+Log.LoadedStatus	Loaded {0} of {1}	已加载 {0} / 共 {1}
+Log.ScrollMore	 · scroll for more	 · 滚动加载更多
+Log.GroupsSuffix	 · {0} groups	 · {0} 个分组
+
+# ==== Changes（变更页）====
+Changes.OpenInEditor	Open in Editor	在编辑器打开
+Changes.StageFile	Stage File	暂存文件
+Changes.UnstageFile	Unstage File	撤销暂存文件
+Changes.StageHunk	Stage Selected Blocks	暂存此块
+Changes.UnstageHunk	Unstage Selected Blocks	撤销此块
+Changes.CanvasIdle	Select a file on the left to view diff	选择左侧文件查看差异
+Changes.MessagePlaceholder	Commit message (Ctrl+Enter to commit)	提交消息（Ctrl+Enter 提交）
+Changes.MessageAutomation	Commit message	提交消息
+Changes.PrefixPlaceholder	Prefix	前缀
+Changes.PrefixAutomation	Commit prefix	提交前缀
+Changes.RecentPlaceholder	Recent commit messages (as template)	最近提交消息（作模板）
+Changes.RecentAutomation	Recent messages	最近消息
+Changes.Commit	Commit	提交
+Changes.CommitAndPush	Commit and Push	提交并推送
+Changes.RetryPush	Retry Push	重试推送
+Changes.NoFilesChecked	No files checked	未勾选任何文件
+Changes.PreviewMore	 and {0} more	 等 {0} 个文件
+Changes.MarkResolved	Mark Resolved	标记已解决
+Changes.ConflictHint	Conflict file: resolve it, then click Mark Resolved	冲突文件：解决后点击标记已解决
+Changes.SectionConflicts	Conflicts ({0})	冲突 ({0})
+Changes.SectionChanges	Changes ({0})	变更 ({0})
+Changes.SectionStaged	Staged ({0})	已暂存 ({0})
+Changes.SectionUntracked	Untracked ({0})	未跟踪 ({0})
+Changes.SectionConflictsAutomation	Conflicts	冲突
+Changes.SectionChangesAutomation	Changes	变更
+Changes.SectionStagedAutomation	Staged	已暂存
+Changes.SectionUntrackedAutomation	Untracked	未跟踪
+Changes.StageAll	Stage all +	全部暂存 +
+Changes.UnstageAll	Unstage all −	全部撤销 −
+Changes.CheckAutomation	Check {0}	勾选 {0}
+Changes.PushFailed	Push failed: {0}\n{1}	推送失败: {0}\n{1}
+Changes.Committing	Committing…	正在提交…
+Changes.CountChanges	{0} changed	{0} 项变更
+Changes.CountStaged	{0} staged	{0} 项已暂存
+Changes.CountUntracked	{0} untracked	{0} 项未跟踪
+Changes.CountConflicts	{0} conflicts	{0} 项冲突
+Changes.CleanTree	Working tree clean	工作区干净
+Changes.CheckedCount	{0} checked	已勾选 {0} 项
+Changes.EmptyMessage	Commit message cannot be empty	提交消息不能为空
+Changes.UnresolvedConflicts	Unresolved conflict files; resolve conflicts before committing	存在未解决的冲突文件，请先解决冲突再提交
+Changes.Committed	Committed {0}	已提交 {0}
+Changes.PushedSuffix	 · push succeeded	 · 推送成功
+
+# ==== Branches（分支页）====
+Branches.Checkout	Checkout	检出
+Branches.Create	Create	创建
+Branches.Rename	Rename	重命名
+Branches.Delete	Delete	删除
+Branches.MergeIntoCurrent	Merge into Current	合并到当前分支
+Branches.RebaseOntoThis	Rebase onto This	变基到该分支
+Branches.FastForward	Fast-forward	快进
+Branches.NewBranchName	New branch name	新分支名
+Branches.StartPointPlaceholder	Start point (empty = HEAD)	起点（留空 = HEAD）
+Branches.StartPointAutomation	Start point	起点
+Branches.CreateTitle	Create Branch	创建分支
+Branches.CreateConfirm	Create	确认创建
+Branches.NewName	New name	新名称
+Branches.RenameTitle	Rename Branch {0}	重命名分支 {0}
+Branches.RenameConfirm	Rename	确认重命名
+Branches.DeleteTitle	Delete Branch {0}	删除分支 {0}
+Branches.DeleteConfirm	Delete	确认删除
+Branches.DeleteRecoverHint	Recovery: after deletion the branch can be recreated from the reflog or the commit SHAs listed above.	恢复方式：删除后可从 reflog 或本对话框列出的提交 SHA 重建分支。
+Branches.LocalGroupAutomation	Local branches	本地分支组
+Branches.RemoteGroupAutomation	Remote branches	远程分支组
+Branches.RowAutomation	Branch {0}	分支 {0}
+Branches.CurrentSuffix	 current	 当前
+Branches.SelectedSuffix	 selected	 已选中
+Branches.Busy	Working…	执行中…
+Branches.TotalCountOne	1 branch	1 个分支
+Branches.TotalCountMany	{0} branches	{0} 个分支
+Branches.CheckedOut	Checked out {0}	已检出 {0}
+Branches.Created	Created {0}	已创建 {0}
+Branches.Renamed	Renamed {0} → {1}	已重命名 {0} → {1}
+Branches.Deleted	Deleted {0}	已删除 {0}
+Branches.Merged	Merged {0}	已合并 {0}
+Branches.Rebased	Rebased onto {0}	已变基到 {0}
+Branches.FastForwarded	Fast-forwarded to {0}	已快进到 {0}
+Branches.PulledRebase	Pulled (rebase)	已拉取（rebase）
+Branches.Pulled	Pulled	已拉取
+Branches.Pushed	Pushed	已推送
+Branches.LocalGroup	Local branches ({0})	本地分支 ({0})
+Branches.RemoteGroup	Remote branches ({0})	远程分支 ({0})
+Branches.EmptyBranch	(empty branch)	（空分支）
+Branches.FastForwardInvalid	Cannot fast-forward to {0} (diverged or invalid target)	当前分支无法快进到 {0}（存在分叉或目标无效）
+Branches.DeleteSafe	All commits of branch {0} are still reachable from other branches; deleting it discards nothing.	分支 {0} 的全部提交在其他分支上仍然可达，删除分支不会丢弃任何提交。
+Branches.DeleteLoseOne	This will discard 1 commit: {0}	将丢弃 1 个提交：{0}
+Branches.DeleteLoseMany	This will discard {0} commits: {1}	将丢弃 {0} 个提交：{1}
+Branches.DeleteLoseMore	 etc. ({0} total)	 等（共 {0} 个）
+
+# ==== Projects（项目页）====
+Projects.AddProject	+ Add Project	+ 添加项目
+Projects.AddProjectAutomation	Add Project	添加项目
+Projects.TitleFormat	Projects ({0})	项目 ({0})
+Projects.EmptyTitle	No projects yet	还没有项目
+Projects.EmptyHint	Click "+ Add Project" to pick a local folder, or start below	点击右上角「添加项目」选择本地文件夹，或从下方开始
+Projects.EmptyAutomation	Projects empty state	项目空状态
+Projects.SetCurrent	Set as Current	设为当前项目
+Projects.OpenInExplorer	Open in File Explorer	在资源管理器中打开
+Projects.Remove	Remove Project	移除项目
+Projects.RowAutomation	Project {0}	项目 {0}
+Projects.PickFolderTitle	Select project folder	选择项目文件夹
+Projects.PickerFailed	Failed to open folder picker: {0}	打开目录选择器失败: {0}
+Projects.AlreadyInList	"{0}" is already in the list	「{0}」已在列表中
+Projects.NotRepoTitle	Not a Git repository	不是 Git 仓库
+Projects.NotRepoBody	"{0}" does not contain a Git repository.\n\nAdd it as a project anyway? (You can initialize a repo in this folder later.)	「{0}」不包含 Git 仓库。\n\n仍要添加为项目吗？（之后可在此目录初始化仓库）
+Projects.AddAnyway	Add Anyway	仍要添加
+Projects.RemoveCurrentTitle	Remove Current Project	移除当前项目
+Projects.RemoveCurrentBody	"{0}" is the currently open project; removing it returns all pages to the no-project state.\n\n(Only removes it from the list; files on disk are untouched.)	「{0}」是当前打开的项目，移除后各页面将回到未选择项目状态。\n\n（仅从列表移除，不会删除磁盘文件）
+Projects.RemoveConfirm	Remove	移除
+Projects.ExplorerFailed	Failed to open File Explorer: {0}	打开资源管理器失败: {0}
+Projects.StatusNoCurrentOne	{0} project · double-click to set current	共 {0} 个项目 · 双击设为当前项目
+Projects.StatusNoCurrentMany	{0} projects · double-click to set current	共 {0} 个项目 · 双击设为当前项目
+Projects.StatusCurrentOne	{0} project · double-click to set current · current: {1}	共 {0} 个项目 · 双击设为当前项目 · 当前：{1}
+Projects.StatusCurrentMany	{0} projects · double-click to set current · current: {1}	共 {0} 个项目 · 双击设为当前项目 · 当前：{1}
+
+# ==== Terminal（终端页）====
+Terminal.NotStarted	Not started	未启动
+Terminal.Clear	Clear Screen	清屏
+Terminal.More	More	更多
+Terminal.ShellPickerAutomation	Terminal shell picker	终端 Shell 选择
+Terminal.BashNotFound	bash not found	未找到 bash
+Terminal.BashMissing	Git Bash not detected (Git Bash shell selected): {0}	未检测到 Git Bash（已选 Git Bash shell）：{0}
+Terminal.BashMissingFallback	Please install Git for Windows, or switch to PowerShell/CMD.	请安装 Git for Windows 或改用 PowerShell/CMD。
+Terminal.Probing	Detecting terminal environment…	正在检测终端环境…
+Terminal.Starting	Starting	启动中
+Terminal.Running	Running	运行中
+Terminal.StartFailed	Start failed	启动失败
+Terminal.StartFailedWinpty	winpty start failed	winpty 启动失败
+Terminal.ConptyFailed	ConPTY session failed to start: {0}	ConPTY 会话启动失败：{0}
+Terminal.WinptyFailed	winpty session failed to start: {0}	winpty 会话启动失败：{0}
+Terminal.Exited	Exited (code {0})	已退出 (code {0})
+Terminal.EnvironmentAutomation	Terminal environment notice	终端环境提示
+Terminal.Unavailable	Terminal unavailable	终端不可用
+Terminal.UnavailableHint	Try another shell from the toolbar dropdown, or open the download page to install Git Bash.	可改用其他 Shell（工具条下拉）或打开下载页安装 Git Bash。
+Terminal.OpenDownload	Open download page (git-scm.com)	打开下载页（git-scm.com）
+Terminal.OpenDownloadAutomation	Open Git download page	打开 Git 下载页
+Terminal.RestartShell	Restart shell	重开 shell
+Terminal.CopyScreen	Copy Screen Output	复制屏幕输出
+Terminal.FollowRepo	Follow repository working directory	跟随仓库工作目录
+Terminal.StatusFormat	{0}{1} · {2}×{3} · Follow repo: {4}	{0}{1} · {2}×{3} · 跟随仓库: {4}
+
+# ==== Preview（Diff 渲染预览窗，S3 手动验证工具）====
+Preview.Title	Diff Render Preview (S3)	Diff 渲染预览（S3 验证）
+Preview.RepoPathAutomation	Repository path	仓库路径
+Preview.OpenRepo	Open Repository	打开仓库
+Preview.SideBySideAutomation	Side-by-side mode	并排模式
+Preview.InlineAutomation	Inline mode	内联模式
+Preview.RepoLabel	Repo:	仓库:
+Preview.CommitsAutomation	Commit list	提交列表
+Preview.SelectCommit	Select a commit	选择一个提交
+Preview.SelectFile	Select a file	选择一个文件
+Preview.OpenedStatus	{0} — {1} commits (showing {2})	{0} — {1} 个提交（显示最近 {2} 个）
+Preview.OpenFailed	Open failed: {0}	打开失败: {0}
+Preview.ReadFailed	Read commit failed: {0}	读取提交失败: {0}
+Preview.FilesStatus	{0} — {1} files	{0} — {1} 个文件
+
+# ==== Time（相对时间 / 分组头，LogFormatting 消费）====
+Time.Yesterday	Yesterday {0}	昨天 {0}
+Time.DayBefore	2 days ago {0}	前天 {0}
+Time.DaysAgo	{0}d ago	{0} 天前
+Time.MonthDay	MMM d	M月d日
+Time.MonthDayYear	MMM d, yyyy	yyyy年M月d日
+Time.Weekdays	Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday	日,一,二,三,四,五,六
+Time.Today	Today · {0} ({1})	今天 · {0} 星期{1}
+Time.YesterdayDay	Yesterday · {0} ({1})	昨天 · {0} 星期{1}
+Time.PlainDay	{0} ({1})	{0} 星期{1}
+
+# ==== Import（主题/语法包导入状态，ThemeService.ImportGpk）====
+Import.FileNotFound	File not found: {0}	文件不存在：{0}
+Import.MissingManifest	manifest.json missing from package	包内缺少 manifest.json
+Import.InvalidManifest	manifest invalid (missing id)	manifest 无效（缺少 id）
+Import.NoKinds	Package declares no supported kinds (kinds must include theme or syntax)	该包未声明受支持的种类（kinds 需含 theme 或 syntax）
+Import.MissingTheme	theme/theme.json missing from package	包内缺少 theme/theme.json
+Import.MissingSyntax	syntax/highlighters.json missing from package	包内缺少 syntax/highlighters.json
+Import.AppliedTheme	Theme package imported and applied: {0}	已导入并应用主题包：{0}
+Import.AppliedSyntax	Syntax package imported: {0}	已导入语法高亮包：{0}
+Import.Failed	Import failed: {0}	导入失败：{0}
+
+# ==== Bash（BashLocator 定位错误，GitUI.Shell 消费）====
+Bash.CustomPathMissing	Specified bash path does not exist: {0}	手动指定的 bash 路径不存在：{0}
+Bash.LocateFailed	bash.exe of Git for Windows not found. Install Git for Windows, or set the bash path in settings.	未找到 Git for Windows 的 bash.exe。请安装 Git for Windows，或在设置中手动指定 bash 路径。
+
+# ==== Op（git 操作名，LibGit2RepositoryService 抛错用）====
+Op.Stage	stage	暂存
+Op.Unstage	unstage	撤销暂存
+Op.StageHunk	stage hunk	暂存块
+Op.UnstageHunk	unstage hunk	撤销暂存块
+Op.CreateBranch	create branch	创建分支
+Op.RenameBranch	rename branch	重命名分支
+Op.Checkout	checkout	检出
+Op.DeleteBranch	delete branch	删除分支
+
+# ==== Git（仓库层用户可见错误）====
+Git.OpFailed	{0} failed: {1}	{0} 失败: {1}
+Git.CommitNotFound	Commit {0} not found	找不到提交 {0}
+Git.NothingStaged	No staged changes; nothing to commit	没有已暂存的变更，无法提交
+Git.StartNotFound	Start commit {0} not found	找不到起点提交 {0}
+Git.BranchNotFound	Branch {0} does not exist	分支 {0} 不存在
+Git.Timeout	Git execution timed out	执行超时
+
+# ==== Push（推送失败分类建议，PushException.Hint）====
+Push.HintAuthFailed	Credentials rejected; check the remote login state and retry	凭据被拒绝，请检查远程仓库的登录状态后重试
+Push.HintNetwork	Cannot reach the remote; check the network and retry	无法连接远程仓库，请检查网络后重试
+Push.HintNonFastForward	The remote branch has new commits; pull first, then push	远端分支有新提交，请先拉取（Pull）再推送
+Push.HintGeneric	Push failed; retry or inspect the full output	推送失败，可重试或查看完整输出
+
+# ==== Rules（提交前安全网规则文案，CommitSafetyScanner，ai-native-redesign.md §4.2）====
+Rules.SecretToken	Looks like a hardcoded secret or token	疑似硬编码的密钥或令牌
+Rules.PrivateKey	Private key material detected	检测到私钥内容
+Rules.SecretAssignment	Hardcoded credential assignment	疑似明文密钥赋值
+Rules.DebugResidue	Debug output left in code	调试输出残留
+Rules.LargeFile	Large file: +{0} lines (threshold {1})	大文件：新增 {0} 行（阈值 {1}）
+Rules.BinaryIncoming	Binary file added to the repository	二进制文件入库
+
+# ==== Changes（安全网与 AI 提交信息，ai-native-redesign.md §四）====
+Changes.SafetyBlocked	Commit blocked by safety net: {0} blocking issue(s). See details.	提交被安全网拦截：{0} 个阻止级问题，详见错误详情
+Changes.SafetyWarnings	{0} safety warning(s)	{0} 条安全网警告
+Changes.AiGenerate	AI draft	AI 生成
+Changes.AiGenerating	Generating…	生成中…
+Changes.AiNotConfigured	AI is not configured; set it up in Settings	未配置 AI，请在设置中配置
+Changes.AiEmptyDraft	AI returned an empty draft	AI 返回了空草稿
+Changes.AiBlockedBySecrets	Not sent to AI: possible secrets detected in the diff	未发送给 AI：diff 中检测到疑似密钥
+
+# ==== Settings（实时监视 + AI 配置，ai-native-redesign.md §七/§八）====
+Settings.MonitorSection	Live monitoring & background fetch	实时监视与后台拉取
+Settings.WatchWorktree	Watch worktree for changes (auto refresh)	监视工作区文件变化（自动刷新）
+Settings.AutoFetch	Fetch from remote in background	后台定时 fetch
+Settings.FetchIntervalMinutes	Fetch interval (minutes)	Fetch 间隔（分钟）
+Settings.AiSection	AI assistant (bring your own endpoint)	AI 助手（自带端点）
+Settings.AiProvider	Provider	Provider
+Settings.AiProviderOff	Off	关闭
+Settings.AiProviderOllama	Ollama (local)	Ollama（本地）
+Settings.AiProviderOpenAi	OpenAI-compatible	OpenAI 兼容端点
+Settings.AiProviderAnthropic	Anthropic	Anthropic
+Settings.AiProviderCli	CLI bridge	命令行桥
+Settings.AiEndpoint	Endpoint (OpenAI-compatible base URL)	端点（OpenAI 兼容基础地址）
+Settings.AiModel	Model	模型
+Settings.AiApiKey	API key (stored DPAPI-protected)	API Key（DPAPI 加密存储）
+Settings.AiCliCommand	CLI bridge command (prompt via stdin)	命令行桥命令（prompt 经 stdin 传入）
+Settings.AiPrivacy	Privacy level	隐私级别
+Settings.PrivacyDisabled	Disabled (no AI)	关闭（禁用 AI）
+Settings.PrivacyMetadata	Metadata only (paths + line counts)	仅元数据（路径与行数）
+Settings.PrivacyFullDiff	Full diff (screened for secrets)	完整 diff（发送前过密钥扫描）
+Settings.AiAppendTrailer	Append "Assisted-by" trailer to AI-written commits	AI 生成的提交自动追加 Assisted-by 署名
+Settings.SafetyNetMode	Pre-commit safety net	提交前安全网
+Settings.SafetyOff	Off	关闭
+Settings.SafetyWarn	Warn only	仅警告
+Settings.SafetyBlock	Block commit	拦截提交
+Settings.AiHint	Keys stay on this machine (DPAPI-protected). Cloud providers only receive data allowed by the privacy level below.	密钥只保存在本机（DPAPI 加密）。云端 provider 仅收到下方隐私级别允许的数据。
+
+# ==== Changes（验收台 v1，ai-native-redesign.md §三）====
+Changes.RejectHunk	Reject hunk	拒绝此块
+Changes.Retake	Send back to agent	退回重做
+Changes.RetakeTitle	Send back to agent	退回重做
+Changes.RetakeNotePlaceholder	Describe the problem (sent together with the diff)	描述问题（将随 diff 一起发给 agent）
+Changes.RetakeCopy	Copy feedback	复制反馈
+Changes.AiExplain	AI explain	AI 解释
+Changes.AiReview	AI review	AI 审查
+Changes.ExplainPanelTitle	AI notes	AI 批注
+Common.Close	Close	关闭
+Changes.RiskBlockedTooltip	Safety net: {0} blocking issue(s)	安全网：{0} 个阻止级问题
+Changes.RiskWarningTooltip	Safety net: {0} warning(s)	安全网：{0} 条警告
+Nav.Tasks	Tasks	任务
+
+# ==== Tasks（并行工作台任务卡，ai-native-redesign.md §六）====
+Tasks.NewTask	New task	新建任务
+Tasks.NewTaskTitle	New task (branch: task/<name>)	新建任务（分支：task/<名称>）
+Tasks.NamePlaceholder	task-name（a-z0-9-）	task-name（a-z0-9-）
+Tasks.Create	Create	Create
+Tasks.Prune	Prune stale	清理失效
+Tasks.Open	Open	打开
+Tasks.NewWindow	New window	新窗口
+Tasks.Merge	Merge back	合并回主分支
+Tasks.MergeConfirmFormat	Merge '{0}' into '{1}' (fast-forward)?	将 {0} 合并回 {1}（快进）？
+Tasks.Remove	Remove	移除
+Tasks.RemoveConfirmFormat	Remove worktree '{0}'? Dirty files block removal.	移除任务 worktree {0}？脏工作区会被拒绝。
+Tasks.Clean	Clean	干净
+Tasks.DirtyFormat	{0} file(s) changed	{0} 个文件未提交
+Tasks.Empty	No task worktrees yet. Create one to run an agent in isolation.	还没有任务 worktree。新建一个即可隔离运行 agent。
+Tasks.MainBadge	main	主
+Tasks.CreatedFormat	Task worktree created: {0}	任务 worktree 已创建：{0}
+Tasks.MergedFormat	Merged {0} into {1}	已把 {0} 合并回 {1}
+Tasks.RemovedFormat	Worktree removed: {0}	worktree 已移除：{0}
+Tasks.MainHint	This is the main worktree	主 worktree（当前仓库本体）
+Log.SessionTitle	{0} · {1} commits	{0} · {1} 个提交
+Log.AiBadge	AI	AI
+Log.Squash	Squash session	整理为一次提交
+Log.SquashAutomation	Squash session into one commit	将会话整理为一次提交
+Log.SquashConfirm	Squash {0} checkpoint commits from '{1}' into one? The original chain stays in reflog.	把 {1} 的 {0} 个 checkpoint 提交整理为一次提交？原提交链保留在 reflog 可回退。
+Log.SquashNotHead	Session tip is not HEAD; switch to the branch first.	会话顶端不是当前 HEAD，请先检出对应分支。
+Log.SquashRootCommit	Session reaches the root commit; cannot squash.	会话触及根提交，无法整理。
+Terminal.AgentRunning	agent running: {0}	agent 运行中：{0}
+Changes.AgentFeedback	agent feedback	agent 反馈
+Settings.McpPipe	MCP server (local named pipe; agent writes require human approval)	MCP 服务（本机命名管道；agent 写操作需人工确认）
+Settings.McpApproveTitle	Agent requests repository write	agent 请求写入仓库
+Settings.McpApprove	Allow	允许
+Changes.RetypeSendToTerminal	Send to terminal	发送到终端
+Terminal.NewTab	New terminal	新建终端
+Terminal.TabDefault	shell	shell
+Terminal.TabAutomation	Terminal tab: {0}	终端页：{0}
+Cat_Nav	Navigation	导航
+Cat_Repo	Repository	仓库
+Cat_Commit	Commit	提交
+Cat_Branch	Branch	分支
+Cat_Sync	Sync	同步
+Cat_View	View	视图
+Cmd_GotoProjects	Go to Projects	转到项目
+Cmd_GotoLog	Go to Log	转到 Log
+Cmd_GotoChanges	Go to Changes	转到变更
+Cmd_GotoBranches	Go to Branches	转到分支
+Cmd_GotoTasks	Go to Tasks	转到任务
+Cmd_GotoTerminal	Go to Terminal	转到终端
+Cmd_GotoSettings	Go to Settings	转到设置
+Cmd_RefreshPage	Refresh page	刷新当前页
+Cmd_NewWindow	New window	新窗口
+Cmd_Commit	Commit…	提交…
+Cmd_CommitPush	Commit & push…	提交并推送…
+Cmd_StageAll	Stage all	全部暂存
+Cmd_UnstageAll	Unstage all	全部撤销暂存
+Cmd_CheckoutBranch	Checkout branch…	检出分支…
+Cmd_CreateBranch	Create branch…	创建分支…
+Cmd_Pull	Pull	拉取
+Cmd_PullRebase	Pull with rebase	变基式拉取
+Cmd_Push	Push	推送
+Cmd_DiffSideBySide	Diff: side by side	差异：并排
+Cmd_DiffInline	Diff: inline	差异：内联
+Cmd_ThemeSystem	Theme: system	主题：跟随系统
+Cmd_ThemeLight	Theme: light	主题：浅色
+Cmd_ThemeDark	Theme: dark	主题：深色
+Common_Cancel	Cancel	取消
+Common_Close	Close	关闭
+Common_CopyDetails	Copy details	复制详情
+Common_Create	Create	创建
+Common_Delete	Delete	删除
+Common_Loading	Loading…	加载中…
+Common_Merge	Merge	合并
+Common_NoProjectSelected	No project selected	未选择项目
+Common_Rename	Rename	重命名
+Common_ToggleSidebar	Toggle sidebar	收起/展开侧边栏
+Main_StatusHint	Ctrl+Shift+P: command palette	Ctrl+Shift+P：命令面板
+Main_WindowTitle	GitUI — {0}	GitUI — {0}
+Palette_Title	Command Palette	命令面板
+Palette_InputPlaceholder	Type a command or search…	输入命令或搜索…
+Palette_NoMatches	No matching commands	没有匹配的命令
+Palette_Recent	Recent	最近使用
+Palette_FooterKeys	↑↓ navigate · Enter run · Esc close	↑↓ 选择 · Enter 执行 · Esc 关闭
+Palette_FooterAt	> prefixes command mode	> 前缀进入命令模式
+Log_Today	Today	今天
+Log_Yesterday	Yesterday	昨天
+Log_JustNow	just now	刚刚
+Log_MinutesAgo	{0} min ago	{0} 分钟前
+Log_HoursAgo	{0} h ago	{0} 小时前
+Log_DaysAgo	{0} d ago	{0} 天前
+Log_BranchFilter	Branch	分支
+Log_SearchPlaceholder	Search (author:/agent:/text)	搜索（author:/agent:/文本）
+Log_LoadMoreHint	Scroll to load more	滚动加载更多
+Log_NoFiles	No changed files	没有变更文件
+Log_SelectCommitHint	Select a commit to view details	选择一个提交查看详情
+Log_CompareWithSelected	Set/unset as compare base	设为/取消比较基准
+Log_ComparingWith	Comparing against {0}	正在对比基准 {0}
+Log_CopySha	Copy SHA	复制 SHA
+Log_CopySubject	Copy subject	复制主题
+Log_CopyAuthor	Copy author	复制作者
+Log_CopyAgent	Copy agent id	复制 agent 名
+Log_SquashSession	Squash session ({0} checkpoints)	Squash 会话（{0} 个 checkpoint）
+Log_NoFiles2	No files	无文件
+Changes_Fetch	Fetch	抓取
+Changes_Fetched	Fetched	已抓取
+Changes_Pull	Pull	拉取
+Changes_Pulled	Pulled	已拉取
+Changes_PullRebase	Pull (rebase)	拉取（变基）
+Changes_PulledRebase	Pulled (rebase)	已拉取（变基）
+Changes_Push	Push	推送
+Changes_Pushed	Pushed	已推送
+Changes_PushFailed	Push failed: {0}	推送失败：{0}
+Changes_Conflicts	Conflicts	冲突
+Changes_StagedGroup	Staged for Commit	已暂存
+Changes_ChangesGroup	Changes	变更
+Changes_UnversionedGroup	Unversioned	未版本控制
+Changes_WorktreeClean	Working tree is clean	工作区是干净的
+Changes_SelectFileHint	Select a file to view its diff	选择文件查看差异
+Changes_StageFile	Stage file	暂存文件
+Changes_Staged	Staged	已暂存
+Changes_StagedAll	All staged	已全部暂存
+Changes_StageChecked	Stage checked ({0})	暂存所选 ({0})
+Changes_UnstageFile	Unstage file	撤销暂存
+Changes_Unstaged	Unstaged	已撤销暂存
+Changes_UnstagedAll	All unstaged	已全部撤销暂存
+Changes_StageHunk	Stage hunk	暂存此块
+Changes_StageHunkSelected	Stage {0} hunks	暂存所选 {0} 块
+Changes_StagedHunks	Hunks staged	已暂存所选块
+Changes_UnstageHunk	Unstage hunk	撤销此块
+Changes_UnstageHunkSelected	Unstage {0} hunks	撤销所选 {0} 块
+Changes_UnstagedHunks	Hunks unstaged	已撤销所选块
+Changes_ToggleHunkHint	Click to toggle hunk selection (Ctrl+click to multi-select in the canvas)	点击勾选 hunk；多选后可批量暂存/撤销
+Changes_MarkResolved	Mark resolved	标记已解决
+Changes_MarkedResolved	Marked resolved	已标记解决
+Changes_OpenInEditor	Open in editor	在编辑器打开
+Changes_RevealInExplorer	Reveal in Explorer	在资源管理器中显示
+Changes_Commit	Commit	提交
+Changes_CommitAndPush	Commit & Push	提交并推送
+Changes_Committed	Committed	已提交
+Changes_CommittedAndPushed	Committed and pushed	已提交并推送
+Changes_CommitMessagePlaceholder	Commit message (Ctrl+Enter to commit)	提交信息（Ctrl+Enter 提交）
+Changes_AiGenerate	AI message	AI 生成
+Changes_AiExplain	AI explain	AI 解释
+Changes_AiReview	AI review	AI 审查
+Changes_AgentFeedback	Agent feedback: {0}	Agent 反馈：{0}
+Changes_MoreFindings	…and {0} more findings	…还有 {0} 条发现
+Branches_Create	Create branch	创建分支
+Branches_Created	Branch created: {0}	分支已创建：{0}
+Branches_CreateTitle	Create Branch	创建分支
+Branches_NamePlaceholder	Branch name	分支名
+Branches_Checkout	Checkout	检出
+Branches_CheckedOut	Checked out {0}	已检出 {0}
+Branches_Rename	Rename…	重命名…
+Branches_RenameTitle	Rename Branch	重命名分支
+Branches_Renamed	Branch renamed	分支已重命名
+Branches_Delete	Delete…	删除…
+Branches_DeleteTitle	Delete branch {0}	删除分支 {0}
+Branches_Deleted	Branch deleted: {0}	分支已删除：{0}
+Branches_DeleteSafe	Branch {0} is fully merged; deletion is safe.	分支 {0} 已完全合并，删除安全。
+Branches_DeleteLoseWarning	This branch is NOT merged; deleting discards {0} commit(s):	该分支未合并，删除将丢弃 {0} 个提交：
+Branches_FastForward	Fast-forward	快进
+Branches_FastForwarded	Fast-forwarded	已快进
+Branches_Merge	Merge…	合并…
+Branches_MergeNoFf	Merge (--no-ff)…	合并（--no-ff）…
+Branches_MergeTitle	Merge {0}	合并 {0}
+Branches_Merged	Merged {0}	已合并 {0}
+Branches_MergeMessagePlaceholder	Merge message (optional)	合并信息（可选）
+Branches_NoFastForward	Create a merge commit even if fast-forward is possible	即使可以快进也创建合并提交
+Branches_Rebase	Rebase onto this	变基到此
+Branches_Rebased	Rebased onto {0}	已变基到 {0}
+Branches_Pull	Pull	拉取
+Branches_Pulled	Pulled	已拉取
+Branches_PullRebase	Pull (rebase)	拉取（变基）
+Branches_PulledRebase	Pulled (rebase)	已拉取（变基）
+Branches_Push	Push	推送
+Branches_Pushed	Pushed	已推送
+Branches_LocalGroup	Local	本地分支
+Branches_RemoteGroup	Remote	远程分支
+Projects_AddProject	Add Project	添加项目
+Projects_Open	Open	打开
+Projects_Opened	Opened	已打开
+Projects_NewWindow	New window	新窗口
+Projects_Remove	Remove	移除
+Projects_Current	Current	当前
+Projects_EmptyHint	Add a repository to get started	添加一个仓库开始使用
+Tasks_Create	New task	新建任务
+Tasks_CreateTitle	Create Task Worktree	创建任务 worktree
+Tasks_Created	Task created	任务已创建
+Tasks_NamePlaceholder	Task name	任务名
+Tasks_Open	Open	打开
+Tasks_Remove	Remove	移除
+Tasks_Removed	Task removed	任务已移除
+Tasks_MainWorktree	Main	主工作树
+Tasks_Current	Current	当前
+Tasks_EmptyHint	No task worktrees yet	还没有任务 worktree
+Terminal_Restart	Restart	重启
+Terminal_CopyHint	Ctrl+Shift+C copy · Ctrl+Shift+V paste	Ctrl+Shift+C 复制 · Ctrl+Shift+V 粘贴
+Diff_BinaryFile	Binary file (not shown)	二进制文件（不显示）
+Diff_NoNewlineAtEof	No newline at end of file	文件末尾无换行符
+Settings_AppearanceSection	Appearance	外观
+Settings_Theme	Theme	主题
+Settings_ThemeSystem	System	跟随系统
+Settings_ThemeLight	Light	浅色
+Settings_ThemeDark	Dark	深色
+Settings_ThemeDefault	Default (built-in)	默认（内置）
+Settings_ThemePackage	Theme package	主题包
+Settings_Language	Language	语言
+Settings_LangSystem	System	跟随系统
+Settings_DiffSection	Diff	差异
+Settings_DiffMode	Diff view	差异视图
+Settings_DiffSide	Side by side	并排
+Settings_DiffInline	Inline	内联
+Settings_TerminalSection	Terminal	终端
+Settings_Shell	Default shell	默认 shell
+Settings_TerminalFont	Font	字体
+Settings_TerminalFollowRepo	Follow repository	跟随仓库
+Settings_BashPath	Git Bash path	Git Bash 路径
+Settings_BashPathHint	Auto-detect when empty	留空自动探测
+Settings_MonitorSection	Monitoring	监视
+Settings_AutoFetch	Background fetch	后台 fetch
+Settings_AutoFetchHint	Periodically fetch remotes	定期抓取远程
+Settings_EditorSection	Editor	编辑器
+Settings_ExternalEditor	External editor	外部编辑器
+Settings_PickEditor	Pick editor executable	选择编辑器可执行文件
+Settings_AiSection	AI	AI
+Settings_AiProvider	Provider	提供方
+Settings_AiOff	Off	关闭
+Settings_AiCliCommand	CLI command	CLI 命令
+Settings_AiApiKey	API key	API 密钥
+Settings_AiKeyHint	Encrypted with OS keychain (safeStorage)	经系统密钥链加密存储（safeStorage）
+Settings_AiPrivacy	Privacy	隐私档位
+Settings_AiMetadata	Metadata only	仅元数据
+Settings_AiFullDiff	Full diff	完整 diff
+Settings_AiDisabled	Disabled	禁用
+Settings_AiTrailer	Append trailer	追加署名 trailer
+Settings_SafetyNet	Safety net	提交安全网
+Settings_SafetyOff	Off	关闭
+Settings_SafetyWarn	Warn	警告
+Settings_SafetyBlock	Block	阻止
+Settings_McpSection	MCP Server	MCP 服务
+Settings_McpEnabled	Pipe host enabled	启用管道宿主
+Settings_McpHint	Expose git tools to local agents (\\\\.\\pipe\\gitter-mcp-*)	向本机 agent 暴露 git 工具（\\\\.\\pipe\\gitter-mcp-*）
+Settings_AboutSection	About	关于
+Settings_GitNotFound	git not found	未找到 git
+Settings_Dark	dark	深色
+Settings_Light	light	浅色
+Common.GoToSettings	Open Settings	去设置
+Changes.SetUpstreamPush	Set upstream & push	设置上游并推送
+Changes.UpstreamPushed	Upstream {0}/{1} set and pushed	已设置上游 {0}/{1} 并推送
+Settings.GitSection	Git Configuration	Git 配置
+Settings.GitScope	Write scope	写入层级
+Settings.GitRepoLevel	Repository	仓库
+Settings.GitGlobalLevel	Global	全局
+Settings.NoRepoHint	No repository open: repository scope unavailable	未打开仓库：仓库层级不可用
+Settings.GitUserName	User name (user.name)	用户名 (user.name)
+Settings.GitUserEmail	Email (user.email)	邮箱 (user.email)
+Settings.GitAutoSetupRemote	Auto setup upstream (push.autoSetupRemote)	推送自动设上游 (push.autoSetupRemote)
+Settings.GitAutoSetupRemoteHint	git 2.37+：首次 push 自动建立 upstream，免去"no upstream"报错	git 2.37+：首次 push 自动建立 upstream，免去"no upstream"报错
+Settings.GitPullRebase	Pull with rebase (pull.rebase)	拉取用变基 (pull.rebase)
+Settings.GitAutocrlf	Line endings (core.autocrlf)	换行符 (core.autocrlf)
+Settings.GitRemotes	Remotes	远程仓库
+Settings.GitNoRemotes	No remotes configured	未配置远程仓库
+Settings.GitRemoteName	Name	名称
+Settings.GitRemoteUrl	URL	URL
+Settings.GitAddRemote	Add	添加
+Settings.GitInheritGlobal	inherit global: {0}	继承全局：{0}
+Settings.Unset	(unset)	（未设置）
+Changes.PreviewWorktree	Preview: working tree	预览：工作区版本
+Changes.PreviewStaged	Preview: staged version	预览：暂存版本
+Changes.PreviewTooLarge	File too large to preview (> 8 MB)	文件过大，无法预览（> 8 MB）
+Changes.ConflictCompareHint	Conflict file: showing current (ours) vs incoming (theirs) for decision-making	冲突文件：以下为 当前(ours) 与 传入(theirs) 的对比，供取舍参考
+Diff.NoContentChange	No content change (rename or attribute only)	无内容差异（仅重命名或属性变更）
+Changes.CheckAll	Select all in group	全选本组
+Changes.UncheckAll	Deselect all in group	取消全选本组
+Log.ResetToHere	Reset Current Branch to Here...	重置当前分支到此提交…
+Log.ResetTitle	Reset Current Branch	重置当前分支
+Log.ResetBranchInfo	Branch {0} will be reset to	分支 {0} 将被重置到
+Log.ResetMode_soft	Soft	软重置 (Soft)
+Log.ResetMode_mixed	Mixed	混合重置 (Mixed)
+Log.ResetMode_hard	Hard	硬重置 (Hard)
+Log.ResetDesc_soft	Keep all changes, keep them staged	保留所有改动，且保持已暂存
+Log.ResetDesc_mixed	Keep all changes, unstage them	保留所有改动，但取消暂存
+Log.ResetDesc_hard	Discard all changes	丢弃所有改动
+Log.ResetHardWarning	Hard reset discards ALL uncommitted changes (including staged). This cannot be undone.	硬重置将丢弃所有未提交改动（含暂存区），不可恢复。
+Log.ResetConfirm	Reset	重置
+Settings_ExtensionsSection	Extensions	扩展
+Extensions_Import	Import .gpk…	导入 .gpk…
+Extensions_Uninstall	Uninstall	卸载
+Extensions_BuiltIn	Built-in	内置
+Extensions_Empty	No extension packages yet.	暂无扩展包。
+Extensions_Enabled	Enabled	启用
+Extensions_Disabled	Disabled	已禁用
+Extensions_Error	Error	错误
+Extensions_Config	Configuration	配置
+Extensions_Imported	Imported	已导入
+
+# Agent 宿主（agent-harness-codex.md v2.0）
+Agents_Create	New agent task	新建 Agent 任务
+Agents_CreateTitle	New Agent Task	新建 Agent 任务
+Agents_Created	Agent task created	Agent 任务已创建
+Agents_Stop	Stop	停止
+Agents_Stopped	Stop requested	已请求停止
+Agents_Resume	Resume	续跑
+Agents_ResumeTitle	Resume Task	续跑任务
+Agents_Feedback	Send feedback	退回重做
+Agents_FeedbackSend	Send	直投
+Agents_FeedbackTitle	Send Feedback (NextTurn)	退回重做（直投下一轮）
+Agents_FeedbackSent	Feedback sent to running session	反馈已直投会话
+Agents_FeedbackPlaceholder	Review feedback for the agent…	给 agent 的审查反馈…
+Agents_PromptPlaceholder	Task description (sent via stdin)…	任务描述（经 stdin 投递）…
+Agents_HarnessPlaceholder	— select harness —
+Agents_NoHarness	No usable harness detected (check CLI install / PATH)	未探测到可用的 harness（检查 CLI 安装与 PATH）
+Agents_PermTitle	Permission request	授权请求
+Agents_PermApprove	Approve	批准
+Agents_PermDeny	Deny	驳回
+
+# Agent 宿主 v3.0（两栏任务页）
+Agents_EmptyHint	No agent tasks yet — create one and hand it a task	还没有 Agent 任务——新建一个并派活
+Agents_SelectHint	Select a task on the left to view its session timeline	在左侧选择任务查看会话时间线
+Agents_TimelineEmpty	Session timeline will stream here once the turn starts	轮次开始后，会话时间线将在此流式呈现
+Agents_PermNote	each-time: confirm every run, never remembered
+each-time：每次确认，永不记忆
+Agents_InputPlaceholder	Continue / feedback (Ctrl+Enter to send)…	续跑 / 反馈（Ctrl+Enter 发送）…
+Agents_InputRunning	Agent is working — stop it before sending new input…	agent 正在工作——请先停止再发送新输入…
+Agents_Send	Send	发送
+Tasks_WorktreeSection	MANUAL WORKTREES	手动 WORKTREE
+Agents_ModelReady	model ready	模型已配置
+Agents_ModelMissing	model not configured	模型未配置
+Agents_OpenSettings	Open settings	打开设置
+Agents_ComposeHint	Describe the task and send — Gitter will create an isolated worktree, run its built-in agent, and record checkpoints per turn.	描述任务后发送：Gitter 自动创建隔离 worktree，驱动内置 agent，按轮次记录 checkpoint。
+Agents_ComposePlaceholder	Describe the task, e.g. "Fix LogFilter parsing crash and add unit tests"…	描述任务，例如“修复 LogFilter 解析崩溃并补单元测试”…
+Agents_TargetHint	creates an isolated worktree (task/* branch)	自动创建隔离 worktree（task/* 分支）
+Agents_Dispatched	Task dispatched: {0}	任务已下发：{0}
+
+# 
+# 设置页 v2（两级导航 + 搜索）
+Settings_CatAppearance	Appearance	外观
+Settings_CatTerminal	Terminal	终端
+Settings_CatRepo	Repo & Sync	仓库与同步
+Settings_CatAi	AI & Agent	AI 与 Agent
+Settings_CatExtensions	Extensions	扩展包
+Settings_CatAbout	About	关于
+Settings_Search	Search settings…	搜索设置…
+Settings_NoResults	No matching settings	没有匹配的设置项
+Settings_SafetyNetSection	Commit Safety Net	提交安全网
+Settings_SafetyNetHint	Scan staged content before commit; blocked findings stop the commit	提交前扫描暂存内容；block 档命中即拦截（agent 提交同样受限）
+Settings_AgentSection	Agent Runtime	Agent 运行时
+Settings_AgentCheckpoint	Host checkpoints	宿主托管 checkpoint
+Settings_AgentCheckpointHint	Auto WIP commit at turn boundaries in task worktrees (Assisted-by/Gitter-Session)	轮次结束在任务 worktree 自动代打 WIP 提交（带 trailer，可整体关闭）
+Settings_AgentOnExit	On exit	agent 退出时
+Settings_AgentOnExitTerminate	Terminate	终止会话
+Settings_AgentOnExitKeep	Keep running	保留运行
+Settings_AiProviderHint	openai-compatible covers DeepSeek / Ollama / any endpoint	openai-compatible 覆盖 DeepSeek / Ollama / 任意兼容端点
+
+# 模型档案与任务型（task-model-modules.md）
+Settings_ModelsSection	Model Profiles	模型档案
+Settings_ModelsProfiles	Profiles	档案
+Settings_ModelsEmpty	No model profiles yet — add one or install a model pack	还没有模型档案——手动新增或安装模型接入包
+Settings_ModelsSourcePackage	pack	包
+Settings_ModelsSourceUser	user	用户
+Settings_ModelsNeedKey	key required	待填密钥
+Settings_ModelsDefault	default	默认
+Settings_ModelsFast	fast	轻量
+Settings_ModelsKeyPlaceholder	API key	API Key
+Settings_ModelsSetDefault	Set default	设为默认
+Settings_ModelsSetFast	Set light	设为轻量
+Settings_ModelsDelete	Delete	删除
+Settings_ModelsName	Name	名称
+Settings_ModelsAdd	Add profile	新增档案
+Settings_ModelsHint	Profiles resolve as: task binding → task-type default → global default. Keys are stored encrypted (safeStorage) and never leave this machine.	解析链：任务绑定 → 任务型缺省 → 全局默认。密钥 safeStorage 加密存储，不出本机。
+Settings_AiMigrated	Legacy gateway settings have been migrated to Model Profiles below.	旧版 AI 网关配置已迁移到下方模型档案。
+Agents_TaskTypeFree	Free task	自由任务
+Agents_ModelDefault	Model: default chain	模型：默认链
+Agents_ModelBadgeTitle	Model profile (takes effect next turn)	模型档案（下一轮生效）
+Agents_Archive	Archive	归档
+
+Settings_CatModels	Models	模型
+Settings_ModelsApiKey	API Key	API 密钥
+Settings_ModelsIdPlaceholder	model id（可测试连接后自动填充）	model id（可测试连接后自动填充）
+Settings_ModelsTestConn	Test connection	测试连接
+Settings_ModelsTestOk	Connected — {0} models available	连接成功 — 发现 {0} 个模型
+Settings_ModelsTestFail	Connection failed	连接失败
+
+Agents_TaskType	Task type	任务型
+Agents_Model	Model	模型
+Agents_Thinking	Thinking depth	思考深度
+Agents_ThinkingHigh	High	高
+Agents_ThinkingMedium	Medium	中
+Agents_ThinkingLow	Low	低
+Agents_ThinkingOff	Off	关闭
+Cat_File	File	文件
+Ext_ConfirmTitle	Run command for the first time	首次运行命令
+Ext_ConfirmBody	This command comes from an extension package and will run with your privileges:
+该命令来自扩展包，将以你的权限执行：
+Ext_ConfirmRun	Run	执行
+Extensions_InstallFromUrl	Install from URL	从地址安装
+Changes_SendToRepair	Send to repair round	直投修复轮
+Log_OpenTaskCard	Open task card	打开任务卡
+Changes_RepairSent	Repair round started	已直投修复轮
+Ext_AllowCodePlugins	Allow code plugins	允许代码插件
+Ext_AllowCodePluginsHint	Load L2/L3 code from trusted sources only; writes still require approval	仅装载审核渠道来源的代码插件；写操作仍需人审
+Ext_ExternalMcp	Connect external MCP servers	连接外部 MCP 服务器
+Ext_ExternalMcpHint	Tools declared by extension packs (stdio); tools join the shared registry	扩展包声明的外部 stdio 工具将并入统一工具总线
+Common_Expand	Expand	展开
+Common_Collapse	Collapse	收起
+Common_OpenDetails	Open	点击打开
+Changes_JumpToFinding	Jump to line	跳转到问题行
+Settings_AgentRules	Agent permission rules	Agent 权限规则
+Settings_AgentCompaction	Context compaction	上下文压缩

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.page.settings",
+  "name": "内置页面：设置",
+  "version": "0.1.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——设置页（含扩展管理卡/gitconfig/模型档案——扩展页管理扩展自身）",
+  "contributes": {
+    "pages": [
+      {
+        "id": "settings",
+        "slot": "settings",
+        "title": "%Nav_Settings%",
+        "entry": "page.js",
+        "icon": "",
+        "svg": null,
+        "lazy": true,
+        "permissions": [
+          "settings.write",
+          "extensions.admin",
+          "git.read",
+          "git.write",
+          "ai.invoke",
+          "window"
+        ]
+      }
+    ]
+  }
+}

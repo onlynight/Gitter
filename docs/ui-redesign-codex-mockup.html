@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gitter · Codex 风格 UI 重设计稿 v2（面层/控件/排版修订）</title>
+<style>
+/* ============================================================
+   设计稿本体样式（仅用于本页呈现）
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --page-bg: #08090b;
+  --page-panel: #0f1114;
+  --page-border: #1d2126;
+  --page-text: #d7dbe0;
+  --page-dim: #7c848d;
+}
+body {
+  background: var(--page-bg);
+  color: var(--page-text);
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.6;
+  padding: 40px clamp(16px, 5vw, 72px) 120px;
+  font-variant-numeric: tabular-nums;
+}
+h1 { font-size: 22px; font-weight: 650; letter-spacing: .2px; }
+h2 { font-size: 16px; font-weight: 650; margin: 56px 0 6px; padding-top: 24px; border-top: 1px solid var(--page-border); }
+h2 .en { color: var(--page-dim); font-weight: 400; font-size: 13px; margin-left: 8px; }
+.v2 { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .8px; color: #e3b341; border: 1px solid #e3b341; border-radius: 999px; padding: 0 8px; vertical-align: 3px; margin-left: 6px; }
+.sub { color: var(--page-dim); font-size: 13px; margin-bottom: 20px; max-width: 880px; }
+.sub b { color: var(--page-text); }
+code { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; background: var(--page-panel); border: 1px solid var(--page-border); border-radius: 4px; padding: 1px 5px; }
+.note { font-size: 12.5px; color: var(--page-dim); margin-top: 10px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+table.spec { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+table.spec th, table.spec td { border: 1px solid var(--page-border); padding: 7px 11px; text-align: left; }
+table.spec th { color: var(--page-dim); font-weight: 600; background: var(--page-panel); }
+table.spec td.mono { font-family: "Cascadia Code", Consolas, monospace; font-size: 11.5px; }
+table.spec td.new { color: #e3b341; }
+
+/* ============================================================
+   应用目标形态 v2
+   ============================================================ */
+.app {
+  /* ---- 面层海拔（v2 核心：亮度差拉大到 6-10%，四层清晰） ---- */
+  --base: #0d0d0d;          /* L≈5%  窗口底/画布 */
+  --panel: #171717;         /* L≈9%  卡片面（列表/diff/表单容器） */
+  --panel2: #202020;        /* L≈13% 浮起（弹层/输入框/提交盒） */
+  --hover: #272727;
+  --selected: #333333;
+  --border: #2b2b2b;
+  --border-strong: #3e3e3e;
+  --text: #eaeaea; --text2: #a0a0a0; --text3: #6e6e6e;
+  --accent: #eaeaea; --on-accent: #0c0d0f;
+  --link: #6babf5;
+  --green: #3fb950; --red: #f0655a; --amber: #e3b341;
+  --chip-blue-bg: #1c2735; --chip-blue-fg: #8db8f5;
+  --chip-purple-bg: #241f33; --chip-purple-fg: #b9a3ec;
+
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  --sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 14px; --fs-xl: 16px;
+  --r-sm: 5px; --r-md: 8px; --r-lg: 10px;
+  --dur-fast: 150ms; --dur-base: 250ms; --dur-slow: 400ms;
+  --ease-out: cubic-bezier(.16, 1, .3, 1); --ease-std: cubic-bezier(.2, 0, 0, 1);
+
+  background: var(--base); color: var(--text);
+  font-family: var(--sans); font-size: var(--fs-md); line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border-strong); border-radius: var(--r-lg);
+  overflow: hidden; position: relative;
+}
+.app * { box-sizing: border-box; margin: 0; padding: 0; }
+.mono { font-family: var(--mono); }
+
+/* ---- 亮色主题（同组件，token 替换） ---- */
+.app.light, body.light-preview .app {
+  --base: #ffffff; --panel: #f7f7f8; --panel2: #efeff1; --hover: #ebebec;
+  --selected: #e0e1e3; --border: #e5e5e5; --border-strong: #d0d0d0;
+  --text: #1b1b1b; --text2: #5c5c5c; --text3: #8f8f8f;
+  --accent: #1b1b1b; --on-accent: #ffffff; --link: #0b6bcb;
+  --green: #1a7f37; --red: #cf222e; --amber: #bf8700;
+  --chip-blue-bg: #ddf4ff; --chip-blue-fg: #0b6bcb;
+  --chip-purple-bg: #fbefff; --chip-purple-fg: #8250df;
+}
+
+/* ---- 窗口骨架 ---- */
+.titlebar { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-bottom: 1px solid var(--border); }
+.titlebar .t { font-size: var(--fs-sm); font-weight: 600; color: var(--text2); }
+.titlebar .grow { flex: 1; }
+.wbtns { display: flex; gap: 2px; }
+.wbtns span { width: 34px; height: 26px; border-radius: 5px; display: grid; place-items: center; color: var(--text3); font-size: 11px; }
+.palette-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 12px; color: var(--text3); font-size: var(--fs-xs);
+}
+.palette-chip kbd { font-family: var(--mono); font-size: 10px; }
+.body { display: flex; height: 520px; }
+
+/* ---- 侧栏 ---- */
+.sidebar { width: 188px; flex: none; background: var(--panel); border-right: 1px solid var(--border); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px;
+  border-radius: var(--r-md); color: var(--text2); font-size: var(--fs-md);
+  transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
+  cursor: default; position: relative;
+}
+.nav-item:hover { background: var(--hover); color: var(--text); }
+.nav-item.active { background: var(--selected); color: var(--text); font-weight: 600; }
+.nav-item.active::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--text); }
+.nav-item .ico { width: 16px; text-align: center; opacity: .9; }
+.nav-sep { height: 1px; background: var(--border); margin: 8px 6px; }
+
+/* ---- 页面骨架 v2：12px 页边距 + 卡片面 ---- */
+.pagearea { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--base); }
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
+.toolbar .title { font-size: var(--fs-lg); font-weight: 650; letter-spacing: .2px; }
+.toolbar .grow { flex: 1; }
+.panes { display: flex; flex: 1; min-height: 0; gap: 12px; padding: 0 12px; }
+.pane-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-lg);
+  min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column;
+}
+
+/* ---- 按钮 ---- */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 12px; border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong); background: transparent; color: var(--text);
+  font-size: var(--fs-sm); font-family: inherit; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-std), border-color var(--dur-fast) var(--ease-std), transform var(--dur-fast) var(--ease-std);
+}
+.btn:hover { background: var(--hover); border-color: var(--border-strong); }
+.btn:active { transform: scale(.98); }
+.btn.primary { background: var(--link); border-color: var(--link); color: var(--on-accent); font-weight: 600; }
+.btn.primary:hover { background: color-mix(in srgb, var(--link) 85%, var(--text)); }
+.btn.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.btn.sm { height: 24px; padding: 0 9px; font-size: var(--fs-xs); }
+.btn[disabled] { opacity: .4; pointer-events: none; }
+
+/* ---- 自绘勾选框 v3：单色反白（与反白主按钮同语言），支持半选 ---- */
+.ck {
+  appearance: none; width: 14px; height: 14px; flex: none;
+  border: 1px solid var(--border-strong); border-radius: 4px; background: transparent;
+  cursor: pointer; position: relative; vertical-align: -3px;
+  transition: background var(--dur-fast) var(--ease-std), border-color var(--dur-fast) var(--ease-std);
+}
+.ck:hover { border-color: var(--text3); background: var(--hover); }
+.ck:checked, .ck:indeterminate { background: var(--text); border-color: var(--text); }
+.ck::after {
+  content: ""; position: absolute; opacity: 0; transform: scale(.6);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.ck:checked::after {
+  opacity: 1; transform: rotate(45deg) scale(1);
+  left: 4.5px; top: 1.5px; width: 3.5px; height: 7.5px;
+  border: solid var(--base); border-width: 0 1px 1px 0;
+}
+.ck:indeterminate::after {
+  opacity: 1; transform: scale(1);
+  left: 3px; top: 5.5px; width: 6px; height: 1.5px; background: var(--base); border: 0;
+}
+.ck:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 25%, transparent); }
+.sel {
+  appearance: none; height: 28px; padding: 0 28px 0 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--panel2); color: var(--text); font-size: var(--fs-sm); font-family: inherit; cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%238f8f8f' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 9px center;
+}
+.input {
+  height: 28px; border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--panel2); color: var(--text); font-size: var(--fs-sm);
+  font-family: inherit; padding: 0 10px; outline: none;
+  transition: border-color var(--dur-fast) var(--ease-std), box-shadow var(--dur-fast) var(--ease-std);
+}
+.input:focus { border-color: var(--link); box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 18%, transparent); }
+.input::placeholder { color: var(--text3); }
+
+/* ---- 图标按钮 v3：操作=图标，文字=title 提示 ---- */
+.glyph { font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets"; font-size: 13px; line-height: 1; font-style: normal; }
+.ibtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; flex: none;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: transparent; color: var(--text2); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std), border-color var(--dur-fast) var(--ease-std), transform var(--dur-fast) var(--ease-std);
+}
+.ibtn .glyph { font-size: 13px; }
+.ibtn:hover { background: var(--hover); color: var(--text); }
+.ibtn:active { transform: scale(.96); }
+.ibtn.bordered { border-color: var(--border-strong); color: var(--text); }
+.ibtn.bordered:hover { background: var(--hover); }
+.ibtn.danger { color: var(--red); }
+.ibtn.danger:hover { background: color-mix(in srgb, var(--red) 12%, transparent); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.ibtn[disabled] { opacity: .4; pointer-events: none; }
+.btn.icon, .btn.sm.icon { width: 28px; padding: 0; justify-content: center; }
+.btn.sm.icon { width: 24px; }
+.btn.icon-text .glyph { font-size: 12px; }
+
+/* ---- 分组列表（卡片内） ---- */
+.group-header {
+  display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px;
+  font-size: var(--fs-xs); font-weight: 600; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--text3); position: sticky; top: 0; background: var(--panel);
+  border-bottom: 1px solid var(--border); cursor: default;
+}
+.group-header .cnt { font-weight: 500; }
+.row {
+  display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px;
+  font-size: var(--fs-sm); color: var(--text2);
+  transition: background var(--dur-fast) var(--ease-std); cursor: default;
+}
+.row:hover { background: var(--hover); color: var(--text); }
+.row.selected { background: var(--selected); color: var(--text); }
+.row .path { font-family: var(--mono); font-size: var(--fs-xs); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st { width: 12px; text-align: center; font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700; }
+.st-M { color: var(--amber); } .st-A { color: var(--green); } .st-U { color: var(--text3); }
+.add { color: var(--green); font-family: var(--mono); font-size: 11px; }
+.del { color: var(--red); font-family: var(--mono); font-size: 11px; }
+
+/* ---- 横幅（卡片化 + 字形图标替代 emoji） ---- */
+.banner {
+  display: flex; flex-direction: column; gap: 2px;
+  background: color-mix(in srgb, var(--amber) 8%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--amber) 28%, transparent);
+  border-radius: var(--r-md); padding: 9px 12px; font-size: var(--fs-sm);
+}
+.banner.error { background: color-mix(in srgb, var(--red) 8%, var(--panel)); border-color: color-mix(in srgb, var(--red) 30%, transparent); }
+.banner .row-line { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+.b-ico {
+  width: 16px; height: 16px; border-radius: 999px; flex: none;
+  display: inline-grid; place-items: center;
+  font-size: 10px; font-weight: 700; font-family: var(--mono);
+}
+.b-ico.warn { background: color-mix(in srgb, var(--amber) 22%, transparent); color: var(--amber); }
+.b-ico.err { background: color-mix(in srgb, var(--red) 22%, transparent); color: var(--red); }
+.flink { font-family: var(--mono); font-size: var(--fs-xs); color: var(--link); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.fmsg { color: var(--text2); }
+.more { color: var(--link); font-size: var(--fs-xs); background: none; border: 0; cursor: pointer; font-family: inherit; padding: 2px 0; text-align: left; }
+.more:hover { text-decoration: underline; }
+
+/* ---- 提交盒 v2：浮起卡片 ---- */
+.commitbox {
+  margin: 12px; padding: 12px;
+  background: var(--panel2); border: 1px solid var(--border-strong); border-radius: var(--r-lg);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  font-family: var(--mono); font-size: 11px; padding: 2px 10px;
+  border: 1px solid var(--border-strong); border-radius: 999px; color: var(--text2); cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-std);
+}
+.chip:hover { border-color: var(--text3); color: var(--text); }
+.chip.on { background: var(--selected); border-color: var(--text3); color: var(--text); }
+.msgbox {
+  border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--base);
+  padding: 10px 12px; font-size: var(--fs-sm); color: var(--text3); min-height: 54px;
+}
+.commit-acts { display: flex; gap: 8px; }
+.commit-acts .grow { flex: 1; }
+.aiacts { display: flex; gap: 6px; }
+.aiacts .btn { border-style: dashed; color: var(--text2); }
+
+/* ---- Diff ---- */
+.diffpane { flex: 1; min-width: 0; overflow: auto; }
+.diff-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+.diff-head .path { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text2); }
+.dgrid { font-family: var(--mono); font-size: var(--fs-xs); line-height: 1.75; padding: 8px 0; }
+.dline { display: grid; grid-template-columns: 44px 1fr; padding: 0 14px; white-space: pre; }
+.dline .ln { color: var(--text3); text-align: right; padding-right: 14px; user-select: none; }
+.dline.add { background: color-mix(in srgb, var(--green) 9%, transparent); }
+.dline.add .ln { color: var(--green); }
+.dline.del { background: color-mix(in srgb, var(--red) 7%, transparent); }
+.dline.del .ln { color: var(--red); }
+.dline.focusln { outline: 1px solid var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
+
+/* ---- 状态栏 ---- */
+.statusbar { display: flex; align-items: center; gap: 14px; height: 28px; padding: 0 14px; border-top: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text3); }
+
+/* ---- Log 页 ---- */
+.day-sep { display: flex; align-items: center; gap: 10px; margin: 12px 12px 4px; color: var(--text3); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .6px; }
+.day-sep::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.commit-row {
+  display: flex; align-items: center; gap: 10px; height: 34px;
+  margin: 0 8px; padding: 0 10px; border-radius: var(--r-md); font-size: var(--fs-sm);
+  transition: background var(--dur-fast) var(--ease-std);
+}
+.commit-row:hover { background: var(--hover); }
+.commit-row.sel { background: var(--selected); }
+.commit-row .sha { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text3); }
+.commit-row .msg { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.commit-row .meta2 { font-size: var(--fs-xs); color: var(--text3); white-space: nowrap; }
+.commit-row .endgap { flex: 1; }
+.branchchip { font-family: var(--mono); font-size: 10px; padding: 1px 7px; border-radius: 999px; background: var(--chip-blue-bg); color: var(--chip-blue-fg); }
+
+/* ---- 命令面板 ---- */
+.overlay { position: absolute; inset: 0; background: rgba(4,5,6,.55); display: grid; place-items: start center; padding-top: 84px; }
+.appwrap { position: relative; }
+.palette {
+  width: 560px; background: var(--panel2); border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,.5); overflow: hidden;
+}
+.palette .in { width: 100%; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font-size: var(--fs-md); padding: 13px 16px; outline: none; font-family: inherit; }
+.palette .item { display: flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: var(--fs-sm); color: var(--text2); }
+.palette .item.on { background: var(--selected); color: var(--text); }
+.palette .item kbd { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--text3); }
+
+/* ---- 开关 / 扩展卡 / 设置行 ---- */
+.switch { width: 34px; height: 19px; border-radius: 999px; background: var(--border-strong); position: relative; cursor: pointer; flex: none; }
+.switch.on { background: var(--green); }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 999px; background: #fff; }
+.switch.on::after { transform: translateX(15px); }
+.ext-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: 9px 11px; margin-bottom: 8px; background: var(--panel); font-size: var(--fs-sm); }
+.ext-card .r1 { display: flex; align-items: center; gap: 8px; }
+.ext-card .nm { font-weight: 600; }
+.ext-card .v { color: var(--text3); font-size: var(--fs-xs); }
+.ext-card .perms { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+.perm-badge { font-family: var(--mono); font-size: 9.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text3); }
+.now-chip { font-size: 10px; padding: 1px 8px; border-radius: 999px; background: var(--chip-blue-bg); color: var(--chip-blue-fg); }
+.set-row { display: flex; align-items: center; gap: 12px; min-height: 38px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); font-size: var(--fs-sm); }
+.set-row .lbl { width: 180px; flex: none; color: var(--text2); }
+.set-sec { font-size: var(--fs-xs); font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--text3); margin: 14px 0 8px; }
+
+/* ---- 终端（有边界卡片） ---- */
+.term-card {
+  flex: 1; margin: 0 12px 12px; border: 1px solid var(--border-strong); border-radius: var(--r-lg);
+  background: #0f0f0f; font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.65;
+  padding: 12px 14px; color: var(--text2); overflow: hidden;
+}
+.term-card .g { color: var(--green); } .term-card .b { color: var(--link); } .term-card .d { color: var(--text3); }
+.term-card .cur { display: inline-block; width: 7px; height: 14px; background: var(--text2); vertical-align: text-bottom; animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ---- 演示用 ---- */
+.press { height: 28px; padding: 0 14px; border-radius: 5px; background: var(--link); color: #fff; font-size: 12px; display: grid; place-items: center; font-weight: 600; }
+.press.p { animation: d-press 1.6s var(--ease-std) infinite; }
+@keyframes d-press { 0%,70%,100% { transform: scale(1); } 80% { transform: scale(.96); } 90% { transform: scale(.98); } }
+.demo-card { width: 250px; background: var(--page-panel); border: 1px solid var(--page-border); border-radius: 10px; padding: 16px; }
+.demo-card .stage { height: 110px; background: var(--base); border: 1px solid var(--border); border-radius: 8px; display: grid; place-items: center; overflow: hidden; }
+.demo-card h4 { font-size: 12.5px; margin: 10px 0 2px; }
+.demo-card p { font-size: 11.5px; color: var(--page-dim); font-family: "Cascadia Code", Consolas, monospace; }
+@keyframes d-slide { 0% { opacity: 0; transform: translateY(-6px); } 30%,100% { opacity: 1; transform: none; } }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.sw { border: 1px solid var(--page-border); border-radius: 8px; overflow: hidden; }
+.sw .c { height: 44px; }
+.sw .m { padding: 6px 9px; font-size: 11px; font-family: "Cascadia Code", Consolas, monospace; color: var(--page-dim); }
+.sw .m b { display: block; color: var(--page-text); font-size: 11.5px; }
+.ladder { display: flex; border: 1px solid var(--page-border); border-radius: 8px; overflow: hidden; }
+.ladder div { flex: 1; height: 64px; display: grid; place-items: center; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; color: #a0a0a0; }
+
+/* ---- 项目页卡片 ---- */
+.proj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; }
+.proj-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; background: var(--panel); transition: border-color var(--dur-fast) var(--ease-std), background var(--dur-fast) var(--ease-std); }
+.proj-card:hover { border-color: var(--border-strong); background: var(--hover); }
+.proj-card .name { font-weight: 600; font-size: var(--fs-md); display: flex; align-items: center; gap: 8px; }
+.proj-card .path { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text3); margin: 4px 0 10px; word-break: break-all; }
+.proj-card .acts { display: flex; gap: 6px; align-items: center; }
+.proj-grid { max-width: 960px; }
+
+/* ---- 分支页 ---- */
+.br-row { display: flex; align-items: center; gap: 8px; height: 34px; margin: 0 8px; padding: 0 10px; border-radius: var(--r-md); font-size: var(--fs-sm); transition: background var(--dur-fast) var(--ease-std); }
+.br-row:hover { background: var(--hover); }
+.br-row .nm { font-family: var(--mono); font-size: var(--fs-sm); flex: 1; color: var(--text2); }
+.br-row.cur .nm { font-weight: 650; color: var(--text); }
+.br-row .cur-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--green); flex: none; }
+.ab { font-family: var(--mono); font-size: 10px; color: var(--text3); }
+.br-row .ibtn { opacity: 0; transition: opacity var(--dur-fast) var(--ease-std); }
+.br-row:hover .ibtn { opacity: 1; }
+
+/* ---- 任务页 ---- */
+.tasklist { width: 250px; flex: none; border-right: 1px solid var(--border); padding: 10px 8px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.task-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 11px; background: var(--panel); cursor: default; transition: border-color var(--dur-fast) var(--ease-std), background var(--dur-fast) var(--ease-std); }
+.task-card:hover { background: var(--hover); }
+.task-card.sel { border-color: var(--text3); background: var(--selected); }
+.task-card .t { font-size: var(--fs-sm); font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.task-card .m { font-family: var(--mono); font-size: 10.5px; color: var(--text3); margin-top: 3px; }
+.state-dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
+.state-dot.run { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 20%, transparent); }
+.state-dot.wait { background: var(--amber); }
+.state-dot.done { background: var(--text3); }
+.typechip { font-family: var(--mono); font-size: 9.5px; padding: 1px 7px; border-radius: 999px; background: var(--chip-purple-bg); color: var(--chip-purple-fg); }
+.timeline { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px 14px; gap: 8px; overflow: auto; }
+.tl-line { display: flex; gap: 9px; font-size: var(--fs-sm); color: var(--text2); }
+.tl-line .dot2 { width: 8px; height: 8px; border-radius: 999px; margin-top: 6px; flex: none; }
+.tl-line .who2 { color: var(--text3); font-size: var(--fs-xs); flex: none; width: 42px; }
+.authcard { border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); background: color-mix(in srgb, var(--amber) 8%, var(--panel)); border-radius: var(--r-md); padding: 10px 12px; font-size: var(--fs-sm); }
+.authcard .ttl { font-weight: 600; color: var(--amber); margin-bottom: 4px; }
+.authcard .cmd { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text2); margin-bottom: 8px; }
+.dispatch { border-top: 1px solid var(--border); padding: 10px 12px; display: flex; gap: 8px; }
+.dispatch .input { flex: 1; width: auto; }
+
+/* ---- 设置骨架 ---- */
+.set-body { display: flex; flex: 1; min-height: 0; }
+.set-nav { width: 150px; flex: none; border-right: 1px solid var(--border); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+.set-form { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; max-width: 100%; }
+</style>
+</head>
+<body>
+
+<h1>Gitter · Codex 风格 UI 重设计 <span style="color:var(--page-dim);font-size:14px;font-weight:400;">v2 —— 面层/控件/排版修订（评审稿，未实施）</span></h1>
+<p class="sub">v1 评审后的第二轮修订。v1 的方向（近单色、13px、栅格、克制动效）保持不变，本轮解决真机体检发现的五个系统性缺陷：<b>①面层海拔太弱（黑上之黑）②原生控件裸奔 ③大片虚空+密度失衡 ④排版细节（CJK 栈/表格数字/字距）⑤图标语言三种混用</b>。所有示例窗口均为可交互真实 CSS。页首「全局亮色预览」开关可一键翻转全部窗口稿。</p>
+
+<div style="display:flex;align-items:center;gap:12px;margin:0 0 8px;padding:10px 14px;border:1px solid var(--page-border);border-radius:8px;">
+  <span style="font-size:13px">全局亮色预览</span>
+  <span style="font-size:12px;color:var(--page-dim)">切换本页全部窗口稿的 token 值</span>
+  <span style="flex:1"></span>
+  <span style="font-size:12px;color:var(--page-dim)">暗</span>
+  <div id="lightToggle" data-tip="切换亮/暗预览"></div>
+  <span style="font-size:12px;color:var(--page-dim)">亮</span>
+</div>
+
+<h2>〇、v2 核心改动一览 <span class="en">What changed</span><span class="v2">第二轮</span></h2>
+<table class="spec" style="margin-bottom:8px">
+  <tr><th>#</th><th>改动</th><th>v1</th><th>v2</th></tr>
+  <tr><td>P0-面层</td><td>面层海拔拉大 + 内容卡片化</td><td class="mono">Base 0F1113 / Panel 15181C（差 2%，不可见）；内容直铺在 base 上</td><td class="new">Base 0D0D0D / Panel 171717 / Panel2 202020（差 6-10%）；列表/diff/终端/提交盒全部为 12px 内边距的圆角卡片</td></tr>
+  <tr><td>P0-控件</td><td>自绘 checkbox / select / 滚动条</td><td class="mono">原生控件裸奔</td><td class="new">15px 圆角勾选框（link 色选中态）、自绘箭头 select、8px 悬浮滚动条</td></tr>
+  <tr><td>P1-布局</td><td>虚空治理</td><td class="mono">列表到顶、提交盒钉底、中段大片空黑</td><td class="new">提交盒=浮起卡片；设置/分支内容限宽 960px；Log 行信息成组消除死空隙</td></tr>
+  <tr><td>P1-排版</td><td>字体栈 + 表格数字</td><td class="mono">无 CJK 段，数字比例宽度</td><td class="new">+ "Microsoft YaHei UI"；全局 tabular-nums；页标题字距 .2px</td></tr>
+  <tr><td>P2-图标/色</td><td>emoji→字形徽章；Amber 提亮</td><td class="mono">⚠️⛔ 彩色 emoji；Amber D5A03C</td><td class="new">圆形字形徽章（! / ✕）；Amber E3B341（暗）/ BF8700（浅）</td></tr>
+</table>
+
+<h2>一、面层海拔 <span class="en">Surface Ladder</span><span class="v2">v2 核心</span></h2>
+<p class="sub">精致深色 UI 的第一性原理：<b>四层清晰的海拔</b>。v2 的亮度阶梯（相对亮度约 5% → 9% → 13% → 悬停 16%）：画布上的所有内容都必须坐在某一层面板上，不允许"文字直铺在画布上"。</p>
+<div class="ladder">
+  <div style="background:#0d0d0d">Base 0D0D0D<br>画布</div>
+  <div style="background:#171717">Panel 171717<br>卡片/列表/侧栏</div>
+  <div style="background:#202020">Panel2 202020<br>弹层/输入/提交盒</div>
+  <div style="background:#272727">Hover 272727<br>悬停</div>
+  <div style="background:#333333">Selected 333333<br>选中</div>
+</div>
+<div class="swatches" style="margin-top:16px">
+  <div class="sw"><div class="c" style="background:#0d0d0d"></div><div class="m"><b>Base #0D0D0D</b>c-Base</div></div>
+  <div class="sw"><div class="c" style="background:#171717"></div><div class="m"><b>Panel #171717</b>c-Panel</div></div>
+  <div class="sw"><div class="c" style="background:#202020"></div><div class="m"><b>Panel2 #202020</b>c-Panel2</div></div>
+  <div class="sw"><div class="c" style="background:#272727"></div><div class="m"><b>Hover #272727</b>c-Hover</div></div>
+  <div class="sw"><div class="c" style="background:#333333"></div><div class="m"><b>Selected #333333</b>c-Selected</div></div>
+  <div class="sw"><div class="c" style="background:#2b2b2b"></div><div class="m"><b>Border #2B2B2B</b>c-Border（提亮一档）</div></div>
+  <div class="sw"><div class="c" style="background:#3e3e3e"></div><div class="m"><b>BorderStrong #3E3E3E</b>c-BorderStrong</div></div>
+  <div class="sw"><div class="c" style="background:#e3b341"></div><div class="m"><b>Amber #E3B341</b>c-Amber（提亮）</div></div>
+</div>
+<p class="note">浅色主题同规则：Base #FFFFFF / Panel #F7F7F8 / Panel2 #EFEFF1 / Hover #EBEBEC / Selected #E0E1E3 / Border #E5E5E5 / BorderStrong #D0D0D0 / Amber #BF8700。</p>
+
+<h2>二、屏幕稿 <span class="en">Screens</span><span class="v2">全页卡片化</span></h2>
+<p class="sub">变更页 v2：文件列表与 diff 变成两张<b>圆角卡片</b>（12px 页边距、12px 卡间距），提交盒变为<b>浮起卡片</b>（Panel2 底）——虚空从此是"卡片之间的画布"，不再是没有做完的空白。Log 行重排：SHA 淡化为最弱信息（text3），作者·时间紧跟主题列，消除死空隙。</p>
+
+<div class="appwrap app">
+  <div class="titlebar"><span style="color:var(--text3)">☰</span><span class="t">GitUI — Gitter</span><span class="grow"></span><span class="palette-chip">命令面板 <kbd>Ctrl+Shift+P</kbd></span><div class="wbtns"><span>─</span><span>☐</span><span>✕</span></div></div>
+  <div class="body">
+    <div class="sidebar">
+      <div class="nav-item"><span class="ico">▣</span>项目</div>
+      <div class="nav-item"><span class="ico">≡</span>Log</div>
+      <div class="nav-item active"><span class="ico">⎇</span>变更</div>
+      <div class="nav-item"><span class="ico">⑂</span>分支</div>
+      <div class="nav-item"><span class="ico">✦</span>任务</div>
+      <div class="nav-item"><span class="ico">▸_</span>终端</div>
+      <div class="nav-sep"></div>
+      <div class="nav-item"><span class="ico">⚙</span>设置</div>
+    </div>
+    <div class="pagearea">
+      <div class="toolbar">
+        <span class="title">变更</span><span class="grow"></span>
+        <button class="ibtn" data-tip="抓取（fetch）"><span class="glyph"></span></button>
+        <button class="ibtn" data-tip="拉取（pull）"><span class="glyph"></span></button>
+        <button class="ibtn" data-tip="拉取（变基）"><span class="glyph"></span></button>
+        <button class="ibtn" data-tip="推送（push）"><span class="glyph"></span></button>
+      </div>
+
+      <div style="margin:0 12px 10px"><div class="banner error">
+        <div class="row-line"><span class="b-ico err">✕</span><span class="flink">app/resources/packages/gitui.page.settings/page.js:1</span><span class="fmsg">— 疑似明文密钥赋值</span><span style="flex:1"></span><button class="ibtn" data-tip="标记已解决"><span class="glyph"></span></button></div>
+        <div class="row-line"><span class="b-ico warn">!</span><span class="flink">web/src/kit/markdown.ts:29</span><span class="fmsg">— 疑似明文密钥赋值</span><span style="flex:1"></span><button class="ibtn" data-tip="标记已解决"><span class="glyph"></span></button></div>
+        <button class="ibtn" data-tip="展开全部发现（12 条）"><span class="glyph"></span></button>
+      </div></div>
+
+      <div class="panes">
+        <div class="pane-card" style="width:300px;flex:none">
+          <div class="group-header"><input type="checkbox" class="ck" checked><span style="width:10px">▾</span>已暂存 <span class="cnt">1</span></div>
+          <div class="row selected"><input type="checkbox" class="ck" checked><span class="st st-M">M</span><span class="path">.gitignore</span><span class="add">+4</span><span class="del">−0</span></div>
+          <div class="group-header"><input type="checkbox" class="ck"><span style="width:10px">▾</span>变更 <span class="cnt">2</span></div>
+          <div class="row"><input type="checkbox" class="ck"><span class="st st-M">M</span><span class="path">app/src/main.ts</span><span class="add">+47</span><span class="del">−6</span></div>
+          <div class="row"><input type="checkbox" class="ck"><span class="st st-M">M</span><span class="path">web/src/styles.css</span><span class="add">+120</span><span class="del">−80</span></div>
+          <div class="group-header"><span style="width:10px">▸</span>未版本控制 <span class="cnt">1</span></div>
+        </div>
+        <div class="pane-card diffpane">
+          <div class="diff-head"><span class="st st-M">M</span><span class="path">.gitignore</span><span class="add">+4 −0</span><span style="flex:1"></span><button class="ibtn" data-tip="在编辑器打开"><span class="glyph"></span></button></div>
+          <div class="dgrid">
+            <div class="dline"><span class="ln">17</span><span># Electron/web 全栈迁移产物</span></div>
+            <div class="dline add"><span class="ln">18</span><span># 内置页面包 gitui.page.log 与 *.log 全局规则冲突——整包例外</span></div>
+            <div class="dline add focusln"><span class="ln">19</span><span>!app/resources/packages/gitui.page.log/</span></div>
+            <div class="dline add"><span class="ln">20</span><span>!app/resources/packages/gitui.page.log/**</span></div>
+            <div class="dline"><span class="ln">21</span><span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="commitbox">
+        <div class="chips">
+          <span class="chip on">feat:</span><span class="chip">fix:</span><span class="chip">docs:</span>
+          <span class="chip">test:</span><span class="chip">build:</span><span class="chip">chore:</span>
+        </div>
+        <div class="aiacts">
+          <button class="ibtn" style="border-style:dashed" data-tip="AI 生成提交信息"><span class="glyph"></span></button><button class="ibtn" style="border-style:dashed" data-tip="AI 解释选中文件"><span class="glyph"></span></button><button class="ibtn" style="border-style:dashed" data-tip="AI 审查变更"><span class="glyph"></span></button>
+        </div>
+        <div class="msgbox">提交信息（Ctrl+Enter 提交）…</div>
+        <div class="commit-acts">
+          <button class="btn primary icon" data-tip="提交（Ctrl+Enter）"><span class="glyph"></span></button>
+          <button class="btn icon" data-tip="提交并推送"><span class="glyph"></span></button>
+          <span class="grow"></span>
+          <button class="ibtn danger" data-tip="放弃所选（已暂存内容不会被丢弃）"><span class="glyph"></span></button>
+        </div>
+      </div>
+      <div class="statusbar"><span>Gitter · D:\Code\Gitter</span><span style="flex:1"></span><span>Ctrl+Shift+P 命令面板</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="grid2" style="margin-top:24px">
+  <div class="appwrap app">
+    <div class="titlebar"><span style="color:var(--text3)">☰</span><span class="t">GitUI — Gitter</span><span class="grow"></span><div class="wbtns"><span>─</span><span>☐</span><span>✕</span></div></div>
+    <div class="body" style="height:430px">
+      <div class="sidebar">
+        <div class="nav-item"><span class="ico">▣</span>项目</div>
+        <div class="nav-item active"><span class="ico">≡</span>Log</div>
+        <div class="nav-item"><span class="ico">⎇</span>变更</div>
+        <div class="nav-item"><span class="ico">⑂</span>分支</div>
+      </div>
+      <div class="pagearea">
+        <div class="toolbar"><span class="title">Log</span><span class="grow"></span><input class="input" style="width:200px" placeholder="搜索提交（过滤）…"><select class="sel"><option>dev</option></select></div>
+        <div style="flex:1;overflow:auto;padding-bottom:10px">
+          <div class="day-sep">今天</div>
+          <div class="commit-row sel"><span class="sha">cd78010</span><span class="msg">feat: 页面使用插件形式完整重构</span><span class="meta2">wyndam · 2 小时前</span></div>
+          <div class="commit-row"><span class="sha">7f4b34d</span><span class="msg">feat: 补齐插件化收尾缺口——ctx.git / 安全网</span><span class="meta2">wyndam · 4 小时前</span></div>
+          <div class="commit-row"><span class="sha">8e0e804</span><span class="msg">feat: 删除 c# winui3 相关代码和调试脚本</span><span class="branchchip">dev</span><span class="meta2">wyndam · 5 小时前</span></div>
+          <div class="day-sep">昨天</div>
+          <div class="commit-row"><span class="sha">0eea964</span><span class="msg">feat: 添加插件框架</span><span class="branchchip">task/task-1006</span><span class="meta2">wyndam · 1 天前</span></div>
+          <div class="commit-row"><span class="sha">54b3b60</span><span class="msg">feat(web): Log 提交右键新增 Reset</span><span class="meta2">wyndam · 1 天前</span></div>
+        </div>
+        <div class="statusbar"><span>Gitter · D:\Code\Gitter · dev</span><span style="flex:1"></span><span>↑2 ↓0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="appwrap app" style="min-height:430px">
+    <div class="overlay" style="position:relative;inset:auto;padding:36px 24px;background:var(--base)">
+      <div style="color:var(--text3);font-size:12px;margin-bottom:12px">自绘控件样张（v2 P0）：勾选框（单色反白 + 半选）· 自绘箭头 select · 开关 · 焦点输入 · 等宽数字</div>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+        <input type="checkbox" class="ck" checked><span style="font-size:12px;color:var(--text2)">勾选</span>
+        <input type="checkbox" class="ck"><span style="font-size:12px;color:var(--text2)">未勾选</span>
+        <input type="checkbox" class="ck" id="ckDemoInd"><span style="font-size:12px;color:var(--text2)">半选（组头部分勾选）</span>
+        <select class="sel"><option>并排</option><option>内联</option></select>
+        <div class="switch on"></div>
+        <input class="input" style="width:150px;border-color:var(--link);box-shadow:0 0 0 3px color-mix(in srgb, var(--link) 18%, transparent)" value="聚焦态">
+      </div>
+      <div class="mono" style="font-size:12px;color:var(--text2);font-variant-numeric:tabular-nums">
+        <div>cd78010 &nbsp;2 小时前 &nbsp;+120 −80</div>
+        <div>7f4b34d &nbsp;4 小时前 &nbsp;+44 &nbsp;−6</div>
+        <div>8e0e804 &nbsp;5 小时前 &nbsp;+18 &nbsp;−0</div>
+      </div>
+      <div style="margin-top:14px;color:var(--text3);font-size:12px">按钮三态：主（主题蓝）· 次（描边）· 危险</div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="btn primary icon" data-tip="提交"><span class="glyph"></span></button><button class="btn icon" data-tip="抓取"><span class="glyph"></span></button><button class="btn icon danger" style="color:var(--red)" data-tip="强制推送（需二次确认）"><span class="glyph"></span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<h2>三、其余页面 <span class="en">Projects / Branches / Tasks / Terminal / Settings</span><span class="v2">按钮图标化</span></h2>
+<p class="sub">全部操作按钮图标化：<b>图标承载操作，文字以 title 悬停提示（300ms）</b>；仅主 CTA（提交/发送）保留“图标+短文字”防误触。危险图标按钮沿用二次确认流。</p>
+
+<div class="screen-grid">
+
+  <!-- 项目页 -->
+  <div class="appwrap app">
+    <div class="titlebar"><span style="color:var(--text3)">☰</span><span class="t">GitUI — Gitter</span><span class="grow"></span><div class="wbtns"><span>─</span><span>☐</span><span>✕</span></div></div>
+    <div class="body" style="height:420px">
+      <div class="sidebar">
+        <div class="nav-item active"><span class="ico">▣</span>项目</div>
+        <div class="nav-item"><span class="ico">≡</span>Log</div>
+        <div class="nav-item"><span class="ico">⎇</span>变更</div>
+        <div class="nav-item"><span class="ico">⑂</span>分支</div>
+        <div class="nav-item"><span class="ico">✦</span>任务</div>
+        <div class="nav-item"><span class="ico">▸_</span>终端</div>
+        <div class="nav-sep"></div>
+        <div class="nav-item"><span class="ico">⚙</span>设置</div>
+      </div>
+      <div class="pagearea">
+        <div class="toolbar"><span class="title">项目</span><span class="grow"></span><button class="ibtn bordered" data-tip="新增项目"><span class="glyph"></span></button></div>
+        <div style="flex:1;overflow:auto">
+          <div class="proj-grid">
+            <div class="proj-card">
+              <div class="name">Gitter <span class="now-chip">当前</span></div>
+              <div class="path">D:\Code\Gitter</div>
+              <div class="acts">
+                <button class="btn primary sm icon" data-tip="打开项目"><span class="glyph"></span></button>
+                <button class="ibtn" data-tip="在新窗口打开"><span class="glyph"></span></button>
+                <button class="ibtn danger" data-tip="移除项目"><span class="glyph"></span></button>
+              </div>
+            </div>
+            <div class="proj-card">
+              <div class="name">dotfiles</div>
+              <div class="path">D:\dotfiles</div>
+              <div class="acts">
+                <button class="btn primary sm icon" data-tip="打开项目"><span class="glyph"></span></button>
+                <button class="ibtn" data-tip="在新窗口打开"><span class="glyph"></span></button>
+                <button class="ibtn danger" data-tip="移除项目"><span class="glyph"></span></button>
+              </div>
+            </div>
+          </div>
+          <div style="padding:4px 12px;color:var(--text3);font-size:var(--fs-xs)">主操作“打开”保留文字（高频主操作），其余图标化 + title 提示。</div>
+        </div>
+        <div class="statusbar"><span>未打开仓库</span><span style="flex:1"></span><span>Ctrl+Shift+P 命令面板</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分支页 -->
+  <div class="appwrap app">
+    <div class="titlebar"><span style="color:var(--text3)">☰</span><span class="t">GitUI — Gitter</span><span class="grow"></span><div class="wbtns"><span>─</span><span>☐</span><span>✕</span></div></div>
+    <div class="body" style="height:420px">
+      <div class="pagearea">
+        <div class="toolbar">
+          <span class="title">分支</span><span class="grow"></span>
+          <button class="ibtn bordered" data-tip="创建分支"><span class="glyph"></span></button>
+          <button class="ibtn" data-tip="抓取（fetch）"><span class="glyph"></span></button>
+          <button class="ibtn" data-tip="拉取（pull）"><span class="glyph"></span></button>
+          <button class="ibtn" data-tip="拉取（变基）"><span class="glyph"></span></button>
+          <button class="ibtn" data-tip="推送（push）"><span class="glyph"></span></button>
+        </div>
+        <div style="flex:1;overflow:auto;padding-bottom:10px">
+          <div class="group-header"><span style="width:10px">▾</span>本地 <span class="cnt">4</span></div>
+          <div class="br-row cur"><span class="cur-dot"></span><span class="nm">main</span><span class="ab">↑2 ↓0</span><span style="flex:1"></span><button class="ibtn" data-tip="推送 main"><span class="glyph"></span></button></div>
+          <div class="br-row"><span style="width:6px"></span><span class="nm">feat/ui-pluginization</span><span class="ab">↑5</span></div>
+          <div class="br-row"><span style="width:6px"></span><span class="nm">fix/safety-false-positive</span></div>
+          <div class="group-header"><span style="width:10px">▾</span>远程 <span class="cnt">3</span></div>
+          <div class="br-row"><span style="width:6px"></span><span class="nm">origin/main</span><span class="ab">↓2</span></div>
+          <div class="br-row"><span style="width:6px"></span><span class="nm">origin/feat/ui-pluginization</span></div>
+        </div>
+        <div class="statusbar"><span>D:\Code\Gitter · main</span><span style="flex:1"></span><span>悬停行尾图标 = 该分支推送</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 任务页 -->
+  <div class="appwrap app" style="grid-column:1 / -1">
+    <div class="titlebar"><span style="color:var(--text3)">☰</span><span class="t">GitUI — Gitter</span><span class="grow"></span><div class="wbtns"><span>─</span><span>☐</span><span>✕</span></div></div>
+    <div class="body" style="height:420px">
+      <div class="pagearea">
+        <div class="toolbar"><span class="title">任务</span><span class="grow"></span><button class="ibtn bordered" data-tip="新建 worktree"><span class="glyph"></span></button></div>
+        <div style="display:flex;flex:1;min-height:0">
+          <div class="tasklist">
+            <div class="task-card sel">
+              <div class="t"><span class="state-dot run"></span>修复安全网误报<span class="typechip">code-review</span></div>
+              <div class="m">wt/gitter-fix · main·worktree</div>
+            </div>
+            <div class="task-card">
+              <div class="t"><span class="state-dot wait"></span>生成 0.6 发布说明<span class="typechip">commit-message</span></div>
+              <div class="m">wt/gitter-relnotes</div>
+            </div>
+          </div>
+          <div class="timeline">
+            <div class="tl-line"><span class="dot2" style="background:var(--green)"></span><span class="who2">你</span><span>审查最近的插件化改造，重点看权限链路</span></div>
+            <div class="tl-line"><span class="dot2" style="background:var(--chip-purple-fg)"></span><span class="who2">Agent</span><span>已读取 rpcScopes.ts，开始核对 __caller 注入链…</span></div>
+            <div class="authcard">
+              <div class="ttl">⚠ Agent 请求执行写操作</div>
+              <div class="cmd">git.stage · web/src/kit/markdown.ts</div>
+              <div style="display:flex;gap:8px"><!-- 唯一文字例外：Modal 式确认/取消 --><button class="btn primary sm">允许</button><button class="btn sm">拒绝</button><span style="flex:1"></span><span style="font-size:var(--fs-xs);color:var(--text3)">人审门 · 决策留痕</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="dispatch">
+          <input class="input" placeholder="给任务派活（Enter 发送）…">
+          <button class="btn primary icon" data-tip="发送（Ctrl+Enter）"><span class="glyph"></span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 终端页 -->
+  <div class="appwrap app">
+    <div class="titlebar"><span style="color:var(--text3)">☰</span><span class="t">GitUI — Gitter</span><span class="grow"></span><div class="wbtns"><span>─</span><span>☐</span><span>✕</span></div></div>
+    <div class="body" style="height:330px">
+      <div class="pagearea">
+        <div class="toolbar">
+          <span class="title">终端</span><span class="grow"></span>
+          <select class="sel"><option>PowerShell</option><option>Git Bash</option></select>
+          <button class="ibtn" data-tip="重启会话"><span class="glyph"></span></button>
+        </div>
+        <div class="term-card">
+<div><span class="d">Last login: Tue Oct  6 19:42:10 on ConPTY</span></div>
+<div><span class="b">PS D:\Code\Gitter&gt;</span> git status</div>
+<div><span class="g">On branch main</span></div>
+<div><span class="b">PS D:\Code\Gitter&gt;</span> <span class="cur"></span></div>
+        </div>
+        <div class="term-status" style="margin:0 12px 10px">conhost · powershell · 会话跨页保持（keep-alive 不中断）</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设置页 -->
+  <div class="appwrap app">
+    <div class="titlebar"><span style="color:var(--text3)">☰</span><span class="t">GitUI — Gitter</span><span class="grow"></span><div class="wbtns"><span>─</span><span>☐</span><span>✕</span></div></div>
+    <div class="body" style="height:420px">
+      <div class="pagearea">
+        <div class="set-body">
+          <div class="set-nav">
+            <div class="nav-item"><span class="ico">✦</span>通用</div>
+            <div class="nav-item"><span class="ico">◐</span>外观</div>
+            <div class="nav-item"><span class="ico">⑂</span>Git</div>
+            <div class="nav-item active"><span class="ico">⚙</span>扩展</div>
+            <div class="nav-item"><span class="ico">ⓘ</span>关于</div>
+          </div>
+          <div class="set-form" style="flex:1;min-width:0;overflow:auto;padding:14px 18px">
+            <div class="set-sec">扩展管理</div>
+            <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+              <button class="btn primary sm icon" data-tip="导入 .gpk"><span class="glyph"></span></button>
+              <span style="flex:1"></span>
+              <span style="font-size:var(--fs-xs);color:var(--text3)">代码插件门：</span>
+              <div class="switch on"></div>
+            </div>
+            <div class="ext-card">
+              <div class="r1"><span class="nm">gitui.page.settings</span><span class="v">0.1.0</span><span class="now-chip">内置</span><span style="flex:1"></span><div class="switch on"></div></div>
+              <div class="perms"><span class="perm-badge">settings.write</span><span class="perm-badge">extensions.admin</span><span class="perm-badge">git.read</span></div>
+            </div>
+            <div class="ext-card" style="opacity:.65">
+              <div class="r1"><span class="nm">com.example.hello-page</span><span class="v">1.0.0</span><span style="flex:1"></span><div class="switch"></div></div>
+              <div class="perms"><span class="perm-badge">open</span><span class="perm-badge">git.read</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>三·B、按钮规范 <span class="en">Buttons v3</span></h2>
+<p class="sub"><b>按钮全量图标化：文字一律不渲染，title 悬停提示（约 300ms 出现）</b>。三种形态：ghost 图标按钮（工具栏/行内默认）、bordered 图标按钮（需要边界的场景）、primary 图标（主 CTA）。<b>唯一文字例外 = Modal 内确认/取消</b>（显式二元选择防误触，如授权卡 允许/拒绝）。危险图标按钮沿用既有二次确认流。</p>
+<table class="spec" style="margin-bottom:8px">
+  <tr><th>操作</th><th>字形（Segoe Fluent）</th><th>码位</th><th>title 提示</th></tr>
+  <tr><td>抓取 fetch</td><td class="mono">Refresh</td><td class="mono">E72C</td><td>抓取</td></tr>
+  <tr><td>拉取 pull</td><td class="mono">Download</td><td class="mono">E896</td><td>拉取</td></tr>
+  <tr><td>拉取（变基）</td><td class="mono">Sync</td><td class="mono">E895</td><td>拉取（变基）</td></tr>
+  <tr><td>推送 push</td><td class="mono">Upload</td><td class="mono">E898</td><td>推送</td></tr>
+  <tr><td>新建 / 导入</td><td class="mono">Add</td><td class="mono">E710</td><td>新增项目 / 创建分支 / 新建 worktree / 导入 .gpk</td></tr>
+  <tr><td>在编辑器打开</td><td class="mono">Edit</td><td class="mono">E70F</td><td>在编辑器打开</td></tr>
+  <tr><td>已解决</td><td class="mono">CheckMark</td><td class="mono">E73E</td><td>标记已解决</td></tr>
+  <tr><td>移除 / 放弃</td><td class="mono">Delete</td><td class="mono">E74D</td><td>移除项目 / 放弃所选（危险色）</td></tr>
+  <tr><td>新窗口</td><td class="mono">OpenInNewWindow</td><td class="mono">E8A7</td><td>在新窗口打开</td></tr>
+  <tr><td>发送</td><td class="mono">Send</td><td class="mono">E724</td><td>发送（Ctrl+Enter）</td></tr>
+  <tr><td>提交</td><td class="mono">CheckMark</td><td class="mono">E73E</td><td>提交（Ctrl+Enter）</td></tr>
+  <tr><td>提交并推送</td><td class="mono">Upload</td><td class="mono">E898</td><td>提交并推送</td></tr>
+  <tr><td>强制推送</td><td class="mono">Upload（danger）</td><td class="mono">E898</td><td>强制推送（需二次确认）</td></tr>
+  <tr><td>AI 生成 / 解释 / 审查</td><td class="mono">Edit / Info / Search</td><td class="mono">E70F / E946 / E721</td><td>AI 生成提交信息 / AI 解释选中文件 / AI 审查变更</td></tr>
+  <tr><td>打开项目</td><td class="mono">PlayB</td><td class="mono">E768</td><td>打开项目</td></tr>
+  <tr><td>导入 .gpk</td><td class="mono">Import</td><td class="mono">E8B5</td><td>导入 .gpk</td></tr>
+  <tr><td>展开发现</td><td class="mono">ChevronDown</td><td class="mono">E70D</td><td>展开全部发现（N 条）</td></tr>
+  <tr><td>确认 / 取消（Modal 内）</td><td class="mono">— 文字保留 —</td><td class="mono">—</td><td>唯一文字例外</td></tr>
+</table>
+<p class="note">尺寸 28×28（sm 24×24），圆角 5，ghost 默认无边框；悬停 hover 底 150ms；按压 scale .96。图标语义不在表内的操作保留 icon-text 形态。</p>
+
+<h2>四、动画规范 <span class="en">Motion</span>（v1 全量保留 + 补齐）</h2>
+<p class="sub">三档时长 <b>150 / 250 / 400ms</b> + 两条曲线（--ease-out 减速、--ease-std 标准）；最短 150ms——低于此值人眼感知不到"动画"，只感知"卡顿"（v3 调整：90ms 档废除）。出/退场成对：退场取同档更短值（150ms）+ ease-in。</p><table class="spec" style="margin-bottom:8px">
+  <tr><th>场景</th><th>动画</th><th>补齐说明</th></tr>
+  <tr><td>复选框勾选</td><td class="mono">bg/border · 150ms</td><td class="new">v2 补：自绘勾选框带过渡，不再瞬变</td></tr>
+  <tr><td>行选中 / 悬停</td><td class="mono">background · 150ms</td><td class="new">v2 补：列表行统一 150ms（含 Log 虚拟行）</td></tr>
+  <tr><td>页切换 / 横幅 / 面板 pop / 侧栏折叠 / Toast</td><td class="mono">250ms（侧栏折叠 400ms）</td><td>v3 调整：时长整体上移至可感知区间</td></tr>
+  <tr><td>终端 / 日志滚动</td><td class="mono">无动画</td><td>不变（性能红线）</td></tr>
+</table>
+
+<h2>五、实施映射 <span class="en">Rollout v2</span></h2>
+<p class="sub">
+① <b>主题层</b>：dark/light 两包 token 按本稿更新（token 名不变，只换值；Panel2/Link 沿用）；<br>
+② <b>styles.css</b>：面层 token 替换 + <code>panes 卡片骨架</code> + 自绘 ck/sel/滚动条 + tabular-nums + CJK 字体栈 + 动效补齐；<br>
+③ <b>页面组件</b>：Log 行布局重排（sha 淡化、meta 贴近）、变更页 panes 卡片容器、提交盒浮起卡片、设置/分支限宽——只动结构与样式，不动数据流；<br>
+④ <b>图标</b>：横幅 emoji → 字形徽章（圆形底 + mono 符号）；<br>
+⑤ <b>验收</b>：boot 断言不变 + 冒烟全绿 + GITTER_SHOT 钩子深浅主题截图对比 v1。
+</p>
+<p class="note">评审意见直接回复：面层亮度、卡片化边界、Log 行布局、控件样式——逐项可调。确认后按 §五 实施。</p>
+
+<script>
+// 全局亮/暗预览切换
+(function () {
+  const tg = document.getElementById("lightToggle");
+  if (!tg) return;
+  tg.addEventListener("click", () => {
+    const on = tg.classList.toggle("on");
+    document.body.classList.toggle("light-preview", on);
+  });
+})();
+// 半选样例：变更组头部分勾选 + 样张半选
+(function () {
+  const cks = document.querySelectorAll('.group-header .ck');
+  if (cks[1]) cks[1].indeterminate = true;
+  const demo = document.getElementById('ckDemoInd');
+  if (demo) demo.indeterminate = true;
+})();
+// 自绘 tooltip（v3）：按钮 data-tip → 悬浮层（300ms 延迟、边界收敛、150ms 淡入）
+(function () {
+  const tip = document.createElement("div");
+  tip.className = "gtip";
+  tip.setAttribute("role", "tooltip");
+  document.body.appendChild(tip);
+  let cur = null, timer = null;
+  function place(el) {
+    tip.textContent = el.getAttribute("data-tip");
+    tip.classList.add("show");
+    const r = el.getBoundingClientRect();
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2;
+    x = Math.max(6, Math.min(x, window.innerWidth - w - 6));
+    let y = r.bottom + 6;
+    if (y + h > window.innerHeight - 6) y = r.top - h - 6;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+  document.addEventListener("mouseover", (e) => {
+    const el = e.target.closest("[data-tip]");
+    if (el === cur) return;
+    cur = el;
+    clearTimeout(timer);
+    tip.classList.remove("show");
+    if (el) timer = setTimeout(() => { if (cur === el) place(el); }, 300);
+  });
+  document.addEventListener("mousedown", () => {
+    clearTimeout(timer);
+    tip.classList.remove("show");
+  });
+})();
+
+// press 演示初始态
+document.querySelectorAll(".press").forEach(el => el.classList.add("p"));
+</script>
+<style>
+#lightToggle { width: 38px; height: 21px; border-radius: 999px; background: #343c45; position: relative; cursor: pointer; transition: background 150ms ease; }
+#lightToggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 999px; background: #fff; transition: transform 150ms ease; }
+#lightToggle.on { background: #3fb950; }
+#lightToggle.on::after { transform: translateX(17px); }
+
+/* ---- 自绘 tooltip（v3：按钮 hint 弹出层） ---- */
+.gtip {
+  position: fixed; z-index: 300; pointer-events: none;
+  background: #202020; border: 1px solid #3e3e3e;
+  color: #eaeaea; font-size: 11.5px; font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  padding: 4px 9px; border-radius: 6px; white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  opacity: 0; transform: translateY(4px) scale(.97);
+  transition: opacity 200ms ease-in, transform 200ms ease-in;
+}
+.gtip.show {
+  opacity: 1; transform: none;
+  transition: opacity 250ms cubic-bezier(.16, 1, .3, 1), transform 250ms cubic-bezier(.16, 1, .3, 1);
+}
+body.light-preview .gtip { background: #ffffff; border-color: #d0d0d0; color: #1b1b1b; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+</style>
+</body>
+</html>

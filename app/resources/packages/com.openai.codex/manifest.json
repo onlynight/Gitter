@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "id": "com.openai.codex",
+  "name": "OpenAI Codex CLI",
+  "version": "0.3.0",
+  "description": "Codex 快捷入口：新建/续跑 Gitter Agent 任务（外部 CLI 直连形态已封存，见 docs/agent-harness-codex.md）",
+  "engines": { "gitter": ">=0.1.0" },
+  "contributes": {
+    "commands": [
+      { "id": "codex.newTask", "title": "新建 Agent 任务", "when": "repoOpen", "action": "agent.task.create", "args": { "prompt": "" } },
+      { "id": "codex.resumeLast", "title": "续跑上次 Agent 会话", "when": "repoOpen", "action": "agent.task.resume", "args": { "prompt": "继续上次的任务。" } }
+    ],
+    "configuration": [
+      { "key": "agents.codex.model", "type": "string", "default": "", "title": "模型（缺省用 codex 登录默认；外部桥封存中，暂不生效）" },
+      { "key": "agents.codex.sandbox", "type": "string", "default": "workspace-write", "title": "沙箱档位（外部桥封存中，暂不生效）" }
+    ]
+  }
+}

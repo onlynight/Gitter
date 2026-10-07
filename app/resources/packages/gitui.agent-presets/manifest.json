@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.agent-presets",
+  "name": "Agent 任务预设",
+  "version": "1.0.0",
+  "description": "内置任务型：自由任务 / 代码审查（只读）/ 提交消息生成",
+  "engines": { "gitter": ">=0.1.0" },
+  "contributes": {
+    "taskTypes": [
+      {
+        "id": "free",
+        "name": "自由任务",
+        "promptTemplate": "{input}"
+      },
+      {
+        "id": "code-review",
+        "name": "代码审查",
+        "promptTemplate": "请审查当前变更（repo_diff），指出风险与改进建议：{input}",
+        "systemAddendum": "只分析，不修改文件。输出按 文件 → 风险等级 → 建议组织。",
+        "tools": ["repo_status", "repo_diff", "repo_log", "repo_read_file", "repo_list_files"]
+      },
+      {
+        "id": "commit-message",
+        "name": "提交消息生成",
+        "promptTemplate": "基于当前暂存变更与最近提交历史，生成一条符合仓库风格的约定式提交消息，只输出消息本体：{input}",
+        "systemAddendum": "不要修改文件，不要提交；只产出提交消息文本。",
+        "tools": ["repo_status", "repo_diff", "repo_log"]
+      }
+    ]
+  }
+}
