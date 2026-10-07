@@ -19,6 +19,7 @@
           "agent.config",
           "git.read",
           "git.write",
+          "settings.write",
           "window"
         ]
       }

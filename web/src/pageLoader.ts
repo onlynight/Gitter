@@ -1,5 +1,6 @@
 import { call } from "./bridge/client";
 import { beginExternalPackage, endExternalPackage } from "./sdk";
+import { unregisterAgentUI } from "./agentUIRegistry";
 import { uiPage, unregisterUiPagesByPackage, upsertExternalPageMeta, type UIPageDef } from "./uiRegistry";
 
 /**
@@ -103,7 +104,7 @@ async function doInjectPackage(m: ExternalPageInfo): Promise<void> {
   if (loadedPackages.has(m.packageId)) return;
   if (m.styles.length > 0) injectStyles(m.packageId, m.styles);
   try {
-    beginExternalPackage(m.packageId, m.permissions);
+    beginExternalPackage(m.packageId, m.permissions, m.isBuiltIn);
     await injectScript(fileUrl(m.entryAbs));
     loadedPackages.add(m.packageId);
   } finally {
@@ -116,6 +117,7 @@ export function unloadExternalPages(): void {
   for (const pkg of new Set(metas.map((m) => m.packageId))) {
     unregisterUiPagesByPackage(pkg);
     removeStyles(pkg);
+    unregisterAgentUI(pkg); // agent UI 贡献（时间线渲染器/composer provider）随包注销
   }
   metas = [];
   loadedPackages.clear();
@@ -166,11 +168,12 @@ async function doLoadExternalPages(allowCode: boolean, lang?: string): Promise<n
   }
   const prevMetaById = new Map(metas.map((m) => [m.id, m]));
   const nextIds = new Set(list.map((m) => m.id));
-  // 差量：注销清单里消失的包（页面 + 样式 + 装载标记）
+  // 差量：注销清单里消失的包（页面 + 样式 + agent UI 贡献 + 装载标记）
   for (const prev of metas) {
     if (!nextIds.has(prev.id)) {
       unregisterUiPagesByPackage(prev.packageId);
       removeStyles(prev.packageId);
+      unregisterAgentUI(prev.packageId);
       loadedPackages.delete(prev.packageId);
     }
   }

@@ -12,6 +12,38 @@ import {
   reapplyTheme, setSharedContext, setState, t, updateSettings, type PageKey,
 } from "./state/store";
 import { runCommand, type RunContext } from "./commands";
+import { uiPages, uiPageProvidersFor } from "./uiRegistry";
+import { agentUIRegistrations } from "./agentUIRegistry";
+
+/** 扩展管理树·页面节点（设置页"插件挂载树"数据面）：槽位 + 胜出提供者 + 同槽位替补。 */
+export interface ExtTreeNodePage {
+  slot: string;
+  /** 胜出提供者注册 id（ext.<pkg>.<pid> 或内置槽位 id） */
+  id: string;
+  /** 内置页 = i18n 键；外部页 = 字面量（loader 已解析 %key%） */
+  titleKey?: string;
+  title?: string;
+  /** 胜出提供者包 id（内置元数据未装载 = null） */
+  packageId: string | null;
+  isBuiltIn: boolean;
+  source: "builtin" | "package";
+  order: number;
+  /** 同槽位竞争落败的提供者（"挂载到页面下"的替补包） */
+  shadowed: { packageId: string; isBuiltIn: boolean }[];
+}
+
+/** 扩展管理树·agent UI 活跃注册（时间线渲染器 / 输入台 provider；消费方 = agent 时间线页）。 */
+export interface ExtTreeAgentUIReg {
+  packageId: string;
+  tier: "host" | "builtin" | "user";
+  renderers: number;
+  providers: number;
+}
+
+export interface ExtTreeSnapshot {
+  pages: ExtTreeNodePage[];
+  agentUI: ExtTreeAgentUIReg[];
+}
 
 export interface PageSurface {
   /** 桥 RPC（权限域见 rpcScopes.ts；宿主内置页不受外部页权限过滤） */
@@ -56,6 +88,8 @@ export interface PageSurface {
   clearTaskFocus(): void;
   /** 命令执行唯一入口（面板/右键菜单/快捷键共用；外部页经 GITTER_UI.runCommand 消费） */
   runCommand(cmd: { id: string; title?: string; titleKey?: string }, ctx?: RunContext): Promise<void>;
+  /** 扩展管理树快照（页面槽位 → 提供者/替补 + agent UI 注册；设置页"插件挂载树"消费） */
+  extTree(): ExtTreeSnapshot;
 }
 
 /**
@@ -95,6 +129,22 @@ export function hostSurface(callFn: PageSurface["call"], onFn: PageSurface["on"]
     focusTask: (taskId) => setState({ focusTaskId: taskId }),
     clearTaskFocus: () => setState({ focusTaskId: null }),
     runCommand,
+    extTree: (): ExtTreeSnapshot => ({
+      pages: uiPages().map((d) => ({
+        slot: d.slot ?? d.id,
+        id: d.id,
+        titleKey: d.titleKey,
+        title: d.title,
+        packageId: d.packageId ?? null,
+        isBuiltIn: !!d.isBuiltInPackage,
+        source: d.source ?? "builtin",
+        order: d.order,
+        shadowed: uiPageProvidersFor(d.slot ?? d.id)
+          .filter((x) => x !== d && x.packageId && x.packageId !== d.packageId)
+          .map((x) => ({ packageId: x.packageId!, isBuiltIn: !!x.isBuiltInPackage })),
+      })),
+      agentUI: agentUIRegistrations(),
+    }),
   };
 }
 

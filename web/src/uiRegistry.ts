@@ -84,6 +84,13 @@ export function resolveUiPage(slot: string): UIPageDef | null {
   return winner;
 }
 
+/** 该槽位的全部提供者（竞争优先级降序，胜者第一；同槽位被替换的"替补"也从这里可见）。 */
+export function uiPageProvidersFor(slot: string): UIPageDef[] {
+  return [...defs.values()]
+    .filter((d) => slotOf(d) === slot)
+    .sort((a, b) => providerRank(b) - providerRank(a));
+}
+
 /** 该槽位是否有宿主内置提供者（判断"替换态"用）。 */
 export function hasBuiltinProvider(slot: string): boolean {
   for (const d of defs.values()) {

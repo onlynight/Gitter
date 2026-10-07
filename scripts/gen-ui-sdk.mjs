@@ -87,6 +87,15 @@ interface GITTER_UI_API {
   /** 任务聚焦信号（Log 会话卡 → TasksPage） */
   focusTask(taskId: string): void;
   clearTaskFocus(): void;
+  /** 扩展管理树快照（页面槽位 → 提供者/替补 + agent UI 注册；设置页"插件挂载树"消费） */
+  extTree(): {
+    pages: Array<{
+      slot: string; id: string; titleKey?: string; title?: string;
+      packageId: string | null; isBuiltIn: boolean; source: "builtin" | "package"; order: number;
+      shadowed: Array<{ packageId: string; isBuiltIn: boolean }>;
+    }>;
+    agentUI: Array<{ packageId: string; tier: "host" | "builtin" | "user"; renderers: number; providers: number }>;
+  };
   /** 宿主活状态快照（配合 subscribeState 组装 useSyncExternalStore） */
   getState(): AppStateSnapshot;
   /** 订阅宿主状态变化（setState 即触发；返回退订函数） */

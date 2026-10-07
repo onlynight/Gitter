@@ -5,7 +5,7 @@
  * 全部收在 GITTER_UI 面——页面产物不打包任何宿主模块。
  */
 import { useSyncExternalStore } from "react";
-import type { PageSurface } from "../surface";
+import type { PageSurface, ExtTreeSnapshot, ExtTreeNodePage, ExtTreeAgentUIReg } from "../surface";
 import type { AppState } from "../state/store";
 
 function U(): NonNullable<Window["GITTER_UI"]> {
@@ -48,7 +48,10 @@ export const pageSdk: PageSurface = {
   focusTask: (taskId) => U().focusTask(taskId),
   clearTaskFocus: () => U().clearTaskFocus(),
   runCommand: (cmd, ctx) => U().runCommand(cmd, ctx),
+  extTree: (): ExtTreeSnapshot => U().extTree(),
 };
+
+export type { PageSurface, ExtTreeSnapshot, ExtTreeNodePage, ExtTreeAgentUIReg };
 
 /** React 响应式面：useSyncExternalStore 订阅宿主活 store（跨 React 实例安全的纯 JS 订阅）。 */
 export function useAppState(): AppState {

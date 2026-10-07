@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
+import type { ExtTreeSnapshot } from "../pageSdk";
 import { NavIcon } from "../kit";
 import type { ExtensionPackageDTO, ModelProfileDTO, SettingsDTO, TerminalProfileDTO, ThemePackageDTO } from "../bridge/types";
 
@@ -98,6 +99,8 @@ const SEARCH_INDEX: { section: SectionId; labelKey: string; kw?: string }[] = [
   { section: "safety", labelKey: "Settings_SafetyNet", kw: "安全网 secrets 拦截 block warn 提交扫描" },
   { section: "agent", labelKey: "Settings_AgentCheckpoint", kw: "agent checkpoint 托管 wip 提交" },
   { section: "agent", labelKey: "Settings_AgentOnExit", kw: "agent 退出 终止 保留 会话" },
+  { section: "agent", labelKey: "Settings_AgentRules", kw: "agent 权限规则 allow deny 允许 拒绝 rules 前缀" },
+  { section: "agent", labelKey: "Settings_AgentCompaction", kw: "agent 上下文压缩 compact compaction 摘要" },
   { section: "mcp", labelKey: "Settings_McpEnabled", kw: "mcp server 管道 工具" },
   { section: "extensions", labelKey: "Extensions_Import", kw: "扩展 包 .gpk 导入 卸载 主题 语法 harness" },
   { section: "about", labelKey: "Settings_AboutSection", kw: "about 版本 version git" },
@@ -123,6 +126,11 @@ export function SettingsPage() {
   const [exts, setExts] = useState<ExtensionPackageDTO[]>([]);
   const [extError, setExtError] = useState<string | null>(null);
   const [catalogUrl, setCatalogUrl] = useState("");
+  // 插件挂载树（页面 → 挂载插件 → 贡献明细）+ 视图切换（树状 / 类型分组）
+  const [extView, setExtView] = useState<"tree" | "kind">("tree");
+  const [treeOpen, setTreeOpen] = useState<Record<string, boolean>>({});
+  const [extTreeData, setExtTreeData] = useState<ExtTreeSnapshot | null>(null);
+  const [agentCmds, setAgentCmds] = useState<{ id: string; packageId?: string; args?: unknown }[]>([]);
 
   // 包类型分组（按 primaryKind 固定顺序分节显示；名称按类型前缀区分）
   const KIND_SECTIONS: { kind: string; label: string }[] = [
@@ -145,7 +153,129 @@ export function SettingsPage() {
   const primaryKindOf = (p: ExtensionPackageDTO): string =>
     p.kinds.find((k) => KIND_SECTIONS.some((x) => x.kind === k)) ?? p.kinds[0] ?? "__other";
   const kindLabel = (k: string): string => KIND_SECTIONS.find((x) => x.kind === k)?.label ?? k;
-  const renderExtCard = (p: ExtensionPackageDTO) => {
+
+  /** 树节点行（页面/全局分组头）：▸▾ 折叠 + 计数徽标。 */
+  const treeHeader = (id: string, glyph: string, title: string, sub: ReactNode, count: number | null) => {
+    const open = treeOpen[id] ?? false;
+    return (
+      <div onClick={() => setTreeOpen((m) => ({ ...m, [id]: !open }))}
+        style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: 8, cursor: "pointer", background: "var(--c-hover)", fontSize: 12.5 }}>
+        <span className="mono" style={{ color: "var(--c-text3)", width: 12 }}>{open ? "▾" : "▸"}</span>
+        <span>{glyph}</span>
+        <b>{title}</b>
+        {sub}
+        {count !== null && count > 0 && <span className="hint">· 挂载 {count}</span>}
+      </div>
+    );
+  };
+
+  /** 插件挂载树：页面（槽位）→ 提供者 / 挂载插件 → 贡献明细；非页面级 → 全局分支。 */
+  const extMountTree = () => {
+    const pkgById = new Map(exts.map((p) => [p.id, p]));
+    const consumed = new Set<string>();
+    // 会话命令（agent.command → 任务页斜杠菜单）按包分组
+    const cmdsByPkg = new Map<string, string[]>();
+    for (const c of agentCmds) {
+      const a = (c.args ?? {}) as { slash?: string };
+      const pid = c.packageId ?? "";
+      if (!pid) continue;
+      if (!cmdsByPkg.has(pid)) cmdsByPkg.set(pid, []);
+      cmdsByPkg.get(pid)!.push(`${pid.split(".").pop() ?? "pkg"}:${a.slash ?? c.id}`);
+    }
+    // agent UI 注册表（时间线渲染器/输入台 provider）的消费页 = agent 时间线所在页（当前为任务页）
+    const AGENT_TIMELINE_SLOT = "tasks";
+    const tierLabel = (x: string) => (x === "user" ? "用户包" : x === "builtin" ? "内置包" : "宿主");
+    const agentUI = extTreeData?.agentUI ?? [];
+    const pageNodes = (extTreeData?.pages ?? []).map((pg) => {
+      const provider = pg.packageId ? pkgById.get(pg.packageId) ?? null : null;
+      if (provider) consumed.add(provider.id);
+      const mountees: { pkg: ExtensionPackageDTO; note: string }[] = [];
+      for (const sh of pg.shadowed) {
+        const p2 = pkgById.get(sh.packageId);
+        if (p2) { consumed.add(p2.id); mountees.push({ pkg: p2, note: "页面提供者（替补 · 同槽位竞争落败）" }); }
+      }
+      if (pg.slot === AGENT_TIMELINE_SLOT) {
+        for (const r of agentUI) {
+          if (r.packageId === pg.packageId) continue;
+          const p2 = pkgById.get(r.packageId);
+          if (!p2) continue;
+          consumed.add(p2.id);
+          mountees.push({ pkg: p2, note: `挂载：时间线渲染器 ×${r.renderers} · 输入台 provider ×${r.providers}（${tierLabel(r.tier)}层）` });
+        }
+        for (const [pid, names] of cmdsByPkg) {
+          if (pid === pg.packageId) continue;
+          const p2 = pkgById.get(pid);
+          if (!p2) continue;
+          consumed.add(pid);
+          mountees.push({ pkg: p2, note: `挂载：会话命令 ×${names.length}（${names.map((n) => `/${n}`).join(" ")}）` });
+        }
+      }
+      const providerReg = agentUI.find((r) => r.packageId === pg.packageId) ?? null;
+      return { pg, provider, providerReg, mountees };
+    });
+    const knownKinds = new Set(KIND_SECTIONS.map((x) => x.kind));
+    const globalGroups = KIND_SECTIONS
+      .map(({ kind, label }) => ({
+        key: kind, label,
+        pkgs: exts.filter((p) => !consumed.has(p.id) && primaryKindOf(p) === kind).sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .filter((g) => g.pkgs.length > 0);
+    const otherGlobal = exts.filter((p) => !consumed.has(p.id) && !knownKinds.has(primaryKindOf(p)));
+    const globalCount = globalGroups.reduce((n, g) => n + g.pkgs.length, 0) + otherGlobal.length;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {pageNodes.map(({ pg, provider, providerReg, mountees }) => {
+          const title = pg.titleKey ? t(pg.titleKey) : pg.title ?? pg.slot;
+          return (
+            <div key={pg.slot}>
+              {treeHeader(`page:${pg.slot}`, "📄", title, (
+                <>
+                  <span className="hint mono">{pg.slot}</span>
+                  {!provider && <span className="hint">（提供者未装载）</span>}
+                </>
+              ), mountees.length)}
+              {(treeOpen[`page:${pg.slot}`] ?? mountees.length > 0) && (
+                <div style={{ marginLeft: 16, borderLeft: "2px solid var(--c-border)", paddingLeft: 12, paddingTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {provider && renderExtCard(provider, (
+                    <span className="hint">
+                      页面提供者{pg.isBuiltIn ? " · 内置" : " · 用户包"}
+                      {providerReg ? ` · 本页自举：渲染器 ×${providerReg.renderers} · 输入台 provider ×${providerReg.providers}` : ""}
+                    </span>
+                  ))}
+                  {mountees.map(({ pkg, note }, idx) => (
+                    <div key={`${pkg.id}:${idx}`}>{renderExtCard(pkg, <span className="hint">{note}</span>)}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {globalCount > 0 && (
+          <div>
+            {treeHeader("__global", "🌐", "全局（非页面级）", null, -1)}
+            {(treeOpen["__global"] ?? false) && (
+              <div style={{ marginLeft: 16, borderLeft: "2px solid var(--c-border)", paddingLeft: 12, paddingTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
+                {globalGroups.map((g) => (
+                  <div key={g.key}>
+                    <div style={{ fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }}>{g.label} <span className="hint">（{g.pkgs.length}）</span></div>
+                    {g.pkgs.map((p) => renderExtCard(p))}
+                  </div>
+                ))}
+                {otherGlobal.length > 0 && (
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }}>其他 <span className="hint">（{otherGlobal.length}）</span></div>
+                    {otherGlobal.map((p) => renderExtCard(p))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderExtCard = (p: ExtensionPackageDTO, extra?: ReactNode) => {
     const cfgValues = ((s?.packages?.[p.id]?.config ?? {}) ?? {}) as Record<string, unknown>;
     return (
       <div key={p.id} style={{ display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }}>
@@ -190,6 +320,7 @@ export function SettingsPage() {
             <button className="tool-btn" onClick={() => void uninstallPkg(p)}>{t("Extensions_Uninstall")}</button>
           )}
         </div>
+        {extra && <div style={{ paddingLeft: 24, marginTop: -2 }}>{extra}</div>}
         {p.state === "active" && p.kindStates.configuration && p.configuration.map((item) => (
           <div key={item.key} style={{ display: "flex", gap: 8, alignItems: "center", paddingLeft: 24 }}>
             <span className="hint" style={{ width: 140 }}>{item.title ?? item.key}</span>
@@ -257,17 +388,30 @@ export function SettingsPage() {
   const [flash, setFlash] = useState<SectionId | null>(null);
   const flashTimer = useRef<number | null>(null);
 
+  /** 扩展管理树快照（页面槽位/agent UI 注册都在渲染层注册表——随包热插拔刷新）。 */
+  const pullExtTree = useCallback(() => {
+    try { setExtTreeData(pageSdk.extTree()); } catch { /* GITTER_UI 未注入（vite 调试）静默 */ }
+  }, []);
+
+  // 包集合变化（导入/卸载/启停）→ 挂载树重取（页面包提供者与 agent UI 注册都可能变）
+  useEffect(() => pageSdk.on("extensions.changed", () => pullExtTree()), [pullExtTree]);
+
   useEffect(() => {
     void call<ThemePackageDTO[]>("themes.list").then(setThemes);
     void call<TerminalProfileDTO[]>("terminal.profiles").then(setProfiles);
     void call<string | null>("app.gitVersion").then((v) => setGitVersion(v ?? t("Settings_GitNotFound")));
     void call<ExtensionPackageDTO[]>("extensions.list").then(setExts);
+    void call<{ id: string; action?: string; packageId?: string; args?: unknown }[]>("commands.list")
+      .then((cmds) => setAgentCmds(cmds.filter((c) => c.action === "agent.command")))
+      .catch(() => {});
+    pullExtTree();
     void loadModels();
-  }, [loadModels]);
+  }, [loadModels, pullExtTree]);
 
   /** 扩展操作后的统一刷新：主题 kind 变化需重应用主题（禁用活动主题 → 回退内置）。 */
   const refreshExts = async (list: ExtensionPackageDTO[]) => {
     setExts(list);
+    pullExtTree();
     if (list.some((p) => p.kinds.includes("theme"))) {
       const fresh = await call<SettingsDTO>("settings.get");
       applySettings(fresh);
@@ -840,6 +984,66 @@ export function SettingsPage() {
                 onChange={(v) => void patch({ agentsOnExit: v })}
               />
             </div>
+            <div className="settings-row">
+              <label>上下文压缩</label>
+              <Radio
+                value={s.agentsCompaction ?? "auto"}
+                options={[
+                  { value: "auto", label: "自动（80% 阈值）" },
+                  { value: "manual", label: "仅 /compact" },
+                  { value: "off", label: "关闭" },
+                ]}
+                onChange={(v) => void patch({ agentsCompaction: v as "auto" | "manual" | "off" })}
+              />
+            </div>
+            <div className="settings-row">
+              <label>压缩调参</label>
+              <span className="hint">
+                阈值
+                <input className="input" style={{ width: 70, marginLeft: 4 }} type="number" min={50} max={95}
+                  value={Math.round((s.agentsCompactionPolicy?.threshold ?? 0.8) * 100)}
+                  onChange={(e) => {
+                    const v = Math.min(95, Math.max(50, Number(e.target.value) || 80)) / 100;
+                    void patch({ agentsCompactionPolicy: { ...(s.agentsCompactionPolicy ?? {}), threshold: v } });
+                  }} />
+                % · 保留最近
+                <input className="input" style={{ width: 70, marginLeft: 4 }} type="number" min={4} max={32}
+                  value={s.agentsCompactionPolicy?.keepLast ?? 8}
+                  onChange={(e) => {
+                    const v = Math.min(32, Math.max(4, Number(e.target.value) || 8));
+                    void patch({ agentsCompactionPolicy: { ...(s.agentsCompactionPolicy ?? {}), keepLast: v } });
+                  }} />
+                条
+              </span>
+            </div>
+            <div className="settings-row">
+              <label>轮末钩子</label>
+              <input type="checkbox" checked={s.agentsPostTurnHooks ?? true} onChange={(e) => void patch({ agentsPostTurnHooks: e.target.checked })} />
+              <span className="hint">插件 post-turn 钩子产物以 system-reminder 注入下一轮</span>
+            </div>
+            <div className="settings-row">
+              <label>子代理并发上限</label>
+              <input
+                className="input"
+                style={{ width: 80 }}
+                type="number"
+                min={1}
+                max={6}
+                value={s.agentsMaxSubagents ?? 3}
+                onChange={(e) => void patch({ agentsMaxSubagents: Math.max(1, Math.min(6, Number(e.target.value) || 3)) })}
+              />
+            </div>
+            <div className="settings-row">
+              <label>MCP 工具入循环</label>
+              <input
+                type="checkbox"
+                checked={s.agentsExternalMcpTools ?? false}
+                onChange={(e) => void patch({ agentsExternalMcpTools: e.target.checked })}
+              />
+              <span className="hint">允许 agent 调用包声明的 MCP server 工具（每次调用都需授权确认）</span>
+            </div>
+            <AgentRulesEditor rules={s.agentRules ?? []} onChange={(rules) => void patch({ agentRules: rules })} />
+            <SeamsAuditView />
           </div>
         );
       case "mcp":
@@ -914,31 +1118,44 @@ export function SettingsPage() {
                     {t("Extensions_InstallFromUrl")}
                   </button>
                 </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "6px 0" }}>
+                  <span className="hint">视图</span>
+                  <button className="tool-btn" style={extView === "tree" ? { borderColor: "var(--c-text)", color: "var(--c-text)" } : undefined} onClick={() => setExtView("tree")}>树状（按页面挂载）</button>
+                  <button className="tool-btn" style={extView === "kind" ? { borderColor: "var(--c-text)", color: "var(--c-text)" } : undefined} onClick={() => setExtView("kind")}>类型分组</button>
+                </div>
                 {exts.length === 0 && <span className="hint">{t("Extensions_Empty")}</span>}
-                {/* U 分类分组：按 primaryKind 固定顺序分节；节内按名称排序 */}
-                {KIND_SECTIONS.map(({ kind, label }) => {
-                  const group = exts.filter((p) => primaryKindOf(p) === kind).sort((a, b) => a.name.localeCompare(b.name));
-                  if (group.length === 0) return null;
-                  return (
-                    <div key={kind} style={{ marginBottom: 10 }}>
-                      <div style={{ fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }}>
-                        {label} <span className="hint">（{group.length}）</span>
-                      </div>
-                      {group.map((p) => renderExtCard(p))}
-                    </div>
-                  );
-                })}
-                {(() => {
-                  const known = new Set(KIND_SECTIONS.map((x) => x.kind));
-                  const others = exts.filter((p) => !known.has(primaryKindOf(p)));
-                  if (others.length === 0) return null;
-                  return (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }}>其他（{others.length}）</div>
-                      {others.map((p) => renderExtCard(p))}
-                    </div>
-                  );
-                })()}
+                {extView === "tree" ? (
+                  /* 插件挂载树：页面（槽位）→ 页面提供者 / 挂载其下的插件（agent UI 渲染器、
+                     输入台 provider、会话命令、同槽位替补）→ 贡献明细；非页面级包归入全局分支。 */
+                  extMountTree()
+                ) : (
+                  <>
+                    {/* U 分类分组：按 primaryKind 固定顺序分节；节内按名称排序 */}
+                    {KIND_SECTIONS.map(({ kind, label }) => {
+                      const group = exts.filter((p) => primaryKindOf(p) === kind).sort((a, b) => a.name.localeCompare(b.name));
+                      if (group.length === 0) return null;
+                      return (
+                        <div key={kind} style={{ marginBottom: 10 }}>
+                          <div style={{ fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }}>
+                            {label} <span className="hint">（{group.length}）</span>
+                          </div>
+                          {group.map((p) => renderExtCard(p))}
+                        </div>
+                      );
+                    })}
+                    {(() => {
+                      const known = new Set(KIND_SECTIONS.map((x) => x.kind));
+                      const others = exts.filter((p) => !known.has(primaryKindOf(p)));
+                      if (others.length === 0) return null;
+                      return (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }}>其他（{others.length}）</div>
+                          {others.map((p) => renderExtCard(p))}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1017,5 +1234,120 @@ export function SettingsPage() {
         </div>
       </div>
     </>
+  );
+}
+
+// ---- Agent 持久授权规则编辑器（agent-harness-v4.md F5.3：deny > allow > 分级基线）----
+
+const AGENT_RULE_TOOLS = [
+  "terminal_run", "terminal_poll", "git_stage", "git_commit", "git_push",
+  "file_write", "file_patch", "task",
+];
+
+function AgentRulesEditor(props: {
+  rules: import("../bridge/types").AgentPermissionRuleDTO[];
+  onChange: (rules: import("../bridge/types").AgentPermissionRuleDTO[]) => void;
+}) {
+  const { rules, onChange } = props;
+  const [tool, setTool] = useState("terminal_run");
+  const [pattern, setPattern] = useState("");
+  const [effect, setEffect] = useState<"allow" | "deny">("allow");
+
+  const add = () => {
+    const rule: import("../bridge/types").AgentPermissionRuleDTO = {
+      id: `rule-${Date.now().toString(36)}`,
+      tool,
+      pattern: pattern.trim() ? pattern.trim() : null,
+      effect,
+      scope: "global",
+      createdAt: new Date().toISOString(),
+    };
+    onChange([...rules, rule]);
+    setPattern("");
+  };
+
+  return (
+    <div className="settings-row" style={{ alignItems: "flex-start" }}>
+      <label style={{ paddingTop: 4 }}>权限规则</label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+        <div className="hint">deny 优先于 allow；pattern 为空 = 工具全量，否则为命令/参数前缀。agent 执行时先查本表，再走分级授权卡。</div>
+        {rules.length === 0 && <div className="hint">（暂无规则）</div>}
+        {rules.map((r) => (
+          <div key={r.id} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+            <span className="chip" style={{ color: r.effect === "deny" ? "var(--c-red)" : "var(--c-green)", fontSize: 10.5 }}>
+              {r.effect === "deny" ? "拒绝" : "允许"}
+            </span>
+            <span className="mono">{r.tool}</span>
+            <span className="card-path" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {r.pattern === null || r.pattern === "" ? "（全量）" : `前缀：${r.pattern}`}
+            </span>
+            <button className="tool-btn" onClick={() => onChange(rules.filter((x) => x.id !== r.id))}>删除</button>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <select className="input" style={{ width: 150 }} value={tool} onChange={(e) => setTool(e.target.value)}>
+            {AGENT_RULE_TOOLS.map((x) => <option key={x} value={x}>{x}</option>)}
+          </select>
+          <select className="input" style={{ width: 90 }} value={effect} onChange={(e) => setEffect(e.target.value as "allow" | "deny")}>
+            <option value="allow">允许</option>
+            <option value="deny">拒绝</option>
+          </select>
+          <input className="input" style={{ flex: 1 }} placeholder="前缀（空 = 工具全量），如 npm test" value={pattern} onChange={(e) => setPattern(e.target.value)} />
+          <button className="tool-btn primary" disabled={!!rules.find((r) => r.tool === tool && r.effect === effect && (r.pattern ?? "") === (pattern.trim() || null))} onClick={add}>添加</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ---- §20.6 贡献审计视图（提示词段/采集器/钩子/压缩器/预设 逐包可见）----
+
+interface SeamsAuditDTO {
+  sections: { id: string; slot: string; order: number; source: string; packageId: string | null; chars: number }[];
+  collectors: { id: string; order: number; tokenBudget: number; source: string; packageId: string | null }[];
+  hooks: { id: string; order: number; source: string; packageId: string | null }[];
+  compactors: { id: string; source: string; packageId: string | null }[];
+  presets: { id: string; name: string; readonly: boolean; tools: string[] | null }[];
+  toolNames: string[];
+}
+
+function SeamsAuditView() {
+  const { call } = pageSdk;
+  const [audit, setAudit] = useState<SeamsAuditDTO | null>(null);
+  const refresh = useCallback(() => {
+    void call<SeamsAuditDTO>("agent.seams.audit").then(setAudit).catch(() => {});
+  }, [call]);
+  useEffect(() => {
+    refresh();
+    const iv = setInterval(refresh, 10_000);
+    return () => clearInterval(iv);
+  }, [refresh]);
+  if (!audit) return null;
+  const group = (items: { id: string; extra: string }[], label: string) =>
+    items.length > 0 ? (
+      <div style={{ marginBottom: 6 }}>
+        <div className="card-path">{label}</div>
+        {items.map((it) => (
+          <div key={it.id} style={{ fontSize: 11.5, display: "flex", gap: 6 }}>
+            <span className="mono" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.id}</span>
+            <span className="card-path">{it.extra}</span>
+          </div>
+        ))}
+      </div>
+    ) : null;
+  return (
+    <details className="settings-row" style={{ display: "block" }}>
+      <summary className="card-path" style={{ cursor: "pointer" }}>
+        贡献审计（段 {audit.sections.length} · 采集器 {audit.collectors.length} · 钩子 {audit.hooks.length} · 压缩器 {audit.compactors.length} · 子代理预设 {audit.presets.length}）
+      </summary>
+      <div style={{ marginTop: 8, border: "1px solid var(--c-border)", borderRadius: 8, padding: 10, maxHeight: 280, overflowY: "auto" }}>
+        {group(audit.sections.map((x) => ({ id: x.id, extra: `${x.slot} · order ${x.order} · ${x.source}${x.chars ? ` · ${x.chars}字` : ""}` })), "提示词段")}
+        {group(audit.collectors.map((x) => ({ id: x.id, extra: `order ${x.order} · ${x.tokenBudget} tokens · ${x.source}` })), "上下文采集器")}
+        {group(audit.hooks.map((x) => ({ id: x.id, extra: `order ${x.order} · ${x.source}` })), "turn 钩子")}
+        {group(audit.compactors.map((x) => ({ id: x.id, extra: x.source })), "压缩器")}
+        {group(audit.presets.map((x) => ({ id: x.id, extra: `${x.readonly ? "只读" : "可写"} · ${x.tools ? x.tools.length + " 工具" : "全集"}` })), "子代理预设")}
+      </div>
+    </details>
   );
 }

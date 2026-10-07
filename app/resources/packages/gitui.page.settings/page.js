@@ -12,11 +12,27 @@
       const g = U();
       return BOOT ? g.callWith(BOOT, method, params) : g.call(method, params);
     },
+    on: (method, cb) => U().on(method, cb),
     t: (key, ...args) => U().t(key, ...args),
+    navigate: (page) => U().navigate(page),
+    openSettings: (section) => U().openSettings(section),
+    toast: (title, body) => U().toast(title, body),
+    refresh: () => U().refresh(),
+    repo: () => U().repo(),
+    settings: () => U().settings(),
+    theme: () => U().theme(),
+    openRepo: (path) => U().openRepo(path),
+    closeRepo: () => U().closeRepo(),
     updateSettings: (patch) => U().updateSettings(patch),
     applySettings: (s) => U().applySettings(s),
     reloadTheme: () => U().reloadTheme(),
-    clearSettingsFocus: () => U().clearSettingsFocus()
+    clearSettingsFocus: () => U().clearSettingsFocus(),
+    context: () => U().context(),
+    setContext: (...a) => U().setContext(...a),
+    focusTask: (taskId) => U().focusTask(taskId),
+    clearTaskFocus: () => U().clearTaskFocus(),
+    runCommand: (cmd, ctx) => U().runCommand(cmd, ctx),
+    extTree: () => U().extTree()
   };
   function useAppState() {
     const g = U();
@@ -108,6 +124,8 @@
     { section: "safety", labelKey: "Settings_SafetyNet", kw: "安全网 secrets 拦截 block warn 提交扫描" },
     { section: "agent", labelKey: "Settings_AgentCheckpoint", kw: "agent checkpoint 托管 wip 提交" },
     { section: "agent", labelKey: "Settings_AgentOnExit", kw: "agent 退出 终止 保留 会话" },
+    { section: "agent", labelKey: "Settings_AgentRules", kw: "agent 权限规则 allow deny 允许 拒绝 rules 前缀" },
+    { section: "agent", labelKey: "Settings_AgentCompaction", kw: "agent 上下文压缩 compact compaction 摘要" },
     { section: "mcp", labelKey: "Settings_McpEnabled", kw: "mcp server 管道 工具" },
     { section: "extensions", labelKey: "Extensions_Import", kw: "扩展 包 .gpk 导入 卸载 主题 语法 harness" },
     { section: "about", labelKey: "Settings_AboutSection", kw: "about 版本 version git" }
@@ -133,6 +151,10 @@
     const [exts, setExts] = react.useState([]);
     const [extError, setExtError] = react.useState(null);
     const [catalogUrl, setCatalogUrl] = react.useState("");
+    const [extView, setExtView] = react.useState("tree");
+    const [treeOpen, setTreeOpen] = react.useState({});
+    const [extTreeData, setExtTreeData] = react.useState(null);
+    const [agentCmds, setAgentCmds] = react.useState([]);
     const KIND_SECTIONS = [
       { kind: "theme", label: "主题" },
       { kind: "grammar", label: "语法" },
@@ -155,7 +177,127 @@
       var _a3;
       return ((_a3 = KIND_SECTIONS.find((x) => x.kind === k)) == null ? void 0 : _a3.label) ?? k;
     };
-    const renderExtCard = (p) => {
+    const treeHeader = (id, glyph, title, sub, count) => {
+      const open = treeOpen[id] ?? false;
+      return /* @__PURE__ */ jsxRuntime.jsxs(
+        "div",
+        {
+          onClick: () => setTreeOpen((m) => ({ ...m, [id]: !open })),
+          style: { display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: 8, cursor: "pointer", background: "var(--c-hover)", fontSize: 12.5 },
+          children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { color: "var(--c-text3)", width: 12 }, children: open ? "▾" : "▸" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { children: glyph }),
+            /* @__PURE__ */ jsxRuntime.jsx("b", { children: title }),
+            sub,
+            count !== null && count > 0 && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
+              "· 挂载 ",
+              count
+            ] })
+          ]
+        }
+      );
+    };
+    const extMountTree = () => {
+      const pkgById = new Map(exts.map((p) => [p.id, p]));
+      const consumed = /* @__PURE__ */ new Set();
+      const cmdsByPkg = /* @__PURE__ */ new Map();
+      for (const c of agentCmds) {
+        const a = c.args ?? {};
+        const pid = c.packageId ?? "";
+        if (!pid) continue;
+        if (!cmdsByPkg.has(pid)) cmdsByPkg.set(pid, []);
+        cmdsByPkg.get(pid).push(`${pid.split(".").pop() ?? "pkg"}:${a.slash ?? c.id}`);
+      }
+      const AGENT_TIMELINE_SLOT = "tasks";
+      const tierLabel = (x) => x === "user" ? "用户包" : x === "builtin" ? "内置包" : "宿主";
+      const agentUI = (extTreeData == null ? void 0 : extTreeData.agentUI) ?? [];
+      const pageNodes = ((extTreeData == null ? void 0 : extTreeData.pages) ?? []).map((pg) => {
+        const provider = pg.packageId ? pkgById.get(pg.packageId) ?? null : null;
+        if (provider) consumed.add(provider.id);
+        const mountees = [];
+        for (const sh of pg.shadowed) {
+          const p2 = pkgById.get(sh.packageId);
+          if (p2) {
+            consumed.add(p2.id);
+            mountees.push({ pkg: p2, note: "页面提供者（替补 · 同槽位竞争落败）" });
+          }
+        }
+        if (pg.slot === AGENT_TIMELINE_SLOT) {
+          for (const r of agentUI) {
+            if (r.packageId === pg.packageId) continue;
+            const p2 = pkgById.get(r.packageId);
+            if (!p2) continue;
+            consumed.add(p2.id);
+            mountees.push({ pkg: p2, note: `挂载：时间线渲染器 ×${r.renderers} · 输入台 provider ×${r.providers}（${tierLabel(r.tier)}层）` });
+          }
+          for (const [pid, names] of cmdsByPkg) {
+            if (pid === pg.packageId) continue;
+            const p2 = pkgById.get(pid);
+            if (!p2) continue;
+            consumed.add(pid);
+            mountees.push({ pkg: p2, note: `挂载：会话命令 ×${names.length}（${names.map((n) => `/${n}`).join(" ")}）` });
+          }
+        }
+        const providerReg = agentUI.find((r) => r.packageId === pg.packageId) ?? null;
+        return { pg, provider, providerReg, mountees };
+      });
+      const knownKinds = new Set(KIND_SECTIONS.map((x) => x.kind));
+      const globalGroups = KIND_SECTIONS.map(({ kind, label }) => ({
+        key: kind,
+        label,
+        pkgs: exts.filter((p) => !consumed.has(p.id) && primaryKindOf(p) === kind).sort((a, b) => a.name.localeCompare(b.name))
+      })).filter((g) => g.pkgs.length > 0);
+      const otherGlobal = exts.filter((p) => !consumed.has(p.id) && !knownKinds.has(primaryKindOf(p)));
+      const globalCount = globalGroups.reduce((n, g) => n + g.pkgs.length, 0) + otherGlobal.length;
+      return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 6 }, children: [
+        pageNodes.map(({ pg, provider, providerReg, mountees }) => {
+          const title = pg.titleKey ? t(pg.titleKey) : pg.title ?? pg.slot;
+          return /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
+            treeHeader(`page:${pg.slot}`, "📄", title, /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint mono", children: pg.slot }),
+              !provider && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "（提供者未装载）" })
+            ] }), mountees.length),
+            (treeOpen[`page:${pg.slot}`] ?? mountees.length > 0) && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginLeft: 16, borderLeft: "2px solid var(--c-border)", paddingLeft: 12, paddingTop: 6, display: "flex", flexDirection: "column", gap: 8 }, children: [
+              provider && renderExtCard(provider, /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
+                "页面提供者",
+                pg.isBuiltIn ? " · 内置" : " · 用户包",
+                providerReg ? ` · 本页自举：渲染器 ×${providerReg.renderers} · 输入台 provider ×${providerReg.providers}` : ""
+              ] })),
+              mountees.map(({ pkg, note }, idx) => /* @__PURE__ */ jsxRuntime.jsx("div", { children: renderExtCard(pkg, /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: note })) }, `${pkg.id}:${idx}`))
+            ] })
+          ] }, pg.slot);
+        }),
+        globalCount > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
+          treeHeader("__global", "🌐", "全局（非页面级）", null, -1),
+          (treeOpen["__global"] ?? false) && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginLeft: 16, borderLeft: "2px solid var(--c-border)", paddingLeft: 12, paddingTop: 6, display: "flex", flexDirection: "column", gap: 8 }, children: [
+            globalGroups.map((g) => /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
+              /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }, children: [
+                g.label,
+                " ",
+                /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
+                  "（",
+                  g.pkgs.length,
+                  "）"
+                ] })
+              ] }),
+              g.pkgs.map((p) => renderExtCard(p))
+            ] }, g.key)),
+            otherGlobal.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
+              /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }, children: [
+                "其他 ",
+                /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
+                  "（",
+                  otherGlobal.length,
+                  "）"
+                ] })
+              ] }),
+              otherGlobal.map((p) => renderExtCard(p))
+            ] })
+          ] })
+        ] })
+      ] });
+    };
+    const renderExtCard = (p, extra) => {
       var _a3, _b2;
       const cfgValues = ((_b2 = (_a3 = s == null ? void 0 : s.packages) == null ? void 0 : _a3[p.id]) == null ? void 0 : _b2.config) ?? {} ?? {};
       return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }, children: [
@@ -218,6 +360,7 @@
           /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
           !p.isBuiltIn && p.state !== "error" && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void uninstallPkg(p), children: t("Extensions_Uninstall") })
         ] }),
+        extra && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { paddingLeft: 24, marginTop: -2 }, children: extra }),
         p.state === "active" && p.kindStates.configuration && p.configuration.map((item) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", paddingLeft: 24 }, children: [
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", style: { width: 140 }, children: item.title ?? item.key }),
           item.type === "boolean" ? /* @__PURE__ */ jsxRuntime.jsx(
@@ -282,15 +425,26 @@
     const [query, setQuery] = react.useState("");
     const [flash, setFlash] = react.useState(null);
     const flashTimer = react.useRef(null);
+    const pullExtTree = react.useCallback(() => {
+      try {
+        setExtTreeData(pageSdk.extTree());
+      } catch {
+      }
+    }, []);
+    react.useEffect(() => pageSdk.on("extensions.changed", () => pullExtTree()), [pullExtTree]);
     react.useEffect(() => {
       void call("themes.list").then(setThemes);
       void call("terminal.profiles").then(setProfiles);
       void call("app.gitVersion").then((v) => setGitVersion(v ?? t("Settings_GitNotFound")));
       void call("extensions.list").then(setExts);
+      void call("commands.list").then((cmds) => setAgentCmds(cmds.filter((c) => c.action === "agent.command"))).catch(() => {
+      });
+      pullExtTree();
       void loadModels();
-    }, [loadModels]);
+    }, [loadModels, pullExtTree]);
     const refreshExts = async (list) => {
       setExts(list);
+      pullExtTree();
       if (list.some((p) => p.kinds.includes("theme"))) {
         const fresh = await call("settings.get");
         applySettings(fresh);
@@ -426,7 +580,7 @@
     const Radio = (props) => /* @__PURE__ */ jsxRuntime.jsx("div", { className: "radio-group", children: props.options.map((o) => /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn" + (props.value === o.value ? " chosen" : ""), onClick: () => props.onChange(o.value), children: o.label }, o.value)) });
     const secCls = (id) => flash === id ? "settings-section flash" : "settings-section";
     const renderSection = (id) => {
-      var _a3, _b2;
+      var _a3, _b2, _c, _d;
       switch (id) {
         case "appearance":
           return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
@@ -849,7 +1003,94 @@
                   onChange: (v) => void patch({ agentsOnExit: v })
                 }
               )
-            ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: "上下文压缩" }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                Radio,
+                {
+                  value: s.agentsCompaction ?? "auto",
+                  options: [
+                    { value: "auto", label: "自动（80% 阈值）" },
+                    { value: "manual", label: "仅 /compact" },
+                    { value: "off", label: "关闭" }
+                  ],
+                  onChange: (v) => void patch({ agentsCompaction: v })
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: "压缩调参" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
+                "阈值",
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "input",
+                  {
+                    className: "input",
+                    style: { width: 70, marginLeft: 4 },
+                    type: "number",
+                    min: 50,
+                    max: 95,
+                    value: Math.round((((_c = s.agentsCompactionPolicy) == null ? void 0 : _c.threshold) ?? 0.8) * 100),
+                    onChange: (e) => {
+                      const v = Math.min(95, Math.max(50, Number(e.target.value) || 80)) / 100;
+                      void patch({ agentsCompactionPolicy: { ...s.agentsCompactionPolicy ?? {}, threshold: v } });
+                    }
+                  }
+                ),
+                "% · 保留最近",
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "input",
+                  {
+                    className: "input",
+                    style: { width: 70, marginLeft: 4 },
+                    type: "number",
+                    min: 4,
+                    max: 32,
+                    value: ((_d = s.agentsCompactionPolicy) == null ? void 0 : _d.keepLast) ?? 8,
+                    onChange: (e) => {
+                      const v = Math.min(32, Math.max(4, Number(e.target.value) || 8));
+                      void patch({ agentsCompactionPolicy: { ...s.agentsCompactionPolicy ?? {}, keepLast: v } });
+                    }
+                  }
+                ),
+                "条"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: "轮末钩子" }),
+              /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: s.agentsPostTurnHooks ?? true, onChange: (e) => void patch({ agentsPostTurnHooks: e.target.checked }) }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "插件 post-turn 钩子产物以 system-reminder 注入下一轮" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: "子代理并发上限" }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "input",
+                {
+                  className: "input",
+                  style: { width: 80 },
+                  type: "number",
+                  min: 1,
+                  max: 6,
+                  value: s.agentsMaxSubagents ?? 3,
+                  onChange: (e) => void patch({ agentsMaxSubagents: Math.max(1, Math.min(6, Number(e.target.value) || 3)) })
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: "MCP 工具入循环" }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "input",
+                {
+                  type: "checkbox",
+                  checked: s.agentsExternalMcpTools ?? false,
+                  onChange: (e) => void patch({ agentsExternalMcpTools: e.target.checked })
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "允许 agent 调用包声明的 MCP server 工具（每次调用都需授权确认）" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx(AgentRulesEditor, { rules: s.agentRules ?? [], onChange: (rules) => void patch({ agentRules: rules }) }),
+            /* @__PURE__ */ jsxRuntime.jsx(SeamsAuditView, {})
           ] }, id);
         case "mcp":
           return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
@@ -927,36 +1168,47 @@
                     }
                   )
                 ] }),
+                /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center", margin: "6px 0" }, children: [
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "视图" }),
+                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: extView === "tree" ? { borderColor: "var(--c-text)", color: "var(--c-text)" } : void 0, onClick: () => setExtView("tree"), children: "树状（按页面挂载）" }),
+                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: extView === "kind" ? { borderColor: "var(--c-text)", color: "var(--c-text)" } : void 0, onClick: () => setExtView("kind"), children: "类型分组" })
+                ] }),
                 exts.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Extensions_Empty") }),
-                KIND_SECTIONS.map(({ kind, label }) => {
-                  const group = exts.filter((p) => primaryKindOf(p) === kind).sort((a, b) => a.name.localeCompare(b.name));
-                  if (group.length === 0) return null;
-                  return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 10 }, children: [
-                    /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }, children: [
-                      label,
-                      " ",
-                      /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
-                        "（",
-                        group.length,
+                extView === "tree" ? (
+                  /* 插件挂载树：页面（槽位）→ 页面提供者 / 挂载其下的插件（agent UI 渲染器、
+                     输入台 provider、会话命令、同槽位替补）→ 贡献明细；非页面级包归入全局分支。 */
+                  extMountTree()
+                ) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                  KIND_SECTIONS.map(({ kind, label }) => {
+                    const group = exts.filter((p) => primaryKindOf(p) === kind).sort((a, b) => a.name.localeCompare(b.name));
+                    if (group.length === 0) return null;
+                    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 10 }, children: [
+                      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }, children: [
+                        label,
+                        " ",
+                        /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
+                          "（",
+                          group.length,
+                          "）"
+                        ] })
+                      ] }),
+                      group.map((p) => renderExtCard(p))
+                    ] }, kind);
+                  }),
+                  (() => {
+                    const known = new Set(KIND_SECTIONS.map((x) => x.kind));
+                    const others = exts.filter((p) => !known.has(primaryKindOf(p)));
+                    if (others.length === 0) return null;
+                    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 10 }, children: [
+                      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }, children: [
+                        "其他（",
+                        others.length,
                         "）"
-                      ] })
-                    ] }),
-                    group.map((p) => renderExtCard(p))
-                  ] }, kind);
-                }),
-                (() => {
-                  const known = new Set(KIND_SECTIONS.map((x) => x.kind));
-                  const others = exts.filter((p) => !known.has(primaryKindOf(p)));
-                  if (others.length === 0) return null;
-                  return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 10 }, children: [
-                    /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 600, fontSize: 12, margin: "4px 0 6px", color: "var(--c-text2)" }, children: [
-                      "其他（",
-                      others.length,
-                      "）"
-                    ] }),
-                    others.map((p) => renderExtCard(p))
-                  ] });
-                })()
+                      ] }),
+                      others.map((p) => renderExtCard(p))
+                    ] });
+                  })()
+                ] })
               ] })
             ] })
           ] }, id);
@@ -1016,6 +1268,99 @@
           ] })
         ] }),
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "settings-content", children: SECTIONS.filter((x) => x.cat === cat).map((x) => renderSection(x.id)) })
+      ] })
+    ] });
+  }
+  const AGENT_RULE_TOOLS = [
+    "terminal_run",
+    "terminal_poll",
+    "git_stage",
+    "git_commit",
+    "git_push",
+    "file_write",
+    "file_patch",
+    "task"
+  ];
+  function AgentRulesEditor(props) {
+    const { rules, onChange } = props;
+    const [tool, setTool] = react.useState("terminal_run");
+    const [pattern, setPattern] = react.useState("");
+    const [effect, setEffect] = react.useState("allow");
+    const add = () => {
+      const rule = {
+        id: `rule-${Date.now().toString(36)}`,
+        tool,
+        pattern: pattern.trim() ? pattern.trim() : null,
+        effect,
+        scope: "global",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      onChange([...rules, rule]);
+      setPattern("");
+    };
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", style: { alignItems: "flex-start" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsx("label", { style: { paddingTop: 4 }, children: "权限规则" }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 6, flex: 1 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", children: "deny 优先于 allow；pattern 为空 = 工具全量，否则为命令/参数前缀。agent 执行时先查本表，再走分级授权卡。" }),
+        rules.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", children: "（暂无规则）" }),
+        rules.map((r) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center", fontSize: 12 }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", style: { color: r.effect === "deny" ? "var(--c-red)" : "var(--c-green)", fontSize: 10.5 }, children: r.effect === "deny" ? "拒绝" : "允许" }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: r.tool }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "card-path", style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: r.pattern === null || r.pattern === "" ? "（全量）" : `前缀：${r.pattern}` }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => onChange(rules.filter((x) => x.id !== r.id)), children: "删除" })
+        ] }, r.id)),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("select", { className: "input", style: { width: 150 }, value: tool, onChange: (e) => setTool(e.target.value), children: AGENT_RULE_TOOLS.map((x) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: x, children: x }, x)) }),
+          /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "input", style: { width: 90 }, value: effect, onChange: (e) => setEffect(e.target.value), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("option", { value: "allow", children: "允许" }),
+            /* @__PURE__ */ jsxRuntime.jsx("option", { value: "deny", children: "拒绝" })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { flex: 1 }, placeholder: "前缀（空 = 工具全量），如 npm test", value: pattern, onChange: (e) => setPattern(e.target.value) }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", disabled: !!rules.find((r) => r.tool === tool && r.effect === effect && (r.pattern ?? "") === (pattern.trim() || null)), onClick: add, children: "添加" })
+        ] })
+      ] })
+    ] });
+  }
+  function SeamsAuditView() {
+    const { call: call2 } = pageSdk;
+    const [audit, setAudit] = react.useState(null);
+    const refresh = react.useCallback(() => {
+      void call2("agent.seams.audit").then(setAudit).catch(() => {
+      });
+    }, [call2]);
+    react.useEffect(() => {
+      refresh();
+      const iv = setInterval(refresh, 1e4);
+      return () => clearInterval(iv);
+    }, [refresh]);
+    if (!audit) return null;
+    const group = (items, label) => items.length > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 6 }, children: [
+      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "card-path", children: label }),
+      items.map((it) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 11.5, display: "flex", gap: 6 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: it.id }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "card-path", children: it.extra })
+      ] }, it.id))
+    ] }) : null;
+    return /* @__PURE__ */ jsxRuntime.jsxs("details", { className: "settings-row", style: { display: "block" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("summary", { className: "card-path", style: { cursor: "pointer" }, children: [
+        "贡献审计（段 ",
+        audit.sections.length,
+        " · 采集器 ",
+        audit.collectors.length,
+        " · 钩子 ",
+        audit.hooks.length,
+        " · 压缩器 ",
+        audit.compactors.length,
+        " · 子代理预设 ",
+        audit.presets.length,
+        "）"
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginTop: 8, border: "1px solid var(--c-border)", borderRadius: 8, padding: 10, maxHeight: 280, overflowY: "auto" }, children: [
+        group(audit.sections.map((x) => ({ id: x.id, extra: `${x.slot} · order ${x.order} · ${x.source}${x.chars ? ` · ${x.chars}字` : ""}` })), "提示词段"),
+        group(audit.collectors.map((x) => ({ id: x.id, extra: `order ${x.order} · ${x.tokenBudget} tokens · ${x.source}` })), "上下文采集器"),
+        group(audit.hooks.map((x) => ({ id: x.id, extra: `order ${x.order} · ${x.source}` })), "turn 钩子"),
+        group(audit.compactors.map((x) => ({ id: x.id, extra: x.source })), "压缩器"),
+        group(audit.presets.map((x) => ({ id: x.id, extra: `${x.readonly ? "只读" : "可写"} · ${x.tools ? x.tools.length + " 工具" : "全集"}` })), "子代理预设")
       ] })
     ] });
   }

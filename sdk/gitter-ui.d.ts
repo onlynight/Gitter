@@ -177,11 +177,34 @@ export interface SettingsDTO {
   /** Agent 宿主（agent-harness.md v3.0 §六）：托管 checkpoint 与退出策略 */
   agentsCheckpoint: boolean;
   agentsOnExit: "terminate" | "keep";
+  /** Agent 权限规则（agent-harness-v4.md F5.3） */
+  agentRules: AgentPermissionRuleDTO[];
+  /** 上下文压缩策略（F7） */
+  agentsCompaction: "auto" | "manual" | "off";
+  /** 压缩数据面调参（§20.3.3） */
+  agentsCompactionPolicy: { threshold?: number; keepLast?: number };
+  /** post-turn 钩子总开关（§20.3.6） */
+  agentsPostTurnHooks: boolean;
+  /** 子代理并发上限（F9） */
+  agentsMaxSubagents: number;
+  /** MCP 工具入 agent 循环（F12.4 信任门，默认关） */
+  agentsExternalMcpTools: boolean;
   /** 模型档案（task-model-modules.md §二） */
   models: UserModelProfileDTO[];
   defaultModelId: string | null;
   fastModelId: string | null;
   modelUsage: Record<string, { turns: number; inputTokens: number; outputTokens: number }>;
+}
+
+/** 持久授权规则（settings.agentRules；pattern null=工具全量，否则签名前缀）。 */
+export interface AgentPermissionRuleDTO {
+  id: string;
+  tool: string;
+  pattern: string | null;
+  effect: "allow" | "deny";
+  scope: "global" | "repo";
+  repoPath?: string | null;
+  createdAt: string;
 }
 
 /** 用户模型档案（settings.models[]；包模板实例化后同 fullId 遮蔽）。 */
@@ -328,11 +351,34 @@ export type AgentTaskDTO = {
   modelRef: string | null;
   taskType: string | null;
   thinking?: "off" | "low" | "medium" | "high";
+  permissionMode?: "plan" | "default" | "yolo";
+  todoState?: { content: string; status: "pending" | "in_progress" | "completed" }[] | null;
+  planHistory?: { ts: string; plan: string; decision: "approved" | "revised"; feedback?: string }[];
+  queued?: string[];
   archived: boolean;
 };
 
+export type AgentContextStatsDTO = {
+  estTokens: number;
+  contextWindow: number;
+  budget: number;
+  ratio: number;
+  breakdown: { system: number; messages: number; reserved: number };
+  compactions: number;
+};
+
+export type AgentPermissionPayloadDTO = {
+  kind: "command" | "git-stage" | "git-commit" | "git-push" | "mcp" | "plugin" | "restore";
+  paths?: string[];
+  diffStat?: string;
+  risk?: "high" | "medium" | null;
+  source?: string | null;
+};
+
 export type AgentEventDTO = {
-  type: "status" | "output" | "checkpoint" | "permission" | "question" | "completed" | "session-meta" | "file-change" | "turn-completed" | "log";
+  type:
+    | "status" | "output" | "checkpoint" | "permission" | "question" | "plan" | "completed"
+    | "session-meta" | "file-change" | "turn-completed" | "log" | "tool" | "todo" | "subtask";
   phase?: string;
   summary?: string;
   text?: string;
@@ -342,8 +388,13 @@ export type AgentEventDTO = {
   detail?: string;
   command?: string | null;
   requestId?: string;
+  toolName?: string;
   question?: string;
   options?: string[];
+  plan?: string;
+  todos?: { content: string; status: "pending" | "in_progress" | "completed" }[];
+  payload?: AgentPermissionPayloadDTO;
+  rememberable?: boolean;
   outcome?: "completed" | "failed" | "cancelled";
   exitCode?: number | null;
   externalSessionId?: string;
@@ -352,6 +403,31 @@ export type AgentEventDTO = {
   usage?: { input?: number; output?: number };
   lastMessage?: string;
   level?: "debug" | "info" | "warn" | "error";
+  // tool / subtask 事件
+  callId?: string;
+  name?: string;
+  args?: unknown;
+  result?: string;
+  durationMs?: number;
+  isError?: boolean;
+  source?: string | null;
+  subtaskId?: string;
+  state?: "running" | "completed" | "failed" | "timeout" | "cancelled";
+  finalMessage?: string;
+  mode?: string;
+};
+
+export type AgentTaskFileDTO = {
+  path: string;
+  kind: string;
+  added: number | null;
+  deleted: number | null;
+};
+
+export type AgentCheckpointDTO = {
+  sha: string;
+  summary: string;
+  date: string;
 };
 
 // ---- GITTER_UI 全局 API（宿主注入；外部页脚本直接使用，无需 import） ----
@@ -411,6 +487,15 @@ interface GITTER_UI_API {
   /** 任务聚焦信号（Log 会话卡 → TasksPage） */
   focusTask(taskId: string): void;
   clearTaskFocus(): void;
+  /** 扩展管理树快照（页面槽位 → 提供者/替补 + agent UI 注册；设置页"插件挂载树"消费） */
+  extTree(): {
+    pages: Array<{
+      slot: string; id: string; titleKey?: string; title?: string;
+      packageId: string | null; isBuiltIn: boolean; source: "builtin" | "package"; order: number;
+      shadowed: Array<{ packageId: string; isBuiltIn: boolean }>;
+    }>;
+    agentUI: Array<{ packageId: string; tier: "host" | "builtin" | "user"; renderers: number; providers: number }>;
+  };
   /** 宿主活状态快照（配合 subscribeState 组装 useSyncExternalStore） */
   getState(): AppStateSnapshot;
   /** 订阅宿主状态变化（setState 即触发；返回退订函数） */

@@ -152,14 +152,14 @@ body {
 /* ---- 按钮（近单色三态：默认描边 / primary 反白 / danger 红） ---- */
 .tool-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  background: transparent; border: 1px solid var(--c-border-strong); border-radius: var(--radius);
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius);
   color: var(--c-text); font-family: inherit; font-size: 12px;
   padding: 0 12px; height: 28px; cursor: pointer; white-space: nowrap;
   transition: background var(--dur-fast) var(--ease-std), border-color var(--dur-fast) var(--ease-std),
               color var(--dur-fast) var(--ease-std), transform var(--dur-fast) var(--ease-std),
               opacity var(--dur-fast) var(--ease-std);
 }
-.tool-btn:hover:not(:disabled) { background: var(--c-hover); border-color: var(--c-border-strong); }
+.tool-btn:hover:not(:disabled) { background: var(--c-hover); }
 .tool-btn:active:not(:disabled) { transform: scale(.98); }
 .tool-btn:disabled { color: var(--c-text3); border-color: var(--c-border); cursor: default; opacity: .6; }
 .tool-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--c-link) 60%, transparent); outline-offset: 1px; }
@@ -490,8 +490,9 @@ body {
 .md-body pre { background: var(--c-hover); border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: 8px 10px; overflow-x: auto; margin: 6px 0; }
 .md-body pre code { background: transparent; border: none; padding: 0; font-size: 11.5px; }
 .md-body blockquote { margin: 6px 0; padding: 2px 10px; border-left: 3px solid var(--c-border-strong); color: var(--c-text2); }
-.md-body table { border-collapse: collapse; margin: 6px 0; font-size: 11.5px; }
+.md-body table { border-collapse: collapse; margin: 6px 0; font-size: 11.5px; max-width: 100%; }
 .md-body th, .md-body td { border: 1px solid var(--c-border); padding: 3px 8px; }
+.md-body img { max-width: 100%; }
 .md-body th { background: var(--c-hover); }
 .md-body a, .md-link { color: var(--c-link); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .md-body hr { border: none; border-top: 1px solid var(--c-border); margin: 8px 0; }
@@ -527,8 +528,8 @@ input[type="checkbox"]:checked, input[type="checkbox"]:indeterminate {
   background: var(--c-text); border-color: var(--c-text);
 }
 input[type="checkbox"]:checked::after {
-  content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px;
-  border: solid var(--c-base); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg);
+  content: ""; position: absolute; left: 4.5px; top: 1.5px; width: 3.5px; height: 7.5px;
+  border: solid var(--c-base); border-width: 0 1px 1px 0; transform: rotate(45deg);
 }
 input[type="checkbox"]:indeterminate::after {
   content: ""; position: absolute; left: 3px; top: 5.5px; width: 6px; height: 1.5px; background: var(--c-base);
