@@ -14,6 +14,7 @@ web/node_modules/
 web/dist/
 app/node_modules/
 app/dist/
+app/release*
 
 # 内置页面包 gitui.page.log 与 *.log 全局规则冲突——整包例外（丢包 = 新 clone 缺 Log 页）
 !app/resources/packages/gitui.page.log/
