@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { DiffView, Modal, renderMarkdown, Select } from "../kit";
 import type {
   AgentCheckpointDTO, AgentContextStatsDTO, AgentEventDTO, AgentHarnessDTO, AgentTaskDTO,
@@ -9,10 +9,11 @@ import {
   registerAgentUI, resolveTimelineRenderer, composerProviders, useAgentUIVersion,
   type TimelineRendererDef, type ComposerMentionProviderDef, type TimelineCardCtx,
 } from "../external/agentUIShim";
+import { TlIcon, toolIconName, type TlIconName } from "./taskIcons";
 // 任务页 v3（docs/task-page-v2-design.md）：Codex 信息架构（任务卡列表 + 对话/改动/检查点三独立页）
 // × ZCode 交互（⏺ 工具卡折叠/⎿ 结果、编号授权选项、todo 清单、Esc/Esc×2、Shift+Tab 模式循环、
 // 上下文条、发送/停止合一图标按钮）。页签为全局导航，改动/检查点为完全独立页（无对话元素）。
-const { call, on: onEvent, t, openSettings, openRepo } = pageSdk;
+const { call, on: onEvent, t, openSettings } = pageSdk;
 
 const LIVE_STATES = new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
 const BUSY_STATES = new Set(["starting", "working", "awaiting-permission"]);
@@ -21,6 +22,12 @@ const MODE_META: Record<string, { label: string; color: string }> = {
   plan: { label: "◇ 规划", color: "var(--c-chip-purple-fg, #b490ff)" },
   default: { label: "● 默认", color: "var(--c-text3)" },
   yolo: { label: "⚡ Yolo", color: "var(--c-red)" },
+};
+const THINKING_META: Record<"off" | "low" | "medium" | "high", { label: string; hint: string }> = {
+  off: { label: "思考·关", hint: "跳过推理，响应最快" },
+  low: { label: "思考·低", hint: "轻量推理，适合明确指令" },
+  medium: { label: "思考·中", hint: "平衡推理与速度（默认）" },
+  high: { label: "思考·高", hint: "深度推理，适合复杂设计" },
 };
 
 const TOOL_LABELS: Record<string, string> = {
@@ -47,6 +54,9 @@ const BUILTIN_SLASH: { name: string; arg?: string; hint: string; template?: stri
   { name: "fork", hint: "分叉任务" },
   { name: "skill", arg: "<名称>", hint: "注入技能指引" },
   { name: "export", hint: "导出会话为 Markdown 文件" },
+  { name: "cp", hint: "立即创建检查点" },
+  { name: "diff", hint: "查看当前改动" },
+  { name: "attach", hint: "附加图片（随下条消息发送）" },
   // 模板命令（D3/D4）：与包命令同一分发语义（busy 排队 / idle 续跑，零新增 RPC）
   { name: "review", hint: "审查当前工作区改动（review 子代理）",
     template: "请用 task 工具（mode=review）审查当前工作区改动：先 repo_status / repo_diff 获取变更，逐文件审查正确性、边界条件与测试影响，产出问题清单（文件:行号 + 高/中/低 + 修复建议），最后给出可合并结论。${input}" },
@@ -61,7 +71,7 @@ type Todo = { content: string; status: "pending" | "in_progress" | "completed" }
 type Block =
   | { kind: "human"; text: string }
   | { kind: "assistant"; text: string; merge: boolean }
-  | { kind: "status"; text: string }
+  | { kind: "status"; text: string; phase?: string }
   | { kind: "tool"; callId: string; name: string; args?: unknown; state: "running" | "ok" | "error"; result?: string; durationMs?: number; source?: string | null; tail?: string; startTs: number }
   | { kind: "permission"; requestId: string; toolName: string; title: string; command?: string | null; payload?: AgentEventDTO["payload"]; rememberable?: boolean }
   | { kind: "question"; requestId: string; question: string; options: string[] }
@@ -110,7 +120,7 @@ function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
 
   switch (ev.type) {
     case "status":
-      return pushCap(blocks, { kind: "status", text: `${ev.phase ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}` });
+      return pushCap(blocks, { kind: "status", text: `${ev.phase ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.phase });
     case "output":
       if (ev.stream === "assistant") {
         const last = blocks[blocks.length - 1];
@@ -201,6 +211,37 @@ function permOptions(b: Extract<Block, { kind: "permission" }>, showFullAccess =
   return opts;
 }
 
+/** 错误浮层（对话页顶部状态条下方 / 新任务页顶部居中）：默认单行省略，超长时出现「展开」按钮查看全文；
+ * go 可选——带「去设置」类跳转按钮（如视觉能力报错直达 模型档案 设置分区）。 */
+function ErrorFloat(props: { text: string; maxWidth: number | string; go?: { label: string; section: string } | null; onGo?: (section: string) => void; onClose: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const textRef = useRef<HTMLSpanElement | null>(null);
+  // 换新错误时回到折叠态，并按当前宽度重测是否被截断
+  useEffect(() => {
+    setOpen(false);
+    const el = textRef.current;
+    setTruncated(!!el && el.scrollWidth > el.clientWidth + 1);
+  }, [props.text]);
+  return (
+    <div className="banner error" style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 30, margin: 0, maxWidth: props.maxWidth, boxShadow: "0 8px 20px color-mix(in srgb, #000 25%, transparent)" }}>
+      <span ref={textRef} className="banner-text"
+        style={open ? { whiteSpace: "normal", wordBreak: "break-word", maxHeight: "40vh", overflowY: "auto", userSelect: "text" } : undefined}>
+        {props.text}
+      </span>
+      {(truncated || open) && (
+        <button className="tool-btn" style={{ flex: "none" }} onClick={() => setOpen((v) => !v)}>{open ? "收起" : "展开"}</button>
+      )}
+      {props.go && props.onGo && (
+        <button className="tool-btn" title={`打开设置 · ${props.go.section}`}
+          style={{ flex: "none", color: "var(--c-link)", textDecoration: "underline", textUnderlineOffset: 2 }}
+          onClick={() => props.onGo!(props.go!.section)}>{props.go.label}</button>
+      )}
+      <button className="tool-btn" style={{ flex: "none" }} onClick={props.onClose}>✕</button>
+    </div>
+  );
+}
+
 function AgentImage(props: { taskId: string; path: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -224,13 +265,24 @@ function MentionPopover(props: {
   mention: { start: number; prefix: string; query: string } | null;
   items: { label: string; insert: string }[];
   onPick: (insert: string) => void;
+  selectedIndex: number;
+  onSelect: (idx: number) => void;
 }) {
-  const { mention, items, onPick } = props;
+  const { mention, items, onPick, onSelect } = props;
   if (!mention || items.length === 0) return null;
+  const sel = Math.max(0, Math.min(props.selectedIndex, items.length - 1));
   return (
     <div className="mention-pop" style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 180, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }}>
-      {items.map((it) => (
-        <div key={it.label} style={{ padding: "4px 10px", fontSize: 12, cursor: "pointer" }} onMouseDown={(e) => { e.preventDefault(); onPick(it.insert); }}>
+      {items.map((it, i) => (
+        <div key={it.label}
+          ref={(el) => { if (el && i === sel) el.scrollIntoView({ block: "nearest" }); }}
+          style={{
+            padding: "4px 10px", fontSize: 12, cursor: "pointer", borderRadius: 6,
+            background: i === sel ? "var(--c-selected)" : "transparent",
+            color: i === sel ? "var(--c-text)" : "var(--c-text2)",
+          }}
+          onMouseEnter={() => onSelect(i)}
+          onMouseDown={(e) => { e.preventDefault(); onPick(it.insert); }}>
           {it.label}
         </div>
       ))}
@@ -238,7 +290,37 @@ function MentionPopover(props: {
   );
 }
 
-/** ⏺ 工具卡（ZCode 形态：默认折叠一行，⎿ 结果缩进一行；点击展开完整；terminal 运行中 tail 4 行） */
+/** 斜杠命令弹出层（输入 / 后自动出现，过滤匹配的命令列表）。 */
+function SlashPopover(props: {
+  open: boolean;
+  items: { name: string; hint: string; insert: string }[];
+  onPick: (insert: string) => void;
+  selectedIndex: number;
+  onSelect: (idx: number) => void;
+}) {
+  if (!props.open || props.items.length === 0) return null;
+  const sel = Math.max(0, Math.min(props.selectedIndex, props.items.length - 1));
+  return (
+    <div className="mention-pop" style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 240, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }}>
+      {props.items.map((it, i) => (
+        <div key={it.name}
+          ref={(el) => { if (el && i === sel) el.scrollIntoView({ block: "nearest" }); }}
+          style={{
+            padding: "5px 10px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderRadius: 6,
+            background: i === sel ? "var(--c-selected)" : "transparent",
+          }}
+          onMouseEnter={() => props.onSelect(i)}
+          onMouseDown={(e) => { e.preventDefault(); props.onPick(it.insert); }}>
+          <span style={{ fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontWeight: 600, flex: "none" }}>{it.name}</span>
+          <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{it.hint}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** ⏺ 工具卡（ZCode 形态：默认折叠一行，⎿ 结果缩进一行；点击展开完整；terminal 运行中 tail 4 行）。
+ * 行首图标按工具类别区分（taskIcons），颜色随状态：运行琥珀脉冲 / 成功绿 / 失败红。 */
 function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
   const [open, setOpen] = useState(false);
   const label = TOOL_LABELS[b.name] ?? b.name;
@@ -259,7 +341,7 @@ function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
   return (
     <div style={{ fontFamily: "var(--mono, monospace)", fontSize: 12.5 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "2px 4px", borderRadius: 6 }} onClick={() => setOpen(!open)}>
-        <span style={{ color: glyphColor }}>⏺</span>
+        <TlIcon name={toolIconName(b.name)} color={glyphColor} className={b.state === "running" ? "tl-pulse" : undefined} />
         <span style={{ fontWeight: 700 }}>{label}</span>
         <span style={{ color: "var(--c-text3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{argSummary}</span>
         {b.source ? <span style={{ fontSize: 9.5, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px", color: "var(--c-text3)" }}>{b.source}</span> : null}
@@ -283,20 +365,431 @@ function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
   );
 }
 
+/** 计划任务列表（ZCode TodoList 形态）：头部显示进度，点击整行折叠/展开。
+ * 展开动画 = height: 0 ↔ 内容实测高度（px）。grid-template-rows 的 fr/max-content
+ * 关键字不是长度，浏览器无法在两者间插值，视觉上是瞬切；height 的 px 一定能逐帧插值。
+ * 过渡结束后把 height 归位到 auto，让后续条目增删、换行、字号变化都能自适应，不残留固定高度。
+ * todo 事件每次都会替换掉历史条目（reducer 只留最新一份），
+ * 所以状态推进时卡片原地刷新，不会在时间线里堆积重复清单。 */
 function TodoList({ todos }: { todos: Todo[] }) {
   const done = todos.filter((x) => x.status === "completed").length;
+  const running = todos.some((x) => x.status === "in_progress");
+  const allDone = todos.length > 0 && done === todos.length;
+  const [open, setOpen] = useState(() => !allDone);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
+  // 状态变化驱动默认展开态：全部完成收起（不占屏），有进行中项自动展开
+  useEffect(() => {
+    if (allDone) setOpen(false);
+    else if (running) setOpen(true);
+  }, [allDone, running]);
+  // 展开/收起动画：实测 inner 内容高度 → 写入 body.style.height（CSS 负责过渡曲线）
+  // 条目数量或文案变化时（如 todo_write 更新）重算一次，避免固定高度卡住新内容
+  useEffect(() => {
+    const body = bodyRef.current;
+    const inner = innerRef.current;
+    if (!body || !inner) return;
+    if (!openRef.current) { body.style.height = "0px"; return; }
+    body.style.height = `${inner.scrollHeight}px`;
+    const settle = () => {
+      if (openRef.current) body.style.height = "auto";
+      body.removeEventListener("transitionend", settle);
+    };
+    body.addEventListener("transitionend", settle);
+  }, [open, todos]);
+  const pct = todos.length > 0 ? Math.round((done / todos.length) * 100) : 0;
+  const title = allDone ? "全部完成" : running ? "进行中" : "等待中";
   return (
-    <div style={{ border: "1px solid var(--c-border)", borderRadius: 10, padding: "8px 12px", maxWidth: 620 }}>
-      <div style={{ color: "var(--c-text3)", fontSize: 11, marginBottom: 4 }}>任务清单 · {done}/{todos.length}</div>
-      {todos.map((td, i) => (
-        <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 12.5, color: td.status === "completed" ? "var(--c-text3)" : td.status === "in_progress" ? "var(--c-text)" : "var(--c-text3)" }}>
-          <span className="mono">{td.status === "completed" ? "☑" : td.status === "in_progress" ? "◉" : "☐"}</span>
-          <span style={{ textDecoration: td.status === "completed" ? "line-through" : undefined, fontWeight: td.status === "in_progress" ? 600 : 400 }}>{td.content}</span>
+    <div className="todo-card">
+      <div className="todo-head" onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} aria-expanded={open}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => !o); } }}>
+        <TlIcon name="chevron-right" size={11} className={"todo-chev" + (open ? " open" : "")} />
+        <TlIcon name="plan" size={12} color={allDone ? "var(--c-green)" : running ? "var(--c-amber)" : "var(--c-text3)"} />
+        <span style={{ fontWeight: 700 }}>{title}</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span className="todo-progress"><i style={{ width: `${pct}%` }} /></span>
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>{done}/{todos.length}</span>
+        </span>
+        {running && <span className="tl-pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--c-amber)", marginLeft: "auto" }} />}
+      </div>
+      <div ref={bodyRef} className="todo-body">
+        <div ref={innerRef} className="todo-inner">
+          {todos.map((td, i) => (
+            <div key={i} className={"todo-item" + (td.status === "completed" ? " done" : td.status === "in_progress" ? " cur" : "")}>
+              <TlIcon name={td.status === "completed" ? "check-circle" : td.status === "in_progress" ? "circle-dot" : "circle"}
+                color={td.status === "completed" ? "var(--c-green)" : td.status === "in_progress" ? "var(--c-amber)" : "var(--c-text3)"}
+                className={td.status === "in_progress" ? "tl-pulse" : undefined} />
+              <span style={{ flex: 1, minWidth: 0, fontWeight: td.status === "in_progress" ? 600 : 400 }}>{td.content}</span>
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
     </div>
   );
 }
+
+/** 模型选择两级数据：一级 = 供应商（用户分组/包档案），二级 = 组内具体模型。 */
+interface ModelGroupVM {
+  id: string;
+  name: string;
+  hint?: string;
+  members: { id: string; name: string; sub?: string }[];
+}
+
+/** composer 底部工具条弹出菜单（ZCode 形态）：向上展开，点击外部/Esc 收起。
+ * open 为 null 表示关闭；动画由 .comp-pop.open 的 opacity+transform 过渡负责。 */
+function CompPopover(props: {
+  open: boolean;
+  anchor: "left" | "right";
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // 动态高度：向上展开的弹层按「视口顶 → 弹层底」的可用空间收顶（上限 320px），内容超高内部滚动
+  const [maxH, setMaxH] = useState<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!props.open) { setMaxH(undefined); return; }
+    const measure = () => {
+      const el = ref.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setMaxH(Math.max(160, Math.min(320, r.bottom - 12)));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [props.open]);
+  useEffect(() => {
+    if (!props.open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) props.onClose();
+    };
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); props.onClose(); } };
+    document.addEventListener("mousedown", h);
+    document.addEventListener("keydown", k);
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("keydown", k); };
+  }, [props.open, props.onClose]);
+  return (
+    <div ref={ref} className={"comp-pop" + (props.open ? " open" : "") + (props.anchor === "right" ? " right" : "")}
+      style={{ maxHeight: maxH, overflowY: maxH !== undefined ? "auto" : undefined }} aria-hidden={!props.open}>
+      {props.children}
+    </div>
+  );
+}
+
+/** 工具条单条菜单项：当前项打勾，其余行只给背景反馈 */
+function CompOption(props: {
+  icon?: TlIconName;
+  color?: string;
+  name: string;
+  sub?: string;
+  on: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  const { icon, color, name, sub, on, disabled, onSelect } = props;
+  return (
+    <div className={"comp-opt" + (on ? " on" : "") + (disabled ? "" : "")}
+      style={disabled ? { opacity: 0.45, cursor: "default" } : undefined}
+      onClick={() => { if (!disabled) onSelect(); }}>
+      {icon ? <TlIcon name={icon} size={13} color={color} /> : <span style={{ width: 13, flex: "none" }} />}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="comp-opt-name">{name}</div>
+        {sub ? <div className="comp-opt-sub">{sub}</div> : null}
+      </div>
+      {on && <TlIcon name="check-circle" size={13} className="comp-check" color="var(--c-green)" />}
+    </div>
+  );
+}
+
+/** 任务页底部 composer（ZCode 中央输入框形态）——对话与新任务两处共用同一套工具条。
+ * 工具条：+ 附件 / 访问控制（审批模式）/ 模型 / 思考深度 / 上下文用量 / 发送·停止。
+ * 四个下拉均为真实功能入口（写回 agent.task.setMode / setModel / 续跑切换思考深度 / 上下文明细）。
+ * forwardRef：React ≤18 不把 ref 作为 prop 传函数组件，自动增高与外部 focus 都依赖它。 */
+type ComposerProps = {
+  value: string;
+  onChange: (v: string) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  placeholder: string;
+  minH?: number;
+  maxH: number;
+  autoFocus?: boolean;
+  busy: boolean;
+  sending: boolean;
+  canSend: boolean;
+  sendTitle: string;
+  onStop: () => void;
+  onSend: () => void;
+  mode: "plan" | "default" | "yolo";
+  onMode: (m: "plan" | "default" | "yolo") => void;
+  modeDisabled?: boolean;
+  modeLabel: string;
+  /** 两级模型选择：一级供应商（用户分组/包档案），二级组内具体模型 */
+  groups: ModelGroupVM[];
+  model: string;
+  onModel: (id: string) => void;
+  modelDisabled?: boolean;
+  thinking: "off" | "low" | "medium" | "high";
+  onThinking: (v: "off" | "low" | "medium" | "high") => void;
+  stats: AgentContextStatsDTO | null;
+  attachments?: { name: string; dataUrl: string; onRemove: () => void }[];
+  attachmentHint?: string;
+  onAttachImage: () => void;
+  slash?: { name: string; hint: string; insert: string }[];
+  onPickSlash: (insert: string) => void;
+  children?: ReactNode;
+};
+
+const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function Composer(props, ref) {
+  const { value, onChange, onKeyDown, placeholder, maxH } = props;
+  const [open, setOpen] = useState<"" | "plus" | "mode" | "model" | "think" | "stats">("");
+  const toggle = (k: typeof open) => setOpen((o) => (o === k ? "" : k));
+  // 两级模型选择：modelNav = 当前二级面板的供应商分组 id（"" = 一级列表；面板收起即复位）
+  const [modelNav, setModelNav] = useState("");
+  useEffect(() => { if (open !== "model") setModelNav(""); }, [open]);
+  // 自动增高：随内容长高，封顶后内部滚动；清空自动回落
+  useEffect(() => {
+    const el = typeof ref === "function" ? null : ref?.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, maxH) + "px";
+  }, [value, maxH]);
+  const pick = <T,>(v: T, set: (x: T) => void) => { set(v); setOpen(""); };
+
+  // 当前选中项定位（跨分组找叶节点）：组名 · 模型名（单模型组只显示模型名）
+  const curHit = (() => {
+    for (const g of props.groups) {
+      const mem = g.members.find((x) => x.id === props.model);
+      if (mem) return { g, mem };
+    }
+    return null;
+  })();
+
+  const s = props.stats;
+  const pct = s ? Math.round(s.ratio * 100) : 0;
+  const pctColor = s ? (pct > 92 ? "var(--c-red)" : pct > 80 ? "var(--c-amber)" : "var(--c-text3)") : "var(--c-text3)";
+  const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k` : `${n}`);
+
+  return (
+    <div className="composer-box" style={{ position: "relative" }}>
+      {props.attachments && props.attachments.length > 0 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+          {props.attachments.map((img, i) => (
+            <div key={`${img.name}:${i}`} style={{ position: "relative" }}>
+              <img src={img.dataUrl} alt={img.name} style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" }} />
+              <button className="tool-btn" title="移除" style={{ position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 }} onClick={img.onRemove}>✕</button>
+            </div>
+          ))}
+          {props.attachmentHint ? <span className="hint" style={{ alignSelf: "center" }}>{props.attachmentHint}</span> : null}
+        </div>
+      )}
+      {props.children}
+      <textarea
+        ref={ref}
+        className="composer-input"
+        rows={1}
+        autoFocus={props.autoFocus}
+        style={{ minHeight: props.minH ?? 24 }}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onPaste={(e) => {
+          const files = [...e.clipboardData.files];
+          if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); props.onAttachImage(); }
+        }}
+        onDrop={(e) => {
+          const files = [...e.dataTransfer.files];
+          if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); props.onAttachImage(); }
+        }}
+        onKeyDown={onKeyDown}
+      />
+      <div className="comp-bar">
+        {/* + 附件：图片选择器 + 内置斜杠命令快速注入 */}
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <button className="comp-item" title="附加附件 / 命令" aria-haspopup="menu" aria-expanded={open === "plus"}
+            style={{ padding: "0 7px" }} onClick={() => toggle("plus")}>
+            <TlIcon name="plus" size={14} />
+          </button>
+          <CompPopover open={open === "plus"} anchor="left" onClose={() => setOpen("")}>
+            <div className="comp-pop-head">附件</div>
+            <div className="comp-opt" onClick={() => { props.onAttachImage(); setOpen(""); }}>
+              <TlIcon name="file" size={13} color="var(--c-text2)" />
+              <span className="comp-opt-name">添加图片</span>
+              <span className="comp-opt-sub">最多 4 张 · 4MB</span>
+            </div>
+            {props.slash && props.slash.length > 0 && (
+              <>
+                <div className="comp-pop-sep" />
+                <div className="comp-pop-head">命令（插入输入框）</div>
+                {props.slash.slice(0, 14).map((c) => (
+                  <div key={c.name} className="comp-opt" onClick={() => { props.onPickSlash?.(c.insert); setOpen(""); }}>
+                    <span style={{ fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontSize: 12 }}>{c.name}</span>
+                    <span className="comp-opt-sub">{c.hint}</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </CompPopover>
+        </span>
+
+        {/* 访问控制：审批模式（规划 / 默认 / Yolo） */}
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <button className="comp-item" title="访问控制（Shift+Tab 循环）" aria-haspopup="menu" aria-expanded={open === "mode"}
+            onClick={() => toggle("mode")} disabled={props.modeDisabled}>
+            {props.mode === "yolo" ? <TlIcon name="bolt" size={13} color="var(--c-red)" />
+              : props.mode === "plan" ? <TlIcon name="plan" size={13} color="var(--c-chip-purple-fg, #b490ff)" />
+                : <TlIcon name="shield" size={13} color="var(--c-text2)" />}
+            <span className="comp-label">{props.modeLabel}</span>
+            <TlIcon name="chevron-down" size={10} className={"comp-chev" + (open === "mode" ? " open" : "")} />
+          </button>
+          <CompPopover open={open === "mode"} anchor="left" onClose={() => setOpen("")}>
+            <div className="comp-pop-head">访问控制</div>
+            {(MODE_ORDER as ("plan" | "default" | "yolo")[]).map((m) => (
+              <CompOption key={m} on={props.mode === m} onSelect={() => pick(m, props.onMode)}
+                icon={m === "yolo" ? "bolt" : m === "plan" ? "plan" : "shield"}
+                color={MODE_META[m].color}
+                name={MODE_META[m].label.replace(/^[●◆◇⚡]\s*/, "")}
+                sub={m === "plan" ? "只读调研，出计划待批准" : m === "yolo" ? "全部放行，高危除外" : "写操作逐条授权"} />
+            ))}
+          </CompPopover>
+        </span>
+
+        {/* 模型 */}
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <button className="comp-item" title="模型档案" aria-haspopup="menu" aria-expanded={open === "model"}
+            onClick={() => toggle("model")} disabled={props.modelDisabled}>
+            <TlIcon name="bot" size={13} color="var(--c-text2)" />
+            <span className="comp-label">{curHit
+              ? (curHit.g.members.length > 1 ? `${curHit.g.name} · ${curHit.mem.name}` : curHit.mem.name)
+              : (props.model || "默认模型")}</span>
+            <TlIcon name="chevron-down" size={10} className={"comp-chev" + (open === "model" ? " open" : "")} />
+          </button>
+          <CompPopover open={open === "model"} anchor="left" onClose={() => setOpen("")}>
+            {modelNav ? (() => {
+              // 二级面板：具体模型列表（头部返回一级供应商列表）
+              const g = props.groups.find((x) => x.id === modelNav);
+              if (!g) return null;
+              return (
+                <>
+                  <div className="comp-opt comp-group" role="button" tabIndex={0} aria-label={g.name}
+                    onClick={() => setModelNav("")}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setModelNav(""); } }}>
+                    <TlIcon name="chevron-right" size={11} style={{ transform: "rotate(180deg)" }} color="var(--c-text3)" />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="comp-opt-name">{g.name}</div>
+                      {g.hint ? <div className="comp-opt-sub">{g.hint}</div> : null}
+                    </div>
+                    <span className="comp-count">{g.members.length}</span>
+                  </div>
+                  {g.members.map((mem) => (
+                    <CompOption key={mem.id} on={mem.id === props.model} onSelect={() => pick(mem.id, props.onModel)}
+                      name={mem.name} sub={mem.sub} />
+                  ))}
+                </>
+              );
+            })() : (
+              // 一级面板：供应商列表；单模型档案直接选中，多模型进入二级
+              <>
+                <div className="comp-pop-head">模型</div>
+                {props.groups.map((g) => {
+                  if (g.members.length > 1) {
+                    return (
+                      <div key={g.id} className="comp-opt comp-group" role="button" tabIndex={0}
+                        aria-haspopup="menu" aria-label={g.name}
+                        onClick={() => setModelNav(g.id)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setModelNav(g.id); } }}>
+                        <TlIcon name="bot" size={13} color="var(--c-text2)" />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="comp-opt-name">{g.name}</div>
+                          {g.hint ? <div className="comp-opt-sub">{g.hint}</div> : null}
+                        </div>
+                        <span className="comp-count">{g.members.length}</span>
+                        <TlIcon name="chevron-right" size={10} color="var(--c-text3)" />
+                      </div>
+                    );
+                  }
+                  const mem = g.members[0];
+                  return (
+                    <CompOption key={g.id} on={mem.id === props.model} onSelect={() => pick(mem.id, props.onModel)}
+                      icon="bot" color="var(--c-text2)" name={g.name} sub={g.hint ?? mem.sub} />
+                  );
+                })}
+              </>
+            )}
+          </CompPopover>
+        </span>
+
+        {/* 思考深度 */}
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <button className="comp-item" title="思考深度" aria-haspopup="menu" aria-expanded={open === "think"} onClick={() => toggle("think")}>
+            <TlIcon name="gear" size={13} color="var(--c-text2)" />
+            <span className="comp-label">{THINKING_META[props.thinking].label}</span>
+            <TlIcon name="chevron-down" size={10} className={"comp-chev" + (open === "think" ? " open" : "")} />
+          </button>
+          <CompPopover open={open === "think"} anchor="left" onClose={() => setOpen("")}>
+            <div className="comp-pop-head">思考深度</div>
+            {(["off", "low", "medium", "high"] as const).map((v) => (
+              <CompOption key={v} on={v === props.thinking} onSelect={() => pick(v, props.onThinking)}
+                icon="sparkle" color={v === "off" ? "var(--c-text3)" : "var(--c-amber)"}
+                name={THINKING_META[v].label} sub={THINKING_META[v].hint} />
+            ))}
+          </CompPopover>
+        </span>
+
+        <span style={{ flex: 1 }} />
+        <button className="comp-send" title={props.sendTitle} disabled={!props.canSend && !props.busy} onClick={() => (props.busy ? props.onStop() : props.onSend())}>
+          <TlIcon name={props.busy ? "stop" : "send"} size={13} />
+        </button>
+      </div>
+      {/* 统计栏（DeepSeek 式）：上下文容量 / token 用量 / 速度 / 缓存命中率，点击展开明细。
+          新任务页与空会话（无消息、无用量记录）不显示整栏——避免一排「—」和多余分割线。 */}
+      {s && (s.estTokens > 0 || s.totalInput != null) && (
+      <span style={{ position: "relative", display: "block" }}>
+        <button type="button" className="comp-stats" title="用量明细" aria-haspopup="menu" aria-expanded={open === "stats"} onClick={() => toggle("stats")}>
+          <span className="comp-stats-bar"><i style={{ width: `${Math.min(100, pct)}%`, background: pctColor }} /></span>
+          <span className="comp-stats-item">上下文 <b>{s ? `${fmtK(s.estTokens)} / ${fmtK(s.contextWindow)}` : "—"}</b>{s ? ` · ${pct}%` : ""}</span>
+          <span className="comp-stats-item">输入 <b>{s?.totalInput != null ? fmtK(s.totalInput) : "—"}</b></span>
+          <span className="comp-stats-item">输出 <b>{s?.totalOutput != null ? fmtK(s.totalOutput) : "—"}</b></span>
+          <span className="comp-stats-item"><b>{s?.tokPerSec != null ? `${s.tokPerSec} tok/s` : "—"}</b></span>
+          <span className="comp-stats-item">缓存 <b>{s?.cacheHitRate != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—"}</b></span>
+          <TlIcon name="chevron-down" size={10} className={"comp-chev" + (open === "stats" ? " open" : "")} />
+        </button>
+        <CompPopover open={open === "stats"} anchor="right" onClose={() => setOpen("")}>
+          <div className="comp-pop-head">用量明细</div>
+          {s ? (
+            <>
+              <div className="comp-ctx-row"><span>上下文窗口</span><b>{fmtK(s.contextWindow)} · {pct}%</b></div>
+              <div className="comp-ctx-row"><span>系统提示</span><b>{Math.round(s.breakdown.system)} tok</b></div>
+              <div className="comp-ctx-row"><span>历史消息</span><b>{Math.round(s.breakdown.messages)} tok</b></div>
+              <div className="comp-ctx-row"><span>预留输出</span><b>{Math.round(s.breakdown.reserved)} tok</b></div>
+              <div className="comp-pop-sep" />
+              <div className="comp-ctx-row"><span>剩余预算</span><b>{fmtK(s.budget)}</b></div>
+              <div className="comp-ctx-row"><span>累计输入</span><b>{s.totalInput != null ? `${s.totalInput.toLocaleString()} tok` : "—"}</b></div>
+              <div className="comp-ctx-row"><span>累计输出</span><b>{s.totalOutput != null ? `${s.totalOutput.toLocaleString()} tok` : "—"}</b></div>
+              <div className="comp-ctx-row"><span>最近一轮输出</span><b>{s.lastOutput != null ? `${s.lastOutput.toLocaleString()} tok` : "—"}</b></div>
+              <div className="comp-ctx-row"><span>生成速度</span><b>{s.tokPerSec != null ? `${s.tokPerSec} tok/s` : "—"}</b></div>
+              <div className="comp-ctx-row"><span>缓存命中率</span><b>{s.cacheHitRate != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—"}</b></div>
+              {s.compactions > 0 && <div className="comp-ctx-row"><span>已自动压缩</span><b>{s.compactions} 次</b></div>}
+              {pct > 80 && (
+                <div style={{ padding: "2px 9px 6px", fontSize: 11, color: "var(--c-amber)" }}>
+                  已接近上限，建议 /compact 压缩历史
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ padding: "2px 9px 8px", fontSize: 11, color: "var(--c-text3)" }}>
+              发送首条消息后开始统计
+            </div>
+          )}
+        </CompPopover>
+      </span>
+      )}
+    </div>
+  );
+});
+
 
 /** 授权卡（ZCode 编号选项：❯ 当前项，↑↓+Enter+数字直选） */
 function PermissionCard(props: {
@@ -317,10 +810,11 @@ function PermissionCard(props: {
   const options = permOptions(b, props.showFullAccess);
   return (
     <div style={{ border: `1px solid ${decided ? "var(--c-border)" : "var(--c-amber)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }}>
-      <div style={{ color: decided ? "var(--c-text3)" : "var(--c-amber)", fontWeight: 700, marginBottom: 4 }}>
-        ◈ 授权请求 · {kindLabel[kind] ?? kind}
-        {b.payload?.source ? <span style={{ fontSize: 10, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px", marginLeft: 8 }}>{b.payload.source}</span> : null}
-        {b.payload?.risk && <span style={{ color: b.payload.risk === "high" ? "var(--c-red)" : "var(--c-amber)", float: "right", fontWeight: 700 }}>■ {b.payload.risk === "high" ? "高危" : "注意"}</span>}
+      <div style={{ color: decided ? "var(--c-text3)" : "var(--c-amber)", fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+        <TlIcon name="shield" size={13} />
+        <span>授权请求 · {kindLabel[kind] ?? kind}</span>
+        {b.payload?.source ? <span style={{ fontSize: 10, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px" }}>{b.payload.source}</span> : null}
+        {b.payload?.risk && <span style={{ color: b.payload.risk === "high" ? "var(--c-red)" : "var(--c-amber)", marginLeft: "auto", fontWeight: 700 }}>■ {b.payload.risk === "high" ? "高危" : "注意"}</span>}
       </div>
       {b.command && <div style={{ fontFamily: "var(--mono, monospace)", fontSize: 12, background: "var(--c-panel)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "6px 10px", margin: "4px 0", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{b.command}</div>}
       {b.payload?.paths && b.payload.paths.length > 0 && (
@@ -364,7 +858,10 @@ function QuestionCard(props: {
   const [text, setText] = useState("");
   return (
     <div style={{ border: `2px dashed ${decided ? "var(--c-border)" : "var(--c-accent)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }}>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>? {b.question}</div>
+      <div style={{ fontWeight: 600, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+        <TlIcon name="chat" size={13} color="var(--c-accent)" />
+        <span>{b.question}</span>
+      </div>
       {decided ? (
         <div style={{ fontSize: 11.5, color: "var(--c-text3)" }}>已回答：{decided}</div>
       ) : (
@@ -397,7 +894,10 @@ function PlanCard(props: {
   const [text, setText] = useState("");
   return (
     <div style={{ border: `1px solid ${decided ? "var(--c-border)" : "var(--c-chip-purple-fg, #b490ff)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 720, opacity: decided ? 0.75 : 1 }}>
-      <div style={{ color: "var(--c-chip-purple-fg, #b490ff)", fontWeight: 700, marginBottom: 6 }}>◇ 执行计划{decided ? (decided === "ok" ? " · 已批准" : " · 需修订") : ""}</div>
+      <div style={{ color: "var(--c-chip-purple-fg, #b490ff)", fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+        <TlIcon name="plan" size={13} />
+        <span>执行计划{decided ? (decided === "ok" ? " · 已批准" : " · 需修订") : ""}</span>
+      </div>
       <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(b.plan) }} />
       {decided ? null : (
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -425,7 +925,7 @@ function SubtaskBlock({ b, ctx }: { b: Extract<Block, { kind: "subtask" }>; ctx?
   return (
     <div style={{ border: "1px solid var(--c-border)", borderRadius: 10, padding: "6px 10px", minWidth: 0 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", flexWrap: "wrap" }} onClick={() => setOpen(!open)}>
-        <span style={{ color: stateColor }}>{b.state === "running" ? "◐" : "▣"}</span>
+        <TlIcon name="bot" size={14} color={stateColor} className={b.state === "running" ? "tl-pulse" : undefined} />
         <b style={{ fontSize: 12.5 }}>{b.name || "子代理"}</b>
         <span style={{ fontSize: 10.5, color: stateColor, border: `1px solid ${stateColor}`, borderRadius: 4, padding: "0 4px" }}>{b.mode} · {b.state}</span>
         {b.durationMs !== undefined ? <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{Math.round(b.durationMs / 100) / 10}s</span> : null}
@@ -470,10 +970,12 @@ const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
     blockKind: "human",
     render: ({ block }) => {
       const b = block as Extract<Block, { kind: "human" }>;
+      // 对话形式：用户消息靠右圆角气泡（ZCode 形态），上下留宽间距
       return (
-        <div style={{ borderLeft: "1px solid var(--c-green)", padding: "5px 12px", background: "rgba(126,231,135,.05)", borderRadius: "0 8px 8px 0", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          <div style={{ color: "var(--c-green)", fontSize: 11, marginBottom: 2 }}>▸ 你</div>
-          {b.text}
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }}>
+          <div style={{ maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }}>
+            {b.text}
+          </div>
         </div>
       );
     },
@@ -489,9 +991,10 @@ const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
     blockKind: "status",
     render: ({ block }) => {
       const b = block as Extract<Block, { kind: "status" }>;
+      const icon = b.phase === "thinking" ? "sparkle" : b.phase === "editing" ? "pencil" : "dot";
       return (
-        <div style={{ fontSize: 11.5, color: "var(--c-text3)" }}>
-          <span className="mono" style={{ marginRight: 6 }}>●</span>{b.text}
+        <div style={{ fontSize: 11.5, color: "var(--c-text3)", display: "flex", alignItems: "center", gap: 6 }}>
+          <TlIcon name={icon} size={12} className={b.phase === "thinking" ? "tl-pulse" : undefined} />{b.text}
         </div>
       );
     },
@@ -506,7 +1009,7 @@ const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
       const b = block as Extract<Block, { kind: "checkpoint" }>;
       return (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 12, fontFamily: "var(--mono, monospace)" }}>
-          <span style={{ color: "var(--c-text)" }}>✔</span><span>cp {b.sha.slice(0, 8)}</span>
+          <TlIcon name="check-circle" size={13} color="var(--c-text)" /><span>cp {b.sha.slice(0, 8)}</span>
           <span style={{ color: "var(--c-text)", fontFamily: "inherit", overflowWrap: "anywhere" }}>{b.summary}</span>
           <span style={{ fontSize: 10.5 }}>· Esc×2 可回滚</span>
         </div>
@@ -546,8 +1049,10 @@ const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
     render: ({ block, ctx }) => {
       const b = block as Extract<Block, { kind: "turn" }>;
       return (
-        <div style={{ color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)", display: "flex", gap: 14, flexWrap: "wrap" }}>
-          <span>⎡ {b.text}</span>
+        <div style={{ color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <TlIcon name="usage" size={12} />{b.text}
+          </span>
           {b.usage ? <span>{(((b.usage.input ?? 0) + (b.usage.output ?? 0)) / 1000).toFixed(1)}k tokens（{b.usage.input ?? "?"} in / {b.usage.output ?? "?"} out）</span> : null}
           {ctx?.contextPct ? <span>context {ctx.contextPct}</span> : null}
         </div>
@@ -559,8 +1064,8 @@ const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
     render: ({ block }) => {
       const b = block as Extract<Block, { kind: "log" }>;
       return (
-        <div style={{ fontSize: 11, color: b.level === "error" ? "var(--c-red)" : b.level === "warn" ? "var(--c-amber)" : "var(--c-text3)", overflowWrap: "anywhere" }}>
-          <span className="mono" style={{ marginRight: 6 }}>·</span>{b.text}
+        <div style={{ fontSize: 11, color: b.level === "error" ? "var(--c-red)" : b.level === "warn" ? "var(--c-amber)" : "var(--c-text3)", overflowWrap: "anywhere", display: "flex", alignItems: "center", gap: 6 }}>
+          <TlIcon name="dot" size={8} />{b.text}
         </div>
       );
     },
@@ -602,6 +1107,18 @@ export function TasksPage() {
   const [modelId, setModelId] = useState("");
   const [mode, setMode] = useState<"plan" | "default" | "yolo">("default");
   const [tab, setTab] = useState<"chat" | "diff" | "cp">("chat");
+  // 切回对话页：恢复离开时的滚动位置（面板保持挂载，无需重新加载历史）
+  useEffect(() => {
+    if (tab !== "chat") return;
+    requestAnimationFrame(() => {
+      const el = timelineRef.current;
+      if (!el) return;
+      const saved = lastChatScrollRef.current;
+      if (saved != null) { el.scrollTop = saved; lastChatScrollRef.current = null; }
+      else scrollTimelineToBottom(false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
   const [evMap, setEvMap] = useState<Record<string, Block[]>>({});
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [focusTaskId, consumeTaskFocus] = useTaskFocus();
@@ -611,15 +1128,64 @@ export function TasksPage() {
     consumeTaskFocus();
   }, [focusTaskId]);
   const [error, setError] = useState<string | null>(null);
+  // 「去设置」跳转：仅与 setConfigError 设置的那条错误配对（普通 setError 不带跳转）
+  const [errorGo, setErrorGo] = useState<{ label: string; section: string } | null>(null);
+  const errorGoFor = useRef<string | null>(null);
+  const setConfigError = (text: string, label: string, section: string) => {
+    errorGoFor.current = text;
+    setErrorGo({ label, section });
+    setError(text);
+  };
+  useEffect(() => {
+    if (error !== errorGoFor.current) setErrorGo(null);
+  }, [error]);
   const [inputText, setInputText] = useState("");
   const [composeText, setComposeText] = useState("");
-  const [thinking, setThinking] = useState<"off" | "low" | "medium" | "high">("medium");
+  // 思考深度：跟随所选模型的档案默认值（添加模型时配置；分组按实际成员取），任务打开时用其持久值
+  const defaultProfile = modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
+  /** 模型引用 → 分组主条目（成员引用 `分组id#模型id` 归到所属分组卡片）。 */
+  const resolveRefProfile = (ref: string | null | undefined): ModelProfileDTO | undefined => {
+    if (!ref) return undefined;
+    const gid = ref.split("#")[0];
+    return modelProfiles.find((m) => m.id === ref) ?? modelProfiles.find((m) => m.id === gid);
+  };
+  /** 模型引用 → 该成员的视觉能力（成员可与首成员不同，D1 门控按实际选中成员判定）。 */
+  const resolveRefVision = (ref: string | null | undefined): boolean => {
+    const profile = resolveRefProfile(ref);
+    if (!profile) return false;
+    const gid = profile.groupId;
+    if (ref && ref.startsWith(`${gid}#`) && profile.groupModels) {
+      const mem = profile.groupModels.find((g) => g.modelId === ref.slice(gid.length + 1));
+      if (mem) return mem.vision;
+    }
+    return profile.capabilities.vision ?? false;
+  };
+  /** 模型引用 → 该成员的默认思考深度（选择/切换模型时带入）。 */
+  const resolveRefThinking = (ref: string | null | undefined): "off" | "low" | "medium" | "high" => {
+    const profile = resolveRefProfile(ref);
+    if (!profile) return "medium";
+    const gid = profile.groupId;
+    if (ref && ref.startsWith(`${gid}#`) && profile.groupModels) {
+      const mem = profile.groupModels.find((g) => g.modelId === ref.slice(gid.length + 1));
+      if (mem) return mem.thinking;
+    }
+    return profile.thinking ?? "medium";
+  };
+  const [thinking, setThinking] = useState<"off" | "low" | "medium" | "high">(defaultProfile?.thinking ?? "medium");
+  // 新建任务：模型未显式指定时跟随设置里的默认模型（含具体成员），切换选择即带入其思考深度
+  useEffect(() => {
+    if (!selectedTask) setThinking(resolveRefThinking(modelId || app.settings?.defaultModelId || defaultProfile?.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelId, modelProfiles]);
   const [sending, setSending] = useState(false);
   const [decided, setDecided] = useState<Record<string, string>>({});
   const [stats, setStats] = useState<AgentContextStatsDTO | null>(null);
   const [changesTick, setChangesTick] = useState(0);
   const [mention, setMention] = useState<{ start: number; prefix: string; query: string } | null>(null);
   const [mentionItems, setMentionItems] = useState<{ label: string; insert: string }[]>([]);
+  const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  const [slashSel, setSlashSel] = useState(0);
+  const [mentionSel, setMentionSel] = useState(0);
   const [pkgCommands, setPkgCommands] = useState<{ name: string; template: string; packageId: string }[]>([]);
   const [permSel, setPermSel] = useState<Record<string, number>>({});
   const [maxSubagents, setMaxSubagents] = useState(3);
@@ -657,24 +1223,70 @@ export function TasksPage() {
   }, [selectedTask]);
   const [cpCount, setCpCount] = useState(0);
   const [diffCount, setDiffCount] = useState(0);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  // 最近一次时间线滚动位置：切改动/检查点后切回对话时恢复，避免回顶
+  const lastChatScrollRef = useRef<number | null>(null);
+  // 稳定引用：onScroll 回调通过 ref 调用 loadOlder，避免闭包依赖
+  const loadOlderRef = useRef<(() => void) | null>(null);
+  // 距底超过 80px 才显示「返回底部」浮钮：滚轮微动不闪烁，接近底部即隐藏
+  const onTimelineScroll = useCallback(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const away = el.scrollHeight - el.scrollTop - el.clientHeight > 80;
+    setAwayFromBottom((v) => (v === away ? v : away));
+    // 持续记录滚动位置：切改动/检查点再切回时恢复（面板保持挂载，不重载）
+    lastChatScrollRef.current = el.scrollTop;
+    // 距顶 < 160px 触发加载更早；由 loadOlder 内部的 guard 去重
+    if (el.scrollTop < 160) void loadOlderRef.current?.();
+  }, []);
   const replied = useRef(new Set<string>());
   const inputHistory = useRef<string[]>([]);
   const historyIdx = useRef(-1);
   const escTs = useRef(0);
   const oldestTs = useRef<string | null>(null);
+  const composeRef = useRef<HTMLTextAreaElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  // composer 自动增高由 Composer 组件内部按 minH/maxH props 处理（此处旧的重复 effect 会覆盖组件内高度）
   const [, forceTick] = useState(0);
   // agent UI 注册表版本订阅：包热插拔（用户包注册/卸载渲染器、provider）时时间线重渲染
   useAgentUIVersion();
   // 模块级自举错过注入窗口时（宿主内置组件语境）由组件体补注册（幂等）
   registerBuiltinAgentUI();
 
-  const scrollTimelineToBottom = useCallback(() => {
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+  const scrollTimelineToBottom = useCallback((smooth?: boolean) => {
+    const doScroll = () => {
       const el = timelineRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    }));
+      if (!el) return;
+      if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      else el.scrollTop = el.scrollHeight;
+      // 程序化设置 scrollTop 不一定触发 scroll 事件（尤其 IAB/Playwright），
+      // 显式同步浮钮状态，避免「已到底部但按钮仍在」
+      setAwayFromBottom(false);
+    };
+    // 立即滚一次（覆盖点击当时的状态），再在下一帧滚一次吸收新增 DOM 布局
+    doScroll();
+    requestAnimationFrame(doScroll);
   }, []);
+
+  // 新任务（按钮 / Ctrl+N）：回到新任务 composer 并聚焦输入框。
+  // 快捷键在 window 上监听、随本页卸载清理——仅任务页挂载期间生效，其他页面不受影响。
+  const startNewTask = useCallback(() => {
+    setSelectedTask(null);
+    setTab("chat");
+    requestAnimationFrame(() => requestAnimationFrame(() => composeRef.current?.focus()));
+  }, []);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "n" || e.key === "N")) {
+        e.preventDefault();
+        startNewTask();
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [startNewTask]);
 
   const reloadWorktrees = useCallback(async () => {
     if (!repo) return;
@@ -732,6 +1344,7 @@ export function TasksPage() {
   );
 
   const selected = agentTasks?.find((x) => x.taskId === selectedTask) ?? null;
+  const runningCount = (agentTasks ?? []).filter((x) => LIVE_STATES.has(x.state)).length;
 
   // 运行中工具 + 子代理计数 + 上下文用量
   const runningTool = (() => {
@@ -779,7 +1392,7 @@ export function TasksPage() {
     if ((evMap[selectedTask] ?? []).length > 0) return;
     let cancelled = false;
     void call<{ events: { ts: string; actor: "human" | "agent" | "host"; kind: "text" | "event"; text?: string; event?: AgentEventDTO }[]; hasMore?: boolean }>(
-      "agent.task.history", { taskId: selectedTask, limit: 300 },
+      "agent.task.history", { taskId: selectedTask, limit: 100 },
     )
       .then((h) => {
         if (cancelled) return;
@@ -795,19 +1408,41 @@ export function TasksPage() {
 
   const loadOlder = async () => {
     if (!selectedTask || loadingOlder || !oldestTs.current) return;
+    const el = timelineRef.current;
     setLoadingOlder(true);
+    // 记录加载前的位置，加载完成后按新增高度补偿 scrollTop，视角停在原来那条消息上
+    const prevScrollHeight = el?.scrollHeight ?? 0;
+    const prevScrollTop = el?.scrollTop ?? 0;
     try {
       const h = await call<{ events: { ts: string; actor: "human" | "agent" | "host"; kind: "text" | "event"; text?: string; event?: AgentEventDTO }[]; hasMore?: boolean }>(
-        "agent.task.history", { taskId: selectedTask, before: oldestTs.current, limit: 200 },
+        "agent.task.history", { taskId: selectedTask, before: oldestTs.current, limit: 100 },
       );
       const older = eventsToBlocks(h.events);
       if (h.events[0]?.ts) oldestTs.current = h.events[0].ts;
       setHasMoreHistory(!!h.hasMore);
-      if (older.length > 0) setEvMap((m) => ({ ...m, [selectedTask]: [...older, ...(m[selectedTask] ?? [])] }));
+      if (older.length > 0) {
+        // 预置抑制位：evMap 变更后触发的自动滚底 effect 会跳过一次
+        skippingAutoScroll.current = true;
+        setEvMap((m) => ({ ...m, [selectedTask]: [...older, ...(m[selectedTask] ?? [])] }));
+        // 下一帧 DOM 提交后补偿滚动位置
+        requestAnimationFrame(() => {
+          const e2 = timelineRef.current;
+          if (!e2) return;
+          const delta = e2.scrollHeight - prevScrollHeight;
+          if (delta > 0) e2.scrollTop = prevScrollTop + delta;
+        });
+      }
     } catch (e) { setError((e as Error).message); } finally { setLoadingOlder(false); }
   };
+  // 稳定引用：onScroll 回调通过 ref 调用 loadOlder，避免闭包依赖
+  loadOlderRef.current = loadOlder;
+  // 上滚加载更早时置位，抑制「回填后自动滚底」副作用（loadOlder 内已按新增高度补偿 scrollTop）
+  const skippingAutoScroll = useRef(false);
 
-  useEffect(() => { scrollTimelineToBottom(); }, [evMap, selectedTask, scrollTimelineToBottom]);
+  useEffect(() => {
+    if (skippingAutoScroll.current) { skippingAutoScroll.current = false; return; }
+    scrollTimelineToBottom();
+  }, [evMap, selectedTask, scrollTimelineToBottom]);
 
   // Esc：一次=中断；500ms 内两次=打开检查点页（ZCode rewind）
   useEffect(() => {
@@ -911,19 +1546,12 @@ export function TasksPage() {
     return () => window.removeEventListener("keydown", h);
   }, [cycleMode]);
 
-  const open = (w: WorktreeDTO) => void openRepo(w.path);
-
   if (!repo) {
     return <div className="empty-state"><div className="big">🗂</div>{t("Common_NoProjectSelected")}</div>;
   }
 
   const timeline = selectedTask ? evMap[selectedTask] ?? [] : [];
   const modelInfo = harnesses?.[0]?.detect;
-  const todoProgress = (tk: AgentTaskDTO) => {
-    const todos = tk.todoState ?? [];
-    if (todos.length === 0) return null;
-    return `☑${todos.filter((x) => x.status === "completed").length}/${todos.length}`;
-  };
 
   const replyAnswer = async (requestId: string, answer?: string, optionIndex?: number) => {
     setDecided((d) => ({ ...d, [requestId]: answer ?? `#${(optionIndex ?? 0) + 1}` }));
@@ -964,6 +1592,9 @@ export function TasksPage() {
           }
           if (name === "compact") await call("agent.task.compact", { taskId: selected.taskId });
           else if (name === "clear") await call("agent.task.clear", { taskId: selected.taskId });
+          else if (name === "cp") await call("agent.task.checkpoint", { taskId: selected.taskId, summary: arg || "手动检查点（/cp）" });
+          else if (name === "diff") { setTab("diff"); setInputText(""); return; }
+          else if (name === "attach") { imageInputRef.current?.click(); setInputText(""); return; }
           else if (name === "plan" || name === "default" || name === "yolo" || name === "approvals") {
             const m = name === "approvals" ? MODE_ORDER[(MODE_ORDER.indexOf(selected.permissionMode ?? "default") + 1) % MODE_ORDER.length] : name;
             await call("agent.task.setMode", { taskId: selected.taskId, mode: m });
@@ -975,8 +1606,8 @@ export function TasksPage() {
           } else if (name === "thinking") {
             const v = arg as "off" | "low" | "medium" | "high";
             if (["off", "low", "medium", "high"].includes(v)) {
+              // 仅记录本地配置，不打断/唤醒 agent；下次发送消息时随 resume 生效
               setThinking(v);
-              if (!BUSY_STATES.has(selected.state)) await call("agent.task.resume", { taskId: selected.taskId, prompt: `（思考深度切换为 ${v}，继续当前任务）`, thinking: v, mode });
             } else setError("/thinking 用法：/thinking off|low|medium|high");
           } else if (name === "fork") {
             const forked = await call<AgentTaskDTO>("agent.task.fork", { taskId: selected.taskId, model: arg || undefined });
@@ -1007,7 +1638,7 @@ export function TasksPage() {
     }
 
     if (pendingImages.length > 0 && !visionOk) {
-      setError("当前模型档案未声明视觉（vision）能力，无法发送图片——请在 设置 → 模型档案 勾选「视觉」");
+      setConfigError("当前模型档案未声明视觉（vision）能力，无法发送图片——请在 设置 → 模型档案 勾选「视觉」", "去设置", "models");
       return;
     }
     inputHistory.current = [text, ...inputHistory.current.filter((x) => x !== text)].slice(0, 20);
@@ -1032,12 +1663,19 @@ export function TasksPage() {
 
   const createFromCompose = async () => {
     if (!composeText.trim() || sending) return;
+    // 新任务页的斜杠命令：/attach 是纯 UI 动作可直接执行；其余命令需要具体任务上下文
+    if (composeText.trim().startsWith("/")) {
+      const cmd = composeText.trim().split(/\s+/)[0].slice(1);
+      if (cmd === "attach") { imageInputRef.current?.click(); setComposeText(""); return; }
+      setError(`命令 /${cmd} 需在具体任务的对话中使用（新任务页仅支持 /attach）`);
+      return;
+    }
     setSending(true);
     try {
       if (pendingImages.length > 0) {
-        const chosen = modelProfiles.find((m) => m.id === modelId) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
-        if (chosen?.capabilities?.vision !== true) {
-          setError("所选模型档案未声明视觉（vision）能力，无法带图创建任务");
+        const chosenRef = modelId || modelProfiles.find((m) => m.isDefault)?.id;
+        if (!resolveRefVision(chosenRef)) {
+          setConfigError("所选模型档案未声明视觉（vision）能力，无法带图创建任务——请在 设置 → 模型档案 勾选「视觉」", "去设置", "models");
           return;
         }
       }
@@ -1058,6 +1696,23 @@ export function TasksPage() {
     try { await call("agent.task.stop", { taskId }); await reloadAgents(); } catch (e) { setError((e as Error).message); }
   };
 
+  // 任务卡右侧操作（列表极简化后仅存的两个动作）：分叉 = 复制历史到新 worktree；归档 = 从列表隐藏
+  const forkTask = async (taskId: string) => {
+    try {
+      const forked = await call<AgentTaskDTO>("agent.task.fork", { taskId });
+      await reloadAgents();
+      setSelectedTask(forked.taskId);
+      setTab("chat");
+    } catch (e) { setError((e as Error).message); }
+  };
+  const archiveTask = async (taskId: string) => {
+    try {
+      await call("agent.task.archive", { taskId, archived: true });
+      if (selectedTask === taskId) setSelectedTask(null);
+      await reloadAgents();
+    } catch (e) { setError((e as Error).message); }
+  };
+
   const setTaskMode = async (taskId: string, m: string) => {
     try { await call("agent.task.setMode", { taskId, mode: m }); await reloadAgents(); } catch (e) { setError((e as Error).message); }
   };
@@ -1068,6 +1723,15 @@ export function TasksPage() {
     const el = document.activeElement as HTMLTextAreaElement | null;
     const caret = el?.selectionStart ?? value.length;
     const before = value.slice(0, caret);
+    // 斜杠命令：检测 / 前缀，过滤匹配的命令
+    const slashM = /(^|\s)\/([\w-]*)$/.exec(before);
+    if (slashM) {
+      setSlashQuery(slashM[2]);
+      setSlashSel(0);
+      setMention(null);
+      return;
+    }
+    setSlashQuery(null);
     // 长前缀优先匹配（@ 与 @issue 并存时 @issue 先试）
     const providers = [...composerProviders()].sort((a, b) => b.prefix.length - a.prefix.length);
     if (providers.length === 0) { setMention(null); return; }
@@ -1077,6 +1741,7 @@ export function TasksPage() {
     const prefix = m[2];
     const query = m[3];
     setMention({ start: caret - query.length, prefix, query });
+    setMentionSel(0);
     const provider = providers.find((x) => x.prefix === prefix);
     if (!provider) { setMentionItems([]); return; }
     void Promise.resolve(provider.source(query).catch(() => []))
@@ -1099,6 +1764,70 @@ export function TasksPage() {
     setMention(null);
   };
 
+  // 斜杠命令插入：替换光标前的 /query 片段并收起弹出层
+  const pickSlash = (insert: string, setText: (v: string) => void, current: string) => {
+    const el = document.activeElement as HTMLTextAreaElement | null;
+    const caret = el?.selectionStart ?? current.length;
+    const before = current.slice(0, caret);
+    const m = /(^|\s)\/[\w-]*$/.exec(before);
+    setText(m ? current.slice(0, caret - m[0].length + m[1].length) + (insert || "") + " " : current);
+    setSlashQuery(null);
+  };
+  // 弹出层（斜杠命令 / @提及）打开时接管方向键与 Enter：上下选择、Enter 确认、Esc 关闭，不移动输入框光标
+  const navKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, text: string, setText: (v: string) => void): boolean => {
+    const matches = slashQuery !== null
+      ? slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8)
+      : [];
+    if (matches.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setSlashSel((s) => (s + 1) % matches.length); return true; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setSlashSel((s) => (s - 1 + matches.length) % matches.length); return true; }
+      if (e.key === "Enter") { e.preventDefault(); pickSlash(matches[Math.min(slashSel, matches.length - 1)].insert, setText, text); return true; }
+      if (e.key === "Escape") { e.stopPropagation(); setSlashQuery(null); return true; }
+    } else if (mention && mentionItems.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setMentionSel((s) => (s + 1) % mentionItems.length); return true; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setMentionSel((s) => (s - 1 + mentionItems.length) % mentionItems.length); return true; }
+      if (e.key === "Enter") { e.preventDefault(); insertMention(mentionItems[Math.min(mentionSel, mentionItems.length - 1)].insert, setText, text); return true; }
+      if (e.key === "Escape") { e.stopPropagation(); setMention(null); return true; }
+    }
+    return false;
+  };
+
+  // 聊天/新任务 composer 共用键盘处理：Enter 发送，Shift+Enter 换行，Shift+Tab 切模式
+  const chatKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (navKeyDown(e, inputText, setInputText)) return;
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendInput(); return; }
+    if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); setMode((m) => MODE_ORDER[(MODE_ORDER.indexOf(m) + 1) % MODE_ORDER.length]); return; }
+  };
+  const composeKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (navKeyDown(e, composeText, setComposeText)) return;
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void createFromCompose(); return; }
+    if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); setMode((m) => MODE_ORDER[(MODE_ORDER.indexOf(m) + 1) % MODE_ORDER.length]); return; }
+  };
+
+  // 可选模型两级化：一级供应商（用户分组/包档案），二级组内具体模型（与设置页 models.list 同源）
+  const fmtCtx = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`);
+  const modelGroups: ModelGroupVM[] = (modelProfiles ?? []).filter((m) => m.configured).map((m) => ({
+    id: m.id,
+    name: m.name,
+    hint: m.isDefault ? "默认" : m.source === "package" ? "包" : undefined,
+    members: (m.groupModels && m.groupModels.length > 1)
+      ? m.groupModels.map((g, i) => ({
+          // 首成员复用分组 id（与后端约定一致），其余 `<分组id>#<模型id>`
+          id: i === 0 ? m.id : `${m.groupId}#${g.modelId}`,
+          name: g.modelId,
+          sub: [g.vision ? "视觉" : null, g.contextTokens ? `${fmtCtx(g.contextTokens)} ctx` : null].filter(Boolean).join(" · ") || undefined,
+        }))
+      : [{ id: m.id, name: m.modelId }],
+  }));
+
+  // 斜杠命令：内置 / 唤起 + 已安装包注册的命令
+  // 补全列表与分发表同一数据源（§20.3.8）：BUILTIN_SLASH + 包命令，避免两表漂移
+  const slashItems = (() => {
+    const list: { name: string; hint: string; insert: string }[] = BUILTIN_SLASH.map((c) => ({ name: `/${c.name}`, hint: c.hint, insert: `/${c.name}` }));
+    for (const c of pkgCommands) list.push({ name: `/${c.name}`, hint: c.packageId, insert: `/${c.name}` });
+    return list;
+  })();
+
   // 时间线块渲染（§20.3.7）：裁决面交互卡（授权/提问/计划）硬接线不开放替换；
   // 其余展示块经 agentUIRegistry 解析——用户包 > 内置包 > 宿主缺省，工具精确 > 前缀 > blockKind。
   const renderBlock = (b: Block, key: string | number): ReactNode => {
@@ -1109,6 +1838,9 @@ export function TasksPage() {
         return <QuestionCard key={key} b={b} decided={decided[b.requestId]} onAnswer={replyAnswer} />;
       case "plan":
         return <PlanCard key={key} b={b} decided={decided[b.requestId]} onPlan={replyPlan} />;
+      case "todo":
+        // todo 清单以右上角悬浮态展示，不占用时间线版面
+        return null;
       default:
         break;
     }
@@ -1124,6 +1856,7 @@ export function TasksPage() {
     return <Fragment key={key}>{renderer.render({ block: b, taskId: ctx.taskId ?? "", ctx })}</Fragment>;
   };
 
+  // 任务列表极简卡：状态点 + 标题一行；操作收敛为右侧 分叉/归档 图标按钮（运行中禁用）
   const agentCard = (task: AgentTaskDTO) => {
     const live = LIVE_STATES.has(task.state);
     const selectedNow = selectedTask === task.taskId;
@@ -1131,37 +1864,40 @@ export function TasksPage() {
     const working = task.state === "working" || task.state === "starting";
     return (
       <div key={task.taskId} onClick={() => { setSelectedTask(selectedNow ? null : task.taskId); setTab("chat"); setThinking(task.thinking ?? "medium"); setMode(task.permissionMode ?? "default"); }}
-        style={{ border: `1px solid ${selectedNow ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 10, padding: "8px 11px", cursor: "pointer", background: "var(--c-panel)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, opacity: working ? 1 : 0.85 }} />
-          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5, fontWeight: 600 }}>{task.title}</span>
-        </div>
-        <div style={{ color: "var(--c-text3)", fontSize: 11, marginTop: 3, display: "flex", gap: 8 }}>
-          <span className="mono">{task.branch}</span>
-          <span>· {new Date(task.lastActiveAt ?? task.createdAt).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-          {(task.queued?.length ?? 0) > 0 ? <span style={{ color: "var(--c-amber)" }}>· ⏳排队 {task.queued!.length}</span> : null}
-          {task.permissionMode && task.permissionMode !== "default" ? <span style={{ color: MODE_META[task.permissionMode].color }}>· {MODE_META[task.permissionMode].label}</span> : null}
-        </div>
-        <div style={{ color: "var(--c-text3)", fontSize: 11, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {stateChip(task.state).label.replace("● ", "")} · {task.lastMessage ?? task.worktreePath}{todoProgress(task) ? ` · ${todoProgress(task)}` : ""}
-        </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
-          {live && <button className="tool-btn" onClick={() => void stopTask(task.taskId)}>停止</button>}
-          {!live && <button className="tool-btn" onClick={() => { setSelectedTask(task.taskId); setTab("chat"); setInputText(""); }}>续跑</button>}
-          <button className="tool-btn" onClick={() => void call("app.newWindow", { path: task.worktreePath })}>新窗口</button>
-        </div>
+        title={`${task.title}\n${stateChip(task.state).label} · ${task.branch}`}
+        style={{ border: `1px solid ${selectedNow ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 10, padding: "6px 6px 6px 11px", cursor: "pointer", background: "var(--c-panel)", display: "flex", alignItems: "center", gap: 8, minHeight: 34 }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flex: "none", opacity: working ? 1 : 0.85 }} />
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5, fontWeight: 600 }}>{task.title}</span>
+        <button className="icon-btn" title={live ? "运行中不可分叉，请先停止" : "分叉任务（复制对话历史到新分支）"} disabled={live}
+          onClick={(e) => { e.stopPropagation(); void forkTask(task.taskId); }}>
+          <TlIcon name="fork" size={14} />
+        </button>
+        <button className="icon-btn" title={live ? "运行中不可归档，请先停止" : "归档任务（从列表隐藏，可恢复）"} disabled={live}
+          onClick={(e) => { e.stopPropagation(); void archiveTask(task.taskId); }}>
+          <TlIcon name="archive" size={14} />
+        </button>
       </div>
     );
   };
 
   const busy = selected ? BUSY_STATES.has(selected.state) : false;
-  // D1 vision 门控：当前生效档案（任务绑定 → 默认★）未声明 vision 时拒发图片
-  const activeProfile = modelProfiles.find((m) => m.id === (selected?.modelRef ?? "")) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
-  const visionOk = activeProfile?.capabilities?.vision === true;
+  // D1 vision 门控：当前生效档案（任务绑定 → 默认★）按实际选中成员判定
+  const activeProfile = resolveRefProfile(selected?.modelRef) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
+  const visionOk = resolveRefVision(selected?.modelRef ?? activeProfile?.id);
   const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", flex: 1, minHeight: 0, height: "100%" }}>
+      {/* 图片附加：粘贴/拖拽之外提供点击入口（视觉能力门控在选择时校验） */}
+      <input ref={imageInputRef} type="file" accept="image/*" multiple style={{ display: "none" }}
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = "";
+          if (files.length === 0) return;
+          if (!visionOk) { setConfigError("当前模型档案未声明视觉（vision）能力，无法附加图片——请在 设置 → 模型档案 勾选「视觉」", "去设置", "models"); return; }
+          filesToImages(files);
+        }}
+      />
       {preview && (
         <Modal title={`预览：${preview.path}`} confirmText="关闭" onConfirm={() => setPreview(null)} onClose={() => setPreview(null)}>
           <div style={{ fontSize: 11, color: "var(--c-text3)", marginBottom: 6 }}>
@@ -1170,12 +1906,14 @@ export function TasksPage() {
           <pre style={{ maxHeight: 420, overflow: "auto", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "8px 10px", fontSize: 11.5, fontFamily: "var(--mono, monospace)", whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>{preview.content}</pre>
         </Modal>
       )}
-      {/* ═══ 左：任务列表（Codex 任务卡）═══ */}
+      {/* 错误提示以浮层显示在对话页顶部状态条下方（见时间线容器内）：
+          grid 根元素的直接子元素会抢占 300px 侧栏列把排版挤乱，侧栏内联则常驻占一行 */}
+
+      {/* ═══ 左：会话列表（任务卡）═══ */}
       <div style={{ borderRight: "1px solid var(--c-border)", display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
-        {error && <div className="banner error"><span className="banner-text">{error}</span><button className="tool-btn" onClick={() => setError(null)}>✕</button></div>}
-        <div onClick={() => { setSelectedTask(null); setTab("chat"); }} style={{ margin: "10px 10px 6px", padding: "9px 12px", border: "2px dashed var(--c-border)", borderRadius: 8, color: "var(--c-text3)", textAlign: "center", cursor: "pointer", fontSize: 12.5 }}>
+        <button className="new-task-btn" style={{ margin: "10px 10px 6px", width: "calc(100% - 20px)" }} onClick={startNewTask}>
           ＋ 新任务（描述目标，Ctrl+N）
-        </div>
+        </button>
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 10px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
           {(agentTasks?.length ?? 0) === 0 && (
             <div style={{ fontSize: 12, color: "var(--c-text3)", padding: "4px 2px" }}>{t("Agents_EmptyHint")}</div>
@@ -1186,7 +1924,7 @@ export function TasksPage() {
 
       {/* ═══ 右：详情（页签 = 全局导航；三页互斥独立）═══ */}
       {/* minWidth: 0 = grid item 自动最小尺寸回收：对话内容的 min-content 宽度不再把 1fr 轨道撑破窗口 */}
-      <div style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}>
         <div style={{ display: "flex", gap: 2, padding: "6px 14px 0", borderBottom: "1px solid var(--c-border)" }}>
           {([["chat", "对话"], ["diff", `改动${diffCount ? ` ${diffCount}` : ""}`], ["cp", `检查点${cpCount ? ` ${cpCount}` : ""}`]] as const).map(([id, label]) => (
             <div key={id} onClick={() => setTab(id)}
@@ -1196,28 +1934,45 @@ export function TasksPage() {
           ))}
         </div>
 
-        {/* ═══ 对话页 ═══ */}
-        {tab === "chat" && selected && (
-          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }}>
+        {/* ═══ 对话页（保持挂载：切改动/检查点不重新加载历史、不丢滚动位置） ═══ */}
+        {selected && (
+          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? "flex" : "none", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap", color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)" }}>
               <span style={{ fontSize: 11.5, padding: "1px 10px", borderRadius: 999, border: `1px solid ${stateChip(selected.state).color}`, color: stateChip(selected.state).color }}>
                 {stateChip(selected.state).label}{busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1000)) + "s" : ""}
               </span>
-              <span style={{ color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }}>{selected.branch}</span>
+              <span style={{ fontSize: 11.5 }}>{selected.branch}</span>
+              {runningTool ? (
+                <span style={{ color: "var(--c-amber)", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <TlIcon name={toolIconName(runningTool.name)} size={11} className="tl-pulse" />
+                  {(TOOL_LABELS[runningTool.name] ?? runningTool.name)} {((Date.now() - runningTool.startTs) / 1000).toFixed(1)}s
+                </span>
+              ) : null}
+              {(selected.queued?.length ?? 0) > 0 ? <span style={{ color: "var(--c-amber)", display: "inline-flex", alignItems: "center", gap: 5 }}><TlIcon name="clock" size={11} />排队 {selected.queued!.length}</span> : null}
+              <span>子代理 {runningSubs}/{maxSubagents}</span>
               <span style={{ flex: 1 }} />
-              <button className="tool-btn" onClick={() => void call("app.newWindow", { path: selected.worktreePath })}>送验收</button>
-              <button className="tool-btn" onClick={() => void call("app.newWindow", { path: selected.worktreePath })}>新窗口</button>
+              <span>Esc 中断 · Esc×2 回滚 · Shift+Tab 模式 · ↑↓ 历史</span>
+              <button className="tool-btn icon" data-tip="在新窗口打开 worktree" onClick={() => void call("app.newWindow", { path: selected.worktreePath })}>
+                <TlIcon name="external" size={14} />
+              </button>
             </div>
-            <div ref={timelineRef} style={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: "auto", overflowX: "hidden" }}
-              onDoubleClick={(e) => {
-                const pre = (e.target as HTMLElement).closest("pre");
-                if (pre) void navigator.clipboard?.writeText(pre.textContent ?? "");
-              }}>
-              <div style={{ maxWidth: 880, margin: "0 auto", padding: "18px 20px 26px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
-                {hasMoreHistory && (
-                  <button className="tool-btn" style={{ alignSelf: "center", fontSize: 11 }} disabled={loadingOlder} onClick={() => void loadOlder()}>
-                    {loadingOlder ? "加载中…" : "加载更早"}
-                  </button>
+            <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative" }}>
+              {/* 错误浮层：悬于时间线之上、顶部状态条正下方；不打断版面流 */}
+              {error && <ErrorFloat text={error} maxWidth="calc(100% - 292px)" go={errorGo} onGo={(s) => { openSettings(s); setError(null); }} onClose={() => setError(null)} />}
+              <div ref={timelineRef} style={{ height: "100%", overflowY: "auto", overflowX: "hidden" }}
+                onScroll={onTimelineScroll}
+                onDoubleClick={(e) => {
+                  const pre = (e.target as HTMLElement).closest("pre");
+                  if (pre) void navigator.clipboard?.writeText(pre.textContent ?? "");
+                }}>
+              <div style={{ maxWidth: 880, margin: "0 auto", padding: "18px 20px 26px", display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+                {loadingOlder && (
+                  <div style={{ textAlign: "center", color: "var(--c-text3)", fontSize: 11 }}>
+                    <span className="tl-pulse">加载中…</span>
+                  </div>
+                )}
+                {hasMoreHistory && !loadingOlder && (
+                  <div style={{ textAlign: "center", color: "var(--c-text3)", fontSize: 11, opacity: .6 }}>↑ 上滚加载更早</div>
                 )}
                 {timeline.length === 0 && <div style={{ color: "var(--c-text3)", fontSize: 12 }}>{t("Agents_TimelineEmpty")}</div>}
                 {groupLogs(timeline).map((g, i) =>
@@ -1233,24 +1988,49 @@ export function TasksPage() {
                   ),
                 )}
               </div>
-            </div>
-            <div style={{ borderTop: "1px solid var(--c-border)", padding: "4px 20px 2px" }}>
-              <div style={{ maxWidth: 880, margin: "0 auto", display: "flex", gap: 16, rowGap: 2, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)" }}>
-                {runningTool ? (
-                  <span style={{ color: "var(--c-amber)" }}>● {(TOOL_LABELS[runningTool.name] ?? runningTool.name)} 运行中 {((Date.now() - runningTool.startTs) / 1000).toFixed(1)}s</span>
-                ) : <span>○ 空闲</span>}
-                {(selected.queued?.length ?? 0) > 0 ? <span style={{ color: "var(--c-amber)" }}>⏳ 排队 {selected.queued!.length}</span> : null}
-                <span>子代理 {runningSubs}/{maxSubagents}</span>
-                <span style={{ marginLeft: "auto" }}>Esc 中断 · Esc×2 回滚 · Shift+Tab 模式 · ↑↓ 历史</span>
               </div>
+              {/* 悬浮任务清单：从时间线提取最新 todo 块，固定右上，实时刷新状态 */}
+              {(() => {
+                const todoBlock = [...timeline].reverse().find((b) => b.kind === "todo");
+                if (!todoBlock) return null;
+                return (
+                  <div
+                    style={{
+                      position: "absolute", top: 8, right: 8, width: 260, maxWidth: "calc(100% - 16px)",
+                      background: "var(--c-panel2)", border: "1px solid var(--c-border-strong)",
+                      borderRadius: 10, boxShadow: "0 2px 8px rgba(0,0,0,.22)", zIndex: 10,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <TodoList todos={(todoBlock as Extract<Block, { kind: "todo" }>).todos} />
+                  </div>
+                );
+              })()}
+              {awayFromBottom && (
+                <button
+                  className="tool-btn icon"
+                  data-tip="返回底部"
+                  aria-label="返回底部"
+                  style={{
+                    position: "absolute", left: "50%", bottom: 10, transform: "translateX(-50%)",
+                    width: 28, height: 28, padding: 0, borderRadius: 999,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "var(--c-panel2)", border: "1px solid var(--c-border-strong)",
+                    color: "var(--c-text2)", boxShadow: "0 2px 8px rgba(0,0,0,.22)",
+                  }}
+                  onClick={() => scrollTimelineToBottom(false)}
+                >
+                  <TlIcon name="chevron-down" size={14} />
+                </button>
+              )}
             </div>
             <div style={{ borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px" }}>
               <div style={{ maxWidth: 880, margin: "0 auto", position: "relative" }}>
                 {pendingPerm && (
-                  <div style={{ marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)" }}>◈ 等待授权（↑↓+Enter 或数字直选上方卡片选项）</div>
-                )}
-                {mention && (
-                  <MentionPopover mention={mention} items={mentionItems} onPick={(x) => insertMention(x, setInputText, inputText)} />
+                  <div style={{ marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)", display: "flex", alignItems: "center", gap: 6 }}>
+                    <TlIcon name="shield" size={12} className="tl-pulse" />
+                    <span>等待授权（↑↓+Enter 或数字直选上方卡片选项）</span>
+                  </div>
                 )}
                 {pendingImages.length > 0 && (
                   <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
@@ -1264,73 +2044,48 @@ export function TasksPage() {
                     <span className="hint" style={{ alignSelf: "center" }}>图片 {pendingImages.length}/4{!visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""}</span>
                   </div>
                 )}
-                <div style={{ border: `1px solid ${inputText.trim() ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 12, padding: "8px 12px 6px" }}>
-                  <textarea
-                    style={{ width: "100%", background: "transparent", border: "none", outline: "none", resize: "none", color: "var(--c-text)", font: "13px/1.55 inherit", minHeight: 44, maxHeight: 140 }}
-                    placeholder={busy
-                      ? "agent 正在工作——输入将排队，本轮结束后自动注入（Esc 中断 / Esc×2 回滚）"
-                      : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式"}
-                    value={inputText}
-                    onChange={(e) => onComposeChange(e.target.value, setInputText)}
-                    onPaste={(e) => {
-                      const files = [...e.clipboardData.files];
-                      if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); filesToImages(files); }
-                    }}
-                    onDrop={(e) => {
-                      const files = [...e.dataTransfer.files];
-                      if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); filesToImages(files); }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") { void stopTask(selected.taskId); return; }
-                      if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); cycleMode(); return; }
-                      if (e.key === "ArrowUp" && !inputText.includes("\n") && inputHistory.current.length > 0) {
-                        historyIdx.current = Math.min(historyIdx.current + 1, inputHistory.current.length - 1);
-                        setInputText(inputHistory.current[historyIdx.current] ?? "");
-                        e.preventDefault();
-                        return;
-                      }
-                      if (e.key === "ArrowDown" && historyIdx.current >= 0) {
-                        historyIdx.current = Math.max(historyIdx.current - 1, -1);
-                        setInputText(historyIdx.current === -1 ? "" : inputHistory.current[historyIdx.current] ?? "");
-                        e.preventDefault();
-                        return;
-                      }
-                      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void sendInput();
-                    }}
-                  />
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap", rowGap: 6 }}>
-                    <span className="chip" onClick={cycleMode} title="Shift+Tab 循环">{MODE_META[selected.permissionMode ?? "default"].label}</span>
-                    <Select className="select-inline" style={{ width: 130 }}
-                      value={selected.modelRef ?? ""} disabled={busy && selected.state !== "awaiting-input"}
-                      onChange={async (v) => {
-                        try { await call("agent.task.setModel", { taskId: selected.taskId, model: v }); await reloadAgents(); } catch (err) { setError((err as Error).message); }
-                      }}
-                      options={[
-                        ...(modelProfiles ?? []).filter((m) => m.configured).map((m) => ({ value: m.id, label: m.name + (m.isDefault ? " ★" : "") })),
-                        ...(selected.modelRef && !(modelProfiles ?? []).some((m) => m.id === selected.modelRef) ? [{ value: selected.modelRef, label: selected.modelRef }] : []),
-                      ]}
-                    />
-                    <span className="chip" title="@ 文件 / @任务 提及">@</span>
-                    <span className="chip" title="粘贴图片附加" onClick={() => setError("当前模型档案未声明多模态能力，图片输入暂不可用")}>🖼</span>
-                    <span style={{ flex: 1 }} />
-                    {stats && (
-                      <div title={`系统 ${Math.round(stats.breakdown.system)} · 历史 ${Math.round(stats.breakdown.messages)} · 预留 ${Math.round(stats.breakdown.reserved)}${stats.compactions ? ` · 已压缩 ${stats.compactions} 次` : ""}`}
-                        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: stats.ratio > 0.92 ? "var(--c-red)" : stats.ratio > 0.8 ? "var(--c-amber)" : "var(--c-text3)" }}>
-                        <div style={{ width: 80, height: 4, borderRadius: 2, background: "var(--c-border)", overflow: "hidden" }}>
-                          <div style={{ width: `${Math.min(100, stats.ratio * 100)}%`, height: "100%", background: stats.ratio > 0.92 ? "var(--c-red)" : stats.ratio > 0.8 ? "var(--c-amber)" : "var(--c-text3)" }} />
-                        </div>
-                        <span>context {Math.round(stats.ratio * 100)}% · {(stats.estTokens / 1000).toFixed(1)}k</span>
-                        {stats.ratio > 0.8 && <span style={{ color: "var(--c-amber)" }}>· /compact</span>}
-                      </div>
-                    )}
-                    <button
-                      title={busy ? "⏹ 停止（Esc 同效）" : "➤ 发送（Ctrl+Enter 同效）"}
-                      onClick={() => { if (busy) void stopTask(selected.taskId); else void sendInput(); }}
-                      style={{ border: "none", background: "var(--c-text)", color: "var(--c-panel)", borderRadius: 8, width: 30, height: 30, fontSize: 14, cursor: "pointer", flex: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {busy ? "⏹" : "➤"}
-                    </button>
-                  </div>
-                </div>
+                <Composer
+                  ref={inputRef}
+                  value={inputText}
+                  onChange={(v) => onComposeChange(v, setInputText)}
+                  maxH={240}
+                  placeholder={busy
+                    ? "agent 正在工作——输入将排队，本轮结束后自动注入（Esc 中断 / Esc×2 回滚）"
+                    : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式"}
+                  busy={busy}
+                  sending={sending}
+                  canSend={!!inputText.trim()}
+                  sendTitle={busy ? "停止（Esc 同效）" : "发送（Enter）"}
+                  onStop={() => void stopTask(selected.taskId)}
+                  onSend={() => void sendInput()}
+                  mode={selected.permissionMode ?? "default"}
+                  modeLabel={MODE_META[selected.permissionMode ?? "default"].label.replace(/^[●◆◇⚡]\s*/, "")}
+                  onMode={(m) => void setTaskMode(selected.taskId, m).then(() => setMode(m))}
+                  groups={modelGroups}
+                  model={selected.modelRef ?? ""}
+                  modelDisabled={busy && selected.state !== "awaiting-input"}
+                  onModel={(id) => void (async () => {
+                    try {
+                      await call("agent.task.setModel", { taskId: selected.taskId, model: id });
+                      await reloadAgents();
+                      // 切换模型带入新模型的默认思考深度（后续消息生效）
+                      setThinking(resolveRefThinking(id));
+                    } catch (err) { setError((err as Error).message); }
+                  })()}
+                  thinking={thinking}
+                  onThinking={(v) => { setThinking(v); }}
+                  stats={stats}
+                  attachments={pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) }))}
+                  attachmentHint={`图片 ${pendingImages.length}/4${!visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""}`}
+                  onAttachImage={() => imageInputRef.current?.click()}
+                  slash={slashItems}
+                  onPickSlash={(insert) => { setInputText((cur) => (cur ? `${cur} ${insert}` : insert)); setTimeout(() => inputRef.current?.focus(), 0); }}
+                  onKeyDown={chatKeyDown}
+                  children={<>
+                    {mention ? <MentionPopover mention={mention} items={mentionItems} selectedIndex={mentionSel} onSelect={setMentionSel} onPick={(x) => insertMention(x, setInputText, inputText)} /> : null}
+                    {slashQuery !== null && <SlashPopover open items={slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8)} selectedIndex={slashSel} onSelect={setSlashSel} onPick={(insert) => pickSlash(insert, setInputText, inputText)} />}
+                  </>}
+                />
               </div>
             </div>
           </div>
@@ -1338,76 +2093,55 @@ export function TasksPage() {
 
         {/* ═══ 对话页：未选中任务 = 新任务 composer ═══ */}
         {tab === "chat" && !selected && (
-          <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+          <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
+            {error && <ErrorFloat text={error} maxWidth="min(680px, 92%)" go={errorGo} onGo={(s) => { openSettings(s); setError(null); }} onClose={() => setError(null)} />}
             <div style={{ width: 680, maxWidth: "90%" }}>
               {modelInfo && !modelInfo.available ? (
                 <button className="tool-btn" style={{ color: "var(--c-amber)", borderColor: "var(--c-amber)", marginBottom: 10 }} onClick={() => openSettings("models")}>
                   ● {t("Agents_ModelMissing")} → {t("Agents_OpenSettings")}
                 </button>
               ) : null}
-              {pendingImages.length > 0 && (
-                <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                  {pendingImages.map((img, i) => (
-                    <div key={`${img.name}:${i}`} style={{ position: "relative" }}>
-                      <img src={img.dataUrl} alt={img.name} style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" }} />
-                      <button className="tool-btn" title="移除" style={{ position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 }}
-                        onClick={() => setPendingImages((cur) => cur.filter((_, j) => j !== i))}>✕</button>
-                    </div>
-                  ))}
-                  <span className="hint" style={{ alignSelf: "center" }}>图片 {pendingImages.length}/4（随首条消息发送）</span>
-                </div>
-              )}
-              <div style={{ border: `1px solid ${composeText.trim() ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 12, padding: "10px 12px 6px", position: "relative" }}>
-                {mention && <MentionPopover mention={mention} items={mentionItems} onPick={(x) => insertMention(x, setComposeText, composeText)} />}
-                <textarea
-                  autoFocus
-                  style={{ width: "100%", background: "transparent", border: "none", outline: "none", resize: "none", color: "var(--c-text)", font: "13.5px/1.55 inherit", minHeight: 120 }}
-                  placeholder={`${t("Agents_ComposePlaceholder")}\n支持 @文件 提及；规划类任务先切「◇ 规划」模式（Shift+Tab）`}
-                  value={composeText}
-                  onChange={(e) => onComposeChange(e.target.value, setComposeText)}
-                  onPaste={(e) => {
-                    const files = [...e.clipboardData.files];
-                    if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); filesToImages(files); }
-                  }}
-                  onDrop={(e) => {
-                    const files = [...e.dataTransfer.files];
-                    if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); filesToImages(files); }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); setMode(MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length]); return; }
-                    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void createFromCompose();
-                  }}
-                />
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap", rowGap: 6 }}>
-                  <span className="chip" onClick={() => setMode(MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length])} title="Shift+Tab 循环">{MODE_META[mode].label}</span>
-                  <Select className="select-inline" style={{ width: 140 }}
-                    value={taskTypeId} onChange={(v) => setTaskTypeId(v)} title={t("Agents_TaskType")}
-                    options={[{ value: "", label: t("Agents_TaskTypeFree") }, ...taskTypes.filter((tt) => !tt.error).map((tt) => ({ value: tt.fullId, label: tt.name }))]}
-                  />
-                  <Select className="select-inline" style={{ width: 150 }}
-                    value={modelId} onChange={(v) => setModelId(v)} title={t("Agents_Model")}
-                    options={[{ value: "", label: t("Agents_ModelDefault") }, ...modelProfiles.filter((m) => m.configured).map((m) => ({ value: m.id, label: m.name + (m.isDefault ? " ★" : "") }))]}
-                  />
-                  <Select className="select-inline" style={{ width: 100 }}
-                    value={thinking} onChange={(v) => setThinking(v as "off" | "low" | "medium" | "high")} title={t("Agents_Thinking")}
-                    options={[
-                      { value: "high", label: t("Agents_ThinkingHigh") },
-                      { value: "medium", label: t("Agents_ThinkingMedium") },
-                      { value: "low", label: t("Agents_ThinkingLow") },
-                      { value: "off", label: t("Agents_ThinkingOff") },
-                    ]}
-                  />
-                  <span style={{ flex: 1 }} />
-                  <button onClick={() => void createFromCompose()} disabled={sending || !composeText.trim()}
-                    style={{ border: "none", background: "var(--c-text)", color: "var(--c-panel)", borderRadius: 8, width: 30, height: 30, fontSize: 14, cursor: "pointer", opacity: sending || !composeText.trim() ? 0.4 : 1 }}>➤</button>
-                </div>
-              </div>
+              <Composer
+                ref={composeRef}
+                value={composeText}
+                onChange={(v) => onComposeChange(v, setComposeText)}
+                maxH={208}
+                minH={42}
+                autoFocus
+                placeholder={`${t("Agents_ComposePlaceholder")}\n支持 @文件 提及；规划类任务先切「◇ 规划」模式（Shift+Tab）`}
+                busy={false}
+                sending={sending}
+                canSend={!!composeText.trim()}
+                sendTitle="创建任务（Enter）"
+                onStop={() => {}}
+                onSend={() => void createFromCompose()}
+                mode={mode}
+                modeLabel={MODE_META[mode].label.replace(/^[●◆◇⚡]\s*/, "")}
+                onMode={setMode}
+                groups={modelGroups}
+                model={modelId || (modelProfiles.find((m) => m.isDefault)?.id ?? "")}
+                onModel={setModelId}
+                thinking={thinking}
+                onThinking={setThinking}
+                stats={null}
+                attachments={pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) }))}
+                attachmentHint={`图片 ${pendingImages.length}/4（随首条消息发送）`}
+                onAttachImage={() => imageInputRef.current?.click()}
+                slash={slashItems}
+                onPickSlash={(insert) => { setComposeText((cur) => (cur ? `${cur} ${insert}` : insert)); setTimeout(() => composeRef.current?.focus(), 0); }}
+                onKeyDown={composeKeyDown}
+                children={<>
+                  {mention ? <MentionPopover mention={mention} items={mentionItems} selectedIndex={mentionSel} onSelect={setMentionSel} onPick={(x) => insertMention(x, setComposeText, composeText)} /> : null}
+                  {slashQuery !== null && <SlashPopover open items={slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8)} selectedIndex={slashSel} onSelect={setSlashSel} onPick={(insert) => pickSlash(insert, setComposeText, composeText)} />}
+                </>}
+              />
               <div style={{ color: "var(--c-text3)", fontSize: 11, marginTop: 6 }}>
-                Ctrl+Enter 发送 · {t("Agents_TargetHint")} · 规划模式：先调研出计划，批准后自动执行
+                Enter 发送 · Shift+Enter 换行 · {t("Agents_TargetHint")} · 规划模式：先调研出计划，批准后自动执行
               </div>
             </div>
           </div>
         )}
+
 
         {/* ═══ 改动页（完全独立页 · Codex Diff Review）═══ */}
         {tab === "diff" && selected && (

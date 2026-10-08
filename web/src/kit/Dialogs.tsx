@@ -11,6 +11,15 @@ export function Modal(props: {
   danger?: boolean;
   onConfirm: () => void;
   onClose: () => void;
+  /** 覆盖默认 440px 宽度（多列/多行表单用） */
+  width?: number | string;
+  /** 附加类名（如 .modal-wide：放宽内边距与圆角） */
+  className?: string;
+  /** 标题栏右侧内容（如探测状态徽标） */
+  titleAside?: ReactNode;
+  /** 替换确认/取消按钮内容（如图标 √/×）；悬停提示仍用 confirmText/cancelText */
+  confirmContent?: ReactNode;
+  cancelContent?: ReactNode;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -22,18 +31,26 @@ export function Modal(props: {
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div className="modal">
-        <h3>{props.title}</h3>
+      <div className={"modal" + (props.className ? " " + props.className : "")} style={props.width ? { width: props.width } : undefined}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <h3 style={{ flex: 1, minWidth: 0 }}>{props.title}</h3>
+          {props.titleAside}
+        </div>
         <div className="modal-body">{props.children}</div>
         <div className="modal-actions">
-          <button className="tool-btn" onClick={props.onClose}>{props.cancelText ?? t("Common_Cancel")}</button>
+          <button className="tool-btn" title={props.cancelText ?? t("Common_Cancel")} aria-label={props.cancelText ?? t("Common_Cancel")}
+            style={props.cancelContent ? { minWidth: 28, padding: 0 } : undefined}
+            onClick={props.onClose}>{props.cancelContent ?? props.cancelText ?? t("Common_Cancel")}</button>
           <button
             className={"tool-btn" + (props.danger ? "" : " primary")}
-            style={props.danger ? { background: "var(--c-red)", color: "#fff", fontWeight: 600 } : undefined}
+            style={props.danger
+              ? { background: "var(--c-red)", color: "#fff", fontWeight: 600 }
+              : (props.confirmContent ? { minWidth: 28, padding: 0 } : undefined)}
+            title={props.confirmText} aria-label={props.confirmText}
             disabled={props.confirmDisabled}
             onClick={props.onConfirm}
           >
-            {props.confirmText}
+            {props.confirmContent ?? props.confirmText}
           </button>
         </div>
       </div>

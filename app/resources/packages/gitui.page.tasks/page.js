@@ -23,7 +23,7 @@
   K().registerMarkdownPlugin;
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
-  const Select = K().Select;
+  K().Select;
   K().ScrollArea;
   function U$1() {
     const g = window.GITTER_UI;
@@ -85,6 +85,139 @@
     const g = U();
     return react.useSyncExternalStore(g.onAgentUIChanged, g.agentUIVersion);
   }
+  const PATHS = {
+    // 纸飞机（Octicons paper-airplane-16 改绘）
+    send: "M.989 8 .064 2.68a1.342 1.342 0 0 1 1.85-1.462l13.402 5.744a1.13 1.13 0 0 1 0 2.076L1.913 14.782a1.342 1.342 0 0 1-1.85-1.463L.99 8Zm.603-5.288L2.38 7.25h4.87a.75.75 0 0 1 0 1.5H2.38l-.788 4.538L13.929 8 1.592 2.712Z",
+    // 实心圆角方块
+    stop: "M3.5 3h9A1.5 1.5 0 0 1 14 4.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7A1.5 1.5 0 0 1 3.5 3Z",
+    // 终端提示符（>_）
+    terminal: "M2 3h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm0 1.5v7h12v-7H2Zm2.7 1.1L3.6 6.6l1.8 1.9-1.8 1.9 1.1 1 2.6-2.9-2.6-2.9ZM8.5 10.5H12V12H8.5Z",
+    // 铅笔（Octicons pencil-16）
+    pencil: "M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm.176 4.823L9.75 4.81l-6.286 6.287a.253.253 0 0 0-.064.108l-.558 1.953 1.953-.558a.253.253 0 0 0 .108-.064Zm1.238-3.763a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354Z",
+    // 放大镜（Octicons search-16）
+    search: "M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z",
+    // 文件夹（design-mockups/log-page.html）
+    folder: "M1.5 3A1.5 1.5 0 0 1 3 1.5h3.4l1.5 2H13A1.5 1.5 0 0 1 14.5 5v8A1.5 1.5 0 0 1 13 14.5H3A1.5 1.5 0 0 1 1.5 13V3Z",
+    // 文档
+    file: "M3 1.5h6L13 5v9a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-12a.5.5 0 0 1 .5-.5ZM9 2.6V5h2.4L9 2.6Z",
+    // 分支（design-mockups/log-page.html，分支页同源）
+    branch: "M13.1 3.9a2.3 2.3 0 0 0-3.25 3.25l-.1.1a2.3 2.3 0 0 1-3.25 0L5.4 6.2a2.3 2.3 0 1 0-1.06 1.06l1.1 1.05a3.8 3.8 0 0 0 2.31 1.09v1.2a2.3 2.3 0 1 0 1.5 0V9.4a3.8 3.8 0 0 0 2.31-1.09l.1-.1a2.3 2.3 0 1 0 1.44-4.31Z",
+    // diff（design-mockups/log-page.html，变更页同源）
+    diff: "M2 4.25 5 8l-3 3.75V4.25ZM6 3h1.5v10H6V3Zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3Z",
+    // 时钟（提交历史）
+    clock: "M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm.75 1.5h-1.5v4l3 1.8.75-1.23-2.25-1.35V4.5Z",
+    // 下载托盘（读取网页）
+    download: "M8 1.5a.75.75 0 0 1 .75.75v5.19l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 0 1 1.06-1.06l1.72 1.72V2.25A.75.75 0 0 1 8 1.5Zm-5.5 8a.75.75 0 0 1 .75.75v1.5c0 .14.11.25.25.25h9a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 12.5 14h-9A1.75 1.75 0 0 1 2 12.25v-1.5a.75.75 0 0 1 .5-.75Z",
+    // 提交节点（圆环 + 两侧线）
+    commit: "M1 7.25h2.5v1.5H1v-1.5Zm11.5 0H15v1.5h-2.5v-1.5ZM8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Zm0 1.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z",
+    // 向上箭头（暂存/推送）
+    up: "M8 2.5 12 6.5H9.75V11h-3.5V6.5H4L8 2.5ZM3 12.5h10V14H3v-1.5Z",
+    // 圆圈对勾（checkpoint / todo 完成）
+    "check-circle": "M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm2.28 2.66-3.03 3.4-1.53-1.53-1.06 1.06 2.61 2.61 4.07-4.6-1.06-.94Z",
+    // 空圈（todo 待办）
+    circle: "M8 3a5 5 0 1 1 0 10A5 5 0 0 1 8 3Zm0 1.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z",
+    // 圈中点（todo 进行中）
+    "circle-dot": "M8 3a5 5 0 1 1 0 10A5 5 0 0 1 8 3Zm0 1.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z",
+    // 实心点（日志/默认工具）
+    dot: "M8 5.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z",
+    // 空心点（空闲）
+    "dot-hollow": "M8 4.75a3.25 3.25 0 1 1 0 6.5 3.25 3.25 0 0 1 0-6.5Zm0 1.5a1.75 1.75 0 1 0 0 3.5 1.75 1.75 0 0 0 0-3.5Z",
+    // 四角星光（思考中，✻ 的矢量形）
+    sparkle: "M7 1c.55 3.5 2 4.95 5.5 5.5C9 7.05 7.55 8.5 7 12c-.55-3.5-2-4.95-5.5-5.5C5 5.95 6.45 4.5 7 1Zm5.5 8.4c.3 1.9 1.1 2.7 3 3-1.9.3-2.7 1.1-3 3-.3-1.9-1.1-2.7-3-3 1.9-.3 2.7-1.1 3-3Z",
+    // 盾牌（授权请求）
+    shield: "M8 1.2 13.6 3.3v4.2c0 3.4-2.3 6.1-5.6 7.3C4.7 13.6 2.4 10.9 2.4 7.5V3.3L8 1.2Zm0 1.6L3.9 4.4v3.1c0 2.6 1.7 4.7 4.1 5.7 2.4-1 4.1-3.1 4.1-5.7V4.4L8 2.8Z",
+    // 机器人（子代理）
+    bot: "M6.2 1.5c.44 0 .8.36.8.8v1.2h2V2.3a.8.8 0 1 1 1.6 0v1.2h1.15A2.25 2.25 0 0 1 14 5.75v5A2.25 2.25 0 0 1 11.75 13h-7.5A2.25 2.25 0 0 1 2 10.75v-5a2.25 2.25 0 0 1 2.25-2.25h1.15V2.3c0-.44.36-.8.8-.8ZM5.4 6.7a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm5.2 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm-5.1 3.5h5v1.3h-5v-1.3Z",
+    // 用量柱（turn 统计）
+    usage: "M2 13.25h12v1.25H2v-1.25ZM3.25 8.5H5v3.25H3.25V8.5Zm4-4H9v7.25H7.25V4.5Zm4 2H13v5.25h-1.75V6.5Z",
+    // 清单（todo_write）
+    list: "M2.5 3h2.2v2.2H2.5V3Zm4 .4h7v1.4h-7V3.4ZM2.5 6.9h2.2v2.2H2.5V6.9Zm4 .4h7v1.4h-7V7.3Zm-4 3.1h2.2v2.2H2.5v-2.2Zm4 .4h7v1.4h-7v-1.4Z",
+    // 对话气泡（提问）
+    chat: "M2.5 2h11A1.5 1.5 0 0 1 15 3.5v6a1.5 1.5 0 0 1-1.5 1.5H8.6L5 14.2V11H2.5A1.5 1.5 0 0 1 1 9.5v-6A1.5 1.5 0 0 1 2.5 2Z",
+    // 罗盘菱形（计划）
+    plan: "M8 1.5 14.5 8 8 14.5 1.5 8 8 1.5Zm0 2.1L3.6 8 8 12.4 12.4 8 8 3.6Zm0 3.15a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z",
+    // 分叉（Octicons git-branch-16）
+    fork: "M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z",
+    // 归档（Octicons archive-16）
+    archive: "M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H14v6.25A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25V6h-.25A1.75 1.75 0 0 1 0 4.25v-1.5ZM3.5 6v6.25c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6h-9ZM1.75 2.5a.25.25 0 0 0-.25.25v1.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H1.75ZM6.25 8h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z",
+    // 外开新窗（Octicons external-link-16）
+    external: "M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z",
+    // 展开箭头（Octicons chevron-right-16）：默认指向右，展开时由 CSS 旋转 90°
+    "chevron-right": "M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06L7.28 12.78a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z",
+    // 收起箭头（Octicons chevron-down-16）
+    "chevron-down": "M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z",
+    // 加号（Octicons plus-16）
+    plus: "M7.25 2.5h1.5v3.75h3.75v1.5H8.75v3.75h-1.5V7.75H3.5v-1.5h3.75V2.5Z",
+    // 闪电（访问控制 / yolo 模式）
+    bolt: "M8.94.54a.75.75 0 0 1 1.24.83L7.75 8.5h3.5a.75.75 0 0 1 .57 1.24l-4.5 5.75a.75.75 0 0 1-1.24-.83l2.43-4.65h-3.5a.75.75 0 0 1-.57-1.24l4.5-5.75Z",
+    // 齿轮（思考深度）
+    gear: "M9.5 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Zm0 1.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2ZM7.25.5h1.5c.2 0 .39.09.52.24l1.32 1.58a4.5 4.5 0 0 1 .63.22l1.9-.55a.75.75 0 0 1 .93.86l-.45 1.98c.06.2.14.4.22.6l1.9.47a.75.75 0 0 1 .4 1.34l-1.56.97a4.5 4.5 0 0 1 .1.66l1.22 1.52a.75.75 0 0 1-.4 1.34l-2 .47a4.5 4.5 0 0 1-.34.57l.62 1.94a.75.75 0 0 1-.94.93l-1.86-.54a4.5 4.5 0 0 1-.57.34l-.46 1.93a.75.75 0 0 1-1.35.4l-.97-1.57a4.5 4.5 0 0 1-.66.1l-1.52 1.22a.75.75 0 0 1-1.34-.4l-.47-2a4.5 4.5 0 0 1-.57-.34l-1.94.62a.75.75 0 0 1-.93-.94l.54-1.86a4.5 4.5 0 0 1-.34-.57l-1.93-.46a.75.75 0 0 1-.4-1.35l1.57-.97a4.5 4.5 0 0 1 0-.66L.72 6.92a.75.75 0 0 1 .4-1.34l2-.47a4.5 4.5 0 0 1 .34-.57l-.62-1.94a.75.75 0 0 1 .94-.93l1.86.54a4.5 4.5 0 0 1 .57-.34l.46-1.93a.75.75 0 0 1 1.35-.4l.97 1.57a4.5 4.5 0 0 1 .66-.1Zm.75 2.5A3.75 3.75 0 1 0 11.75 6.75 3.75 3.75 0 0 0 8 3.25Zm0 1.5a2.25 2.25 0 1 1 0 4.5 2.25 2.25 0 0 1 0-4.5Z",
+    "chevron-up": "M3.22 9.78a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 1 1-1.06 1.06L8 6.06 4.28 9.78a.75.75 0 0 1-1.06 0Z",
+    // 关闭（Octicons x-16）
+    "x": "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z",
+    // 删除（Octicons trash-16）
+    "trash": "M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.748 1.748 0 0 1 10.595 15h-5.19a1.748 1.748 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z",
+    // 对勾（Octicons check-16）
+    "check": "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"
+  };
+  function TlIcon(props) {
+    const d = PATHS[props.name];
+    if (!d) return null;
+    return /* @__PURE__ */ jsxRuntime.jsx(
+      "svg",
+      {
+        width: props.size ?? 13,
+        height: props.size ?? 13,
+        viewBox: "0 0 16 16",
+        "aria-hidden": "true",
+        className: props.className,
+        style: { flex: "none", color: props.color, ...props.style },
+        children: /* @__PURE__ */ jsxRuntime.jsx("path", { d, fill: "currentColor", fillRule: "evenodd" })
+      }
+    );
+  }
+  function toolIconName(name) {
+    switch (name) {
+      case "terminal_run":
+      case "terminal_poll":
+        return "terminal";
+      case "file_write":
+      case "file_patch":
+        return "pencil";
+      case "web_search":
+      case "repo_glob":
+      case "repo_grep":
+        return "search";
+      case "web_fetch":
+        return "download";
+      case "repo_read_file":
+        return "file";
+      case "repo_list_files":
+        return "folder";
+      case "repo_status":
+      case "repo_diff":
+        return "diff";
+      case "repo_log":
+        return "clock";
+      case "git_stage":
+        return "up";
+      case "git_commit":
+        return "commit";
+      case "git_push":
+        return "up";
+      case "ask_user":
+        return "chat";
+      case "todo_write":
+        return "list";
+      case "plan_submit":
+        return "plan";
+      case "task":
+      case "review_get_state":
+        return "bot";
+      default:
+        return "dot";
+    }
+  }
   const { call, on: onEvent, t, openSettings } = pageSdk;
   const LIVE_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
   const BUSY_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-permission"]);
@@ -93,6 +226,12 @@
     plan: { label: "◇ 规划", color: "var(--c-chip-purple-fg, #b490ff)" },
     default: { label: "● 默认", color: "var(--c-text3)" },
     yolo: { label: "⚡ Yolo", color: "var(--c-red)" }
+  };
+  const THINKING_META = {
+    off: { label: "思考·关", hint: "跳过推理，响应最快" },
+    low: { label: "思考·低", hint: "轻量推理，适合明确指令" },
+    medium: { label: "思考·中", hint: "平衡推理与速度（默认）" },
+    high: { label: "思考·高", hint: "深度推理，适合复杂设计" }
   };
   const TOOL_LABELS = {
     web_search: "网络搜索",
@@ -130,6 +269,9 @@
     { name: "fork", hint: "分叉任务" },
     { name: "skill", arg: "<名称>", hint: "注入技能指引" },
     { name: "export", hint: "导出会话为 Markdown 文件" },
+    { name: "cp", hint: "立即创建检查点" },
+    { name: "diff", hint: "查看当前改动" },
+    { name: "attach", hint: "附加图片（随下条消息发送）" },
     // 模板命令（D3/D4）：与包命令同一分发语义（busy 排队 / idle 续跑，零新增 RPC）
     {
       name: "review",
@@ -175,7 +317,7 @@
     }
     switch (ev.type) {
       case "status":
-        return pushCap(blocks, { kind: "status", text: `${ev.phase ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}` });
+        return pushCap(blocks, { kind: "status", text: `${ev.phase ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.phase });
       case "output":
         if (ev.stream === "assistant") {
           const last = blocks[blocks.length - 1];
@@ -265,6 +407,39 @@
     opts.push({ label: `${opts.length + 1}. 否，告诉 agent 改用其他方式`, reply: { ok: false } });
     return opts;
   }
+  function ErrorFloat(props) {
+    const [open, setOpen] = react.useState(false);
+    const [truncated, setTruncated] = react.useState(false);
+    const textRef = react.useRef(null);
+    react.useEffect(() => {
+      setOpen(false);
+      const el = textRef.current;
+      setTruncated(!!el && el.scrollWidth > el.clientWidth + 1);
+    }, [props.text]);
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner error", style: { position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 30, margin: 0, maxWidth: props.maxWidth, boxShadow: "0 8px 20px color-mix(in srgb, #000 25%, transparent)" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsx(
+        "span",
+        {
+          ref: textRef,
+          className: "banner-text",
+          style: open ? { whiteSpace: "normal", wordBreak: "break-word", maxHeight: "40vh", overflowY: "auto", userSelect: "text" } : void 0,
+          children: props.text
+        }
+      ),
+      (truncated || open) && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { flex: "none" }, onClick: () => setOpen((v) => !v), children: open ? "收起" : "展开" }),
+      props.go && props.onGo && /* @__PURE__ */ jsxRuntime.jsx(
+        "button",
+        {
+          className: "tool-btn",
+          title: `打开设置 · ${props.go.section}`,
+          style: { flex: "none", color: "var(--c-link)", textDecoration: "underline", textUnderlineOffset: 2 },
+          onClick: () => props.onGo(props.go.section),
+          children: props.go.label
+        }
+      ),
+      /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { flex: "none" }, onClick: props.onClose, children: "✕" })
+    ] });
+  }
   function AgentImage(props) {
     const [src, setSrc] = react.useState(null);
     const [err, setErr] = react.useState(null);
@@ -294,12 +469,64 @@
     return /* @__PURE__ */ jsxRuntime.jsx("img", { src, alt: props.path, style: { maxWidth: 320, maxHeight: 220, borderRadius: 6, border: "1px solid var(--c-border)" } });
   }
   function MentionPopover(props) {
-    const { mention, items, onPick } = props;
+    const { mention, items, onPick, onSelect } = props;
     if (!mention || items.length === 0) return null;
-    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mention-pop", style: { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 180, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }, children: items.map((it) => /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "4px 10px", fontSize: 12, cursor: "pointer" }, onMouseDown: (e) => {
-      e.preventDefault();
-      onPick(it.insert);
-    }, children: it.label }, it.label)) });
+    const sel = Math.max(0, Math.min(props.selectedIndex, items.length - 1));
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mention-pop", style: { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 180, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }, children: items.map((it, i) => /* @__PURE__ */ jsxRuntime.jsx(
+      "div",
+      {
+        ref: (el) => {
+          if (el && i === sel) el.scrollIntoView({ block: "nearest" });
+        },
+        style: {
+          padding: "4px 10px",
+          fontSize: 12,
+          cursor: "pointer",
+          borderRadius: 6,
+          background: i === sel ? "var(--c-selected)" : "transparent",
+          color: i === sel ? "var(--c-text)" : "var(--c-text2)"
+        },
+        onMouseEnter: () => onSelect(i),
+        onMouseDown: (e) => {
+          e.preventDefault();
+          onPick(it.insert);
+        },
+        children: it.label
+      },
+      it.label
+    )) });
+  }
+  function SlashPopover(props) {
+    if (!props.open || props.items.length === 0) return null;
+    const sel = Math.max(0, Math.min(props.selectedIndex, props.items.length - 1));
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mention-pop", style: { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 240, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }, children: props.items.map((it, i) => /* @__PURE__ */ jsxRuntime.jsxs(
+      "div",
+      {
+        ref: (el) => {
+          if (el && i === sel) el.scrollIntoView({ block: "nearest" });
+        },
+        style: {
+          padding: "5px 10px",
+          fontSize: 12,
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          borderRadius: 6,
+          background: i === sel ? "var(--c-selected)" : "transparent"
+        },
+        onMouseEnter: () => props.onSelect(i),
+        onMouseDown: (e) => {
+          e.preventDefault();
+          props.onPick(it.insert);
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontWeight: 600, flex: "none" }, children: it.name }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: it.hint })
+        ]
+      },
+      it.name
+    )) });
   }
   function ToolCard({ b }) {
     const [open, setOpen] = react.useState(false);
@@ -322,7 +549,7 @@
     const firstLine = (b.result ?? "").split("\n")[0] ?? "";
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontFamily: "var(--mono, monospace)", fontSize: 12.5 }, children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "2px 4px", borderRadius: 6 }, onClick: () => setOpen(!open), children: [
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: glyphColor }, children: "⏺" }),
+        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: toolIconName(b.name), color: glyphColor, className: b.state === "running" ? "tl-pulse" : void 0 }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontWeight: 700 }, children: label }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }, children: argSummary }),
         b.source ? /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 9.5, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px", color: "var(--c-text3)" }, children: b.source }) : null,
@@ -342,19 +569,509 @@
   }
   function TodoList({ todos }) {
     const done = todos.filter((x) => x.status === "completed").length;
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: "1px solid var(--c-border)", borderRadius: 10, padding: "8px 12px", maxWidth: 620 }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, marginBottom: 4 }, children: [
-        "任务清单 · ",
-        done,
-        "/",
-        todos.length
-      ] }),
-      todos.map((td, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "baseline", fontSize: 12.5, color: td.status === "completed" ? "var(--c-text3)" : td.status === "in_progress" ? "var(--c-text)" : "var(--c-text3)" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: td.status === "completed" ? "☑" : td.status === "in_progress" ? "◉" : "☐" }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { textDecoration: td.status === "completed" ? "line-through" : void 0, fontWeight: td.status === "in_progress" ? 600 : 400 }, children: td.content })
-      ] }, i))
+    const running = todos.some((x) => x.status === "in_progress");
+    const allDone = todos.length > 0 && done === todos.length;
+    const [open, setOpen] = react.useState(() => !allDone);
+    const bodyRef = react.useRef(null);
+    const innerRef = react.useRef(null);
+    const openRef = react.useRef(open);
+    openRef.current = open;
+    react.useEffect(() => {
+      if (allDone) setOpen(false);
+      else if (running) setOpen(true);
+    }, [allDone, running]);
+    react.useEffect(() => {
+      const body = bodyRef.current;
+      const inner = innerRef.current;
+      if (!body || !inner) return;
+      if (!openRef.current) {
+        body.style.height = "0px";
+        return;
+      }
+      body.style.height = `${inner.scrollHeight}px`;
+      const settle = () => {
+        if (openRef.current) body.style.height = "auto";
+        body.removeEventListener("transitionend", settle);
+      };
+      body.addEventListener("transitionend", settle);
+    }, [open, todos]);
+    const pct = todos.length > 0 ? Math.round(done / todos.length * 100) : 0;
+    const title = allDone ? "全部完成" : running ? "进行中" : "等待中";
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "todo-card", children: [
+      /* @__PURE__ */ jsxRuntime.jsxs(
+        "div",
+        {
+          className: "todo-head",
+          onClick: () => setOpen((o) => !o),
+          role: "button",
+          tabIndex: 0,
+          "aria-expanded": open,
+          onKeyDown: (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setOpen((o) => !o);
+            }
+          },
+          children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, className: "todo-chev" + (open ? " open" : "") }),
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plan", size: 12, color: allDone ? "var(--c-green)" : running ? "var(--c-amber)" : "var(--c-text3)" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontWeight: 700 }, children: title }),
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { display: "inline-flex", alignItems: "center", gap: 6 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "todo-progress", children: /* @__PURE__ */ jsxRuntime.jsx("i", { style: { width: `${pct}%` } }) }),
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { fontVariantNumeric: "tabular-nums" }, children: [
+                done,
+                "/",
+                todos.length
+              ] })
+            ] }),
+            running && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-pulse", style: { width: 6, height: 6, borderRadius: "50%", background: "var(--c-amber)", marginLeft: "auto" } })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntime.jsx("div", { ref: bodyRef, className: "todo-body", children: /* @__PURE__ */ jsxRuntime.jsx("div", { ref: innerRef, className: "todo-inner", children: todos.map((td, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "todo-item" + (td.status === "completed" ? " done" : td.status === "in_progress" ? " cur" : ""), children: [
+        /* @__PURE__ */ jsxRuntime.jsx(
+          TlIcon,
+          {
+            name: td.status === "completed" ? "check-circle" : td.status === "in_progress" ? "circle-dot" : "circle",
+            color: td.status === "completed" ? "var(--c-green)" : td.status === "in_progress" ? "var(--c-amber)" : "var(--c-text3)",
+            className: td.status === "in_progress" ? "tl-pulse" : void 0
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, minWidth: 0, fontWeight: td.status === "in_progress" ? 600 : 400 }, children: td.content })
+      ] }, i)) }) })
     ] });
   }
+  function CompPopover(props) {
+    const ref = react.useRef(null);
+    const [maxH, setMaxH] = react.useState(void 0);
+    react.useLayoutEffect(() => {
+      if (!props.open) {
+        setMaxH(void 0);
+        return;
+      }
+      const measure = () => {
+        const el = ref.current;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        setMaxH(Math.max(160, Math.min(320, r.bottom - 12)));
+      };
+      measure();
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }, [props.open]);
+    react.useEffect(() => {
+      if (!props.open) return;
+      const h = (e) => {
+        if (ref.current && !ref.current.contains(e.target)) props.onClose();
+      };
+      const k = (e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          props.onClose();
+        }
+      };
+      document.addEventListener("mousedown", h);
+      document.addEventListener("keydown", k);
+      return () => {
+        document.removeEventListener("mousedown", h);
+        document.removeEventListener("keydown", k);
+      };
+    }, [props.open, props.onClose]);
+    return /* @__PURE__ */ jsxRuntime.jsx(
+      "div",
+      {
+        ref,
+        className: "comp-pop" + (props.open ? " open" : "") + (props.anchor === "right" ? " right" : ""),
+        style: { maxHeight: maxH, overflowY: maxH !== void 0 ? "auto" : void 0 },
+        "aria-hidden": !props.open,
+        children: props.children
+      }
+    );
+  }
+  function CompOption(props) {
+    const { icon, color, name, sub, on, disabled, onSelect } = props;
+    return /* @__PURE__ */ jsxRuntime.jsxs(
+      "div",
+      {
+        className: "comp-opt" + (on ? " on" : "") + (disabled ? "" : ""),
+        style: disabled ? { opacity: 0.45, cursor: "default" } : void 0,
+        onClick: () => {
+          if (!disabled) onSelect();
+        },
+        children: [
+          icon ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: icon, size: 13, color }) : /* @__PURE__ */ jsxRuntime.jsx("span", { style: { width: 13, flex: "none" } }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-name", children: name }),
+            sub ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-sub", children: sub }) : null
+          ] }),
+          on && /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check-circle", size: 13, className: "comp-check", color: "var(--c-green)" })
+        ]
+      }
+    );
+  }
+  const Composer = react.forwardRef(function Composer2(props, ref) {
+    const { value, onChange, onKeyDown, placeholder, maxH } = props;
+    const [open, setOpen] = react.useState("");
+    const toggle = (k) => setOpen((o) => o === k ? "" : k);
+    const [modelNav, setModelNav] = react.useState("");
+    react.useEffect(() => {
+      if (open !== "model") setModelNav("");
+    }, [open]);
+    react.useEffect(() => {
+      const el = typeof ref === "function" ? null : ref == null ? void 0 : ref.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, maxH) + "px";
+    }, [value, maxH]);
+    const pick = (v, set) => {
+      set(v);
+      setOpen("");
+    };
+    const curHit = (() => {
+      for (const g of props.groups) {
+        const mem = g.members.find((x) => x.id === props.model);
+        if (mem) return { g, mem };
+      }
+      return null;
+    })();
+    const s = props.stats;
+    const pct = s ? Math.round(s.ratio * 100) : 0;
+    const pctColor = s ? pct > 92 ? "var(--c-red)" : pct > 80 ? "var(--c-amber)" : "var(--c-text3)" : "var(--c-text3)";
+    const fmtK = (n) => n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k` : `${n}`;
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "composer-box", style: { position: "relative" }, children: [
+      props.attachments && props.attachments.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
+        props.attachments.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 52, height: 52, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "移除", style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 }, onClick: img.onRemove, children: "✕" })
+        ] }, `${img.name}:${i}`)),
+        props.attachmentHint ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", style: { alignSelf: "center" }, children: props.attachmentHint }) : null
+      ] }),
+      props.children,
+      /* @__PURE__ */ jsxRuntime.jsx(
+        "textarea",
+        {
+          ref,
+          className: "composer-input",
+          rows: 1,
+          autoFocus: props.autoFocus,
+          style: { minHeight: props.minH ?? 24 },
+          placeholder,
+          value,
+          onChange: (e) => onChange(e.target.value),
+          onPaste: (e) => {
+            const files = [...e.clipboardData.files];
+            if (files.some((f) => f.type.startsWith("image/"))) {
+              e.preventDefault();
+              props.onAttachImage();
+            }
+          },
+          onDrop: (e) => {
+            const files = [...e.dataTransfer.files];
+            if (files.some((f) => f.type.startsWith("image/"))) {
+              e.preventDefault();
+              props.onAttachImage();
+            }
+          },
+          onKeyDown
+        }
+      ),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-bar", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "comp-item",
+              title: "附加附件 / 命令",
+              "aria-haspopup": "menu",
+              "aria-expanded": open === "plus",
+              style: { padding: "0 7px" },
+              onClick: () => toggle("plus"),
+              children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plus", size: 14 })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "plus", anchor: "left", onClose: () => setOpen(""), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "附件" }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-opt", onClick: () => {
+              props.onAttachImage();
+              setOpen("");
+            }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "file", size: 13, color: "var(--c-text2)" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-opt-name", children: "添加图片" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-opt-sub", children: "最多 4 张 · 4MB" })
+            ] }),
+            props.slash && props.slash.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-sep" }),
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "命令（插入输入框）" }),
+              props.slash.slice(0, 14).map((c) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-opt", onClick: () => {
+                var _a2;
+                (_a2 = props.onPickSlash) == null ? void 0 : _a2.call(props, c.insert);
+                setOpen("");
+              }, children: [
+                /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontSize: 12 }, children: c.name }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-opt-sub", children: c.hint })
+              ] }, c.name))
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs(
+            "button",
+            {
+              className: "comp-item",
+              title: "访问控制（Shift+Tab 循环）",
+              "aria-haspopup": "menu",
+              "aria-expanded": open === "mode",
+              onClick: () => toggle("mode"),
+              disabled: props.modeDisabled,
+              children: [
+                props.mode === "yolo" ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "bolt", size: 13, color: "var(--c-red)" }) : props.mode === "plan" ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plan", size: 13, color: "var(--c-chip-purple-fg, #b490ff)" }) : /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13, color: "var(--c-text2)" }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-label", children: props.modeLabel }),
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "mode" ? " open" : "") })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "mode", anchor: "left", onClose: () => setOpen(""), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "访问控制" }),
+            MODE_ORDER.map((m) => /* @__PURE__ */ jsxRuntime.jsx(
+              CompOption,
+              {
+                on: props.mode === m,
+                onSelect: () => pick(m, props.onMode),
+                icon: m === "yolo" ? "bolt" : m === "plan" ? "plan" : "shield",
+                color: MODE_META[m].color,
+                name: MODE_META[m].label.replace(/^[●◆◇⚡]\s*/, ""),
+                sub: m === "plan" ? "只读调研，出计划待批准" : m === "yolo" ? "全部放行，高危除外" : "写操作逐条授权"
+              },
+              m
+            ))
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs(
+            "button",
+            {
+              className: "comp-item",
+              title: "模型档案",
+              "aria-haspopup": "menu",
+              "aria-expanded": open === "model",
+              onClick: () => toggle("model"),
+              disabled: props.modelDisabled,
+              children: [
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "bot", size: 13, color: "var(--c-text2)" }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-label", children: curHit ? curHit.g.members.length > 1 ? `${curHit.g.name} · ${curHit.mem.name}` : curHit.mem.name : props.model || "默认模型" }),
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "model" ? " open" : "") })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx(CompPopover, { open: open === "model", anchor: "left", onClose: () => setOpen(""), children: modelNav ? (() => {
+            const g = props.groups.find((x) => x.id === modelNav);
+            if (!g) return null;
+            return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsxs(
+                "div",
+                {
+                  className: "comp-opt comp-group",
+                  role: "button",
+                  tabIndex: 0,
+                  "aria-label": g.name,
+                  onClick: () => setModelNav(""),
+                  onKeyDown: (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setModelNav("");
+                    }
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, style: { transform: "rotate(180deg)" }, color: "var(--c-text3)" }),
+                    /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-name", children: g.name }),
+                      g.hint ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-sub", children: g.hint }) : null
+                    ] }),
+                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-count", children: g.members.length })
+                  ]
+                }
+              ),
+              g.members.map((mem) => /* @__PURE__ */ jsxRuntime.jsx(
+                CompOption,
+                {
+                  on: mem.id === props.model,
+                  onSelect: () => pick(mem.id, props.onModel),
+                  name: mem.name,
+                  sub: mem.sub
+                },
+                mem.id
+              ))
+            ] });
+          })() : (
+            // 一级面板：供应商列表；单模型档案直接选中，多模型进入二级
+            /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "模型" }),
+              props.groups.map((g) => {
+                if (g.members.length > 1) {
+                  return /* @__PURE__ */ jsxRuntime.jsxs(
+                    "div",
+                    {
+                      className: "comp-opt comp-group",
+                      role: "button",
+                      tabIndex: 0,
+                      "aria-haspopup": "menu",
+                      "aria-label": g.name,
+                      onClick: () => setModelNav(g.id),
+                      onKeyDown: (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setModelNav(g.id);
+                        }
+                      },
+                      children: [
+                        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "bot", size: 13, color: "var(--c-text2)" }),
+                        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-name", children: g.name }),
+                          g.hint ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-sub", children: g.hint }) : null
+                        ] }),
+                        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-count", children: g.members.length }),
+                        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 10, color: "var(--c-text3)" })
+                      ]
+                    },
+                    g.id
+                  );
+                }
+                const mem = g.members[0];
+                return /* @__PURE__ */ jsxRuntime.jsx(
+                  CompOption,
+                  {
+                    on: mem.id === props.model,
+                    onSelect: () => pick(mem.id, props.onModel),
+                    icon: "bot",
+                    color: "var(--c-text2)",
+                    name: g.name,
+                    sub: g.hint ?? mem.sub
+                  },
+                  g.id
+                );
+              })
+            ] })
+          ) })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "comp-item", title: "思考深度", "aria-haspopup": "menu", "aria-expanded": open === "think", onClick: () => toggle("think"), children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "gear", size: 13, color: "var(--c-text2)" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-label", children: THINKING_META[props.thinking].label }),
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "think" ? " open" : "") })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "think", anchor: "left", onClose: () => setOpen(""), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "思考深度" }),
+            ["off", "low", "medium", "high"].map((v) => /* @__PURE__ */ jsxRuntime.jsx(
+              CompOption,
+              {
+                on: v === props.thinking,
+                onSelect: () => pick(v, props.onThinking),
+                icon: "sparkle",
+                color: v === "off" ? "var(--c-text3)" : "var(--c-amber)",
+                name: THINKING_META[v].label,
+                sub: THINKING_META[v].hint
+              },
+              v
+            ))
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "comp-send", title: props.sendTitle, disabled: !props.canSend && !props.busy, onClick: () => props.busy ? props.onStop() : props.onSend(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: props.busy ? "stop" : "send", size: 13 }) })
+      ] }),
+      s && (s.estTokens > 0 || s.totalInput != null) && /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "block" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("button", { type: "button", className: "comp-stats", title: "用量明细", "aria-haspopup": "menu", "aria-expanded": open === "stats", onClick: () => toggle("stats"), children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-bar", children: /* @__PURE__ */ jsxRuntime.jsx("i", { style: { width: `${Math.min(100, pct)}%`, background: pctColor } }) }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
+            "上下文 ",
+            /* @__PURE__ */ jsxRuntime.jsx("b", { children: s ? `${fmtK(s.estTokens)} / ${fmtK(s.contextWindow)}` : "—" }),
+            s ? ` · ${pct}%` : ""
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
+            "输入 ",
+            /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.totalInput) != null ? fmtK(s.totalInput) : "—" })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
+            "输出 ",
+            /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.totalOutput) != null ? fmtK(s.totalOutput) : "—" })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-item", children: /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.tokPerSec) != null ? `${s.tokPerSec} tok/s` : "—" }) }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
+            "缓存 ",
+            /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.cacheHitRate) != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—" })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "stats" ? " open" : "") })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "stats", anchor: "right", onClose: () => setOpen(""), children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "用量明细" }),
+          s ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "上下文窗口" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                fmtK(s.contextWindow),
+                " · ",
+                pct,
+                "%"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "系统提示" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                Math.round(s.breakdown.system),
+                " tok"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "历史消息" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                Math.round(s.breakdown.messages),
+                " tok"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "预留输出" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                Math.round(s.breakdown.reserved),
+                " tok"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-sep" }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "剩余预算" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: fmtK(s.budget) })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "累计输入" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.totalInput != null ? `${s.totalInput.toLocaleString()} tok` : "—" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "累计输出" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.totalOutput != null ? `${s.totalOutput.toLocaleString()} tok` : "—" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "最近一轮输出" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.lastOutput != null ? `${s.lastOutput.toLocaleString()} tok` : "—" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "生成速度" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.tokPerSec != null ? `${s.tokPerSec} tok/s` : "—" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "缓存命中率" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.cacheHitRate != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—" })
+            ] }),
+            s.compactions > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "已自动压缩" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                s.compactions,
+                " 次"
+              ] })
+            ] }),
+            pct > 80 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "2px 9px 6px", fontSize: 11, color: "var(--c-amber)" }, children: "已接近上限，建议 /compact 压缩历史" })
+          ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "2px 9px 8px", fontSize: 11, color: "var(--c-text3)" }, children: "发送首条消息后开始统计" })
+        ] })
+      ] })
+    ] });
+  });
   function PermissionCard(props) {
     var _a2, _b2, _c, _d;
     const { b, decided, sel } = props;
@@ -370,11 +1087,14 @@
     const kind = ((_a2 = b.payload) == null ? void 0 : _a2.kind) ?? "command";
     const options = permOptions(b, props.showFullAccess);
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: `1px solid ${decided ? "var(--c-border)" : "var(--c-amber)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: decided ? "var(--c-text3)" : "var(--c-amber)", fontWeight: 700, marginBottom: 4 }, children: [
-        "◈ 授权请求 · ",
-        kindLabel[kind] ?? kind,
-        ((_b2 = b.payload) == null ? void 0 : _b2.source) ? /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 10, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px", marginLeft: 8 }, children: b.payload.source }) : null,
-        ((_c = b.payload) == null ? void 0 : _c.risk) && /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: b.payload.risk === "high" ? "var(--c-red)" : "var(--c-amber)", float: "right", fontWeight: 700 }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: decided ? "var(--c-text3)" : "var(--c-amber)", fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13 }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+          "授权请求 · ",
+          kindLabel[kind] ?? kind
+        ] }),
+        ((_b2 = b.payload) == null ? void 0 : _b2.source) ? /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 10, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px" }, children: b.payload.source }) : null,
+        ((_c = b.payload) == null ? void 0 : _c.risk) && /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: b.payload.risk === "high" ? "var(--c-red)" : "var(--c-amber)", marginLeft: "auto", fontWeight: 700 }, children: [
           "■ ",
           b.payload.risk === "high" ? "高危" : "注意"
         ] })
@@ -414,9 +1134,9 @@
     const { b, decided, onAnswer } = props;
     const [text, setText] = react.useState("");
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: `2px dashed ${decided ? "var(--c-border)" : "var(--c-accent)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 600, marginBottom: 4 }, children: [
-        "? ",
-        b.question
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 600, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chat", size: 13, color: "var(--c-accent)" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { children: b.question })
       ] }),
       decided ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 11.5, color: "var(--c-text3)" }, children: [
         "已回答：",
@@ -446,9 +1166,12 @@
     const { b, decided, onPlan } = props;
     const [text, setText] = react.useState("");
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: `1px solid ${decided ? "var(--c-border)" : "var(--c-chip-purple-fg, #b490ff)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 720, opacity: decided ? 0.75 : 1 }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-chip-purple-fg, #b490ff)", fontWeight: 700, marginBottom: 6 }, children: [
-        "◇ 执行计划",
-        decided ? decided === "ok" ? " · 已批准" : " · 需修订" : ""
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-chip-purple-fg, #b490ff)", fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plan", size: 13 }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+          "执行计划",
+          decided ? decided === "ok" ? " · 已批准" : " · 需修订" : ""
+        ] })
       ] }),
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "md-body", dangerouslySetInnerHTML: { __html: renderMarkdown(b.plan) } }),
       decided ? null : /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 2 }, children: [
@@ -468,7 +1191,7 @@
     const stateColor = b.state === "running" ? "var(--c-amber)" : b.state === "completed" ? "var(--c-green)" : "var(--c-red)";
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: "1px solid var(--c-border)", borderRadius: 10, padding: "6px 10px", minWidth: 0 }, children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", cursor: "pointer", flexWrap: "wrap" }, onClick: () => setOpen(!open), children: [
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: stateColor }, children: b.state === "running" ? "◐" : "▣" }),
+        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "bot", size: 14, color: stateColor, className: b.state === "running" ? "tl-pulse" : void 0 }),
         /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: b.name || "子代理" }),
         /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { fontSize: 10.5, color: stateColor, border: `1px solid ${stateColor}`, borderRadius: 4, padding: "0 4px" }, children: [
           b.mode,
@@ -511,10 +1234,7 @@
       blockKind: "human",
       render: ({ block }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderLeft: "1px solid var(--c-green)", padding: "5px 12px", background: "rgba(126,231,135,.05)", borderRadius: "0 8px 8px 0", whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-green)", fontSize: 11, marginBottom: 2 }, children: "▸ 你" }),
-          b.text
-        ] });
+        return /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }, children: b.text }) });
       }
     },
     {
@@ -528,8 +1248,9 @@
       blockKind: "status",
       render: ({ block }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 11.5, color: "var(--c-text3)" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { marginRight: 6 }, children: "●" }),
+        const icon = b.phase === "thinking" ? "sparkle" : b.phase === "editing" ? "pencil" : "dot";
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 11.5, color: "var(--c-text3)", display: "flex", alignItems: "center", gap: 6 }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: icon, size: 12, className: b.phase === "thinking" ? "tl-pulse" : void 0 }),
           b.text
         ] });
       }
@@ -543,7 +1264,7 @@
       render: ({ block }) => {
         const b = block;
         return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 12, fontFamily: "var(--mono, monospace)" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text)" }, children: "✔" }),
+          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check-circle", size: 13, color: "var(--c-text)" }),
           /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
             "cp ",
             b.sha.slice(0, 8)
@@ -586,9 +1307,9 @@
       blockKind: "turn",
       render: ({ block, ctx }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)", display: "flex", gap: 14, flexWrap: "wrap" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-            "⎡ ",
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "usage", size: 12 }),
             b.text
           ] }),
           b.usage ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
@@ -610,8 +1331,8 @@
       blockKind: "log",
       render: ({ block }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 11, color: b.level === "error" ? "var(--c-red)" : b.level === "warn" ? "var(--c-amber)" : "var(--c-text3)", overflowWrap: "anywhere" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { marginRight: 6 }, children: "·" }),
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 11, color: b.level === "error" ? "var(--c-red)" : b.level === "warn" ? "var(--c-amber)" : "var(--c-text3)", overflowWrap: "anywhere", display: "flex", alignItems: "center", gap: 6 }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "dot", size: 8 }),
           b.text
         ] });
       }
@@ -647,6 +1368,18 @@
     const [modelId, setModelId] = react.useState("");
     const [mode, setMode] = react.useState("default");
     const [tab, setTab] = react.useState("chat");
+    react.useEffect(() => {
+      if (tab !== "chat") return;
+      requestAnimationFrame(() => {
+        const el = timelineRef.current;
+        if (!el) return;
+        const saved = lastChatScrollRef.current;
+        if (saved != null) {
+          el.scrollTop = saved;
+          lastChatScrollRef.current = null;
+        } else scrollTimelineToBottom(false);
+      });
+    }, [tab]);
     const [evMap, setEvMap] = react.useState({});
     const [selectedTask, setSelectedTask] = react.useState(null);
     const [focusTaskId, consumeTaskFocus] = useTaskFocus();
@@ -656,15 +1389,58 @@
       consumeTaskFocus();
     }, [focusTaskId]);
     const [error, setError] = react.useState(null);
+    const [errorGo, setErrorGo] = react.useState(null);
+    const errorGoFor = react.useRef(null);
+    const setConfigError = (text, label, section) => {
+      errorGoFor.current = text;
+      setErrorGo({ label, section });
+      setError(text);
+    };
+    react.useEffect(() => {
+      if (error !== errorGoFor.current) setErrorGo(null);
+    }, [error]);
     const [inputText, setInputText] = react.useState("");
     const [composeText, setComposeText] = react.useState("");
-    const [thinking, setThinking] = react.useState("medium");
+    const defaultProfile = modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
+    const resolveRefProfile = (ref) => {
+      if (!ref) return void 0;
+      const gid = ref.split("#")[0];
+      return modelProfiles.find((m) => m.id === ref) ?? modelProfiles.find((m) => m.id === gid);
+    };
+    const resolveRefVision = (ref) => {
+      const profile = resolveRefProfile(ref);
+      if (!profile) return false;
+      const gid = profile.groupId;
+      if (ref && ref.startsWith(`${gid}#`) && profile.groupModels) {
+        const mem = profile.groupModels.find((g) => g.modelId === ref.slice(gid.length + 1));
+        if (mem) return mem.vision;
+      }
+      return profile.capabilities.vision ?? false;
+    };
+    const resolveRefThinking = (ref) => {
+      const profile = resolveRefProfile(ref);
+      if (!profile) return "medium";
+      const gid = profile.groupId;
+      if (ref && ref.startsWith(`${gid}#`) && profile.groupModels) {
+        const mem = profile.groupModels.find((g) => g.modelId === ref.slice(gid.length + 1));
+        if (mem) return mem.thinking;
+      }
+      return profile.thinking ?? "medium";
+    };
+    const [thinking, setThinking] = react.useState((defaultProfile == null ? void 0 : defaultProfile.thinking) ?? "medium");
+    react.useEffect(() => {
+      var _a3;
+      if (!selectedTask) setThinking(resolveRefThinking(modelId || ((_a3 = app.settings) == null ? void 0 : _a3.defaultModelId) || (defaultProfile == null ? void 0 : defaultProfile.id)));
+    }, [modelId, modelProfiles]);
     const [sending, setSending] = react.useState(false);
     const [decided, setDecided] = react.useState({});
     const [stats, setStats] = react.useState(null);
     const [changesTick, setChangesTick] = react.useState(0);
     const [mention, setMention] = react.useState(null);
     const [mentionItems, setMentionItems] = react.useState([]);
+    const [slashQuery, setSlashQuery] = react.useState(null);
+    const [slashSel, setSlashSel] = react.useState(0);
+    const [mentionSel, setMentionSel] = react.useState(0);
     const [pkgCommands, setPkgCommands] = react.useState([]);
     const [permSel, setPermSel] = react.useState({});
     const [maxSubagents, setMaxSubagents] = react.useState(3);
@@ -700,21 +1476,59 @@
     }, [selectedTask]);
     const [cpCount, setCpCount] = react.useState(0);
     const [diffCount, setDiffCount] = react.useState(0);
+    const [awayFromBottom, setAwayFromBottom] = react.useState(false);
     const timelineRef = react.useRef(null);
+    const lastChatScrollRef = react.useRef(null);
+    const loadOlderRef = react.useRef(null);
+    const onTimelineScroll = react.useCallback(() => {
+      var _a3;
+      const el = timelineRef.current;
+      if (!el) return;
+      const away = el.scrollHeight - el.scrollTop - el.clientHeight > 80;
+      setAwayFromBottom((v) => v === away ? v : away);
+      lastChatScrollRef.current = el.scrollTop;
+      if (el.scrollTop < 160) void ((_a3 = loadOlderRef.current) == null ? void 0 : _a3.call(loadOlderRef));
+    }, []);
     react.useRef(/* @__PURE__ */ new Set());
     const inputHistory = react.useRef([]);
     const historyIdx = react.useRef(-1);
     const escTs = react.useRef(0);
     const oldestTs = react.useRef(null);
+    const composeRef = react.useRef(null);
+    const inputRef = react.useRef(null);
+    const imageInputRef = react.useRef(null);
     const [, forceTick] = react.useState(0);
     useAgentUIVersion();
     registerBuiltinAgentUI();
-    const scrollTimelineToBottom = react.useCallback(() => {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
+    const scrollTimelineToBottom = react.useCallback((smooth) => {
+      const doScroll = () => {
         const el = timelineRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
+        if (!el) return;
+        if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        else el.scrollTop = el.scrollHeight;
+        setAwayFromBottom(false);
+      };
+      doScroll();
+      requestAnimationFrame(doScroll);
+    }, []);
+    const startNewTask = react.useCallback(() => {
+      setSelectedTask(null);
+      setTab("chat");
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        var _a3;
+        return (_a3 = composeRef.current) == null ? void 0 : _a3.focus();
       }));
     }, []);
+    react.useEffect(() => {
+      const h = (e) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "n" || e.key === "N")) {
+          e.preventDefault();
+          startNewTask();
+        }
+      };
+      window.addEventListener("keydown", h);
+      return () => window.removeEventListener("keydown", h);
+    }, [startNewTask]);
     const reloadWorktrees = react.useCallback(async () => {
       if (!repo) return;
       try {
@@ -770,6 +1584,7 @@
       [reloadAgents]
     );
     const selected = (agentTasks == null ? void 0 : agentTasks.find((x) => x.taskId === selectedTask)) ?? null;
+    (agentTasks ?? []).filter((x) => LIVE_STATES.has(x.state)).length;
     const runningTool = (() => {
       if (!selectedTask) return null;
       const blocks = evMap[selectedTask] ?? [];
@@ -815,7 +1630,7 @@
       let cancelled = false;
       void call(
         "agent.task.history",
-        { taskId: selectedTask, limit: 300 }
+        { taskId: selectedTask, limit: 100 }
       ).then((h) => {
         var _a3;
         if (cancelled) return;
@@ -836,23 +1651,41 @@
     const loadOlder = async () => {
       var _a3;
       if (!selectedTask || loadingOlder || !oldestTs.current) return;
+      const el = timelineRef.current;
       setLoadingOlder(true);
+      const prevScrollHeight = (el == null ? void 0 : el.scrollHeight) ?? 0;
+      const prevScrollTop = (el == null ? void 0 : el.scrollTop) ?? 0;
       try {
         const h = await call(
           "agent.task.history",
-          { taskId: selectedTask, before: oldestTs.current, limit: 200 }
+          { taskId: selectedTask, before: oldestTs.current, limit: 100 }
         );
         const older = eventsToBlocks(h.events);
         if ((_a3 = h.events[0]) == null ? void 0 : _a3.ts) oldestTs.current = h.events[0].ts;
         setHasMoreHistory(!!h.hasMore);
-        if (older.length > 0) setEvMap((m) => ({ ...m, [selectedTask]: [...older, ...m[selectedTask] ?? []] }));
+        if (older.length > 0) {
+          skippingAutoScroll.current = true;
+          setEvMap((m) => ({ ...m, [selectedTask]: [...older, ...m[selectedTask] ?? []] }));
+          requestAnimationFrame(() => {
+            const e2 = timelineRef.current;
+            if (!e2) return;
+            const delta = e2.scrollHeight - prevScrollHeight;
+            if (delta > 0) e2.scrollTop = prevScrollTop + delta;
+          });
+        }
       } catch (e) {
         setError(e.message);
       } finally {
         setLoadingOlder(false);
       }
     };
+    loadOlderRef.current = loadOlder;
+    const skippingAutoScroll = react.useRef(false);
     react.useEffect(() => {
+      if (skippingAutoScroll.current) {
+        skippingAutoScroll.current = false;
+        return;
+      }
       scrollTimelineToBottom();
     }, [evMap, selectedTask, scrollTimelineToBottom]);
     react.useEffect(() => {
@@ -970,11 +1803,6 @@
     }
     const timeline = selectedTask ? evMap[selectedTask] ?? [] : [];
     const modelInfo = (_a2 = harnesses == null ? void 0 : harnesses[0]) == null ? void 0 : _a2.detect;
-    const todoProgress = (tk) => {
-      const todos = tk.todoState ?? [];
-      if (todos.length === 0) return null;
-      return `☑${todos.filter((x) => x.status === "completed").length}/${todos.length}`;
-    };
     const replyAnswer = async (requestId, answer, optionIndex) => {
       setDecided((d) => ({ ...d, [requestId]: answer ?? `#${(optionIndex ?? 0) + 1}` }));
       try {
@@ -992,6 +1820,7 @@
       }
     };
     const sendInput = async () => {
+      var _a3;
       if (!selected || !inputText.trim() || sending) return;
       const text = inputText.trim();
       if (text.startsWith("/")) {
@@ -1020,7 +1849,16 @@
             }
             if (name === "compact") await call("agent.task.compact", { taskId: selected.taskId });
             else if (name === "clear") await call("agent.task.clear", { taskId: selected.taskId });
-            else if (name === "plan" || name === "default" || name === "yolo" || name === "approvals") {
+            else if (name === "cp") await call("agent.task.checkpoint", { taskId: selected.taskId, summary: arg || "手动检查点（/cp）" });
+            else if (name === "diff") {
+              setTab("diff");
+              setInputText("");
+              return;
+            } else if (name === "attach") {
+              (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
+              setInputText("");
+              return;
+            } else if (name === "plan" || name === "default" || name === "yolo" || name === "approvals") {
               const m = name === "approvals" ? MODE_ORDER[(MODE_ORDER.indexOf(selected.permissionMode ?? "default") + 1) % MODE_ORDER.length] : name;
               await call("agent.task.setMode", { taskId: selected.taskId, mode: m });
               setMode(m);
@@ -1032,7 +1870,6 @@
               const v = arg;
               if (["off", "low", "medium", "high"].includes(v)) {
                 setThinking(v);
-                if (!BUSY_STATES.has(selected.state)) await call("agent.task.resume", { taskId: selected.taskId, prompt: `（思考深度切换为 ${v}，继续当前任务）`, thinking: v, mode });
               } else setError("/thinking 用法：/thinking off|low|medium|high");
             } else if (name === "fork") {
               const forked = await call("agent.task.fork", { taskId: selected.taskId, model: arg || void 0 });
@@ -1068,7 +1905,7 @@ ${target.instructions}
         return;
       }
       if (pendingImages.length > 0 && !visionOk) {
-        setError("当前模型档案未声明视觉（vision）能力，无法发送图片——请在 设置 → 模型档案 勾选「视觉」");
+        setConfigError("当前模型档案未声明视觉（vision）能力，无法发送图片——请在 设置 → 模型档案 勾选「视觉」", "去设置", "models");
         return;
       }
       inputHistory.current = [text, ...inputHistory.current.filter((x) => x !== text)].slice(0, 20);
@@ -1094,14 +1931,24 @@ ${target.instructions}
       }
     };
     const createFromCompose = async () => {
-      var _a3;
+      var _a3, _b3;
       if (!composeText.trim() || sending) return;
+      if (composeText.trim().startsWith("/")) {
+        const cmd = composeText.trim().split(/\s+/)[0].slice(1);
+        if (cmd === "attach") {
+          (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
+          setComposeText("");
+          return;
+        }
+        setError(`命令 /${cmd} 需在具体任务的对话中使用（新任务页仅支持 /attach）`);
+        return;
+      }
       setSending(true);
       try {
         if (pendingImages.length > 0) {
-          const chosen = modelProfiles.find((m) => m.id === modelId) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
-          if (((_a3 = chosen == null ? void 0 : chosen.capabilities) == null ? void 0 : _a3.vision) !== true) {
-            setError("所选模型档案未声明视觉（vision）能力，无法带图创建任务");
+          const chosenRef = modelId || ((_b3 = modelProfiles.find((m) => m.isDefault)) == null ? void 0 : _b3.id);
+          if (!resolveRefVision(chosenRef)) {
+            setConfigError("所选模型档案未声明视觉（vision）能力，无法带图创建任务——请在 设置 → 模型档案 勾选「视觉」", "去设置", "models");
             return;
           }
         }
@@ -1132,11 +1979,46 @@ ${target.instructions}
         setError(e.message);
       }
     };
+    const forkTask = async (taskId) => {
+      try {
+        const forked = await call("agent.task.fork", { taskId });
+        await reloadAgents();
+        setSelectedTask(forked.taskId);
+        setTab("chat");
+      } catch (e) {
+        setError(e.message);
+      }
+    };
+    const archiveTask = async (taskId) => {
+      try {
+        await call("agent.task.archive", { taskId, archived: true });
+        if (selectedTask === taskId) setSelectedTask(null);
+        await reloadAgents();
+      } catch (e) {
+        setError(e.message);
+      }
+    };
+    const setTaskMode = async (taskId, m) => {
+      try {
+        await call("agent.task.setMode", { taskId, mode: m });
+        await reloadAgents();
+      } catch (e) {
+        setError(e.message);
+      }
+    };
     const onComposeChange = (value, setter) => {
       setter(value);
       const el = document.activeElement;
       const caret = (el == null ? void 0 : el.selectionStart) ?? value.length;
       const before = value.slice(0, caret);
+      const slashM = /(^|\s)\/([\w-]*)$/.exec(before);
+      if (slashM) {
+        setSlashQuery(slashM[2]);
+        setSlashSel(0);
+        setMention(null);
+        return;
+      }
+      setSlashQuery(null);
       const providers = [...composerProviders()].sort((a, b) => b.prefix.length - a.prefix.length);
       if (providers.length === 0) {
         setMention(null);
@@ -1151,6 +2033,7 @@ ${target.instructions}
       const prefix = m[2];
       const query = m[3];
       setMention({ start: caret - query.length, prefix, query });
+      setMentionSel(0);
       const provider = providers.find((x) => x.prefix === prefix);
       if (!provider) {
         setMentionItems([]);
@@ -1172,6 +2055,104 @@ ${target.instructions}
       setter(next);
       setMention(null);
     };
+    const pickSlash = (insert, setText, current) => {
+      const el = document.activeElement;
+      const caret = (el == null ? void 0 : el.selectionStart) ?? current.length;
+      const before = current.slice(0, caret);
+      const m = /(^|\s)\/[\w-]*$/.exec(before);
+      setText(m ? current.slice(0, caret - m[0].length + m[1].length) + (insert || "") + " " : current);
+      setSlashQuery(null);
+    };
+    const navKeyDown = (e, text, setText) => {
+      const matches = slashQuery !== null ? slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8) : [];
+      if (matches.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSlashSel((s) => (s + 1) % matches.length);
+          return true;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSlashSel((s) => (s - 1 + matches.length) % matches.length);
+          return true;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          pickSlash(matches[Math.min(slashSel, matches.length - 1)].insert, setText, text);
+          return true;
+        }
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          setSlashQuery(null);
+          return true;
+        }
+      } else if (mention && mentionItems.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setMentionSel((s) => (s + 1) % mentionItems.length);
+          return true;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setMentionSel((s) => (s - 1 + mentionItems.length) % mentionItems.length);
+          return true;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          insertMention(mentionItems[Math.min(mentionSel, mentionItems.length - 1)].insert, setText, text);
+          return true;
+        }
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          setMention(null);
+          return true;
+        }
+      }
+      return false;
+    };
+    const chatKeyDown = (e) => {
+      if (navKeyDown(e, inputText, setInputText)) return;
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        void sendInput();
+        return;
+      }
+      if (e.key === "Tab" && e.shiftKey) {
+        e.preventDefault();
+        setMode((m) => MODE_ORDER[(MODE_ORDER.indexOf(m) + 1) % MODE_ORDER.length]);
+        return;
+      }
+    };
+    const composeKeyDown = (e) => {
+      if (navKeyDown(e, composeText, setComposeText)) return;
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        void createFromCompose();
+        return;
+      }
+      if (e.key === "Tab" && e.shiftKey) {
+        e.preventDefault();
+        setMode((m) => MODE_ORDER[(MODE_ORDER.indexOf(m) + 1) % MODE_ORDER.length]);
+        return;
+      }
+    };
+    const fmtCtx = (n) => n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
+    const modelGroups = (modelProfiles ?? []).filter((m) => m.configured).map((m) => ({
+      id: m.id,
+      name: m.name,
+      hint: m.isDefault ? "默认" : m.source === "package" ? "包" : void 0,
+      members: m.groupModels && m.groupModels.length > 1 ? m.groupModels.map((g, i) => ({
+        // 首成员复用分组 id（与后端约定一致），其余 `<分组id>#<模型id>`
+        id: i === 0 ? m.id : `${m.groupId}#${g.modelId}`,
+        name: g.modelId,
+        sub: [g.vision ? "视觉" : null, g.contextTokens ? `${fmtCtx(g.contextTokens)} ctx` : null].filter(Boolean).join(" · ") || void 0
+      })) : [{ id: m.id, name: m.modelId }]
+    }));
+    const slashItems = (() => {
+      const list = BUILTIN_SLASH.map((c) => ({ name: `/${c.name}`, hint: c.hint, insert: `/${c.name}` }));
+      for (const c of pkgCommands) list.push({ name: `/${c.name}`, hint: c.packageId, insert: `/${c.name}` });
+      return list;
+    })();
     const renderBlock = (b, key) => {
       switch (b.kind) {
         case "permission":
@@ -1180,6 +2161,8 @@ ${target.instructions}
           return /* @__PURE__ */ jsxRuntime.jsx(QuestionCard, { b, decided: decided[b.requestId], onAnswer: replyAnswer }, key);
         case "plan":
           return /* @__PURE__ */ jsxRuntime.jsx(PlanCard, { b, decided: decided[b.requestId], onPlan: replyPlan }, key);
+        case "todo":
+          return null;
       }
       const renderer = resolveTimelineRenderer(b.kind === "tool" ? b.name : void 0, b.kind);
       if (!renderer) return null;
@@ -1196,7 +2179,6 @@ ${target.instructions}
       return /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: renderer.render({ block: b, taskId: ctx.taskId ?? "", ctx }) }, key);
     };
     const agentCard = (task) => {
-      var _a3;
       const live = LIVE_STATES.has(task.state);
       const selectedNow = selectedTask === task.taskId;
       const dotColor = task.state === "failed" ? "var(--c-red)" : task.state === "completed" || task.state === "stopped" ? "var(--c-text3)" : task.permissionMode === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-green)";
@@ -1210,71 +2192,80 @@ ${target.instructions}
             setThinking(task.thinking ?? "medium");
             setMode(task.permissionMode ?? "default");
           },
-          style: { border: `1px solid ${selectedNow ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 10, padding: "8px 11px", cursor: "pointer", background: "var(--c-panel)" },
+          title: `${task.title}
+${stateChip(task.state).label} · ${task.branch}`,
+          style: { border: `1px solid ${selectedNow ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 10, padding: "6px 6px 6px 11px", cursor: "pointer", background: "var(--c-panel)", display: "flex", alignItems: "center", gap: 8, minHeight: 34 },
           children: [
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 7 }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { width: 7, height: 7, borderRadius: "50%", background: dotColor, opacity: working ? 1 : 0.85 } }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5, fontWeight: 600 }, children: task.title })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 3, display: "flex", gap: 8 }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: task.branch }),
-              /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-                "· ",
-                new Date(task.lastActiveAt ?? task.createdAt).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
-              ] }),
-              (((_a3 = task.queued) == null ? void 0 : _a3.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)" }, children: [
-                "· ⏳排队 ",
-                task.queued.length
-              ] }) : null,
-              task.permissionMode && task.permissionMode !== "default" ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: MODE_META[task.permissionMode].color }, children: [
-                "· ",
-                MODE_META[task.permissionMode].label
-              ] }) : null
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [
-              stateChip(task.state).label.replace("● ", ""),
-              " · ",
-              task.lastMessage ?? task.worktreePath,
-              todoProgress(task) ? ` · ${todoProgress(task)}` : ""
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginTop: 6 }, onClick: (e) => e.stopPropagation(), children: [
-              live && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void stopTask(task.taskId), children: "停止" }),
-              !live && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => {
-                setSelectedTask(task.taskId);
-                setTab("chat");
-                setInputText("");
-              }, children: "续跑" }),
-              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("app.newWindow", { path: task.worktreePath }), children: "新窗口" })
-            ] })
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { width: 7, height: 7, borderRadius: "50%", background: dotColor, flex: "none", opacity: working ? 1 : 0.85 } }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5, fontWeight: 600 }, children: task.title }),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "icon-btn",
+                title: live ? "运行中不可分叉，请先停止" : "分叉任务（复制对话历史到新分支）",
+                disabled: live,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  void forkTask(task.taskId);
+                },
+                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "fork", size: 14 })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "icon-btn",
+                title: live ? "运行中不可归档，请先停止" : "归档任务（从列表隐藏，可恢复）",
+                disabled: live,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  void archiveTask(task.taskId);
+                },
+                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "archive", size: 14 })
+              }
+            )
           ]
         },
         task.taskId
       );
     };
     const busy = selected ? BUSY_STATES.has(selected.state) : false;
-    const activeProfile = modelProfiles.find((m) => m.id === ((selected == null ? void 0 : selected.modelRef) ?? "")) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
-    const visionOk = ((_b2 = activeProfile == null ? void 0 : activeProfile.capabilities) == null ? void 0 : _b2.vision) === true;
+    const activeProfile = resolveRefProfile(selected == null ? void 0 : selected.modelRef) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
+    const visionOk = resolveRefVision((selected == null ? void 0 : selected.modelRef) ?? (activeProfile == null ? void 0 : activeProfile.id));
     const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", flex: 1, minHeight: 0, height: "100%" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsx(
+        "input",
+        {
+          ref: imageInputRef,
+          type: "file",
+          accept: "image/*",
+          multiple: true,
+          style: { display: "none" },
+          onChange: (e) => {
+            const files = [...e.target.files ?? []];
+            e.target.value = "";
+            if (files.length === 0) return;
+            if (!visionOk) {
+              setConfigError("当前模型档案未声明视觉（vision）能力，无法附加图片——请在 设置 → 模型档案 勾选「视觉」", "去设置", "models");
+              return;
+            }
+            filesToImages(files);
+          }
+        }
+      ),
       preview && /* @__PURE__ */ jsxRuntime.jsxs(Modal, { title: `预览：${preview.path}`, confirmText: "关闭", onConfirm: () => setPreview(null), onClose: () => setPreview(null), children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 11, color: "var(--c-text3)", marginBottom: 6 }, children: previewLoading ? "加载中…" : `${preview.binary ? "二进制文件" : `${(preview.size / 1024).toFixed(1)} KB`}${preview.truncated ? " · 已截断（前 64KB）" : ""}` }),
         /* @__PURE__ */ jsxRuntime.jsx("pre", { style: { maxHeight: 420, overflow: "auto", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "8px 10px", fontSize: 11.5, fontFamily: "var(--mono, monospace)", whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }, children: preview.content })
       ] }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderRight: "1px solid var(--c-border)", display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }, children: [
-        error && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner error", children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: error }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setError(null), children: "✕" })
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { onClick: () => {
-          setSelectedTask(null);
-          setTab("chat");
-        }, style: { margin: "10px 10px 6px", padding: "9px 12px", border: "2px dashed var(--c-border)", borderRadius: 8, color: "var(--c-text3)", textAlign: "center", cursor: "pointer", fontSize: 12.5 }, children: "＋ 新任务（描述目标，Ctrl+N）" }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "new-task-btn", style: { margin: "10px 10px 6px", width: "calc(100% - 20px)" }, onClick: startNewTask, children: "＋ 新任务（描述目标，Ctrl+N）" }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 10px 10px", display: "flex", flexDirection: "column", gap: 8 }, children: [
           ((agentTasks == null ? void 0 : agentTasks.length) ?? 0) === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, color: "var(--c-text3)", padding: "4px 2px" }, children: t("Agents_EmptyHint") }),
           agentTasks == null ? void 0 : agentTasks.map(agentCard)
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", gap: 2, padding: "6px 14px 0", borderBottom: "1px solid var(--c-border)" }, children: [["chat", "对话"], ["diff", `改动${diffCount ? ` ${diffCount}` : ""}`], ["cp", `检查点${cpCount ? ` ${cpCount}` : ""}`]].map(([id, label]) => /* @__PURE__ */ jsxRuntime.jsx(
           "div",
           {
@@ -1284,53 +2275,23 @@ ${target.instructions}
           },
           id
         )) }),
-        tab === "chat" && selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }, children: [
+        selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: tab === "chat" ? "flex" : "none", flexDirection: "column", overflow: "hidden" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap", color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)" }, children: [
             /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { fontSize: 11.5, padding: "1px 10px", borderRadius: 999, border: `1px solid ${stateChip(selected.state).color}`, color: stateChip(selected.state).color }, children: [
               stateChip(selected.state).label,
               busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1e3)) + "s" : ""
             ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }, children: selected.branch }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("app.newWindow", { path: selected.worktreePath }), children: "送验收" }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("app.newWindow", { path: selected.worktreePath }), children: "新窗口" })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx(
-            "div",
-            {
-              ref: timelineRef,
-              style: { flex: 1, minHeight: 0, minWidth: 0, overflowY: "auto", overflowX: "hidden" },
-              onDoubleClick: (e) => {
-                var _a3;
-                const pre = e.target.closest("pre");
-                if (pre) void ((_a3 = navigator.clipboard) == null ? void 0 : _a3.writeText(pre.textContent ?? ""));
-              },
-              children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", padding: "18px 20px 26px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }, children: [
-                hasMoreHistory && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { alignSelf: "center", fontSize: 11 }, disabled: loadingOlder, onClick: () => void loadOlder(), children: loadingOlder ? "加载中…" : "加载更早" }),
-                timeline.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12 }, children: t("Agents_TimelineEmpty") }),
-                groupLogs(timeline).map(
-                  (g, i) => g.kind === "logs" ? /* @__PURE__ */ jsxRuntime.jsxs("details", { style: { fontSize: 11 }, children: [
-                    /* @__PURE__ */ jsxRuntime.jsxs("summary", { style: { cursor: "pointer", color: "var(--c-text3)" }, children: [
-                      "▸ 显示 ",
-                      g.items.length,
-                      " 条日志"
-                    ] }),
-                    /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }, children: g.items.map((b, j) => renderBlock(b, `${i}-${j}`)) })
-                  ] }, i) : renderBlock(g.block, i)
-                )
-              ] })
-            }
-          ),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "4px 20px 2px" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", display: "flex", gap: 16, rowGap: 2, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)" }, children: [
-            runningTool ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)" }, children: [
-              "● ",
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 11.5 }, children: selected.branch }),
+            runningTool ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)", display: "inline-flex", alignItems: "center", gap: 5 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: toolIconName(runningTool.name), size: 11, className: "tl-pulse" }),
               TOOL_LABELS[runningTool.name] ?? runningTool.name,
-              " 运行中 ",
+              " ",
               ((Date.now() - runningTool.startTs) / 1e3).toFixed(1),
               "s"
-            ] }) : /* @__PURE__ */ jsxRuntime.jsx("span", { children: "○ 空闲" }),
-            (((_c = selected.queued) == null ? void 0 : _c.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)" }, children: [
-              "⏳ 排队 ",
+            ] }) : null,
+            (((_b2 = selected.queued) == null ? void 0 : _b2.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)", display: "inline-flex", alignItems: "center", gap: 5 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "clock", size: 11 }),
+              "排队 ",
               selected.queued.length
             ] }) : null,
             /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
@@ -1339,11 +2300,99 @@ ${target.instructions}
               "/",
               maxSubagents
             ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { marginLeft: "auto" }, children: "Esc 中断 · Esc×2 回滚 · Shift+Tab 模式 · ↑↓ 历史" })
-          ] }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { children: "Esc 中断 · Esc×2 回滚 · Shift+Tab 模式 · ↑↓ 历史" }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": "在新窗口打开 worktree", onClick: () => void call("app.newWindow", { path: selected.worktreePath }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "external", size: 14 }) })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, minWidth: 0, position: "relative" }, children: [
+            error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "calc(100% - 292px)", go: errorGo, onGo: (s) => {
+              openSettings(s);
+              setError(null);
+            }, onClose: () => setError(null) }),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "div",
+              {
+                ref: timelineRef,
+                style: { height: "100%", overflowY: "auto", overflowX: "hidden" },
+                onScroll: onTimelineScroll,
+                onDoubleClick: (e) => {
+                  var _a3;
+                  const pre = e.target.closest("pre");
+                  if (pre) void ((_a3 = navigator.clipboard) == null ? void 0 : _a3.writeText(pre.textContent ?? ""));
+                },
+                children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", padding: "18px 20px 26px", display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }, children: [
+                  loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11 }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-pulse", children: "加载中…" }) }),
+                  hasMoreHistory && !loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11, opacity: 0.6 }, children: "↑ 上滚加载更早" }),
+                  timeline.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12 }, children: t("Agents_TimelineEmpty") }),
+                  groupLogs(timeline).map(
+                    (g, i) => g.kind === "logs" ? /* @__PURE__ */ jsxRuntime.jsxs("details", { style: { fontSize: 11 }, children: [
+                      /* @__PURE__ */ jsxRuntime.jsxs("summary", { style: { cursor: "pointer", color: "var(--c-text3)" }, children: [
+                        "▸ 显示 ",
+                        g.items.length,
+                        " 条日志"
+                      ] }),
+                      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }, children: g.items.map((b, j) => renderBlock(b, `${i}-${j}`)) })
+                    ] }, i) : renderBlock(g.block, i)
+                  )
+                ] })
+              }
+            ),
+            (() => {
+              const todoBlock = [...timeline].reverse().find((b) => b.kind === "todo");
+              if (!todoBlock) return null;
+              return /* @__PURE__ */ jsxRuntime.jsx(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    width: 260,
+                    maxWidth: "calc(100% - 16px)",
+                    background: "var(--c-panel2)",
+                    border: "1px solid var(--c-border-strong)",
+                    borderRadius: 10,
+                    boxShadow: "0 2px 8px rgba(0,0,0,.22)",
+                    zIndex: 10,
+                    overflow: "hidden"
+                  },
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TodoList, { todos: todoBlock.todos })
+                }
+              );
+            })(),
+            awayFromBottom && /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "tool-btn icon",
+                "data-tip": "返回底部",
+                "aria-label": "返回底部",
+                style: {
+                  position: "absolute",
+                  left: "50%",
+                  bottom: 10,
+                  transform: "translateX(-50%)",
+                  width: 28,
+                  height: 28,
+                  padding: 0,
+                  borderRadius: 999,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "var(--c-panel2)",
+                  border: "1px solid var(--c-border-strong)",
+                  color: "var(--c-text2)",
+                  boxShadow: "0 2px 8px rgba(0,0,0,.22)"
+                },
+                onClick: () => scrollTimelineToBottom(false),
+                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 14 })
+              }
+            )
+          ] }),
           /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
-            pendingPerm && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)" }, children: "◈ 等待授权（↑↓+Enter 或数字直选上方卡片选项）" }),
-            mention && /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, onPick: (x) => insertMention(x, setInputText, inputText) }),
+            pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)", display: "flex", alignItems: "center", gap: 6 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 12, className: "tl-pulse" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "等待授权（↑↓+Enter 或数字直选上方卡片选项）" })
+            ] }),
             pendingImages.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
               pendingImages.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
                 /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
@@ -1365,234 +2414,130 @@ ${target.instructions}
                 !visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""
               ] })
             ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: `1px solid ${inputText.trim() ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 12, padding: "8px 12px 6px" }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx(
-                "textarea",
-                {
-                  style: { width: "100%", background: "transparent", border: "none", outline: "none", resize: "none", color: "var(--c-text)", font: "13px/1.55 inherit", minHeight: 44, maxHeight: 140 },
-                  placeholder: busy ? "agent 正在工作——输入将排队，本轮结束后自动注入（Esc 中断 / Esc×2 回滚）" : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式",
-                  value: inputText,
-                  onChange: (e) => onComposeChange(e.target.value, setInputText),
-                  onPaste: (e) => {
-                    const files = [...e.clipboardData.files];
-                    if (files.some((f) => f.type.startsWith("image/"))) {
-                      e.preventDefault();
-                      filesToImages(files);
-                    }
-                  },
-                  onDrop: (e) => {
-                    const files = [...e.dataTransfer.files];
-                    if (files.some((f) => f.type.startsWith("image/"))) {
-                      e.preventDefault();
-                      filesToImages(files);
-                    }
-                  },
-                  onKeyDown: (e) => {
-                    if (e.key === "Escape") {
-                      void stopTask(selected.taskId);
-                      return;
-                    }
-                    if (e.key === "Tab" && e.shiftKey) {
-                      e.preventDefault();
-                      cycleMode();
-                      return;
-                    }
-                    if (e.key === "ArrowUp" && !inputText.includes("\n") && inputHistory.current.length > 0) {
-                      historyIdx.current = Math.min(historyIdx.current + 1, inputHistory.current.length - 1);
-                      setInputText(inputHistory.current[historyIdx.current] ?? "");
-                      e.preventDefault();
-                      return;
-                    }
-                    if (e.key === "ArrowDown" && historyIdx.current >= 0) {
-                      historyIdx.current = Math.max(historyIdx.current - 1, -1);
-                      setInputText(historyIdx.current === -1 ? "" : inputHistory.current[historyIdx.current] ?? "");
-                      e.preventDefault();
-                      return;
-                    }
-                    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void sendInput();
+            /* @__PURE__ */ jsxRuntime.jsx(
+              Composer,
+              {
+                ref: inputRef,
+                value: inputText,
+                onChange: (v) => onComposeChange(v, setInputText),
+                maxH: 240,
+                placeholder: busy ? "agent 正在工作——输入将排队，本轮结束后自动注入（Esc 中断 / Esc×2 回滚）" : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式",
+                busy,
+                sending,
+                canSend: !!inputText.trim(),
+                sendTitle: busy ? "停止（Esc 同效）" : "发送（Enter）",
+                onStop: () => void stopTask(selected.taskId),
+                onSend: () => void sendInput(),
+                mode: selected.permissionMode ?? "default",
+                modeLabel: MODE_META[selected.permissionMode ?? "default"].label.replace(/^[●◆◇⚡]\s*/, ""),
+                onMode: (m) => void setTaskMode(selected.taskId, m).then(() => setMode(m)),
+                groups: modelGroups,
+                model: selected.modelRef ?? "",
+                modelDisabled: busy && selected.state !== "awaiting-input",
+                onModel: (id) => void (async () => {
+                  try {
+                    await call("agent.task.setModel", { taskId: selected.taskId, model: id });
+                    await reloadAgents();
+                    setThinking(resolveRefThinking(id));
+                  } catch (err) {
+                    setError(err.message);
                   }
-                }
-              ),
-              /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap", rowGap: 6 }, children: [
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", onClick: cycleMode, title: "Shift+Tab 循环", children: MODE_META[selected.permissionMode ?? "default"].label }),
-                /* @__PURE__ */ jsxRuntime.jsx(
-                  Select,
-                  {
-                    className: "select-inline",
-                    style: { width: 130 },
-                    value: selected.modelRef ?? "",
-                    disabled: busy && selected.state !== "awaiting-input",
-                    onChange: async (v) => {
-                      try {
-                        await call("agent.task.setModel", { taskId: selected.taskId, model: v });
-                        await reloadAgents();
-                      } catch (err) {
-                        setError(err.message);
-                      }
-                    },
-                    options: [
-                      ...(modelProfiles ?? []).filter((m) => m.configured).map((m) => ({ value: m.id, label: m.name + (m.isDefault ? " ★" : "") })),
-                      ...selected.modelRef && !(modelProfiles ?? []).some((m) => m.id === selected.modelRef) ? [{ value: selected.modelRef, label: selected.modelRef }] : []
-                    ]
-                  }
-                ),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", title: "@ 文件 / @任务 提及", children: "@" }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", title: "粘贴图片附加", onClick: () => setError("当前模型档案未声明多模态能力，图片输入暂不可用"), children: "🖼" }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-                stats && /* @__PURE__ */ jsxRuntime.jsxs(
-                  "div",
-                  {
-                    title: `系统 ${Math.round(stats.breakdown.system)} · 历史 ${Math.round(stats.breakdown.messages)} · 预留 ${Math.round(stats.breakdown.reserved)}${stats.compactions ? ` · 已压缩 ${stats.compactions} 次` : ""}`,
-                    style: { display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: stats.ratio > 0.92 ? "var(--c-red)" : stats.ratio > 0.8 ? "var(--c-amber)" : "var(--c-text3)" },
-                    children: [
-                      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { width: 80, height: 4, borderRadius: 2, background: "var(--c-border)", overflow: "hidden" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { width: `${Math.min(100, stats.ratio * 100)}%`, height: "100%", background: stats.ratio > 0.92 ? "var(--c-red)" : stats.ratio > 0.8 ? "var(--c-amber)" : "var(--c-text3)" } }) }),
-                      /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-                        "context ",
-                        Math.round(stats.ratio * 100),
-                        "% · ",
-                        (stats.estTokens / 1e3).toFixed(1),
-                        "k"
-                      ] }),
-                      stats.ratio > 0.8 && /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-amber)" }, children: "· /compact" })
-                    ]
-                  }
-                ),
-                /* @__PURE__ */ jsxRuntime.jsx(
-                  "button",
-                  {
-                    title: busy ? "⏹ 停止（Esc 同效）" : "➤ 发送（Ctrl+Enter 同效）",
-                    onClick: () => {
-                      if (busy) void stopTask(selected.taskId);
-                      else void sendInput();
-                    },
-                    style: { border: "none", background: "var(--c-text)", color: "var(--c-panel)", borderRadius: 8, width: 30, height: 30, fontSize: 14, cursor: "pointer", flex: "none", display: "flex", alignItems: "center", justifyContent: "center" },
-                    children: busy ? "⏹" : "➤"
-                  }
-                )
-              ] })
-            ] })
+                })(),
+                thinking,
+                onThinking: (v) => {
+                  setThinking(v);
+                },
+                stats,
+                attachments: pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) })),
+                attachmentHint: `图片 ${pendingImages.length}/4${!visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""}`,
+                onAttachImage: () => {
+                  var _a3;
+                  return (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
+                },
+                slash: slashItems,
+                onPickSlash: (insert) => {
+                  setInputText((cur) => cur ? `${cur} ${insert}` : insert);
+                  setTimeout(() => {
+                    var _a3;
+                    return (_a3 = inputRef.current) == null ? void 0 : _a3.focus();
+                  }, 0);
+                },
+                onKeyDown: chatKeyDown,
+                children: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                  mention ? /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, selectedIndex: mentionSel, onSelect: setMentionSel, onPick: (x) => insertMention(x, setInputText, inputText) }) : null,
+                  slashQuery !== null && /* @__PURE__ */ jsxRuntime.jsx(SlashPopover, { open: true, items: slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8), selectedIndex: slashSel, onSelect: setSlashSel, onPick: (insert) => pickSlash(insert, setInputText, inputText) })
+                ] })
+              }
+            )
           ] }) })
         ] }),
-        tab === "chat" && !selected && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { width: 680, maxWidth: "90%" }, children: [
-          modelInfo && !modelInfo.available ? /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn", style: { color: "var(--c-amber)", borderColor: "var(--c-amber)", marginBottom: 10 }, onClick: () => openSettings("models"), children: [
-            "● ",
-            t("Agents_ModelMissing"),
-            " → ",
-            t("Agents_OpenSettings")
-          ] }) : null,
-          pendingImages.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
-            pendingImages.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
-              /* @__PURE__ */ jsxRuntime.jsx(
-                "button",
-                {
-                  className: "tool-btn",
-                  title: "移除",
-                  style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 },
-                  onClick: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)),
-                  children: "✕"
-                }
-              )
-            ] }, `${img.name}:${i}`)),
-            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", style: { alignSelf: "center" }, children: [
-              "图片 ",
-              pendingImages.length,
-              "/4（随首条消息发送）"
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: `1px solid ${composeText.trim() ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 12, padding: "10px 12px 6px", position: "relative" }, children: [
-            mention && /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, onPick: (x) => insertMention(x, setComposeText, composeText) }),
+        tab === "chat" && !selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }, children: [
+          error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "min(680px, 92%)", go: errorGo, onGo: (s) => {
+            openSettings(s);
+            setError(null);
+          }, onClose: () => setError(null) }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { width: 680, maxWidth: "90%" }, children: [
+            modelInfo && !modelInfo.available ? /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn", style: { color: "var(--c-amber)", borderColor: "var(--c-amber)", marginBottom: 10 }, onClick: () => openSettings("models"), children: [
+              "● ",
+              t("Agents_ModelMissing"),
+              " → ",
+              t("Agents_OpenSettings")
+            ] }) : null,
             /* @__PURE__ */ jsxRuntime.jsx(
-              "textarea",
+              Composer,
               {
+                ref: composeRef,
+                value: composeText,
+                onChange: (v) => onComposeChange(v, setComposeText),
+                maxH: 208,
+                minH: 42,
                 autoFocus: true,
-                style: { width: "100%", background: "transparent", border: "none", outline: "none", resize: "none", color: "var(--c-text)", font: "13.5px/1.55 inherit", minHeight: 120 },
                 placeholder: `${t("Agents_ComposePlaceholder")}
 支持 @文件 提及；规划类任务先切「◇ 规划」模式（Shift+Tab）`,
-                value: composeText,
-                onChange: (e) => onComposeChange(e.target.value, setComposeText),
-                onPaste: (e) => {
-                  const files = [...e.clipboardData.files];
-                  if (files.some((f) => f.type.startsWith("image/"))) {
-                    e.preventDefault();
-                    filesToImages(files);
-                  }
+                busy: false,
+                sending,
+                canSend: !!composeText.trim(),
+                sendTitle: "创建任务（Enter）",
+                onStop: () => {
                 },
-                onDrop: (e) => {
-                  const files = [...e.dataTransfer.files];
-                  if (files.some((f) => f.type.startsWith("image/"))) {
-                    e.preventDefault();
-                    filesToImages(files);
-                  }
+                onSend: () => void createFromCompose(),
+                mode,
+                modeLabel: MODE_META[mode].label.replace(/^[●◆◇⚡]\s*/, ""),
+                onMode: setMode,
+                groups: modelGroups,
+                model: modelId || (((_c = modelProfiles.find((m) => m.isDefault)) == null ? void 0 : _c.id) ?? ""),
+                onModel: setModelId,
+                thinking,
+                onThinking: setThinking,
+                stats: null,
+                attachments: pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) })),
+                attachmentHint: `图片 ${pendingImages.length}/4（随首条消息发送）`,
+                onAttachImage: () => {
+                  var _a3;
+                  return (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
                 },
-                onKeyDown: (e) => {
-                  if (e.key === "Tab" && e.shiftKey) {
-                    e.preventDefault();
-                    setMode(MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length]);
-                    return;
-                  }
-                  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void createFromCompose();
-                }
+                slash: slashItems,
+                onPickSlash: (insert) => {
+                  setComposeText((cur) => cur ? `${cur} ${insert}` : insert);
+                  setTimeout(() => {
+                    var _a3;
+                    return (_a3 = composeRef.current) == null ? void 0 : _a3.focus();
+                  }, 0);
+                },
+                onKeyDown: composeKeyDown,
+                children: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                  mention ? /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, selectedIndex: mentionSel, onSelect: setMentionSel, onPick: (x) => insertMention(x, setComposeText, composeText) }) : null,
+                  slashQuery !== null && /* @__PURE__ */ jsxRuntime.jsx(SlashPopover, { open: true, items: slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8), selectedIndex: slashSel, onSelect: setSlashSel, onPick: (insert) => pickSlash(insert, setComposeText, composeText) })
+                ] })
               }
             ),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap", rowGap: 6 }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", onClick: () => setMode(MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length]), title: "Shift+Tab 循环", children: MODE_META[mode].label }),
-              /* @__PURE__ */ jsxRuntime.jsx(
-                Select,
-                {
-                  className: "select-inline",
-                  style: { width: 140 },
-                  value: taskTypeId,
-                  onChange: (v) => setTaskTypeId(v),
-                  title: t("Agents_TaskType"),
-                  options: [{ value: "", label: t("Agents_TaskTypeFree") }, ...taskTypes.filter((tt) => !tt.error).map((tt) => ({ value: tt.fullId, label: tt.name }))]
-                }
-              ),
-              /* @__PURE__ */ jsxRuntime.jsx(
-                Select,
-                {
-                  className: "select-inline",
-                  style: { width: 150 },
-                  value: modelId,
-                  onChange: (v) => setModelId(v),
-                  title: t("Agents_Model"),
-                  options: [{ value: "", label: t("Agents_ModelDefault") }, ...modelProfiles.filter((m) => m.configured).map((m) => ({ value: m.id, label: m.name + (m.isDefault ? " ★" : "") }))]
-                }
-              ),
-              /* @__PURE__ */ jsxRuntime.jsx(
-                Select,
-                {
-                  className: "select-inline",
-                  style: { width: 100 },
-                  value: thinking,
-                  onChange: (v) => setThinking(v),
-                  title: t("Agents_Thinking"),
-                  options: [
-                    { value: "high", label: t("Agents_ThinkingHigh") },
-                    { value: "medium", label: t("Agents_ThinkingMedium") },
-                    { value: "low", label: t("Agents_ThinkingLow") },
-                    { value: "off", label: t("Agents_ThinkingOff") }
-                  ]
-                }
-              ),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-              /* @__PURE__ */ jsxRuntime.jsx(
-                "button",
-                {
-                  onClick: () => void createFromCompose(),
-                  disabled: sending || !composeText.trim(),
-                  style: { border: "none", background: "var(--c-text)", color: "var(--c-panel)", borderRadius: 8, width: 30, height: 30, fontSize: 14, cursor: "pointer", opacity: sending || !composeText.trim() ? 0.4 : 1 },
-                  children: "➤"
-                }
-              )
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 6 }, children: [
+              "Enter 发送 · Shift+Enter 换行 · ",
+              t("Agents_TargetHint"),
+              " · 规划模式：先调研出计划，批准后自动执行"
             ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 6 }, children: [
-            "Ctrl+Enter 发送 · ",
-            t("Agents_TargetHint"),
-            " · 规划模式：先调研出计划，批准后自动执行"
           ] })
-        ] }) }),
+        ] }),
         tab === "diff" && selected && /* @__PURE__ */ jsxRuntime.jsx(
           ChangesTab,
           {

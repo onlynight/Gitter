@@ -137,8 +137,11 @@ body {
   font-size: 14px; line-height: 1; font-style: normal;
 }
 .nav-item .nav-label { overflow: hidden; text-overflow: ellipsis; }
-.collapsed .nav-label { display: none; }
-.collapsed .nav-item { justify-content: center; padding: 0; margin: 1px 2px; width: calc(100% - 4px); } /* 图标中心 x=22：与展开态、标题栏汉堡对齐 */
+/* 折叠动画：图标保持展开态的左锚布局（不移动，中心恒 x=22 与标题栏汉堡对齐）；
+ * 文字不 display:none 瞬失——随栏宽收窄被 sidebar overflow 逐渐裁切覆盖，全程不出省略号 */
+.collapsed .nav-label { text-overflow: clip; }
+/* 折叠时隐藏外部页 ✕ 卸载钮：窄栏下会挤占图标位（卸载操作回展开态再用） */
+.collapsed .nav-ext-x { display: none; }
 .collapsed .nav-item.active::before { display: none; }
 
 /* ---- 状态栏 ---- */
@@ -174,6 +177,8 @@ html[data-window-material="mica"] .select-pop,
 html[data-window-material="acrylic"] .select-pop,
 html[data-window-material="mica"] .profile-menu,
 html[data-window-material="acrylic"] .profile-menu,
+html[data-window-material="mica"] .comp-pop,
+html[data-window-material="acrylic"] .comp-pop,
 html[data-window-material="mica"] .toast-stack .banner,
 html[data-window-material="acrylic"] .toast-stack .banner,
 html[data-window-material="mica"] .select-pop,
