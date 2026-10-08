@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Modal, useContextMenu, SyncBar, useSyncProgress, Banner, type CtxMenuItem } from "../kit";
+import { Modal, Select, useContextMenu, SyncBar, useSyncProgress, Banner, type CtxMenuItem, type SelectOption } from "../kit";
 import type { BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -22,12 +22,14 @@ export function BranchesPage() {
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [transient, setTransient] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [selected, setSelected] = useState<{ name: string; isRemote: boolean } | null>(null);
+  const [selected, setSelected] = useState<{ kind: "local" | "remote" | "tag"; name: string } | null>(null);
   const [dialog, setDialog] = useState<
-    | { kind: "create"; name: string }
+    | { kind: "create"; name: string; startPoint: string; checkout: boolean }
     | { kind: "rename"; oldName: string; newName: string }
     | { kind: "deletePreview"; name: string; preview: DeletePreviewDTO | null }
-    | { kind: "merge"; name: string; noFf: boolean; message: string }
+    | { kind: "deleteRemote"; name: string }
+    | { kind: "deleteTag"; name: string }
+    | { kind: "merge"; source: string; target: string; noFf: boolean; message: string }
     | null
   >(null);
   const { showMenu, menuElement } = useContextMenu();
@@ -49,6 +51,38 @@ export function BranchesPage() {
     void reload();
   }, [repo, app.refreshTick]);
 
+  // 命令面板/菜单的 branches.create 路由到本页：打开创建对话框
+  useEffect(() => {
+    if (app.routedCommand?.id === "branches.create") {
+      setDialog({ kind: "create", name: "", startPoint: "HEAD", checkout: true });
+    }
+  }, [app.routedCommand]);
+
+  /** 创建起点候选：HEAD / 本地分支 / 远程分支 / tag。value 用全限定 refname 避免分支与 tag 同名歧义。 */
+  const startPointOptions = (): SelectOption[] => {
+    const cur = state?.current ?? null;
+    return [
+      { value: "HEAD", label: t("Branches_StartHead", cur ?? "HEAD") },
+      ...(state?.local ?? []).filter((b) => b.name !== cur).map((b) => ({ value: "refs/heads/" + b.name, label: b.name })),
+      ...(state?.remote ?? []).map((b) => ({ value: "refs/remotes/" + b.name, label: b.name })),
+      ...(state?.tags ?? []).map((tg) => ({ value: "refs/tags/" + tg.name, label: `${tg.name} (${t("Branches_TagSuffix")})` })),
+    ];
+  };
+
+  const mergeSourceOptions = (): SelectOption[] => [
+    ...(state?.local ?? []).map((b) => ({ value: "refs/heads/" + b.name, label: b.name })),
+    ...(state?.remote ?? []).map((b) => ({ value: "refs/remotes/" + b.name, label: b.name })),
+  ];
+
+  /** 合并目标只能是本地分支（远程跟踪分支不可检出为工作分支）。 */
+  const mergeTargetOptions = (): SelectOption[] => (state?.local ?? []).map((b) => ({ value: b.name, label: b.name }));
+
+  const tagMenu = (name: string): CtxMenuItem[] => [
+    { label: t("Branches_CreateBranchFromTag"), action: () => setDialog({ kind: "create", name: "", startPoint: "refs/tags/" + name, checkout: true }) },
+    { sep: true, label: "", action: () => {} },
+    { label: t("Branches_DeleteTag"), action: () => setDialog({ kind: "deleteTag", name }) },
+  ];
+
   const run = async (fn: () => Promise<string>) => {
     setBusy(true);
     try {
@@ -66,7 +100,13 @@ export function BranchesPage() {
   const branchMenu = (name: string, isRemote: boolean): CtxMenuItem[] => {
     if (isRemote) {
       return [
+        { label: t("Branches_CheckoutLocal"), action: () => void run(async () => {
+            const local = await call<string>("branches.checkoutRemote", { name });
+            return t("Branches_CheckedOut", local);
+          }) },
         { label: t("Branches_FastForward"), action: () => void run(async () => { await call("branches.ff", { name }); return t("Branches_FastForwarded"); }) },
+        { sep: true, label: "", action: () => {} },
+        { label: t("Branches_DeleteRemote"), action: () => setDialog({ kind: "deleteRemote", name }) },
       ];
     }
     const isCurrent = state?.current === name;
@@ -74,8 +114,7 @@ export function BranchesPage() {
       ...(isCurrent ? [] : [{ label: t("Branches_Checkout"), action: () => void run(async () => { await call("branches.checkout", { name }); return t("Branches_CheckedOut", name); }) }]),
       { label: t("Branches_Rename"), action: () => setDialog({ kind: "rename", oldName: name, newName: name }) },
       { sep: true, label: "", action: () => {} },
-      { label: t("Branches_Merge"), action: () => setDialog({ kind: "merge", name, noFf: false, message: "" }) },
-      { label: t("Branches_MergeNoFf"), action: () => setDialog({ kind: "merge", name, noFf: true, message: "" }) },
+      { label: t("Branches_Merge"), action: () => setDialog({ kind: "merge", source: "refs/heads/" + name, target: state?.current ?? state?.local?.[0]?.name ?? "", noFf: false, message: "" }) },
       { label: t("Branches_Rebase"), action: () => void run(async () => { await call("branches.rebase", { name }); return t("Branches_Rebased", name); }) },
       { sep: true, label: "", action: () => {} },
       { label: t("Branches_Delete"), action: () => void (async () => {
@@ -94,53 +133,64 @@ export function BranchesPage() {
     return <div className="empty-state"><div className="big">⑂</div>{t("Common_NoProjectSelected")}</div>;
   }
 
-  const renderGroup = (title: string, remote: boolean) => {
-    const list = remote ? state?.remote ?? [] : state?.local ?? [];
-    if (list.length === 0) return null;
-    return (
-      <>
-        <div className="pane-card" style={{ marginBottom: 12, display: "block", overflow: "hidden" }}>
-        <div className="group-header solid"><span>{title}</span><span style={{ color: "var(--c-text3)", fontWeight: 400 }}>{list.length}</span></div>
-        {list.map((b) => (
-          <div
-            key={b.name}
-            className={"list-row" + (selected?.name === b.name ? " selected" : "")}
-            onClick={() => setSelected({ name: b.name, isRemote: remote })}
-            onContextMenu={(e) => {
-              setSelected({ name: b.name, isRemote: remote });
-              void (async () => {
-                showMenu(e, [...branchMenu(b.name, remote), ...(await seamMenuItems("branchRow"))]);
-              })();
-            }}
-          >
-            <span className="mono">{b.shortSha}</span>
-            <span className="trim" style={{ flex: 1 }}>
-              {b.name}
-              {state?.current === b.name && <span className="badge" style={{ marginLeft: 6 }}>HEAD</span>}
-            </span>
-            <span className="trim" style={{ color: "var(--c-text3)", fontSize: 11, maxWidth: 260 }}>{b.subject}</span>
-          </div>
-        ))}
-        </div>
-      </>
-    );
-  };
+  const groupHeader = (title: string, count: number) => (
+    <div className="group-header solid"><span>{title}</span><span style={{ color: "var(--c-text3)", fontWeight: 400 }}>{count}</span></div>
+  );
+
+  const renderBranchRows = (remote: boolean) =>
+    (remote ? state?.remote ?? [] : state?.local ?? []).map((b) => (
+      <div
+        key={b.name}
+        className={"list-row" + (selected?.kind === (remote ? "remote" : "local") && selected?.name === b.name ? " selected" : "")}
+        onClick={() => setSelected({ kind: remote ? "remote" : "local", name: b.name })}
+        onContextMenu={(e) => {
+          setSelected({ kind: remote ? "remote" : "local", name: b.name });
+          void (async () => {
+            showMenu(e, [...branchMenu(b.name, remote), ...(await seamMenuItems("branchRow"))]);
+          })();
+        }}
+      >
+        <span className="mono">{b.shortSha}</span>
+        <span className="trim" style={{ flex: 1 }}>
+          {b.name}
+          {state?.current === b.name && <span className="badge" style={{ marginLeft: 6 }}>HEAD</span>}
+        </span>
+        <span className="trim" style={{ color: "var(--c-text3)", fontSize: 11, maxWidth: 180 }}>{b.subject}</span>
+      </div>
+    ));
+
+  const renderTagRows = () =>
+    (state?.tags ?? []).map((tg) => (
+      <div
+        key={tg.name}
+        className={"list-row" + (selected?.kind === "tag" && selected?.name === tg.name ? " selected" : "")}
+        onClick={() => setSelected({ kind: "tag", name: tg.name })}
+        onContextMenu={(e) => {
+          setSelected({ kind: "tag", name: tg.name });
+          showMenu(e, tagMenu(tg.name));
+        }}
+      >
+        <span className="mono">{tg.shortSha}</span>
+        <span className="trim" style={{ flex: 1 }}>{tg.name}</span>
+        <span className="trim" style={{ color: "var(--c-text3)", fontSize: 11, maxWidth: 140 }}>{tg.subject}</span>
+      </div>
+    ));
 
   return (
     <>
       <div className="toolbar">
-        <button className="tool-btn icon" data-tip={t("Branches_Create")} onClick={() => setDialog({ kind: "create", name: "" })}>
-          <span className="glyph">{""}</span>
+        <button className="tool-btn icon" data-tip={t("Branches_Create")} onClick={() => setDialog({ kind: "create", name: "", startPoint: "HEAD", checkout: true })}>
+          <span className="glyph">{""}</span>
         </button>
         <span className="grow" />
         <button className="tool-btn icon" data-tip={t("Branches_Pull")} disabled={busy} onClick={() => void run(async () => { await call("branches.pull", { rebase: false }); return t("Branches_Pulled"); })}>
-          <span className="glyph">{""}</span>
+          <span className="glyph">{""}</span>
         </button>
         <button className="tool-btn icon" data-tip={t("Branches_PullRebase")} disabled={busy} onClick={() => void run(async () => { await call("branches.pull", { rebase: true }); return t("Branches_PulledRebase"); })}>
-          <span className="glyph">{""}</span>
+          <span className="glyph">{""}</span>
         </button>
         <button className="tool-btn icon" data-tip={t("Branches_Push")} disabled={busy} onClick={() => void run(async () => { await call("branches.push", {}); return t("Branches_Pushed"); })}>
-          <span className="glyph">{""}</span>
+          <span className="glyph">{""}</span>
         </button>
       </div>
 
@@ -157,18 +207,34 @@ export function BranchesPage() {
       {transient && <div className="banner"><span className="banner-text">{transient}</span><button className="tool-btn" onClick={() => setTransient(null)}>✕</button></div>}
       {busy && <SyncBar progress={syncProgress} />}
 
-      <div
-        className="split-pane"
-        style={{ flex: 1, minHeight: 0, overflow: "auto", margin: "10px 12px 12px", background: "transparent", border: "none", borderRadius: 0 }}
-      >
-        {state ? (
-          <>
-            {renderGroup(t("Branches_LocalGroup"), false)}
-            {renderGroup(t("Branches_RemoteGroup"), true)}
-          </>
-        ) : (
-          <div className="empty-state">{t("Common_Loading")}</div>
-        )}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", gap: 12, margin: "10px 12px 12px" }}>
+        {/* 左栏：本地 + 远程分支 */}
+        <div className="pane-card" style={{ flex: 1.7, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {state ? (
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {groupHeader(t("Branches_LocalGroup"), state.local.length)}
+              {renderBranchRows(false)}
+              <div style={{ height: 8 }} />
+              {groupHeader(t("Branches_RemoteGroup"), state.remote.length)}
+              {renderBranchRows(true)}
+            </div>
+          ) : (
+            <div className="empty-state" style={{ flex: 1 }}>{t("Common_Loading")}</div>
+          )}
+        </div>
+        {/* 右栏：tag */}
+        <div className="pane-card" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {state ? (
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {groupHeader(t("Branches_TagGroup"), state.tags.length)}
+              {state.tags.length > 0 ? renderTagRows() : (
+                <div style={{ padding: "14px 12px", color: "var(--c-text3)", fontSize: 12 }}>{t("Branches_NoTags")}</div>
+              )}
+            </div>
+          ) : (
+            <div className="empty-state" style={{ flex: 1 }}>{t("Common_Loading")}</div>
+          )}
+        </div>
       </div>
 
       {dialog?.kind === "create" && (
@@ -179,12 +245,22 @@ export function BranchesPage() {
           onClose={() => setDialog(null)}
           onConfirm={() => {
             const name = dialog.name.trim();
-            void run(async () => { await call("branches.create", { name }); return t("Branches_Created", name); });
+            const from = dialog.startPoint === "HEAD" ? null : dialog.startPoint;
+            void run(async () => { await call("branches.create", { name, fromSha: from, checkout: dialog.checkout }); return t("Branches_Created", name); });
             setDialog(null);
           }}
         >
           <input autoFocus className="input" style={{ width: "100%" }} placeholder={t("Branches_NamePlaceholder")}
             value={dialog.name} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ color: "var(--c-text3)", fontSize: 12 }}>{t("Branches_StartPoint")}</span>
+            <Select className="full" style={{ width: "100%" }} value={dialog.startPoint} options={startPointOptions()}
+              onChange={(v) => setDialog({ ...dialog, startPoint: v })} />
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input type="checkbox" checked={dialog.checkout} onChange={(e) => setDialog({ ...dialog, checkout: e.target.checked })} />
+              {t("Branches_CheckoutAfter")}
+            </label>
+          </div>
         </Modal>
       )}
       {dialog?.kind === "rename" && (
@@ -221,20 +297,63 @@ export function BranchesPage() {
           </div>
         </Modal>
       )}
-      {dialog?.kind === "merge" && (
+      {dialog?.kind === "deleteRemote" && (
         <Modal
-          title={t("Branches_MergeTitle", dialog.name)}
-          confirmText={t("Common_Merge")}
+          title={t("Branches_DeleteRemoteTitle", dialog.name)}
+          confirmText={t("Common_Delete")}
+          danger
           onClose={() => setDialog(null)}
           onConfirm={() => {
-            void run(async () => { await call("branches.merge", { name: dialog.name, noFf: dialog.noFf, message: dialog.message || null }); return t("Branches_Merged", dialog.name); });
+            void run(async () => { await call("branches.deleteRemote", { name: dialog.name }); return t("Branches_DeletedRemote", dialog.name); });
             setDialog(null);
           }}
         >
-          <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <input type="checkbox" checked={dialog.noFf} onChange={(e) => setDialog({ ...dialog, noFf: e.target.checked })} />
-            {t("Branches_NoFastForward")}
-          </label>
+          <div>{t("Branches_DeleteRemoteWarning", dialog.name)}</div>
+        </Modal>
+      )}
+      {dialog?.kind === "deleteTag" && (
+        <Modal
+          title={t("Branches_DeleteTagTitle", dialog.name)}
+          confirmText={t("Common_Delete")}
+          danger
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            void run(async () => { await call("tags.delete", { name: dialog.name }); return t("Branches_DeletedTag", dialog.name); });
+            setDialog(null);
+          }}
+        >
+          <div>{t("Branches_DeleteTagSafe", dialog.name)}</div>
+        </Modal>
+      )}
+      {dialog?.kind === "merge" && (
+        <Modal
+          title={t("Branches_MergeTitlePlain")}
+          confirmText={t("Common_Merge")}
+          confirmDisabled={!dialog.source || !dialog.target}
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            void run(async () => {
+              await call("branches.merge", { name: dialog.source, target: dialog.target, noFf: dialog.noFf, message: dialog.message || null });
+              return t("Branches_MergedInto", dialog.source.replace(/^refs\/(heads|remotes)\//, ""), dialog.target);
+            });
+            setDialog(null);
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ color: "var(--c-text3)", fontSize: 12 }}>{t("Branches_MergeSource")}</span>
+            <Select className="full" style={{ width: "100%" }} value={dialog.source} options={mergeSourceOptions()}
+              onChange={(v) => setDialog({ ...dialog, source: v })} />
+            <span style={{ color: "var(--c-text3)", fontSize: 12 }}>{t("Branches_MergeTarget")}</span>
+            <Select className="full" style={{ width: "100%" }} value={dialog.target} options={mergeTargetOptions()}
+              onChange={(v) => setDialog({ ...dialog, target: v })} />
+            {dialog.target !== state?.current && (
+              <span style={{ color: "var(--c-text3)", fontSize: 12 }}>{t("Branches_MergeTargetHint")}</span>
+            )}
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input type="checkbox" checked={dialog.noFf} onChange={(e) => setDialog({ ...dialog, noFf: e.target.checked })} />
+              {t("Branches_NoFastForward")}
+            </label>
+          </div>
           <input className="input" style={{ width: "100%" }} placeholder={t("Branches_MergeMessagePlaceholder")}
             value={dialog.message} onChange={(e) => setDialog({ ...dialog, message: e.target.value })} />
         </Modal>

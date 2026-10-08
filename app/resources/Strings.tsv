@@ -522,8 +522,13 @@ Log_LoadMoreHint	Scroll to load more	滚动加载更多
 Log_NoFiles	No changed files	没有变更文件
 Log_SelectCommitHint	Select a commit to view details	选择一个提交查看详情
 Log_CompareWithSelected	Set/unset as compare base	设为/取消比较基准
+Log_ResetToHere	Reset branch to here…	重置分支到此…
 Log_ComparingWith	Comparing against {0}	正在对比基准 {0}
 Log_CopySha	Copy SHA	复制 SHA
+Log_CreateTag	Create tag…	创建 tag…
+Log_CreateTagTitle	Create tag on {0}	在 {0} 上创建 tag
+Log_TagNamePlaceholder	Tag name	tag 名
+Log_TagMessagePlaceholder	Message (optional, creates annotated tag)	信息（可选，填写则创建附注 tag）
 Log_CopySubject	Copy subject	复制主题
 Log_CopyAuthor	Copy author	复制作者
 Log_CopyAgent	Copy agent id	复制 agent 名
@@ -604,6 +609,27 @@ Branches_Push	Push	推送
 Branches_Pushed	Pushed	已推送
 Branches_LocalGroup	Local	本地分支
 Branches_RemoteGroup	Remote	远程分支
+Branches_TagGroup	Tags	标签
+Branches_NoTags	No tags yet	暂无 tag
+Branches_CreateBranchFromTag	Create branch from this tag…	基于此 tag 创建分支…
+Branches_DeleteTag	Delete tag…	删除 tag…
+Branches_DeleteTagTitle	Delete tag {0}	删除 tag {0}
+Branches_DeleteTagSafe	This deletes local tag {0} only. Commits and the remote are not affected.	只删除本地 tag {0}，提交与远程不受影响。
+Branches_DeletedTag	Tag deleted: {0}	已删除 tag：{0}
+Branches_StartPoint	Start point	起点
+Branches_StartHead	Current HEAD ({0})	当前 HEAD（{0}）
+Branches_TagSuffix	tag	tag
+Branches_CheckoutAfter	Checkout after creating	创建后检出
+Branches_CheckoutLocal	Checkout as local branch	检出为本地分支
+Branches_DeleteRemote	Delete remote branch…	删除远程分支…
+Branches_DeleteRemoteTitle	Delete remote branch {0}	删除远程分支 {0}
+Branches_DeleteRemoteWarning	{0} will be deleted on the remote. Local branches are kept.	将从远程删除 {0}，本地分支不受影响。
+Branches_DeletedRemote	Remote branch deleted: {0}	已删除远程分支：{0}
+Branches_MergeTitlePlain	Merge branches	合并分支
+Branches_MergeSource	From	合并自
+Branches_MergeTarget	Into	合并到
+Branches_MergeTargetHint	The target branch will be checked out first if it is not the current branch.	目标分支不是当前分支时，会先检出目标分支再合并。
+Branches_MergedInto	Merged {0} into {1}	已将 {0} 合并到 {1}
 Projects_AddProject	Add Project	添加项目
 Projects_Open	Open	打开
 Projects_Opened	Opened	已打开

@@ -53,11 +53,12 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   // D6/D9：导出（弹系统保存框）与文件只读预览——均为会话级读取面
   "agent.task.export": "agent.config", "agent.task.previewFile": "git.read",
   "agent.previewImage": "git.read",
+  "agent.task.checkpoint": "git.write",
 
   // ---- git.read ----
   "log.query": "git.read", "log.branches": "git.read", "log.detail": "git.read", "log.fileDiff": "git.read",
   "changes.state": "git.read", "changes.diffFile": "git.read", "changes.feedback": "git.read",
-  "changes.safetyScan": "git.read", "branches.state": "git.read",
+  "changes.safetyScan": "git.read", "branches.state": "git.read", "tags.list": "git.read",
   "gitconfig.list": "git.read", "file.preview": "git.read",
 
   // ---- git.write（主进程侧人审门/安全网天然继续生效） ----
@@ -66,10 +67,12 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "changes.commit": "git.write", "changes.push": "git.write", "changes.pull": "git.write",
   "changes.fetch": "git.write", "changes.pushSetUpstream": "git.write",
   "changes.clearFeedback": "git.write",
-  "branches.checkout": "git.write", "branches.create": "git.write", "branches.delete": "git.write",
+  "branches.checkout": "git.write", "branches.checkoutRemote": "git.write",
+  "branches.create": "git.write", "branches.delete": "git.write",
   "branches.deletePreview": "git.write", "branches.ff": "git.write", "branches.merge": "git.write",
+  "branches.deleteRemote": "git.write",
   "branches.pull": "git.write", "branches.push": "git.write", "branches.rebase": "git.write",
-  "branches.rename": "git.write",
+  "branches.rename": "git.write", "tags.delete": "git.write", "tags.create": "git.write",
   "log.reset": "git.write", "log.squash": "git.write",
   "tasks.create": "git.write", "tasks.remove": "git.write",
   "gitconfig.set": "git.write",

@@ -370,17 +370,27 @@ export class Bridge {
       void this.shared.events.emit("branch.checkedOut", { repo: this.repo, branch: args.name });
       return r;
     });
-    R("branches.create", (args: { name: string; fromSha?: string | null }) =>
-      branches.createBranch(this.needRepo(), args.name, args.fromSha ?? null));
+    R("branches.checkoutRemote", async (args: { name: string }) => {
+      const local = await branches.checkoutRemote(this.needRepo(), args.name);
+      void this.shared.events.emit("branch.checkedOut", { repo: this.repo, branch: local });
+      return local;
+    });
+    R("branches.create", (args: { name: string; fromSha?: string | null; checkout?: boolean }) =>
+      branches.createBranch(this.needRepo(), args.name, args.fromSha ?? null, !!args.checkout));
     R("branches.rename", (args: { oldName: string; newName: string }) =>
       branches.renameBranch(this.needRepo(), args.oldName, args.newName));
     R("branches.deletePreview", (args: { name: string }) => branches.deletePreview(this.needRepo(), args.name));
     R("branches.delete", (args: { name: string; force?: boolean }) =>
       branches.deleteBranch(this.needRepo(), args.name, !!args.force));
-    R("branches.merge", (args: { name: string; noFf?: boolean; message?: string | null }) =>
-      branches.mergeBranch(this.needRepo(), args.name, !!args.noFf, args.message ?? null));
+    R("branches.merge", (args: { name: string; target?: string | null; noFf?: boolean; message?: string | null }) =>
+      branches.mergeBranch(this.needRepo(), args.name, !!args.noFf, args.message ?? null, args.target ?? null));
     R("branches.rebase", (args: { name: string }) => branches.rebaseBranch(this.needRepo(), args.name));
     R("branches.ff", (args: { name: string }) => branches.fastForward(this.needRepo(), args.name));
+    R("branches.deleteRemote", (args: { name: string }) => branches.deleteRemoteBranch(this.needRepo(), args.name));
+    R("tags.list", () => branches.listTags(this.needRepo()));
+    R("tags.delete", (args: { name: string }) => branches.deleteTag(this.needRepo(), args.name));
+    R("tags.create", (args: { name: string; sha: string; message?: string | null }) =>
+      branches.createTag(this.needRepo(), args.name, args.sha, args.message ?? null));
     R("branches.pull", (args: { rebase?: boolean }) => branches.pull(this.needRepo(), !!args?.rebase, this.syncProgress()));
     R("branches.push", () => branches.push(this.needRepo(), this.syncProgress()));
 

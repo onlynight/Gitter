@@ -1685,6 +1685,9 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     const [compareBase, setCompareBase] = React$1.useState(null);
     const [resetTarget, setResetTarget] = React$1.useState(null);
     const [resetMode, setResetMode] = React$1.useState("mixed");
+    const [tagTarget, setTagTarget] = React$1.useState(null);
+    const [tagName, setTagName] = React$1.useState("");
+    const [tagMessage, setTagMessage] = React$1.useState("");
     const { showMenu, menuElement } = useContextMenu();
     const listRef = React$1.useRef(null);
     const loadPage = React$1.useCallback(
@@ -1843,6 +1846,19 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
         setError(e.message);
       }
     };
+    const doCreateTag = async () => {
+      if (!tagTarget || !tagName.trim()) return;
+      try {
+        await call("tags.create", { sha: tagTarget.sha, name: tagName.trim(), message: tagMessage.trim() || null });
+        setError(null);
+        setTagTarget(null);
+        setTagName("");
+        setTagMessage("");
+        refreshCurrent();
+      } catch (e) {
+        setError(e.message);
+      }
+    };
     if (!repo) {
       return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "big", children: "⏱" }),
@@ -1960,6 +1976,11 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
                     { label: t("Log_CopyAuthor"), action: () => copy(c.author) },
                     { sep: true, label: "", action: () => {
                     } },
+                    { label: t("Log_CreateTag"), action: () => {
+                      setTagName("");
+                      setTagMessage("");
+                      setTagTarget(c);
+                    } },
                     {
                       label: t("Log_CompareWithSelected"),
                       action: () => setCompareBase((cur) => (cur == null ? void 0 : cur.sha) === c.sha ? null : c)
@@ -2060,6 +2081,44 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
             ] }, m)),
             resetMode === "hard" && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-red)", fontSize: 11.5, marginTop: 8 }, children: t("Log_ResetHardWarning") })
           ] })
+        }
+      ),
+      tagTarget && /* @__PURE__ */ jsxRuntime.jsxs(
+        Modal,
+        {
+          title: t("Log_CreateTagTitle", tagTarget.shortSha),
+          confirmText: t("Common_Create"),
+          confirmDisabled: !tagName.trim(),
+          onClose: () => setTagTarget(null),
+          onConfirm: () => void doCreateTag(),
+          children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { userSelect: "text", marginBottom: 8 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: tagTarget.shortSha }),
+              " ",
+              tagTarget.subject
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                autoFocus: true,
+                className: "input",
+                style: { width: "100%" },
+                placeholder: t("Log_TagNamePlaceholder"),
+                value: tagName,
+                onChange: (e) => setTagName(e.target.value)
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                className: "input",
+                style: { width: "100%", marginTop: 8 },
+                placeholder: t("Log_TagMessagePlaceholder"),
+                value: tagMessage,
+                onChange: (e) => setTagMessage(e.target.value)
+              }
+            )
+          ]
         }
       ),
       menuElement

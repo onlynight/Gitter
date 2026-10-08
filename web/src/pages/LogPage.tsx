@@ -60,6 +60,10 @@ export function LogPage() {
   // 重置分支对话框（Android Studio 语义：soft/mixed/hard）
   const [resetTarget, setResetTarget] = useState<CommitDTO | null>(null);
   const [resetMode, setResetMode] = useState<"soft" | "mixed" | "hard">("mixed");
+  // 创建 tag 对话框（附注信息可选）
+  const [tagTarget, setTagTarget] = useState<CommitDTO | null>(null);
+  const [tagName, setTagName] = useState("");
+  const [tagMessage, setTagMessage] = useState("");
   const { showMenu, menuElement } = useContextMenu();
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -232,6 +236,20 @@ export function LogPage() {
     }
   };
 
+  const doCreateTag = async () => {
+    if (!tagTarget || !tagName.trim()) return;
+    try {
+      await call("tags.create", { sha: tagTarget.sha, name: tagName.trim(), message: tagMessage.trim() || null });
+      setError(null);
+      setTagTarget(null);
+      setTagName("");
+      setTagMessage("");
+      refreshCurrent();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   if (!repo) {
     return <div className="empty-state"><div className="big">⏱</div>{t("Common_NoProjectSelected")}</div>;
   }
@@ -339,6 +357,7 @@ export function LogPage() {
                         { label: t("Log_CopySubject"), action: () => copy(c.subject) },
                         { label: t("Log_CopyAuthor"), action: () => copy(c.author) },
                         { sep: true, label: "", action: () => {} },
+                        { label: t("Log_CreateTag"), action: () => { setTagName(""); setTagMessage(""); setTagTarget(c); } },
                         {
                           label: t("Log_CompareWithSelected"),
                           action: () => setCompareBase((cur) => (cur?.sha === c.sha ? null : c)),
@@ -438,6 +457,34 @@ export function LogPage() {
               <div style={{ color: "var(--c-red)", fontSize: 11.5, marginTop: 8 }}>{t("Log_ResetHardWarning")}</div>
             )}
           </div>
+        </Modal>
+      )}
+      {tagTarget && (
+        <Modal
+          title={t("Log_CreateTagTitle", tagTarget.shortSha)}
+          confirmText={t("Common_Create")}
+          confirmDisabled={!tagName.trim()}
+          onClose={() => setTagTarget(null)}
+          onConfirm={() => void doCreateTag()}
+        >
+          <div style={{ userSelect: "text", marginBottom: 8 }}>
+            <span className="mono">{tagTarget.shortSha}</span> {tagTarget.subject}
+          </div>
+          <input
+            autoFocus
+            className="input"
+            style={{ width: "100%" }}
+            placeholder={t("Log_TagNamePlaceholder")}
+            value={tagName}
+            onChange={(e) => setTagName(e.target.value)}
+          />
+          <input
+            className="input"
+            style={{ width: "100%", marginTop: 8 }}
+            placeholder={t("Log_TagMessagePlaceholder")}
+            value={tagMessage}
+            onChange={(e) => setTagMessage(e.target.value)}
+          />
         </Modal>
       )}
       {menuElement}

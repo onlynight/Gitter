@@ -85,11 +85,18 @@ export interface BranchItemDTO {
   isRemote: boolean;
 }
 
+export interface TagItemDTO {
+  name: string;
+  shortSha: string;
+  subject: string;
+}
+
 export interface BranchesStateDTO {
   workDir: string | null;
   current: string | null;
   local: BranchItemDTO[];
   remote: BranchItemDTO[];
+  tags: TagItemDTO[];
 }
 
 export interface DeletePreviewDTO {
