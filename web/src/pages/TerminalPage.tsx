@@ -269,7 +269,7 @@ export function TerminalPage() {
     const d = docFracDragRef.current;
     const w = areaRef.current?.clientWidth ?? 0;
     if (!d || !w) return;
-    applyDocFrac(clampDocFrac(d.startFrac + (e.clientX - d.startX) / w));
+    applyDocFrac(clampDocFrac(d.startFrac - (e.clientX - d.startX) / w)); // 分割线跟手：鼠标左移 → 文档面板变宽
   };
   const endDocSplitDrag = (e: React.PointerEvent) => {
     if (!docFracDragRef.current) return;

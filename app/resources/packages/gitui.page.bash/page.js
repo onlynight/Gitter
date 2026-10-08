@@ -6814,7 +6814,7 @@ WARNING: This link could potentially be dangerous`)) {
       const d = docFracDragRef.current;
       const w = ((_a3 = areaRef.current) == null ? void 0 : _a3.clientWidth) ?? 0;
       if (!d || !w) return;
-      applyDocFrac(clampDocFrac(d.startFrac + (e.clientX - d.startX) / w));
+      applyDocFrac(clampDocFrac(d.startFrac - (e.clientX - d.startX) / w));
     };
     const endDocSplitDrag = (e) => {
       if (!docFracDragRef.current) return;
