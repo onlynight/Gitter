@@ -97,6 +97,17 @@ export interface DeletePreviewDTO {
   lostSamples: { shortSha: string; subject: string }[];
 }
 
+export interface ReflogEntryDTO {
+  sha: string;
+  shortSha: string;
+  /** reflog 选择子（如 dev@{0}，0 = 最新） */
+  selector: string;
+  /** reflog 描述（commit: xxx / reset: moving to xxx 等） */
+  subject: string;
+  /** unix 秒 */
+  timestamp: number;
+}
+
 export interface ProjectDTO {
   name: string;
   path: string;

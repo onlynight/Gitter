@@ -391,6 +391,8 @@ export class Bridge {
     R("tags.delete", (args: { name: string }) => branches.deleteTag(this.needRepo(), args.name));
     R("tags.create", (args: { name: string; sha: string; message?: string | null }) =>
       branches.createTag(this.needRepo(), args.name, args.sha, args.message ?? null));
+    R("reflog.list", (args: { ref: string; limit?: number }) =>
+      branches.listReflog(this.needRepo(), args.ref, args.limit ?? 100));
     R("branches.pull", (args: { rebase?: boolean }) => branches.pull(this.needRepo(), !!args?.rebase, this.syncProgress()));
     R("branches.push", () => branches.push(this.needRepo(), this.syncProgress()));
 
@@ -1177,8 +1179,14 @@ export class Bridge {
       return {};
     });
 
-    R("log.reset", (args: { sha: string; mode: "soft" | "mixed" | "hard" }) => {
+    R("log.reset", async (args: { sha: string; mode: "soft" | "mixed" | "hard"; branch?: string | null }) => {
       const wd = this.needRepo();
+      // 指定 branch 且非当前检出分支：只移动该分支指针（git branch -f），不动工作区——
+      // 修复"日志页切换查看分支后重置仍作用于当前分支"的错位（dev 被误重置）
+      if (args.branch) {
+        const cur = (await tryGit(wd, ["branch", "--show-current"])).stdout.trim();
+        if (cur !== args.branch) return branches.moveBranch(wd, args.branch, args.sha);
+      }
       return status.resetTo(wd, args.sha, args.mode ?? "mixed");
     });
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Banner, DiffView, Modal, ScrollArea, Select, SplitPane, useContextMenu, type CtxMenuItem } from "../kit";
+import { Banner, DiffView, Modal, ReflogDialog, ScrollArea, Select, SplitPane, useContextMenu, type CtxMenuItem } from "../kit";
 import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge/types";
 import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
 
@@ -60,6 +60,8 @@ export function LogPage() {
   // 重置分支对话框（Android Studio 语义：soft/mixed/hard）
   const [resetTarget, setResetTarget] = useState<CommitDTO | null>(null);
   const [resetMode, setResetMode] = useState<"soft" | "mixed" | "hard">("mixed");
+  // reflog 对话框（查看日志页当前选中分支）
+  const [reflogBranch, setReflogBranch] = useState<string | null>(null);
   // 创建 tag 对话框（附注信息可选）
   const [tagTarget, setTagTarget] = useState<CommitDTO | null>(null);
   const [tagName, setTagName] = useState("");
@@ -227,7 +229,7 @@ export function LogPage() {
   const doReset = async () => {
     if (!resetTarget) return;
     try {
-      await call("log.reset", { sha: resetTarget.sha, mode: resetMode });
+      await call("log.reset", { sha: resetTarget.sha, mode: resetMode, branch: (branch || branches.current) || undefined });
       setError(null);
       setResetTarget(null);
       refreshCurrent();
@@ -358,6 +360,7 @@ export function LogPage() {
                         { label: t("Log_CopyAuthor"), action: () => copy(c.author) },
                         { sep: true, label: "", action: () => {} },
                         { label: t("Log_CreateTag"), action: () => { setTagName(""); setTagMessage(""); setTagTarget(c); } },
+                        { label: t("Log_ViewReflog"), action: () => setReflogBranch(branch || branches.current || "HEAD") },
                         {
                           label: t("Log_CompareWithSelected"),
                           action: () => setCompareBase((cur) => (cur?.sha === c.sha ? null : c)),
@@ -437,7 +440,10 @@ export function LogPage() {
         >
           <div style={{ userSelect: "text" }}>
             <div>
-              {t("Log_ResetBranchInfo", branches.current ?? "?")} → <span className="mono">{resetTarget.shortSha}</span> {resetTarget.subject}
+              {t("Log_ResetBranchInfo", branch || branches.current || "?")} → <span className="mono">{resetTarget.shortSha}</span> {resetTarget.subject}
+              {branch && branch !== branches.current && (
+                <div style={{ color: "var(--c-text3)", fontSize: 11.5, marginTop: 4 }}>{t("Log_ResetPointerHint")}</div>
+              )}
             </div>
             {(["soft", "mixed", "hard"] as const).map((m) => (
               <label key={m} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 8, cursor: "pointer" }}>
@@ -486,6 +492,15 @@ export function LogPage() {
             onChange={(e) => setTagMessage(e.target.value)}
           />
         </Modal>
+      )}
+      {reflogBranch && (
+        <ReflogDialog
+          refName={reflogBranch}
+          title={t("Reflog_Title", reflogBranch)}
+          currentBranch={branches.current}
+          onChanged={() => refreshCurrent()}
+          onClose={() => setReflogBranch(null)}
+        />
       )}
       {menuElement}
     </>
