@@ -91,7 +91,7 @@ export function Sidebar() {
                 {navButton({ key: slotOf(x) as PageKey, glyph: x.glyph, svg: x.svg, labelKey: undefined, title: x.title, pkg: x.packageId })}
               </div>
               <button
-                className="tool-btn"
+                className="tool-btn nav-ext-x"
                 style={{ padding: "0 4px", fontSize: 10 }}
                 title="卸载此外部页面"
                 onClick={() => openSettings("extensions")}
