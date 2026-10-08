@@ -52,7 +52,7 @@
   K().wordDiff;
   K().SplitPane;
   K().Banner;
-  K().Modal;
+  const Modal = K().Modal;
   K().useContextMenu;
   K().SyncBar;
   K().useSyncProgress;
@@ -62,6 +62,97 @@
   const NavIcon = K().NavIcon;
   const Select = K().Select;
   K().ScrollArea;
+  const PATHS = {
+    // 纸飞机（Octicons paper-airplane-16 改绘）
+    send: "M.989 8 .064 2.68a1.342 1.342 0 0 1 1.85-1.462l13.402 5.744a1.13 1.13 0 0 1 0 2.076L1.913 14.782a1.342 1.342 0 0 1-1.85-1.463L.99 8Zm.603-5.288L2.38 7.25h4.87a.75.75 0 0 1 0 1.5H2.38l-.788 4.538L13.929 8 1.592 2.712Z",
+    // 实心圆角方块
+    stop: "M3.5 3h9A1.5 1.5 0 0 1 14 4.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7A1.5 1.5 0 0 1 3.5 3Z",
+    // 终端提示符（>_）
+    terminal: "M2 3h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm0 1.5v7h12v-7H2Zm2.7 1.1L3.6 6.6l1.8 1.9-1.8 1.9 1.1 1 2.6-2.9-2.6-2.9ZM8.5 10.5H12V12H8.5Z",
+    // 铅笔（Octicons pencil-16）
+    pencil: "M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm.176 4.823L9.75 4.81l-6.286 6.287a.253.253 0 0 0-.064.108l-.558 1.953 1.953-.558a.253.253 0 0 0 .108-.064Zm1.238-3.763a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354Z",
+    // 放大镜（Octicons search-16）
+    search: "M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z",
+    // 文件夹（design-mockups/log-page.html）
+    folder: "M1.5 3A1.5 1.5 0 0 1 3 1.5h3.4l1.5 2H13A1.5 1.5 0 0 1 14.5 5v8A1.5 1.5 0 0 1 13 14.5H3A1.5 1.5 0 0 1 1.5 13V3Z",
+    // 文档
+    file: "M3 1.5h6L13 5v9a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-12a.5.5 0 0 1 .5-.5ZM9 2.6V5h2.4L9 2.6Z",
+    // 分支（design-mockups/log-page.html，分支页同源）
+    branch: "M13.1 3.9a2.3 2.3 0 0 0-3.25 3.25l-.1.1a2.3 2.3 0 0 1-3.25 0L5.4 6.2a2.3 2.3 0 1 0-1.06 1.06l1.1 1.05a3.8 3.8 0 0 0 2.31 1.09v1.2a2.3 2.3 0 1 0 1.5 0V9.4a3.8 3.8 0 0 0 2.31-1.09l.1-.1a2.3 2.3 0 1 0 1.44-4.31Z",
+    // diff（design-mockups/log-page.html，变更页同源）
+    diff: "M2 4.25 5 8l-3 3.75V4.25ZM6 3h1.5v10H6V3Zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3Z",
+    // 时钟（提交历史）
+    clock: "M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm.75 1.5h-1.5v4l3 1.8.75-1.23-2.25-1.35V4.5Z",
+    // 下载托盘（读取网页）
+    download: "M8 1.5a.75.75 0 0 1 .75.75v5.19l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 0 1 1.06-1.06l1.72 1.72V2.25A.75.75 0 0 1 8 1.5Zm-5.5 8a.75.75 0 0 1 .75.75v1.5c0 .14.11.25.25.25h9a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 12.5 14h-9A1.75 1.75 0 0 1 2 12.25v-1.5a.75.75 0 0 1 .5-.75Z",
+    // 提交节点（圆环 + 两侧线）
+    commit: "M1 7.25h2.5v1.5H1v-1.5Zm11.5 0H15v1.5h-2.5v-1.5ZM8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Zm0 1.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z",
+    // 向上箭头（暂存/推送）
+    up: "M8 2.5 12 6.5H9.75V11h-3.5V6.5H4L8 2.5ZM3 12.5h10V14H3v-1.5Z",
+    // 圆圈对勾（checkpoint / todo 完成）
+    "check-circle": "M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm2.28 2.66-3.03 3.4-1.53-1.53-1.06 1.06 2.61 2.61 4.07-4.6-1.06-.94Z",
+    // 空圈（todo 待办）
+    circle: "M8 3a5 5 0 1 1 0 10A5 5 0 0 1 8 3Zm0 1.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z",
+    // 圈中点（todo 进行中）
+    "circle-dot": "M8 3a5 5 0 1 1 0 10A5 5 0 0 1 8 3Zm0 1.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z",
+    // 实心点（日志/默认工具）
+    dot: "M8 5.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z",
+    // 空心点（空闲）
+    "dot-hollow": "M8 4.75a3.25 3.25 0 1 1 0 6.5 3.25 3.25 0 0 1 0-6.5Zm0 1.5a1.75 1.75 0 1 0 0 3.5 1.75 1.75 0 0 0 0-3.5Z",
+    // 四角星光（思考中，✻ 的矢量形）
+    sparkle: "M7 1c.55 3.5 2 4.95 5.5 5.5C9 7.05 7.55 8.5 7 12c-.55-3.5-2-4.95-5.5-5.5C5 5.95 6.45 4.5 7 1Zm5.5 8.4c.3 1.9 1.1 2.7 3 3-1.9.3-2.7 1.1-3 3-.3-1.9-1.1-2.7-3-3 1.9-.3 2.7-1.1 3-3Z",
+    // 盾牌（授权请求）
+    shield: "M8 1.2 13.6 3.3v4.2c0 3.4-2.3 6.1-5.6 7.3C4.7 13.6 2.4 10.9 2.4 7.5V3.3L8 1.2Zm0 1.6L3.9 4.4v3.1c0 2.6 1.7 4.7 4.1 5.7 2.4-1 4.1-3.1 4.1-5.7V4.4L8 2.8Z",
+    // 机器人（子代理）
+    bot: "M6.2 1.5c.44 0 .8.36.8.8v1.2h2V2.3a.8.8 0 1 1 1.6 0v1.2h1.15A2.25 2.25 0 0 1 14 5.75v5A2.25 2.25 0 0 1 11.75 13h-7.5A2.25 2.25 0 0 1 2 10.75v-5a2.25 2.25 0 0 1 2.25-2.25h1.15V2.3c0-.44.36-.8.8-.8ZM5.4 6.7a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm5.2 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm-5.1 3.5h5v1.3h-5v-1.3Z",
+    // 用量柱（turn 统计）
+    usage: "M2 13.25h12v1.25H2v-1.25ZM3.25 8.5H5v3.25H3.25V8.5Zm4-4H9v7.25H7.25V4.5Zm4 2H13v5.25h-1.75V6.5Z",
+    // 清单（todo_write）
+    list: "M2.5 3h2.2v2.2H2.5V3Zm4 .4h7v1.4h-7V3.4ZM2.5 6.9h2.2v2.2H2.5V6.9Zm4 .4h7v1.4h-7V7.3Zm-4 3.1h2.2v2.2H2.5v-2.2Zm4 .4h7v1.4h-7v-1.4Z",
+    // 对话气泡（提问）
+    chat: "M2.5 2h11A1.5 1.5 0 0 1 15 3.5v6a1.5 1.5 0 0 1-1.5 1.5H8.6L5 14.2V11H2.5A1.5 1.5 0 0 1 1 9.5v-6A1.5 1.5 0 0 1 2.5 2Z",
+    // 罗盘菱形（计划）
+    plan: "M8 1.5 14.5 8 8 14.5 1.5 8 8 1.5Zm0 2.1L3.6 8 8 12.4 12.4 8 8 3.6Zm0 3.15a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z",
+    // 分叉（Octicons git-branch-16）
+    fork: "M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z",
+    // 归档（Octicons archive-16）
+    archive: "M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H14v6.25A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25V6h-.25A1.75 1.75 0 0 1 0 4.25v-1.5ZM3.5 6v6.25c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6h-9ZM1.75 2.5a.25.25 0 0 0-.25.25v1.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H1.75ZM6.25 8h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z",
+    // 外开新窗（Octicons external-link-16）
+    external: "M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z",
+    // 展开箭头（Octicons chevron-right-16）：默认指向右，展开时由 CSS 旋转 90°
+    "chevron-right": "M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06L7.28 12.78a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z",
+    // 收起箭头（Octicons chevron-down-16）
+    "chevron-down": "M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z",
+    // 加号（Octicons plus-16）
+    plus: "M7.25 2.5h1.5v3.75h3.75v1.5H8.75v3.75h-1.5V7.75H3.5v-1.5h3.75V2.5Z",
+    // 闪电（访问控制 / yolo 模式）
+    bolt: "M8.94.54a.75.75 0 0 1 1.24.83L7.75 8.5h3.5a.75.75 0 0 1 .57 1.24l-4.5 5.75a.75.75 0 0 1-1.24-.83l2.43-4.65h-3.5a.75.75 0 0 1-.57-1.24l4.5-5.75Z",
+    // 齿轮（思考深度）
+    gear: "M9.5 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Zm0 1.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2ZM7.25.5h1.5c.2 0 .39.09.52.24l1.32 1.58a4.5 4.5 0 0 1 .63.22l1.9-.55a.75.75 0 0 1 .93.86l-.45 1.98c.06.2.14.4.22.6l1.9.47a.75.75 0 0 1 .4 1.34l-1.56.97a4.5 4.5 0 0 1 .1.66l1.22 1.52a.75.75 0 0 1-.4 1.34l-2 .47a4.5 4.5 0 0 1-.34.57l.62 1.94a.75.75 0 0 1-.94.93l-1.86-.54a4.5 4.5 0 0 1-.57.34l-.46 1.93a.75.75 0 0 1-1.35.4l-.97-1.57a4.5 4.5 0 0 1-.66.1l-1.52 1.22a.75.75 0 0 1-1.34-.4l-.47-2a4.5 4.5 0 0 1-.57-.34l-1.94.62a.75.75 0 0 1-.93-.94l.54-1.86a4.5 4.5 0 0 1-.34-.57l-1.93-.46a.75.75 0 0 1-.4-1.35l1.57-.97a4.5 4.5 0 0 1 0-.66L.72 6.92a.75.75 0 0 1 .4-1.34l2-.47a4.5 4.5 0 0 1 .34-.57l-.62-1.94a.75.75 0 0 1 .94-.93l1.86.54a4.5 4.5 0 0 1 .57-.34l.46-1.93a.75.75 0 0 1 1.35-.4l.97 1.57a4.5 4.5 0 0 1 .66-.1Zm.75 2.5A3.75 3.75 0 1 0 11.75 6.75 3.75 3.75 0 0 0 8 3.25Zm0 1.5a2.25 2.25 0 1 1 0 4.5 2.25 2.25 0 0 1 0-4.5Z",
+    "chevron-up": "M3.22 9.78a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 1 1-1.06 1.06L8 6.06 4.28 9.78a.75.75 0 0 1-1.06 0Z",
+    // 关闭（Octicons x-16）
+    "x": "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z",
+    // 删除（Octicons trash-16）
+    "trash": "M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.748 1.748 0 0 1 10.595 15h-5.19a1.748 1.748 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z",
+    // 对勾（Octicons check-16）
+    "check": "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"
+  };
+  function TlIcon(props) {
+    const d = PATHS[props.name];
+    if (!d) return null;
+    return /* @__PURE__ */ jsxRuntime.jsx(
+      "svg",
+      {
+        width: props.size ?? 13,
+        height: props.size ?? 13,
+        viewBox: "0 0 16 16",
+        "aria-hidden": "true",
+        className: props.className,
+        style: { flex: "none", color: props.color, ...props.style },
+        children: /* @__PURE__ */ jsxRuntime.jsx("path", { d, fill: "currentColor", fillRule: "evenodd" })
+      }
+    );
+  }
   const { call, t, updateSettings, applySettings, clearSettingsFocus, reloadTheme } = pageSdk;
   const useApp = useAppState;
   const GIT_KEYS = {
@@ -389,41 +480,15 @@
       ] }, p.id);
     };
     const [modelProfiles, setModelProfiles] = react.useState([]);
-    const [newModel, setNewModel] = react.useState({
-      name: "",
-      kind: "openai-compatible",
-      baseURL: "",
-      modelId: "",
-      apiKey: "",
-      vision: false
-    });
-    const [modelTest, setModelTest] = react.useState({ testing: false, result: null, ok: false });
+    const [modelAddOpen, setModelAddOpen] = react.useState(false);
+    const [modelEdit, setModelEdit] = react.useState(null);
+    const [defaultPickFor, setDefaultPickFor] = react.useState(null);
     const loadModels = react.useCallback(async () => {
       try {
         setModelProfiles(await call("models.list"));
       } catch {
       }
     }, []);
-    const testModelConn = async () => {
-      var _a3, _b2;
-      setModelTest({ testing: true, result: null, ok: false });
-      try {
-        const r = await call("models.test", {
-          kind: newModel.kind,
-          baseURL: newModel.baseURL,
-          apiKey: newModel.apiKey || void 0
-        });
-        if (r.ok) {
-          const first = (_a3 = r.models) == null ? void 0 : _a3[0];
-          setNewModel((m) => ({ ...m, modelId: m.modelId || first || "" }));
-          setModelTest({ testing: false, result: `✓ ${t("Settings_ModelsTestOk", ((_b2 = r.models) == null ? void 0 : _b2.length) ?? 0)}`, ok: true });
-        } else {
-          setModelTest({ testing: false, result: `✕ ${r.error ?? t("Settings_ModelsTestFail")}`, ok: false });
-        }
-      } catch (e) {
-        setModelTest({ testing: false, result: `✕ ${e.message}`, ok: false });
-      }
-    };
     const [cat, setCat] = react.useState("appearance");
     const [query, setQuery] = react.useState("");
     const [flash, setFlash] = react.useState(null);
@@ -878,103 +943,170 @@
           ] }, id);
         case "models":
           return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
-            /* @__PURE__ */ jsxRuntime.jsx("h4", { children: t("Settings_ModelsSection") }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "section-head", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("h4", { children: t("Settings_ModelsSection") }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "tool-btn icon",
+                  "data-tip": t("Settings_ModelsAddBtn"),
+                  "aria-label": t("Settings_ModelsAddBtn"),
+                  onClick: () => {
+                    setModelEdit(null);
+                    setModelAddOpen(true);
+                  },
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plus", size: 14 })
+                }
+              )
+            ] }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", style: { alignItems: "flex-start" }, children: [
               /* @__PURE__ */ jsxRuntime.jsx("label", { style: { paddingTop: 4 }, children: t("Settings_ModelsProfiles") }),
               /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8, flex: 1 }, children: [
                 modelProfiles.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Settings_ModelsEmpty") }),
-                modelProfiles.map((m) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }, children: [
-                  /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
-                    /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: m.name }),
-                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint mono", children: m.modelId }),
-                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: m.kind === "anthropic" ? "Anthropic" : "OpenAI 兼容" }),
-                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: m.source === "package" ? t("Settings_ModelsSourcePackage") : t("Settings_ModelsSourceUser") }),
-                    !m.configured && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", style: { color: "var(--c-amber)", background: "transparent", border: "1px solid var(--c-amber)" }, children: t("Settings_ModelsNeedKey") }),
-                    m.isDefault && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsDefault") }),
-                    m.isFast && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsFast") }),
-                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
-                    m.usage.turns > 0 && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint mono", children: [
-                      m.usage.turns,
-                      " 轮 · in ",
-                      m.usage.inputTokens,
-                      " / out ",
-                      m.usage.outputTokens
-                    ] })
-                  ] }),
-                  /* @__PURE__ */ jsxRuntime.jsx("div", { className: "card-path", children: m.baseURL }),
-                  /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }, children: [
-                    /* @__PURE__ */ jsxRuntime.jsx(
-                      "input",
-                      {
-                        className: "input",
-                        type: "password",
-                        style: { width: 200 },
-                        placeholder: m.hasKey ? "••••••（已保存）" : m.keyHint ?? t("Settings_ModelsKeyPlaceholder"),
-                        onChange: (e) => {
-                          const k = e.target.value;
-                          if (k.length >= 8) void call("models.setKey", { id: m.id, key: k }).then(loadModels);
-                        }
-                      }
-                    ),
-                    !m.isDefault && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("models.setDefault", { id: m.id }).then(loadModels), children: t("Settings_ModelsSetDefault") }),
-                    m.isDefault && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsDefault") }),
-                    !m.isFast && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("models.setFast", { id: m.id }).then(loadModels), children: t("Settings_ModelsSetFast") }),
-                    m.source === "user" && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("models.delete", { id: m.id }).then(loadModels), children: t("Settings_ModelsDelete") })
-                  ] })
-                ] }, m.id)),
-                /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8, border: "1px solid var(--c-border)", borderRadius: 10, padding: "10px 12px" }, children: [
-                  /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, fontWeight: 600, color: "var(--c-text)" }, children: t("Settings_ModelsAdd") }),
-                  /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }, children: [
-                    /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { width: 140 }, placeholder: t("Settings_ModelsName"), value: newModel.name, onChange: (e) => setNewModel({ ...newModel, name: e.target.value }) }),
-                    /* @__PURE__ */ jsxRuntime.jsx(
-                      Select,
-                      {
-                        style: { width: 150 },
-                        value: newModel.kind,
-                        onChange: (v) => {
-                          setNewModel({ ...newModel, kind: v, modelId: "" });
-                          setModelTest({ testing: false, result: null, ok: false });
-                        },
-                        options: [{ value: "openai-compatible", label: "OpenAI 兼容" }, { value: "anthropic", label: "Anthropic" }]
-                      }
-                    ),
-                    /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { flex: 1, minWidth: 180 }, placeholder: newModel.kind === "anthropic" ? "https://api.anthropic.com" : "https://api.deepseek.com/v1（或 Ollama: http://127.0.0.1:11434/v1）", value: newModel.baseURL, onChange: (e) => setNewModel({ ...newModel, baseURL: e.target.value }) })
-                  ] }),
-                  /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }, children: [
-                    /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", type: "password", style: { width: 220 }, placeholder: t("Settings_ModelsApiKey"), value: newModel.apiKey, onChange: (e) => setNewModel({ ...newModel, apiKey: e.target.value }) }),
-                    /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { flex: 1, minWidth: 140 }, placeholder: t("Settings_ModelsIdPlaceholder"), value: newModel.modelId, onChange: (e) => setNewModel({ ...newModel, modelId: e.target.value }) }),
-                    /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "hint", style: { display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }, title: "可接收图片输入（任务页贴图）", children: [
-                      /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: newModel.vision, onChange: (e) => setNewModel({ ...newModel, vision: e.target.checked }) }),
-                      "视觉"
+                modelProfiles.map((m) => {
+                  var _a4, _b3, _c2;
+                  return m.source === "package" ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }, children: [
+                    /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
+                      /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: m.name }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint mono", children: m.modelId }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: m.kind === "anthropic" ? "Anthropic" : "OpenAI 兼容" }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsSourcePackage") }),
+                      !m.configured && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", style: { color: "var(--c-amber)", background: "transparent", border: "1px solid var(--c-amber)" }, children: t("Settings_ModelsNeedKey") }),
+                      m.isDefault && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsDefault") }),
+                      m.isFast && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsFast") }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
+                      m.usage.turns > 0 && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint mono", children: [
+                        m.usage.turns,
+                        " 轮 · in ",
+                        m.usage.inputTokens,
+                        " / out ",
+                        m.usage.outputTokens
+                      ] })
                     ] }),
-                    /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: modelTest.testing || !newModel.baseURL.trim(), onClick: () => void testModelConn(), children: modelTest.testing ? "…" : t("Settings_ModelsTestConn") }),
-                    /* @__PURE__ */ jsxRuntime.jsx(
-                      "button",
-                      {
-                        className: "tool-btn primary",
-                        disabled: !newModel.name.trim() || !newModel.baseURL.trim() || !newModel.modelId.trim(),
-                        onClick: async () => {
-                          try {
-                            const r = await call("models.save", { profile: { name: newModel.name.trim(), kind: newModel.kind, baseURL: newModel.baseURL.trim(), modelId: newModel.modelId.trim(), vision: newModel.vision } });
-                            if (newModel.apiKey.length >= 8) {
-                              await call("models.setKey", { id: r.id, key: newModel.apiKey });
-                            }
-                            setNewModel({ name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "", vision: false });
-                            setModelTest({ testing: false, result: null, ok: false });
-                            await loadModels();
-                          } catch (e) {
-                            setExtError(e.message);
+                    /* @__PURE__ */ jsxRuntime.jsx("div", { className: "card-path", children: m.baseURL }),
+                    /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }, children: [
+                      /* @__PURE__ */ jsxRuntime.jsx(
+                        "input",
+                        {
+                          className: "input",
+                          type: "password",
+                          style: { width: 200 },
+                          placeholder: m.hasKey ? "••••••（已保存）" : m.keyHint ?? t("Settings_ModelsKeyPlaceholder"),
+                          onChange: (e) => {
+                            const k = e.target.value;
+                            if (k.length >= 8) void call("models.setKey", { id: m.id, key: k }).then(loadModels);
                           }
-                        },
-                        children: t("Settings_ModelsAdd")
-                      }
-                    )
-                  ] }),
-                  modelTest.result && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 11.5, color: modelTest.ok ? "var(--c-green)" : "var(--c-red)" }, children: modelTest.result })
-                ] }),
+                        }
+                      ),
+                      !m.isDefault && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("models.setDefault", { id: m.id }).then(loadModels), children: t("Settings_ModelsSetDefault") }),
+                      m.isDefault && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsDefault") }),
+                      !m.isFast && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("models.setFast", { id: m.id }).then(loadModels), children: t("Settings_ModelsSetFast") })
+                    ] })
+                  ] }, m.id) : /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }, children: [
+                    /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: [
+                      /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: m.name }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: m.kind === "anthropic" ? "Anthropic" : "OpenAI 兼容" }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsSourceUser") }),
+                      !m.configured && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", style: { color: "var(--c-amber)", background: "transparent", border: "1px solid var(--c-amber)" }, children: t("Settings_ModelsNeedKey") }),
+                      m.isDefault && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chip", title: defaultMemberName(m, (s == null ? void 0 : s.defaultModelId) ?? null) ?? void 0, children: [
+                        t("Settings_ModelsDefault"),
+                        (((_a4 = m.groupModels) == null ? void 0 : _a4.length) ?? 1) > 1 ? `：${defaultMemberName(m, (s == null ? void 0 : s.defaultModelId) ?? null)}` : ""
+                      ] }),
+                      m.isFast && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsFast") }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsCount", ((_b3 = m.groupModels) == null ? void 0 : _b3.length) ?? 1) }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
+                      m.usage.turns > 0 && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint mono", children: [
+                        m.usage.turns,
+                        " 轮 · in ",
+                        m.usage.inputTokens,
+                        " / out ",
+                        m.usage.outputTokens
+                      ] })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntime.jsx("div", { className: "card-path", children: m.baseURL }),
+                    /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }, children: (m.groupModels ?? [{ modelId: m.modelId, vision: false, thinking: m.thinking ?? "medium" }]).map((g) => /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip mono", title: [g.vision ? t("Settings_ModelsVision") : null, g.contextTokens ? `${g.contextTokens} tokens` : null].filter(Boolean).join(" · ") || void 0, children: g.modelId }, g.modelId)) }),
+                    /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }, children: [
+                      /* @__PURE__ */ jsxRuntime.jsx(
+                        "input",
+                        {
+                          className: "input",
+                          type: "password",
+                          style: { width: 200 },
+                          placeholder: m.hasKey ? "••••••（已保存）" : t("Settings_ModelsKeyPlaceholder"),
+                          onChange: (e) => {
+                            const k = e.target.value;
+                            if (k.length >= 8) void call("models.setKey", { id: m.id, key: k }).then(loadModels);
+                          }
+                        }
+                      ),
+                      (((_c2 = m.groupModels) == null ? void 0 : _c2.length) ?? 1) > 1 ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                        /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn", onClick: () => setDefaultPickFor(defaultPickFor === m.id ? null : m.id), children: [
+                          t("Settings_ModelsSetDefault"),
+                          "…"
+                        ] }),
+                        defaultPickFor === m.id && /* @__PURE__ */ jsxRuntime.jsx("span", { style: { display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }, children: (m.groupModels ?? []).map((g, i) => {
+                          const ref = i === 0 ? m.id : `${m.groupId}#${g.modelId}`;
+                          const isCur = (s == null ? void 0 : s.defaultModelId) === ref;
+                          return /* @__PURE__ */ jsxRuntime.jsxs(
+                            "button",
+                            {
+                              className: "tool-btn" + (isCur ? " primary" : ""),
+                              title: g.modelId,
+                              onClick: () => void call("models.setDefault", { id: ref }).then(() => {
+                                setDefaultPickFor(null);
+                                return Promise.all([loadModels(), call("settings.get").then(applySettings)]);
+                              }),
+                              children: [
+                                g.modelId,
+                                isCur ? " ✓" : ""
+                              ]
+                            },
+                            g.modelId
+                          );
+                        }) })
+                      ] }) : !m.isDefault && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("models.setDefault", { id: m.id }).then(loadModels), children: t("Settings_ModelsSetDefault") }),
+                      !m.isFast && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("models.setFast", { id: m.id }).then(loadModels), children: t("Settings_ModelsSetFast") }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
+                      /* @__PURE__ */ jsxRuntime.jsx(
+                        "button",
+                        {
+                          className: "tool-btn icon",
+                          "data-tip": t("Settings_ModelsEditBtn"),
+                          "aria-label": t("Settings_ModelsEditBtn"),
+                          onClick: () => {
+                            setModelEdit(m);
+                            setModelAddOpen(true);
+                          },
+                          children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "pencil", size: 13 })
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntime.jsx(
+                        "button",
+                        {
+                          className: "tool-btn icon danger",
+                          "data-tip": t("Settings_ModelsDelete"),
+                          "aria-label": t("Settings_ModelsDelete"),
+                          onClick: () => void call("models.delete", { id: m.id }).then(loadModels),
+                          children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "trash", size: 13 })
+                        }
+                      )
+                    ] })
+                  ] }, m.id);
+                }),
                 /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Settings_ModelsHint") })
               ] })
-            ] })
+            ] }),
+            modelAddOpen && /* @__PURE__ */ jsxRuntime.jsx(
+              AddModelDialog,
+              {
+                edit: modelEdit ?? void 0,
+                onClose: () => setModelAddOpen(false),
+                onSaved: () => {
+                  setModelAddOpen(false);
+                  void loadModels();
+                }
+              }
+            )
           ] }, id);
         case "safety":
           return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
@@ -1395,6 +1527,322 @@
         group(audit.presets.map((x) => ({ id: x.id, extra: `${x.readonly ? "只读" : "可写"} · ${x.tools ? x.tools.length + " 工具" : "全集"}` })), "子代理预设")
       ] })
     ] });
+  }
+  const THINKING_LEVELS = ["medium", "high", "low", "off"];
+  const THINKING_LABEL = {
+    medium: "Agents_ThinkingMedium",
+    high: "Agents_ThinkingHigh",
+    low: "Agents_ThinkingLow",
+    off: "Agents_ThinkingOff"
+  };
+  function parseTokens(text) {
+    const n = Number(text.replace(/[,\s]/g, ""));
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+  }
+  function defaultMemberName(m, defaultModelId) {
+    var _a2, _b2;
+    if (!m.isDefault) return null;
+    if (defaultModelId && defaultModelId.startsWith(`${m.groupId}#`)) {
+      return defaultModelId.slice(m.groupId.length + 1);
+    }
+    return ((_b2 = (_a2 = m.groupModels) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.modelId) ?? m.modelId;
+  }
+  function ctxSource(r) {
+    if (r.entry.contextTokens == null) return t("Settings_ModelsContextUnknown");
+    if (r.entry.contextHint) return t("Settings_ModelsContextGuess");
+    return t("Settings_ModelsContextFromApi");
+  }
+  function AddModelDialog(props) {
+    const edit = props.edit;
+    const [kind, setKind] = react.useState((edit == null ? void 0 : edit.kind) ?? "openai-compatible");
+    const [name, setName] = react.useState((edit == null ? void 0 : edit.name) ?? "");
+    const [baseURL, setBaseURL] = react.useState((edit == null ? void 0 : edit.baseURL) ?? "");
+    const [apiKey, setApiKey] = react.useState("");
+    const [status, setStatus] = react.useState("idle");
+    const [error, setError] = react.useState(null);
+    const [note, setNote] = react.useState(null);
+    const [rows, setRows] = react.useState(
+      () => edit ? (
+        // 编辑：已配置成员直接成行（无需探测即可改配/增删）
+        (edit.groupModels ?? [{ modelId: edit.modelId, vision: edit.capabilities.vision ?? false, contextTokens: edit.capabilities.contextTokens, thinking: edit.thinking ?? "medium" }]).map((g) => ({
+          entry: { id: g.modelId, name: g.modelId, contextTokens: g.contextTokens ?? null, image: null, imageGuess: g.vision, contextHint: null },
+          checked: true,
+          visionEnabled: true,
+          vision: g.vision,
+          contextTokens: g.contextTokens ? String(g.contextTokens) : "",
+          thinking: g.thinking
+        }))
+      ) : []
+    );
+    const [filter, setFilter] = react.useState("");
+    const [saving, setSaving] = react.useState(false);
+    const [savedMsg, setSavedMsg] = react.useState(null);
+    const discover = async () => {
+      if (!baseURL.trim()) return;
+      setStatus("loading");
+      setError(null);
+      setNote(null);
+      try {
+        const r = await call(
+          "models.discover",
+          // 编辑模式密钥留空 → 后端取该分组已保存的密钥探测
+          { kind, baseURL, apiKey: apiKey || void 0, profileId: edit == null ? void 0 : edit.id }
+        );
+        if (r.error) {
+          setStatus("error");
+          setError(r.error);
+          return;
+        }
+        if (r.models.length === 0) {
+          setStatus("error");
+          setError(t("Settings_ModelsEmptyResult"));
+          return;
+        }
+        setRows((prev) => {
+          const kept = new Map(prev.filter((x) => x.checked).map((x) => [x.entry.id, x]));
+          return r.models.map((entry) => {
+            const old = kept.get(entry.id);
+            return {
+              entry,
+              checked: !!old,
+              // 端点显式声明"无图片模态" → 视觉置灰不可选；未声明 → 取名称启发式默认
+              visionEnabled: entry.image !== false,
+              vision: old ? old.vision : entry.image === true ? true : entry.image === null ? entry.imageGuess : false,
+              contextTokens: (old == null ? void 0 : old.contextTokens) ?? (entry.contextTokens ? String(entry.contextTokens) : ""),
+              thinking: (old == null ? void 0 : old.thinking) ?? "medium"
+            };
+          });
+        });
+        setStatus("idle");
+        setNote(r.probesTruncated ? `${t("Settings_ModelsProbesLimited", 12)}；${kind === "anthropic" ? t("Settings_ModelsAnthropicNote") : t("Settings_ModelsNoCard")}` : kind === "anthropic" ? t("Settings_ModelsAnthropicNote") : t("Settings_ModelsNoCard"));
+      } catch (e) {
+        setStatus("error");
+        setError(e.message);
+      }
+    };
+    const patchRow = (id, patch) => setRows((rs) => rs.map((r) => r.entry.id === id ? { ...r, ...patch } : r));
+    const filtered = react.useMemo(() => {
+      const q = filter.trim().toLowerCase();
+      return q ? rows.filter((r) => r.entry.id.toLowerCase().includes(q)) : rows;
+    }, [rows, filter]);
+    const checkedCount = rows.filter((r) => r.checked).length;
+    const allChecked = rows.length > 0 && checkedCount === rows.length;
+    const setChecked = (id, on) => setRows((rs) => rs.map((r) => {
+      if (r.entry.id !== id || r.checked === on) return r;
+      return {
+        ...r,
+        checked: on,
+        contextTokens: r.entry.contextTokens ? String(r.entry.contextTokens) : "",
+        vision: r.entry.image === true ? true : r.entry.image === null ? r.entry.imageGuess : false
+      };
+    }));
+    const selectAll = (on) => setRows((rs) => rs.map((r) => ({ ...r, checked: on })));
+    const saveAll = async () => {
+      const chosen = rows.filter((r) => r.checked);
+      if (chosen.length === 0 || !name.trim() || !baseURL.trim() || saving) return;
+      setSaving(true);
+      setSavedMsg(null);
+      try {
+        await call("models.save", {
+          profile: {
+            id: edit == null ? void 0 : edit.id,
+            name: name.trim(),
+            kind,
+            baseURL: baseURL.trim(),
+            models: chosen.map((r) => ({
+              modelId: r.entry.id,
+              vision: r.vision,
+              contextTokens: parseTokens(r.contextTokens) ?? void 0,
+              thinking: r.thinking
+            }))
+          },
+          apiKey: apiKey.length >= 8 ? apiKey : void 0
+        });
+        setSavedMsg(t("Settings_ModelsSaved", chosen.length));
+        void call("settings.get").then(applySettings).catch(() => {
+        });
+        props.onSaved();
+      } catch (e) {
+        setSavedMsg(null);
+        setError(`${t("Settings_ModelsTestFail")}: ${e.message}`);
+      } finally {
+        setSaving(false);
+      }
+    };
+    const placeholder = kind === "anthropic" ? "https://api.anthropic.com" : "https://api.deepseek.com/v1（或 OpenRouter /v1、Ollama http://127.0.0.1:11434/v1）";
+    return /* @__PURE__ */ jsxRuntime.jsxs(
+      Modal,
+      {
+        title: edit ? t("Settings_ModelsEditTitle") : t("Settings_ModelsAddTitle"),
+        confirmText: saving ? "…" : t("Settings_ModelsSaveSelected", checkedCount),
+        confirmDisabled: checkedCount === 0 || !name.trim() || !baseURL.trim() || saving,
+        onClose: props.onClose,
+        onConfirm: () => void saveAll(),
+        className: "model-add",
+        cancelContent: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "x", size: 13 }),
+        confirmContent: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check", size: 13 }),
+        titleAside: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+          status === "loading" ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", children: t("Settings_ModelsDiscovering") }) : rows.length > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chip", children: [
+            t("Settings_ModelsFound", rows.length),
+            " · ",
+            t("Settings_ModelsChecked", checkedCount)
+          ] }) : null,
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "tool-btn icon sm",
+              "data-tip": t("Common_Close"),
+              "aria-label": t("Common_Close"),
+              onClick: props.onClose,
+              children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "x", size: 13 })
+            }
+          )
+        ] }),
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ma-form", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Settings_ModelsAddHint") }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ma-grid", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_ModelsNameFor") }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "input",
+                {
+                  className: "input",
+                  style: { height: 30 },
+                  placeholder: t("Settings_ModelsNamePlaceholder"),
+                  value: name,
+                  onChange: (e) => setName(e.target.value)
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ma-grid", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_ModelsType") }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                Select,
+                {
+                  value: kind,
+                  onChange: (v) => {
+                    setKind(v);
+                    setRows([]);
+                    setStatus("idle");
+                    setError(null);
+                    setNote(null);
+                  },
+                  options: [{ value: "openai-compatible", label: "OpenAI 兼容（/v1/models）" }, { value: "anthropic", label: "Anthropic（/v1/models）" }]
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ma-grid", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: "API URL" }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "input",
+                {
+                  className: "input",
+                  style: { height: 30 },
+                  placeholder,
+                  value: baseURL,
+                  onChange: (e) => setBaseURL(e.target.value)
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ma-grid", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_ModelsApiKey") }),
+              /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "input",
+                  {
+                    className: "input",
+                    type: "password",
+                    style: { flex: 1, height: 30, minWidth: 0 },
+                    placeholder: (edit == null ? void 0 : edit.hasKey) ? t("Settings_ModelsKeyKept") : "sk-…",
+                    value: apiKey,
+                    onChange: (e) => setApiKey(e.target.value)
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "button",
+                  {
+                    className: "tool-btn icon",
+                    "data-tip": t("Settings_ModelsDiscover"),
+                    "aria-label": t("Settings_ModelsDiscover"),
+                    disabled: status === "loading" || !baseURL.trim(),
+                    onClick: () => void discover(),
+                    children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "search", size: 13 })
+                  }
+                )
+              ] })
+            ] }),
+            error && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ma-conn-err", children: [
+              "✕ ",
+              error
+            ] }),
+            note && status !== "loading" && !error && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ma-conn-note", children: note })
+          ] }),
+          rows.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "input",
+                {
+                  className: "input",
+                  style: { flex: 1, height: 30 },
+                  placeholder: t("Settings_ModelsSearchFilter"),
+                  value: filter,
+                  onChange: (e) => setFilter(e.target.value)
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => selectAll(!allChecked), children: allChecked ? t("Settings_ModelsUnselectAll") : t("Settings_ModelsSelectAll") })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ma-list-head", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", {}),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "Model ID" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { title: t("Settings_ModelsContextUnit"), children: t("Settings_ModelsContext") }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { title: t("Settings_ModelsVisionHint"), children: t("Settings_ModelsVision") }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { title: t("Settings_ModelsThinkingHint"), children: t("Settings_ModelsThinking") })
+            ] }),
+            filtered.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ma-none hint", children: t("Settings_ModelsNoMatch") }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ma-list", children: filtered.map((r) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ma-row" + (r.checked ? " checked" : ""), children: [
+              /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: r.checked, onChange: (e) => setChecked(r.entry.id, e.target.checked) }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ma-cell", children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", title: r.entry.id, children: r.entry.id }) }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ma-cell", children: /* @__PURE__ */ jsxRuntime.jsx(
+                "input",
+                {
+                  className: "input",
+                  style: { flex: 1, height: 26, minWidth: 0 },
+                  placeholder: t("Settings_ModelsContextPlaceholder"),
+                  value: r.contextTokens,
+                  disabled: !r.checked,
+                  title: ctxSource(r),
+                  onChange: (e) => patchRow(r.entry.id, { contextTokens: e.target.value.replace(/[^\d,]/g, "") })
+                }
+              ) }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ma-cell", children: /* @__PURE__ */ jsxRuntime.jsx(
+                "input",
+                {
+                  type: "checkbox",
+                  checked: r.vision && r.checked,
+                  disabled: !r.visionEnabled || !r.checked,
+                  title: r.visionEnabled ? r.entry.image === true ? t("Settings_ModelsVisionFromApi") : t("Settings_ModelsVisionInferred") : t("Settings_ModelsVisionOff"),
+                  onChange: (e) => patchRow(r.entry.id, { vision: e.target.checked })
+                }
+              ) }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ma-cell", children: /* @__PURE__ */ jsxRuntime.jsx(
+                Select,
+                {
+                  value: r.thinking,
+                  style: { width: "100%", maxWidth: 92 },
+                  disabled: !r.checked,
+                  title: t("Settings_ModelsThinkingHint"),
+                  options: THINKING_LEVELS.map((v) => ({ value: v, label: t(THINKING_LABEL[v]) })),
+                  onChange: (v) => patchRow(r.entry.id, { thinking: v })
+                }
+              ) })
+            ] }, r.entry.id)) }),
+            savedMsg && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ma-conn-ok", children: [
+              "✓ ",
+              savedMsg
+            ] })
+          ] })
+        ]
+      }
+    );
   }
   window.GITTER_UI.registerPage({ id: "settings" }, (container) => {
     var _a2;

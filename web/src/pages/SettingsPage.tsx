@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import type { ExtTreeSnapshot } from "../pageSdk";
-import { NavIcon, Select } from "../kit";
-import type { ExtensionPackageDTO, ModelProfileDTO, SettingsDTO, TerminalProfileDTO, ThemePackageDTO } from "../bridge/types";
+import { NavIcon, Select, Modal } from "../kit";
+import { TlIcon } from "./taskIcons";
+import type { ExtensionPackageDTO, ModelDiscoveryEntryDTO, ModelProfileDTO, SettingsDTO, TerminalProfileDTO, ThemePackageDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
 const { call, t, updateSettings, applySettings, clearSettingsFocus, reloadTheme } = pageSdk;
@@ -348,10 +349,12 @@ export function SettingsPage() {
     );
   };
   const [modelProfiles, setModelProfiles] = useState<ModelProfileDTO[]>([]);
-  const [newModel, setNewModel] = useState<{ name: string; kind: "openai-compatible" | "anthropic"; baseURL: string; modelId: string; apiKey: string; vision: boolean }>({
-    name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "", vision: false,
-  });
-  const [modelTest, setModelTest] = useState<{ testing: boolean; result: string | null; ok: boolean }>({ testing: false, result: null, ok: false });
+  /** 添加/编辑模型弹窗（DeepSeek-harness 式）：一条连接可勾选多个模型一次性保存为分组 */
+  const [modelAddOpen, setModelAddOpen] = useState(false);
+  /** 编辑目标（分组主条目）；null = 新建 */
+  const [modelEdit, setModelEdit] = useState<ModelProfileDTO | null>(null);
+  /** 多模型分组"设为默认"的成员选择面板（展开的分组 id） */
+  const [defaultPickFor, setDefaultPickFor] = useState<string | null>(null);
 
   const loadModels = useCallback(async () => {
     try {
@@ -360,27 +363,6 @@ export function SettingsPage() {
       /* 桥不可用（vite 调试）静默 */
     }
   }, []);
-
-  /** 测试连接（DeepSeek-harness 式）：验证 URL+密钥，成功可自动填充首个模型 ID。 */
-  const testModelConn = async () => {
-    setModelTest({ testing: true, result: null, ok: false });
-    try {
-      const r = await call<{ ok: boolean; models?: string[]; error?: string }>("models.test", {
-        kind: newModel.kind,
-        baseURL: newModel.baseURL,
-        apiKey: newModel.apiKey || undefined,
-      });
-      if (r.ok) {
-        const first = r.models?.[0];
-        setNewModel((m) => ({ ...m, modelId: m.modelId || first || "" }));
-        setModelTest({ testing: false, result: `✓ ${t("Settings_ModelsTestOk", r.models?.length ?? 0)}`, ok: true });
-      } else {
-        setModelTest({ testing: false, result: `✕ ${r.error ?? t("Settings_ModelsTestFail")}`, ok: false });
-      }
-    } catch (e) {
-      setModelTest({ testing: false, result: `✕ ${(e as Error).message}`, ok: false });
-    }
-  };
 
   // 两级导航 + 搜索状态
   const [cat, setCat] = useState<CategoryId>("appearance");
@@ -866,18 +848,28 @@ export function SettingsPage() {
       case "models":
         return (
           <div key={id} className={secCls(id)} id={`set-sec-${id}`}>
-            <h4>{t("Settings_ModelsSection")}</h4>
+            <div className="section-head">
+              <h4>{t("Settings_ModelsSection")}</h4>
+              <button
+                className="tool-btn icon"
+                data-tip={t("Settings_ModelsAddBtn")}
+                aria-label={t("Settings_ModelsAddBtn")}
+                onClick={() => { setModelEdit(null); setModelAddOpen(true); }}
+              >
+                <TlIcon name="plus" size={14} />
+              </button>
+            </div>
             <div className="settings-row" style={{ alignItems: "flex-start" }}>
               <label style={{ paddingTop: 4 }}>{t("Settings_ModelsProfiles")}</label>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
                 {modelProfiles.length === 0 && <span className="hint">{t("Settings_ModelsEmpty")}</span>}
-                {modelProfiles.map((m) => (
+                {modelProfiles.map((m) => m.source === "package" ? (
                   <div key={m.id} style={{ display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <b style={{ fontSize: 12.5 }}>{m.name}</b>
                       <span className="hint mono">{m.modelId}</span>
                       <span className="hint">{m.kind === "anthropic" ? "Anthropic" : "OpenAI 兼容"}</span>
-                      <span className="chip">{m.source === "package" ? t("Settings_ModelsSourcePackage") : t("Settings_ModelsSourceUser")}</span>
+                      <span className="chip">{t("Settings_ModelsSourcePackage")}</span>
                       {!m.configured && <span className="chip" style={{ color: "var(--c-amber)", background: "transparent", border: "1px solid var(--c-amber)" }}>{t("Settings_ModelsNeedKey")}</span>}
                       {m.isDefault && <span className="chip">{t("Settings_ModelsDefault")}</span>}
                       {m.isFast && <span className="chip">{t("Settings_ModelsFast")}</span>}
@@ -896,56 +888,85 @@ export function SettingsPage() {
                       {!m.isDefault && <button className="tool-btn" onClick={() => void call("models.setDefault", { id: m.id }).then(loadModels)}>{t("Settings_ModelsSetDefault")}</button>}
                       {m.isDefault && <span className="chip">{t("Settings_ModelsDefault")}</span>}
                       {!m.isFast && <button className="tool-btn" onClick={() => void call("models.setFast", { id: m.id }).then(loadModels)}>{t("Settings_ModelsSetFast")}</button>}
-                      {m.source === "user" && <button className="tool-btn" onClick={() => void call("models.delete", { id: m.id }).then(loadModels)}>{t("Settings_ModelsDelete")}</button>}
+                    </div>
+                  </div>
+                ) : (
+                  <div key={m.id} style={{ display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--c-border)", paddingBottom: 8 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <b style={{ fontSize: 12.5 }}>{m.name}</b>
+                      <span className="hint">{m.kind === "anthropic" ? "Anthropic" : "OpenAI 兼容"}</span>
+                      <span className="chip">{t("Settings_ModelsSourceUser")}</span>
+                      {!m.configured && <span className="chip" style={{ color: "var(--c-amber)", background: "transparent", border: "1px solid var(--c-amber)" }}>{t("Settings_ModelsNeedKey")}</span>}
+                      {m.isDefault && <span className="chip" title={defaultMemberName(m, s?.defaultModelId ?? null) ?? undefined}>{t("Settings_ModelsDefault")}{(m.groupModels?.length ?? 1) > 1 ? `：${defaultMemberName(m, s?.defaultModelId ?? null)}` : ""}</span>}
+                      {m.isFast && <span className="chip">{t("Settings_ModelsFast")}</span>}
+                      <span className="chip">{t("Settings_ModelsCount", m.groupModels?.length ?? 1)}</span>
+                      <span className="grow" />
+                      {m.usage.turns > 0 && (
+                        <span className="hint mono">{m.usage.turns} 轮 · in {m.usage.inputTokens} / out {m.usage.outputTokens}</span>
+                      )}
+                    </div>
+                    <div className="card-path">{m.baseURL}</div>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                      {(m.groupModels ?? [{ modelId: m.modelId, vision: false, thinking: m.thinking ?? "medium" }]).map((g) => (
+                        <span key={g.modelId} className="chip mono" title={[g.vision ? t("Settings_ModelsVision") : null, g.contextTokens ? `${g.contextTokens} tokens` : null].filter(Boolean).join(" · ") || undefined}>
+                          {g.modelId}
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      <input className="input" type="password" style={{ width: 200 }} placeholder={m.hasKey ? "••••••（已保存）" : t("Settings_ModelsKeyPlaceholder")}
+                        onChange={(e) => {
+                          const k = e.target.value;
+                          if (k.length >= 8) void call("models.setKey", { id: m.id, key: k }).then(loadModels);
+                        }} />
+                      {/* 多模型分组：设为默认需指明具体模型（首成员用分组 id，其余 `分组id#模型id`） */}
+                      {(m.groupModels?.length ?? 1) > 1 ? (
+                        <>
+                          <button className="tool-btn" onClick={() => setDefaultPickFor(defaultPickFor === m.id ? null : m.id)}>{t("Settings_ModelsSetDefault")}…</button>
+                          {defaultPickFor === m.id && (
+                            <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                              {(m.groupModels ?? []).map((g, i) => {
+                                const ref = i === 0 ? m.id : `${m.groupId}#${g.modelId}`;
+                                const isCur = s?.defaultModelId === ref;
+                                return (
+                                  <button key={g.modelId} className={"tool-btn" + (isCur ? " primary" : "")} title={g.modelId}
+                                    onClick={() => void call("models.setDefault", { id: ref }).then(() => {
+                                      setDefaultPickFor(null);
+                                      return Promise.all([loadModels(), call<SettingsDTO>("settings.get").then(applySettings)]);
+                                    })}>
+                                    {g.modelId}{isCur ? " ✓" : ""}
+                                  </button>
+                                );
+                              })}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        !m.isDefault && <button className="tool-btn" onClick={() => void call("models.setDefault", { id: m.id }).then(loadModels)}>{t("Settings_ModelsSetDefault")}</button>
+                      )}
+                      {!m.isFast && <button className="tool-btn" onClick={() => void call("models.setFast", { id: m.id }).then(loadModels)}>{t("Settings_ModelsSetFast")}</button>}
+                      <span className="grow" />
+                      <button className="tool-btn icon" data-tip={t("Settings_ModelsEditBtn")} aria-label={t("Settings_ModelsEditBtn")}
+                        onClick={() => { setModelEdit(m); setModelAddOpen(true); }}>
+                        <TlIcon name="pencil" size={13} />
+                      </button>
+                      <button className="tool-btn icon danger" data-tip={t("Settings_ModelsDelete")} aria-label={t("Settings_ModelsDelete")}
+                        onClick={() => void call("models.delete", { id: m.id }).then(loadModels)}>
+                        <TlIcon name="trash" size={13} />
+                      </button>
                     </div>
                   </div>
                 ))}
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, border: "1px solid var(--c-border)", borderRadius: 10, padding: "10px 12px" }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--c-text)" }}>{t("Settings_ModelsAdd")}</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                    <input className="input" style={{ width: 140 }} placeholder={t("Settings_ModelsName")} value={newModel.name} onChange={(e) => setNewModel({ ...newModel, name: e.target.value })} />
-                    <Select style={{ width: 150 }} value={newModel.kind}
-                      onChange={(v) => { setNewModel({ ...newModel, kind: v as "openai-compatible" | "anthropic", modelId: "" }); setModelTest({ testing: false, result: null, ok: false }); }}
-                      options={[{ value: "openai-compatible", label: "OpenAI 兼容" }, { value: "anthropic", label: "Anthropic" }]}
-                    />
-                    <input className="input" style={{ flex: 1, minWidth: 180 }} placeholder={newModel.kind === "anthropic" ? "https://api.anthropic.com" : "https://api.deepseek.com/v1（或 Ollama: http://127.0.0.1:11434/v1）"} value={newModel.baseURL} onChange={(e) => setNewModel({ ...newModel, baseURL: e.target.value })} />
-                  </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                    <input className="input" type="password" style={{ width: 220 }} placeholder={t("Settings_ModelsApiKey")} value={newModel.apiKey} onChange={(e) => setNewModel({ ...newModel, apiKey: e.target.value })} />
-                    <input className="input" style={{ flex: 1, minWidth: 140 }} placeholder={t("Settings_ModelsIdPlaceholder")} value={newModel.modelId} onChange={(e) => setNewModel({ ...newModel, modelId: e.target.value })} />
-                    <label className="hint" style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }} title="可接收图片输入（任务页贴图）">
-                      <input type="checkbox" checked={newModel.vision} onChange={(e) => setNewModel({ ...newModel, vision: e.target.checked })} />视觉
-                    </label>
-                    <button className="tool-btn" disabled={modelTest.testing || !newModel.baseURL.trim()} onClick={() => void testModelConn()}>
-                      {modelTest.testing ? "…" : t("Settings_ModelsTestConn")}
-                    </button>
-                    <button
-                      className="tool-btn primary"
-                      disabled={!newModel.name.trim() || !newModel.baseURL.trim() || !newModel.modelId.trim()}
-                      onClick={async () => {
-                        try {
-                          const r = await call<{ id: string }>("models.save", { profile: { name: newModel.name.trim(), kind: newModel.kind, baseURL: newModel.baseURL.trim(), modelId: newModel.modelId.trim(), vision: newModel.vision } });
-                          if (newModel.apiKey.length >= 8) {
-                            await call("models.setKey", { id: r.id, key: newModel.apiKey });
-                          }
-                          setNewModel({ name: "", kind: "openai-compatible", baseURL: "", modelId: "", apiKey: "", vision: false });
-                          setModelTest({ testing: false, result: null, ok: false });
-                          await loadModels();
-                        } catch (e) {
-                          setExtError((e as Error).message);
-                        }
-                      }}
-                    >
-                      {t("Settings_ModelsAdd")}
-                    </button>
-                  </div>
-                  {modelTest.result && (
-                    <div style={{ fontSize: 11.5, color: modelTest.ok ? "var(--c-green)" : "var(--c-red)" }}>{modelTest.result}</div>
-                  )}
-                </div>
                 <span className="hint">{t("Settings_ModelsHint")}</span>
               </div>
             </div>
+            {modelAddOpen && (
+              <AddModelDialog
+                edit={modelEdit ?? undefined}
+                onClose={() => setModelAddOpen(false)}
+                onSaved={() => { setModelAddOpen(false); void loadModels(); }}
+              />
+            )}
           </div>
         );
       case "safety":
@@ -1354,5 +1375,309 @@ function SeamsAuditView() {
         {group(audit.presets.map((x) => ({ id: x.id, extra: `${x.readonly ? "只读" : "可写"} · ${x.tools ? x.tools.length + " 工具" : "全集"}` })), "子代理预设")}
       </div>
     </details>
+  );
+}
+
+// ---- 添加模型弹窗（DeepSeek-harness 式）：一条连接（名称 + API URL + Key）→ 探测 → 勾选多个模型 → 批量保存 ----
+type ModelKind = "openai-compatible" | "anthropic";
+type ThinkingLevel = "off" | "low" | "medium" | "high";
+const THINKING_LEVELS: ThinkingLevel[] = ["medium", "high", "low", "off"];
+const THINKING_LABEL: Record<ThinkingLevel, string> = {
+  medium: "Agents_ThinkingMedium",
+  high: "Agents_ThinkingHigh",
+  low: "Agents_ThinkingLow",
+  off: "Agents_ThinkingOff",
+};
+
+interface AddModelRow {
+  entry: ModelDiscoveryEntryDTO;
+  checked: boolean;
+  /** 视觉可勾选（false = 端点声明仅文本，置灰不可选） */
+  visionEnabled: boolean;
+  vision: boolean;
+  /** 上下文窗口（token，空串 = 未填写，用默认） */
+  contextTokens: string;
+  /** 默认思考深度（默认 medium；任务输入台可逐条覆盖） */
+  thinking: ThinkingLevel;
+}
+
+/** 把千分位/纯数字文本解析为整数；空串或非法 → null（视为未填写）。 */
+function parseTokens(text: string): number | null {
+  const n = Number(text.replace(/[,\s]/g, ""));
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+/** 上下文窗口的来源说明（悬停提示）：端点模型卡 > 名称推测 > 未提供。 */
+/** 分组卡片的默认成员名：defaultModelId 指向具体成员时取该成员，否则为首成员。 */
+function defaultMemberName(m: ModelProfileDTO, defaultModelId: string | null): string | null {
+  if (!m.isDefault) return null;
+  if (defaultModelId && defaultModelId.startsWith(`${m.groupId}#`)) {
+    return defaultModelId.slice(m.groupId.length + 1);
+  }
+  return m.groupModels?.[0]?.modelId ?? m.modelId;
+}
+
+function ctxSource(r: AddModelRow): string {
+  if (r.entry.contextTokens == null) return t("Settings_ModelsContextUnknown");
+  if (r.entry.contextHint) return t("Settings_ModelsContextGuess");
+  return t("Settings_ModelsContextFromApi");
+}
+
+/** 添加/编辑模型弹窗：一条连接（名称 + API URL + 密钥）下勾选多个模型，
+ * 一次性保存为一个分组（组内共享连接与密钥，逐模型配视觉/上下文/思考深度）。
+ * edit 给定时回填既有分组——已配置的模型直接以勾选行出现，无需重新探测。 */
+function AddModelDialog(props: { edit?: ModelProfileDTO; onClose: () => void; onSaved: () => void }) {
+  const edit = props.edit;
+  const [kind, setKind] = useState<ModelKind>(edit?.kind ?? "openai-compatible");
+  const [name, setName] = useState(edit?.name ?? "");
+  const [baseURL, setBaseURL] = useState(edit?.baseURL ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [rows, setRows] = useState<AddModelRow[]>(() =>
+    edit
+      ? // 编辑：已配置成员直接成行（无需探测即可改配/增删）
+        (edit.groupModels ?? [{ modelId: edit.modelId, vision: edit.capabilities.vision ?? false, contextTokens: edit.capabilities.contextTokens, thinking: edit.thinking ?? "medium" }]).map((g) => ({
+          entry: { id: g.modelId, name: g.modelId, contextTokens: g.contextTokens ?? null, image: null, imageGuess: g.vision, contextHint: null },
+          checked: true,
+          visionEnabled: true,
+          vision: g.vision,
+          contextTokens: g.contextTokens ? String(g.contextTokens) : "",
+          thinking: g.thinking,
+        }))
+      : [],
+  );
+  const [filter, setFilter] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  /** 探测 /models 并归一为可勾选行：上下文窗口与视觉均来自端点，缺声明时走名称启发式。
+   *  已勾选的行（编辑回填或上一轮探测勾选）按模型名保留勾选与手工改配。 */
+  const discover = async () => {
+    if (!baseURL.trim()) return;
+    setStatus("loading");
+    setError(null);
+    setNote(null);
+    try {
+      const r = await call<{ error: string | null; probesTruncated: boolean; models: ModelDiscoveryEntryDTO[] }>(
+        "models.discover",
+        // 编辑模式密钥留空 → 后端取该分组已保存的密钥探测
+        { kind, baseURL, apiKey: apiKey || undefined, profileId: edit?.id },
+      );
+      if (r.error) {
+        setStatus("error");
+        setError(r.error);
+        return;
+      }
+      if (r.models.length === 0) {
+        setStatus("error");
+        setError(t("Settings_ModelsEmptyResult"));
+        return;
+      }
+      setRows((prev) => {
+        const kept = new Map(prev.filter((x) => x.checked).map((x) => [x.entry.id, x]));
+        return r.models.map((entry) => {
+          const old = kept.get(entry.id);
+          return {
+            entry,
+            checked: !!old,
+            // 端点显式声明"无图片模态" → 视觉置灰不可选；未声明 → 取名称启发式默认
+            visionEnabled: entry.image !== false,
+            vision: old ? old.vision : entry.image === true ? true : entry.image === null ? entry.imageGuess : false,
+            contextTokens: old?.contextTokens ?? (entry.contextTokens ? String(entry.contextTokens) : ""),
+            thinking: old?.thinking ?? "medium",
+          };
+        });
+      });
+      setStatus("idle");
+      setNote(r.probesTruncated
+        ? `${t("Settings_ModelsProbesLimited", 12)}；${kind === "anthropic" ? t("Settings_ModelsAnthropicNote") : t("Settings_ModelsNoCard")}`
+        : (kind === "anthropic" ? t("Settings_ModelsAnthropicNote") : t("Settings_ModelsNoCard")));
+    } catch (e) {
+      setStatus("error");
+      setError((e as Error).message);
+    }
+  };
+
+  const patchRow = (id: string, patch: Partial<AddModelRow>) =>
+    setRows((rs) => rs.map((r) => (r.entry.id === id ? { ...r, ...patch } : r)));
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    return q ? rows.filter((r) => r.entry.id.toLowerCase().includes(q)) : rows;
+  }, [rows, filter]);
+
+  const checkedCount = rows.filter((r) => r.checked).length;
+  const allChecked = rows.length > 0 && checkedCount === rows.length;
+
+  /** 勾选集变化时统一同步上下文窗口与视觉默认值：
+   *  上下文沿用该模型的端点返回值（有则填，无则清空）；视觉按端点声明/名称推断重算。 */
+  const setChecked = (id: string, on: boolean) =>
+    setRows((rs) => rs.map((r) => {
+      if (r.entry.id !== id || r.checked === on) return r;
+      return {
+        ...r,
+        checked: on,
+        contextTokens: r.entry.contextTokens ? String(r.entry.contextTokens) : "",
+        vision: r.entry.image === true ? true : r.entry.image === null ? r.entry.imageGuess : false,
+      };
+    }));
+
+  const selectAll = (on: boolean) =>
+    setRows((rs) => rs.map((r) => ({ ...r, checked: on })));
+
+  const saveAll = async () => {
+    const chosen = rows.filter((r) => r.checked);
+    if (chosen.length === 0 || !name.trim() || !baseURL.trim() || saving) return;
+    setSaving(true);
+    setSavedMsg(null);
+    try {
+      // 一次保存整个分组：新增合并、缺失移除，组内共享连接与密钥
+      await call<{ id: string }>("models.save", {
+        profile: {
+          id: edit?.id,
+          name: name.trim(),
+          kind,
+          baseURL: baseURL.trim(),
+          models: chosen.map((r) => ({
+            modelId: r.entry.id,
+            vision: r.vision,
+            contextTokens: parseTokens(r.contextTokens) ?? undefined,
+            thinking: r.thinking,
+          })),
+        },
+        apiKey: apiKey.length >= 8 ? apiKey : undefined,
+      });
+      setSavedMsg(t("Settings_ModelsSaved", chosen.length));
+      void call<SettingsDTO>("settings.get").then(applySettings).catch(() => {});
+      props.onSaved();
+    } catch (e) {
+      setSavedMsg(null);
+      setError(`${t("Settings_ModelsTestFail")}: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const placeholder = kind === "anthropic"
+    ? "https://api.anthropic.com"
+    : "https://api.deepseek.com/v1（或 OpenRouter /v1、Ollama http://127.0.0.1:11434/v1）";
+
+  return (
+    <Modal
+      title={edit ? t("Settings_ModelsEditTitle") : t("Settings_ModelsAddTitle")}
+      confirmText={saving ? "…" : t("Settings_ModelsSaveSelected", checkedCount)}
+      confirmDisabled={checkedCount === 0 || !name.trim() || !baseURL.trim() || saving}
+      onClose={props.onClose}
+      onConfirm={() => void saveAll()}
+      className="model-add"
+      cancelContent={<TlIcon name="x" size={13} />}
+      confirmContent={<TlIcon name="check" size={13} />}
+      titleAside={
+        <>
+          {status === "loading" ? (
+            <span className="chip">{t("Settings_ModelsDiscovering")}</span>
+          ) : rows.length > 0 ? (
+            <span className="chip">{t("Settings_ModelsFound", rows.length)} · {t("Settings_ModelsChecked", checkedCount)}</span>
+          ) : null}
+          <button className="tool-btn icon sm" data-tip={t("Common_Close")} aria-label={t("Common_Close")}
+            onClick={props.onClose}>
+            <TlIcon name="x" size={13} />
+          </button>
+        </>
+      }
+    >
+      <div className="ma-form">
+        <span className="hint">{t("Settings_ModelsAddHint")}</span>
+        <div className="ma-grid">
+          <label>{t("Settings_ModelsNameFor")}</label>
+          <input className="input" style={{ height: 30 }} placeholder={t("Settings_ModelsNamePlaceholder")}
+            value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="ma-grid">
+          <label>{t("Settings_ModelsType")}</label>
+          <Select value={kind}
+            onChange={(v) => { setKind(v as ModelKind); setRows([]); setStatus("idle"); setError(null); setNote(null); }}
+            options={[{ value: "openai-compatible", label: "OpenAI 兼容（/v1/models）" }, { value: "anthropic", label: "Anthropic（/v1/models）" }]} />
+        </div>
+        <div className="ma-grid">
+          <label>API URL</label>
+          <input className="input" style={{ height: 30 }} placeholder={placeholder}
+            value={baseURL} onChange={(e) => setBaseURL(e.target.value)} />
+        </div>
+        <div className="ma-grid">
+          <label>{t("Settings_ModelsApiKey")}</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input className="input" type="password" style={{ flex: 1, height: 30, minWidth: 0 }}
+              placeholder={edit?.hasKey ? t("Settings_ModelsKeyKept") : "sk-…"}
+              value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+            <button className="tool-btn icon" data-tip={t("Settings_ModelsDiscover")} aria-label={t("Settings_ModelsDiscover")}
+              disabled={status === "loading" || !baseURL.trim()}
+              onClick={() => void discover()}>
+              <TlIcon name="search" size={13} />
+            </button>
+          </div>
+        </div>
+        {error && <div className="ma-conn-err">✕ {error}</div>}
+        {note && status !== "loading" && !error && <div className="ma-conn-note">{note}</div>}
+      </div>
+
+      {rows.length > 0 && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input className="input" style={{ flex: 1, height: 30 }} placeholder={t("Settings_ModelsSearchFilter")}
+              value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <button className="tool-btn" onClick={() => selectAll(!allChecked)}>
+              {allChecked ? t("Settings_ModelsUnselectAll") : t("Settings_ModelsSelectAll")}
+            </button>
+          </div>
+          <div className="ma-list-head">
+            <span />
+            <span>Model ID</span>
+            <span title={t("Settings_ModelsContextUnit")}>{t("Settings_ModelsContext")}</span>
+            <span title={t("Settings_ModelsVisionHint")}>{t("Settings_ModelsVision")}</span>
+            <span title={t("Settings_ModelsThinkingHint")}>{t("Settings_ModelsThinking")}</span>
+          </div>
+          {filtered.length === 0 ? (
+            <div className="ma-none hint">{t("Settings_ModelsNoMatch")}</div>
+          ) : (
+            <div className="ma-list">
+              {filtered.map((r: AddModelRow) => (
+                <div key={r.entry.id} className={"ma-row" + (r.checked ? " checked" : "")}>
+                  <input type="checkbox" checked={r.checked} onChange={(e) => setChecked(r.entry.id, e.target.checked)} />
+                  <span className="ma-cell"><span className="mono" title={r.entry.id}>{r.entry.id}</span></span>
+                  <span className="ma-cell">
+                    <input className="input" style={{ flex: 1, height: 26, minWidth: 0 }}
+                      placeholder={t("Settings_ModelsContextPlaceholder")}
+                      value={r.contextTokens}
+                      disabled={!r.checked}
+                      title={ctxSource(r)}
+                      onChange={(e) => patchRow(r.entry.id, { contextTokens: e.target.value.replace(/[^\d,]/g, "") })} />
+                  </span>
+                  <span className="ma-cell">
+                    <input type="checkbox" checked={r.vision && r.checked}
+                      disabled={!r.visionEnabled || !r.checked}
+                      title={r.visionEnabled
+                        ? (r.entry.image === true ? t("Settings_ModelsVisionFromApi") : t("Settings_ModelsVisionInferred"))
+                        : t("Settings_ModelsVisionOff")}
+                      onChange={(e) => patchRow(r.entry.id, { vision: e.target.checked })} />
+                  </span>
+                  <span className="ma-cell">
+                    <Select<ThinkingLevel> value={r.thinking}
+                      style={{ width: "100%", maxWidth: 92 }}
+                      disabled={!r.checked}
+                      title={t("Settings_ModelsThinkingHint")}
+                      options={THINKING_LEVELS.map((v) => ({ value: v, label: t(THINKING_LABEL[v]) }))}
+                      onChange={(v) => patchRow(r.entry.id, { thinking: v })} />
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {savedMsg && <div className="ma-conn-ok">✓ {savedMsg}</div>}
+        </div>
+      )}
+    </Modal>
   );
 }

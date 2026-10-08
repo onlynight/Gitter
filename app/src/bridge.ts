@@ -32,6 +32,7 @@ import * as gitconfig from "./services/gitconfig";
 import * as preview from "./services/preview";
 import * as aiSvc from "./services/ai";
 import * as safety from "./services/safety";
+import * as modelDiscovery from "./services/modelDiscovery";
 import { groupSessions, squashMessage } from "./services/sessions";
 import * as feedbackStore from "./services/feedback";
 import type { SettingsDTO } from "./shared/types";
@@ -110,19 +111,27 @@ export class Bridge {
           return { ok: false as const, error: "没有可用的模型档案：请在 设置 → 模型档案 新增并配置密钥" };
         }
         const key = this.decryptProfileKey(p.apiKeyProtected);
-        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking });
+        // 思考深度：任务/输入台显式值 > 档案默认（添加模型时配置）> medium
+        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking: thinking ?? p.thinking ?? "medium" });
         return r.ok
           ? { ok: true as const, model: r.model, profileRef: p.id, contextWindow: p.capabilities?.contextTokens ?? 128_000 }
           : { ok: false as const, error: r.error };
       },
       // D8 降级链（§21.3.3）：备用模型 = default 优先、否则首个 ≠ 失败档案的可用档案
-      alternateModel: (excludeRef: string) => {
+      alternateModel: (excludeRef: string, thinking?: "off" | "low" | "medium" | "high") => {
         const s = this.shared.settings.current;
-        const pool = (s.models ?? []).filter((m) => m.id !== excludeRef);
+        const exGid = excludeRef.split("#")[0];
+        // 换分组而非换成员：同端点的其它模型视为同一份凭证，不算"备用"
+        const pool = (s.models ?? []).filter((m) => {
+          const gid = m.id.split("#")[0];
+          return gid !== exGid && !gid.startsWith(`${exGid}#`);
+        });
         const p = pickProfileRef(pool, s.defaultModelId);
         if (!p) return { ok: false as const, error: "没有备用模型档案" };
         const key = this.decryptProfileKey(p.apiKeyProtected);
-        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params });
+        // 降级换模型不换思考深度：沿用当前任务档位（输入台显式值优先，其次档案默认）
+        const eff = thinking ?? p.thinking ?? "medium";
+        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking: eff });
         return r.ok
           ? { ok: true as const, model: r.model, profileRef: p.id, contextWindow: p.capabilities?.contextTokens ?? 128_000 }
           : { ok: false as const, error: r.error };
@@ -483,40 +492,110 @@ export class Bridge {
           ));
         }
       }
+      // 用户档案按分组折叠：同一 baseURL 的多个模型只显示一张卡片（主条目携带成员清单）
+      const userGids = new Set<string>();
       for (const u of models) {
         if (pkgIds.has(u.id)) continue;
-        out.push(this.toProfileDTO(u.id, u, "user", null, s));
+        const gid = u.id.split("#")[0];
+        if (userGids.has(gid)) continue;
+        userGids.add(gid);
+        const primary = models.find((m) => m.id === gid) ?? u;
+        out.push(this.toProfileDTO(primary.id, primary, "user", null, s, models));
       }
       return out;
     });
-    R("models.save", (args: { profile: { id?: string; name: string; kind: "openai-compatible" | "anthropic"; baseURL: string; modelId: string; tags?: string[]; vision?: boolean } }) => {
+    R("models.save", (args: {
+      profile: {
+        id?: string;
+        name: string;
+        kind: "openai-compatible" | "anthropic";
+        baseURL: string;
+        /** 保留字段：分组模式下由 models 承载；单模型调用仍接受 */
+        modelId?: string;
+        /** 分组成员（一级分组下的多个模型）。给出即以它为准——新增合并、缺失移除。 */
+        models?: { modelId: string; vision?: boolean; contextTokens?: number; thinking?: "off" | "low" | "medium" | "high" }[];
+        tags?: string[];
+        vision?: boolean;
+        contextTokens?: number;
+        thinking?: "off" | "low" | "medium" | "high";
+      };
+      /** 密钥仅对新建/未配密钥的分组写入（分组内已存密钥不动，避免每次保存都改写密文） */
+      apiKey?: string;
+    }) => {
       const p = args.profile;
-      if (!p.name.trim() || !p.baseURL.trim() || !p.modelId.trim()) throw new BridgeError("name/baseURL/modelId 均必填");
+      const rawModels = p.models ?? (p.modelId ? [{ modelId: p.modelId }] : []);
+      const seen = new Set<string>();
+      const models_ = rawModels
+        .map((m) => ({ ...m, modelId: (m.modelId ?? "").trim() }))
+        .filter((m) => {
+          if (!m.modelId || seen.has(m.modelId)) return false;
+          seen.add(m.modelId);
+          return true;
+        });
+      if (!p.name.trim() || !p.baseURL.trim() || models_.length === 0) {
+        throw new BridgeError("name/baseURL/models 均必填（至少 1 个模型）");
+      }
       const s = this.shared.settings.current;
       const models = [...(s.models ?? [])];
       let id = p.id ?? "";
       if (!id || !models.some((m) => m.id === id)) {
         id = `user/${p.name.trim().toLowerCase().replace(/[^a-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "") || "profile"}-${Date.now().toString(36)}`;
       }
-      const prev = models.find((m) => m.id === id);
-      const entry: UserModelProfileDTO = {
-        id, name: p.name.trim(), kind: p.kind, baseURL: p.baseURL.trim(), modelId: p.modelId.trim(),
-        apiKeyProtected: prev?.apiKeyProtected ?? null,
-        params: prev?.params,
-        capabilities: { ...(prev?.capabilities ?? { tools: true, streaming: true }), vision: p.vision ?? prev?.capabilities?.vision },
-        tags: p.tags ?? prev?.tags ?? [],
-      };
-      const i = models.findIndex((m) => m.id === id);
-      if (i >= 0) models[i] = entry; else models.unshift(entry);
-      this.shared.settings.update({ models });
-      return { id };
+      // 分组成员按模型名定位旧条目（保住密钥与既有上下文/思考深度）
+      const oldMembers = models.filter((m) => m.id === id || m.id.startsWith(`${id}#`));
+      // 分组内已配好的密钥：新增成员直接继承（同一 baseURL 共用一个密钥）
+      const groupKey = oldMembers.find((m) => m.apiKeyProtected)?.apiKeyProtected ?? null;
+      const entries: UserModelProfileDTO[] = models_.map((m, i) => {
+        const kept = oldMembers.find((x) => x.modelId === m.modelId);
+        const thinking: "off" | "low" | "medium" | "high" = m.thinking ?? p.thinking ?? kept?.thinking ?? "medium";
+        return {
+          id: i === 0 ? id : `${id}#${m.modelId}`,
+          name: p.name.trim(),
+          kind: p.kind,
+          baseURL: p.baseURL.trim(),
+          modelId: m.modelId,
+          apiKeyProtected: kept?.apiKeyProtected ?? groupKey,
+          params: kept?.params,
+          thinking,
+          capabilities: {
+            ...(kept?.capabilities ?? { tools: true, streaming: true }),
+            vision: m.vision ?? kept?.capabilities?.vision ?? false,
+            // 上下文窗口：仅存端点/用户显式提供的正整数（避免启发式猜测被当成事实落盘）
+            contextTokens: Number.isFinite(m.contextTokens) && m.contextTokens! > 0
+              ? Math.floor(m.contextTokens as number)
+              : kept?.capabilities?.contextTokens,
+          },
+          tags: p.tags ?? kept?.tags ?? [],
+        };
+      });
+      // 分组成员的档案 id：首个成员用分组 id，其余用 `<分组id>#<模型id>`。
+      // 旧条目一律移除、以本次 entries 为准——分组 id 在首个成员上被复用，
+      // 按 id 判存留会把被顶替的旧条目一并留下，产生 id 重复的脏数据。
+      // （旧条目里被保留下来的密钥/上下文已由上面的 kept 合并进 entries。）
+      const isGroupOlder = (m: UserModelProfileDTO) => m.id === id || m.id.startsWith(`${id}#`);
+      const others = models.filter((m) => !isGroupOlder(m));
+      // 浅拷贝 entries：update() 就地改写 settings.data，避免新旧条目共享同一对象引用
+      this.shared.settings.update({ models: [...entries.map((e) => ({ ...e })), ...others] });
+      // 密钥：分组尚未配置密钥时写入（safeStorage 加密，不出本机）
+      const apiKey = args.apiKey;
+      if (apiKey && apiKey.length >= 8) {
+        const cipher = safeStorage.encryptString(apiKey).toString("base64");
+        const patchModels = (this.shared.settings.current.models ?? []).map((e) =>
+          !isGroupOlder(e) || e.apiKeyProtected ? e : { ...e, apiKeyProtected: cipher });
+        this.shared.settings.update({ models: patchModels });
+      }
+      return { id, models: entries.map((e) => e.modelId) };
     });
     R("models.delete", (args: { id: string }) => {
       const s = this.shared.settings.current;
-      const models = (s.models ?? []).filter((m) => m.id !== args.id);
+      // 删一个档案 = 删掉它所属的整个分组（同一 baseURL 的其余成员一并移除）
+      const gid = args.id.split("#")[0];
+      const group = (m: UserModelProfileDTO) => m.id === gid || m.id.startsWith(`${gid}#`);
+      const models = (s.models ?? []).filter((m) => !group(m));
       const patch: Partial<SettingsDTO> = { models };
-      if (s.defaultModelId === args.id) patch.defaultModelId = models[0]?.id ?? null;
-      if (s.fastModelId === args.id) patch.fastModelId = null;
+      const isGone = (ref: string | null | undefined) => !!ref && group({ id: ref } as UserModelProfileDTO);
+      if (isGone(s.defaultModelId)) patch.defaultModelId = models[0]?.id ?? null;
+      if (isGone(s.fastModelId)) patch.fastModelId = null;
       this.shared.settings.update(patch);
       return {};
     });
@@ -524,7 +603,10 @@ export class Bridge {
       if (!safeStorage.isEncryptionAvailable()) throw new BridgeError("系统不支持密钥加密（safeStorage 不可用）");
       const s = this.shared.settings.current;
       const models = [...(s.models ?? [])];
-      let target = models.find((m) => m.id === args.id);
+      const gid = args.id.split("#")[0];
+      // 分组语义：给组内所有档案都设同一密钥（同一 baseURL 共享凭证）
+      const groupEntries = models.filter((m) => m.id === gid || m.id.startsWith(`${gid}#`));
+      let target = groupEntries[0];
       if (!target) {
         // 包模板 → 实例化用户档案（同 fullId 遮蔽模板）
         for (const p of this.shared.pkgStore.list()) {
@@ -544,7 +626,8 @@ export class Bridge {
         }
         if (!target) throw new BridgeError("模型档案不存在", args.id);
       }
-      target.apiKeyProtected = safeStorage.encryptString(args.key).toString("base64");
+      const cipher = safeStorage.encryptString(args.key).toString("base64");
+      for (const m of groupEntries) m.apiKeyProtected = cipher;
       this.shared.settings.update({ models });
       return {};
     });
@@ -578,6 +661,24 @@ export class Bridge {
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }
+    });
+    // 模型发现（添加模型弹窗）：列表 + 模型卡探测（上下文窗口 / 图片模态）
+    R("models.discover", async (args: {
+      kind: "openai-compatible" | "anthropic";
+      baseURL: string;
+      apiKey?: string;
+      /** 编辑回填：apiKey 留空时用该分组已保存的密钥探测（解密不出本机） */
+      profileId?: string;
+    }) => {
+      let apiKey = args.apiKey;
+      if (!apiKey && args.profileId) {
+        const gid = args.profileId.split("#")[0];
+        const saved = (this.shared.settings.current.models ?? []).find(
+          (m) => (m.id === gid || m.id.startsWith(`${gid}#`)) && !!m.apiKeyProtected,
+        );
+        apiKey = this.decryptProfileKey(saved?.apiKeyProtected) ?? undefined;
+      }
+      return modelDiscovery.discoverModels({ kind: args.kind, baseURL: args.baseURL, apiKey });
     });
 
     // ---- 项目 ----
@@ -1170,8 +1271,21 @@ export class Bridge {
     source: "user" | "package",
     keyHint: string | null,
     s: SettingsDTO,
+    peers?: UserModelProfileDTO[],
   ): ModelProfileDTO {
-    const usage = s.modelUsage?.[id] ?? { turns: 0, inputTokens: 0, outputTokens: 0 };
+    // 分组档案（同一 baseURL 的多个模型）：用量按组内成员汇总，密钥状态取组内并集
+    const gid = id.split("#")[0];
+    const group = (peers && peers.length > 0 ? peers : [u]).filter(
+      (m) => m.id === gid || m.id.startsWith(`${gid}#`),
+    );
+    const usage = group.reduce(
+      (acc, m) => {
+        const u = s.modelUsage?.[m.id] ?? { turns: 0, inputTokens: 0, outputTokens: 0 };
+        return { turns: acc.turns + u.turns, inputTokens: acc.inputTokens + u.inputTokens, outputTokens: acc.outputTokens + u.outputTokens };
+      },
+      { turns: 0, inputTokens: 0, outputTokens: 0 },
+    );
+    const hasKey = group.some((m) => !!m.apiKeyProtected);
     return {
       id,
       name: u.name,
@@ -1179,19 +1293,32 @@ export class Bridge {
       baseURL: u.baseURL,
       modelId: u.modelId,
       source,
-      configured: source === "user" || !!u.apiKeyProtected,
+      configured: source === "user" || hasKey,
       enabled: true,
-      hasKey: !!u.apiKeyProtected,
+      hasKey,
       keyHint,
+      thinking: u.thinking ?? "medium",
       capabilities: {
         tools: u.capabilities?.tools ?? true,
         streaming: u.capabilities?.streaming ?? true,
         contextTokens: u.capabilities?.contextTokens,
+        vision: u.capabilities?.vision ?? false,
       },
       tags: u.tags ?? [],
-      isDefault: s.defaultModelId === id,
-      isFast: s.fastModelId === id,
+      // 分组级判定：默认/轻量指向组内任一成员时，整组卡片都视为默认/轻量
+      isDefault: (s.defaultModelId?.split("#")[0] ?? null) === gid,
+      isFast: (s.fastModelId?.split("#")[0] ?? null) === gid,
       usage,
+      groupId: gid,
+      // 仅分组主条目（档案 id 即分组 id）携带成员明细；成员条目本身不进列表
+      groupModels: id === gid
+        ? group.map((m) => ({
+            modelId: m.modelId,
+            vision: m.capabilities?.vision ?? false,
+            contextTokens: m.capabilities?.contextTokens,
+            thinking: m.thinking ?? "medium",
+          }))
+        : undefined,
     };
   }
 

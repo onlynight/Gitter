@@ -813,6 +813,45 @@ Settings_ModelsIdPlaceholder	model id（可测试连接后自动填充）	model 
 Settings_ModelsTestConn	Test connection	测试连接
 Settings_ModelsTestOk	Connected — {0} models available	连接成功 — 发现 {0} 个模型
 Settings_ModelsTestFail	Connection failed	连接失败
+Settings_ModelsType	Type	类型
+Settings_ModelsAddTitle	Add models	添加模型
+Settings_ModelsAddHint	One connection, any number of models — save selected ones as profiles.	一条连接可一次保存多个模型为档案。
+Settings_ModelsDiscover	Discover	探测
+Settings_ModelsDiscovering	Discovering…	探测中…
+Settings_ModelsFound	{0} models found	发现 {0} 个模型
+Settings_ModelsEmptyResult	No models returned	端点未返回模型
+Settings_ModelsSearchFilter	Search models…	搜索模型…
+Settings_ModelsNoMatch	No match	无匹配
+Settings_ModelsChecked	{0} selected	已选 {0} 个
+Settings_ModelsSelectAll	Select all	全选
+Settings_ModelsUnselectAll	Select none	全不选
+Settings_ModelsNameFor	Add models to…	添加到…
+Settings_ModelsNamePlaceholder	Profile name / group (shared by selected models)	档案名 / 分组（所选模型共用）
+Settings_ModelsContext	Context window	上下文窗口
+Settings_ModelsContextUnit	tokens	tokens
+Settings_ModelsContextFromApi	from endpoint	端点返回
+Settings_ModelsContextUnknown	Not reported	未提供
+Settings_ModelsContextGuess	name heuristic	名称推测
+Settings_ModelsContextPlaceholder	leave empty for default	留空使用默认
+Settings_ModelsVision	Vision	视觉
+Settings_ModelsVisionFromApi	vision per endpoint model card	端点模型卡声明支持视觉
+Settings_ModelsVisionOff	endpoint says text-only	端点声明仅文本，不可选
+Settings_ModelsVisionInferred	inferred from model name	按模型名推断
+Settings_ModelsMaxOutput	Max output	最大输出
+Settings_ModelsThinking	Thinking depth	思考深度
+Settings_ModelsThinkingHint	Default for new tasks on this profile; override per message in the task input.	该档案新建任务的默认思考深度；可在任务输入台逐条覆盖。
+Settings_ModelsSaveSelected	Save {0} profiles	保存 {0} 个档案
+Settings_ModelsSaved	Saved {0} profiles	已保存 {0} 个档案
+Settings_ModelsProbesLimited	Only the first {0} models were probed	仅探测前 {0} 个模型
+Settings_ModelsNoCard	Endpoint does not publish model cards — context/vision use name heuristics.	端点未提供模型卡，上下文/视觉按名称推断
+Settings_ModelsAnthropicNote	Anthropic endpoints only expose the model list; context window and vision are guessed by name.	Anthropic 端点仅提供模型列表，上下文/视觉按名称推断
+Settings_ModelsVisionHint	Vision lets tasks attach images; grayed out when the endpoint declares text-only.	视觉能力允许任务附带图片；端点声明仅文本时置灰不可选
+Settings_ModelsAddBtn	Add	添加
+Settings_ModelsEditTitle	Edit models	编辑模型
+Settings_ModelsEditBtn	Edit	编辑
+Settings_ModelsCount	{0} models	{0} 个模型
+Settings_ModelsKeyKept	Saved — leave blank to keep	已保存——留空保持不变
+Settings_ModelsPickModel	Pick a provider, then a model	先选供应商，再选模型
 
 Agents_TaskType	Task type	任务型
 Agents_Model	Model	模型

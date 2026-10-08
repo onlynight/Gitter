@@ -272,6 +272,165 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .tool-btn.primary:active:not(:disabled) { background: var(--c-accent-pressed); }
 .tool-btn.danger { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 40%, transparent); }
 .tool-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 12%, transparent); }
+/* 图标按钮（无边框小方钮：任务卡 分叉/归档 等） */
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; flex: none;
+  background: transparent; border: none; border-radius: 6px;
+  color: var(--c-text3); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
+}
+.icon-btn:hover:not(:disabled) { background: var(--c-hover); color: var(--c-text); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+/* 时间线运行态脉冲（工具运行/思考中/待授权） */
+@keyframes tl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.tl-pulse { animation: tl-pulse 1.2s ease-in-out infinite; }
+/* ---- 任务页 composer（ZCode 中央输入框形态）----
+ * 注意 font 必须逐项声明（font-family: inherit）——font 简写带 inherit 分量是非法 CSS，
+ * 整条会被丢弃导致 textarea 退回浏览器默认字体（字体发虚事故根因） */
+.composer-box {
+  background: var(--c-panel);
+  border: 1px solid var(--c-border); border-radius: 14px;
+  padding: 10px 14px 8px;
+  transition: border-color var(--dur-fast) var(--ease-std), box-shadow var(--dur-fast) var(--ease-std);
+}
+.composer-box:hover { border-color: var(--c-border-strong); }
+.composer-box:focus-within {
+  border-color: var(--c-link);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-link) 18%, transparent);
+}
+.composer-input {
+  display: block; width: 100%;
+  background: transparent; border: none; outline: none; resize: none;
+  color: var(--c-text); font-family: inherit; font-size: 13px; line-height: 1.6;
+  overflow-y: auto; min-height: 24px; max-height: 240px;
+  caret-color: var(--c-text);
+}
+.composer-input::placeholder { color: var(--c-text3); }
+
+/* ---- composer 底部工具条（ZCode 形态）：+ / 访问控制 / 模型 / 思考深度 / 上下文 / 发送 ----
+ * 五个控件共用 .comp-item，外观是同一款无边框文字按钮，hover 给背景而不是描边（保持行内紧凑） */
+.comp-bar { display: flex; align-items: center; gap: 4px; margin-top: 6px; flex-wrap: wrap; row-gap: 6px; }
+.comp-item {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+  background: transparent; border: none; border-radius: 7px;
+  color: var(--c-text2); font-family: inherit; font-size: 11.5px; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
+}
+.comp-item:hover { background: var(--c-hover); color: var(--c-text); }
+.comp-item:active { background: var(--c-selected); }
+.comp-item:disabled { color: var(--c-text3); cursor: default; }
+.comp-item:disabled:hover { background: transparent; }
+.comp-item .comp-chev { transition: transform var(--dur-fast) var(--ease-std); }
+.comp-item .comp-chev.open { transform: rotate(180deg); }
+/* 模型名显示完整（组名 · 模型名），仅在容器放不下时才省略号截断 */
+.comp-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 320px; }
+
+/* 弹出菜单：与浮层浮窗同约定（panel2 + 强描边 + 深投影），从底部向上展开带高度动画 */
+.comp-pop {
+  position: absolute; bottom: calc(100% + 8px);
+  min-width: 190px; max-width: 320px;
+  background: var(--c-panel2, var(--c-panel)); border: 1px solid var(--c-border-strong); border-radius: 10px;
+  box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
+  padding: 5px; z-index: 40; overflow: hidden;
+  transform-origin: bottom left;
+  opacity: 0; transform: translateY(6px) scale(.97); visibility: hidden; pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-std), transform 200ms var(--ease-std), visibility 0s linear 200ms;
+}
+.comp-pop.open { opacity: 1; transform: none; visibility: visible; pointer-events: auto; transition: opacity var(--dur-fast) var(--ease-std), transform 200ms var(--ease-std); }
+.comp-pop.right { right: 0; left: auto; transform-origin: bottom right; }
+.comp-pop-head { padding: 5px 9px 6px; font-size: 10.5px; color: var(--c-text3); text-transform: uppercase; letter-spacing: .04em; }
+.comp-opt {
+  display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border-radius: 7px;
+  font-size: 12.5px; cursor: pointer; color: var(--c-text2);
+  transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
+}
+.comp-opt:hover { background: var(--c-hover); color: var(--c-text); }
+.comp-opt.on { color: var(--c-text); background: var(--c-panel); }
+.comp-opt .comp-opt-name { font-size: 12.5px; line-height: 1.35; }
+.comp-opt .comp-opt-sub { color: var(--c-text3); font-size: 10.5px; margin-top: 2px; line-height: 1.3; }
+.comp-opt .comp-check { color: var(--c-green); flex: none; margin-top: 1px; }
+/* 两级模型选择：供应商组行（点击展开/收起组内模型），成员行缩进 */
+.comp-opt.comp-group { align-items: center; cursor: pointer; user-select: none; }
+.comp-opt.comp-group .comp-chev { color: var(--c-text3); flex: none; transition: transform var(--dur-fast) var(--ease-std); }
+.comp-opt.comp-group .comp-chev.open { transform: rotate(180deg); }
+.comp-count { font-size: 10px; color: var(--c-text3); border: 1px solid var(--c-border); border-radius: 8px; padding: 0 5px; line-height: 14px; flex: none; }
+.comp-pop-sep { height: 1px; background: var(--c-border); margin: 4px 3px; }
+
+/* 上下文用量：迷你条 + 百分比 + 明细子项（系统/历史/预留），点击展开明细 */
+.comp-ctx { display: inline-flex; align-items: center; gap: 7px; }
+.comp-ctx-bar { width: 56px; height: 4px; border-radius: 2px; background: var(--c-border); overflow: hidden; flex: none; }
+.comp-ctx-bar > i { display: block; height: 100%; border-radius: 2px; background: var(--c-text3); transition: width 240ms var(--ease-std); }
+.comp-ctx-pct { font-size: 11.5px; color: var(--c-text2); font-variant-numeric: tabular-nums; }
+.comp-ctx-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 9px; font-size: 11px; color: var(--c-text3); }
+.comp-ctx-row b { color: var(--c-text2); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* 统计栏（DeepSeek 式）：输入框底部单行——上下文条 / 输入输出 token / 速度 / 缓存命中率，点击展开明细 */
+.comp-stats {
+  display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 6px; padding: 6px 2px 0;
+  border: none; border-top: 1px solid var(--c-border); background: transparent;
+  color: var(--c-text3); font-family: inherit; font-size: 10.5px; cursor: pointer; text-align: left;
+  transition: color var(--dur-fast) var(--ease-std);
+}
+.comp-stats:hover { color: var(--c-text2); }
+.comp-stats-bar { width: 64px; height: 4px; border-radius: 2px; background: var(--c-border); overflow: hidden; flex: none; }
+.comp-stats-bar > i { display: block; height: 100%; border-radius: 2px; background: var(--c-text3); transition: width 240ms var(--ease-std); }
+.comp-stats-item { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.comp-stats-item b { color: inherit; font-weight: 600; }
+.comp-stats:hover .comp-stats-item b { color: var(--c-text); }
+.comp-stats .comp-chev { margin-left: auto; flex: none; }
+
+/* 发送/停止：强调色方块，与工具条拉开层级 */
+.comp-send {
+  width: 30px; height: 30px; padding: 0; border: none; border-radius: 8px;
+  background: var(--c-accent); color: var(--c-on-accent); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  transition: background var(--dur-fast) var(--ease-std), opacity var(--dur-fast) var(--ease-std), transform var(--dur-fast) var(--ease-std);
+}
+.comp-send:hover { background: var(--c-accent-hover, var(--c-accent)); }
+.comp-send:active { background: var(--c-accent-pressed, var(--c-accent)); transform: scale(.94); }
+.comp-send:disabled { opacity: .35; cursor: default; }
+.comp-send:disabled:hover { background: var(--c-accent); }
+
+/* 新任务按钮：实体面板底（替代虚线框），hover/active 背景反馈 */
+.new-task-btn {
+  display: block; width: calc(100% - 20px); margin: 10px 10px 6px; padding: 9px 12px;
+  background: var(--c-panel); border: 1px solid var(--c-border); border-radius: 8px;
+  color: var(--c-text2); font-family: inherit; font-size: 12.5px; text-align: center; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std),
+              border-color var(--dur-fast) var(--ease-std);
+}
+.new-task-btn:hover { background: var(--c-hover); border-color: var(--c-border-strong); color: var(--c-text); }
+.new-task-btn:active { background: var(--c-selected); border-color: var(--c-border-strong); color: var(--c-text); }
+
+/* ---- 会话内计划任务列表（ZCode TodoList 形态）：头部点击折叠/展开 ----
+ * 展开动画用 height: 0 ↔ <内容实测高度 px>。grid-template-rows 的 fr/max-content
+ * 关键字不是长度值，浏览器无法在两者间插值（0fr→max-content 的过渡实测只发一次
+ * transitionstart 就跳到终态，视觉上是瞬切）。height 的 px 值一定能逐帧插值，
+ * 所以由 JS 实测 .todo-inner 内容高度再写入 .todo-body.style.height，CSS 只负责过渡曲线。 */
+.todo-card { border: 1px solid var(--c-border); border-radius: 10px; max-width: 620px; overflow: hidden; }
+.todo-head {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+  cursor: pointer; user-select: none; font-size: 11.5px; color: var(--c-text3);
+  transition: background var(--dur-fast) var(--ease-std);
+}
+.todo-head:hover { background: var(--c-hover); color: var(--c-text); }
+.todo-head .todo-chev { transition: transform var(--dur-fast) var(--ease-std); }
+.todo-head .todo-chev.open { transform: rotate(90deg); }
+/* 迷你进度条：数字之外给一个一眼可辨的完成度 */
+.todo-progress { width: 44px; height: 4px; border-radius: 2px; background: var(--c-border); overflow: hidden; flex: none; }
+.todo-progress > i { display: block; height: 100%; background: var(--c-green); transition: width 240ms var(--ease-std); }
+.todo-body { overflow: hidden; height: 0; transition: height 220ms var(--ease-std); }
+.todo-inner { padding: 0 12px 8px; display: flex; flex-direction: column; }
+.todo-item {
+  display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: 12.5px;
+  color: var(--c-text3);
+  transition: color var(--dur-fast) var(--ease-std);
+}
+.todo-item.cur { color: var(--c-text); }
+.todo-item.done { color: var(--c-text3); }
+.todo-item > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.todo-item.done > span:last-child { text-decoration: line-through; }
 
 .input {
   background: var(--c-panel); color: var(--c-text);
@@ -556,6 +715,45 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .settings-row .hint { font-size: 11px; color: var(--c-text3); }
 .radio-group { display: flex; gap: 6px; }
 .radio-group .tool-btn.chosen { border-color: var(--c-text); color: var(--c-text); background: var(--c-selected); }
+
+/* ---- 模型档案：节标题栏（右侧 + 按钮）---- */
+.section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.section-head h4 { flex: 1; min-width: 0; margin: 0; }
+
+/* ---- 添加模型弹窗（DeepSeek-harness 式：连接 + 模型多选）---- */
+.model-add { width: 560px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px); overflow: hidden; }
+.model-add .modal-body { overflow: hidden; }
+.ma-form { display: flex; flex-direction: column; gap: 8px; }
+.ma-grid { display: grid; grid-template-columns: 96px 1fr; gap: 8px 10px; align-items: center; }
+.ma-grid > label { font-size: 11.5px; color: var(--c-text3); padding-top: 4px; }
+.ma-conn-ok { font-size: 11.5px; color: var(--c-green); display: flex; align-items: center; gap: 6px; }
+.ma-conn-err { font-size: 11.5px; color: var(--c-red); word-break: break-word; }
+.ma-conn-note { font-size: 11px; color: var(--c-text3); }
+
+.ma-list-head {
+  display: grid; grid-template-columns: 26px minmax(0,1fr) 88px 40px 92px; gap: 10px; align-items: center;
+  padding: 6px 10px; border: 1px solid var(--c-border); border-bottom: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: var(--c-panel2, var(--c-panel)); font-size: 10.5px; color: var(--c-text3);
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.ma-list {
+  display: flex; flex-direction: column; margin-top: 6px;
+  border: 1px solid var(--c-border); border-radius: var(--radius-md);
+  max-height: min(38vh, 360px); overflow: auto;
+}
+.ma-row {
+  display: grid; grid-template-columns: 26px minmax(0,1fr) 88px 40px 92px; gap: 10px; align-items: center;
+  padding: 6px 10px; border-bottom: 1px solid var(--c-border); font-size: 12px;
+}
+.ma-row:last-child { border-bottom: 0; }
+.ma-row:hover { background: var(--c-hover); }
+.ma-row.checked { background: color-mix(in srgb, var(--c-link) 9%, transparent); }
+.ma-row .mono { font-size: 11.5px; }
+.ma-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ma-cell .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-none { padding: 10px; border: 1px dashed var(--c-border-strong); border-radius: var(--radius-md); margin-top: 6px; }
+.ma-aside { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* commit message box */
 .commit-box { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-top: 1px solid var(--c-border); flex: none; }
