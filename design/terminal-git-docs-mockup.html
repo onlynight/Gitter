@@ -284,7 +284,6 @@ nothing to commit, working tree clean
       <div class="doc-panel" id="docPanel">
         <div class="doc-inner">
           <div class="doc-head">
-            <button class="hbtn" id="tocBtn" aria-expanded="false" title="目录"><span class="glyph" id="tocBtnGlyph">&#xE700;</span></button>
             <span class="doc-title">Git 命令手册</span>
             <span style="flex:1"></span>
             <button class="hbtn" id="findBtn" title="搜索文档内容"><span class="glyph">&#xE721;</span></button>
@@ -302,7 +301,7 @@ nothing to commit, working tree clean
         </div>
         <div class="toc-scrim" id="tocScrim"></div>
         <aside class="toc-drawer" id="tocDrawer" aria-hidden="true">
-          <div class="toc-head"><span class="glyph" style="font-size:12px;color:var(--c-text3)">&#xE700;</span>目录</div>
+          <div class="toc-head"><button class="hbtn" id="tocClose" title="关闭目录" style="width:24px;height:24px" onclick="closeToc()"><span class="glyph">&#xE711;</span></button>目录</div>
           <div class="toc-search">
             <span class="glyph">&#xE721;</span>
             <input id="tocSearch" placeholder="搜索目录标题…" autocomplete="off">
@@ -1760,8 +1759,6 @@ function openToc() {
   tocScrim.classList.add("open");
   tocDrawer.setAttribute("aria-hidden", "false");
   tocBtn.setAttribute("aria-expanded", "true");
-  tocBtn.title = "关闭目录";
-  document.getElementById("tocBtnGlyph").textContent = ""; // 汉堡 → ✕
   renderToc();
   tocSearch.focus();
 }
@@ -1770,8 +1767,6 @@ function closeToc() {
   tocScrim.classList.remove("open");
   tocDrawer.setAttribute("aria-hidden", "true");
   tocBtn.setAttribute("aria-expanded", "false");
-  tocBtn.title = "目录";
-  document.getElementById("tocBtnGlyph").innerHTML = "&#xE700;"; // ✕ → 汉堡
 }
 tocBtn.addEventListener("click", () => (tocDrawer.classList.contains("open") ? closeToc() : openToc()));
 tocScrim.addEventListener("click", closeToc);
