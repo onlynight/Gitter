@@ -19,3 +19,6 @@ app/release*
 # 内置页面包 gitui.page.log 与 *.log 全局规则冲突——整包例外（丢包 = 新 clone 缺 Log 页）
 !app/resources/packages/gitui.page.log/
 !app/resources/packages/gitui.page.log/**
+
+# 视觉验收 harness 产物
+web/harness/harness-dist/
