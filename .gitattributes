@@ -1,0 +1,2 @@
+# sh 脚本保持 LF，避免在 Windows checkout 成 CRLF 后 bash 报错
+*.sh text eol=lf
