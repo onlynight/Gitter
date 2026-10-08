@@ -1273,3 +1273,20 @@ GITTER_UI.registerAgentUI({
 - 不做 provider 侧显式缓存控制 API（Anthropic cache_control breakpoints 留待模型档案层出现真实需求）；
 - 不改 journal / 会话文件格式（冻结副本不入盘，重启重冻结）;
 - 不做命中率调优面板（cacheRead / cacheHitRate 已在 usageHistory 与任务 DTO 暴露）。
+
+### 22.8 数据链路补记（2026-10-09：缓存命中率恒 0% 的根因与修复）
+
+**症状**：任务卡统计栏「缓存命中率」恒 0% 或「—」，cacheGuard 各项行为正常。
+
+**定位**（数据流 = 模型 usage → `normalizeUsage` → usageHistory → `computeStats.cacheHitRate` → `agent.context.stats` RPC → 统计栏；UI 每次轮询现算，无缓存问题）：
+
+- ❌ cacheGuard 插件——只负责状态提醒注入，不触碰 usage；
+- ✅ **提供方映射层**（断点）：`@ai-sdk/openai-compatible` 的 `convertOpenAICompatibleChatUsage` 只认 OpenAI 形状 `usage.prompt_tokens_details.cached_tokens`，而 **DeepSeek 在 usage 顶层返回 `prompt_cache_hit_tokens`**——映射取不到 `?? 0`，cacheRead 恒 0；
+- ✅ **流式 usage 缺失**（并发断点）：`createOpenAICompatible` 默认不发 `stream_options.include_usage`，DeepSeek 流式（agent 轮恒为流式）整个 usage 都不回，统计栏全部「—」。
+
+**修复**（agents/provider.ts，fetch 边界，与既有 reasoning_effort 注入同模式）：
+
+1. `includeUsage: true`——流式请求带 `stream_options.include_usage`；
+2. 响应侧方言归一：SSE 按行缓冲（跨网络分段安全）、非流式 JSON 直接解析，把 DeepSeek 顶层 `prompt_cache_hit_tokens` 回填为 `prompt_tokens_details.cached_tokens`——按标记逐行/逐体检查，**非 DeepSeek 响应零改动**，Anthropic 走原生映射不受影响。
+
+**回归**：smoke-agent-v4 §12（22.8 六断言：includeUsage 接线 / DeepSeek 流式与非流式 cacheRead 回填 / inputTokens 总数不受影响 / OpenAI 形状透传不破坏）——假 fetch 驱动真实 provider→SDK 转换全链路。
