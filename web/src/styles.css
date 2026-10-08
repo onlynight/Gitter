@@ -7,6 +7,8 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
+  --sidebar-w: 188px;
+  --sidebar-w-collapsed: 48px;
   --titlebar-h: 40px;
   --statusbar-h: 28px;
   --toolbar-h: 40px;
@@ -101,11 +103,10 @@ body {
 }
 
 /* ---- 主区 ---- */
-.main { display: grid; grid-template-columns: auto 1fr; min-height: 0; }
-/* 侧栏宽度由 JS 量内容后内联设定（贴合内容 + 对称边距，上限 188），展开/折叠过渡 .sidebar 的
- * width（grid 轨道 auto 随动——不要过渡 grid-template-columns：Chromium 对 var() 驱动的
- * 轨道过渡存在失效问题，轨道值会冻在过渡起点） */
-.sidebar { transition: width 300ms var(--ease-std); }
+.main { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 0; transition: grid-template-columns 300ms var(--ease-std); }
+.main.collapsed { grid-template-columns: var(--sidebar-w-collapsed) 1fr; }
+/* 侧栏展开宽度由 JS 按最宽导航项动态更新 --sidebar-w（贴合内容 + 对称边距，上限 188 超出打点）；
+ * 折叠态走 --sidebar-w-collapsed。展开/折叠动画即原有的 grid 列过渡 */
 
 /* ---- 侧栏 ---- */
 .sidebar {

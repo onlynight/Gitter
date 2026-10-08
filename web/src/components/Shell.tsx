@@ -58,7 +58,7 @@ export function Sidebar() {
       }
       const extAllowance = root.querySelector(".nav-ext-x") ? 26 : 0; // 外部页行尾 ✕ 钮
       const w = Math.min(188, Math.max(48, 16 + 10 + maxLabel + 20 + 8 + extAllowance));
-      root.style.width = root.classList.contains("collapsed") ? "48px" : `${w}px`;
+      document.documentElement.style.setProperty("--sidebar-w", `${w}px`);
     };
     measure();
     document.fonts?.ready.then(measure).catch(() => {});
