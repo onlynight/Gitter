@@ -686,7 +686,7 @@
       "div",
       {
         ref,
-        className: "comp-pop" + (props.open ? " open" : "") + (props.anchor === "right" ? " right" : ""),
+        className: "comp-pop" + (props.open ? " open" : "") + (props.wide ? " wide" : "") + (props.anchor === "right" ? " right" : ""),
         style: { maxHeight: maxH, overflowY: maxH !== void 0 ? "auto" : void 0 },
         "aria-hidden": !props.open,
         children: props.children
@@ -794,7 +794,7 @@
               children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plus", size: 14 })
             }
           ),
-          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "plus", anchor: "left", onClose: () => setOpen(""), children: [
+          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "plus", wide: true, anchor: "left", onClose: () => setOpen(""), children: [
             /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "附件" }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-opt", onClick: () => {
               props.onAttachImage();
@@ -1601,11 +1601,14 @@
     })();
     const runningSubs = selectedTask ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length : 0;
     react.useEffect(() => {
+      setStats(null);
+    }, [selectedTask]);
+    react.useEffect(() => {
       if (!selectedTask) return;
       let cancelled = false;
       const pull = () => {
         void call("agent.context.stats", { taskId: selectedTask }).then((s) => {
-          if (!cancelled && s) setStats(s);
+          if (!cancelled) setStats(s);
         }).catch(() => {
         });
       };
