@@ -1,15 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { renderMarkdown } from "../kit";
-import { pageSdk, useAppState } from "../pageSdk";
+import { renderMarkdown, Select } from "../kit";
+import { pageSdk, useAppState, useDocs, docTitle } from "../pageSdk";
+import type { DocDescriptor } from "../pageSdk";
 import docSource from "./GitCommands.md?raw";
 
 /**
- * 终端页 Git 命令文档面板（design/terminal-git-docs-mockup.html）：
- * 内置 GitCommands.md（kit renderMarkdown 渲染），左上汉堡 → 面板内左侧滑出目录浮层
- * （三级目录 h2/h3/h4 + 标题搜索 + scroll-spy + 点击跳转），右上查找条
- * （全部命中淡高亮 / 当前命中实色 + n/m 循环定位）。纯渲染层组件，零 RPC。
+ * 终端页 Git 命令文档面板（design/terminal-git-docs-mockup.html 实现落点，插件化文档）：
+ * 文档源走 docRegistry 注册表（宿主单源，pageSdk 消费）——内置 Git 手册在本模块
+ * eval 期自举注册（builtin 层，第三方包可同 id 覆盖或另立新篇），面板按注册表渲染，
+ * >1 篇时头部出 Select 切换器。左上汉堡 → 目录浮层（三级目录 + 标题搜索 + scroll-spy
+ * + 点击跳转），右上查找条（n/m 循环定位）。纯渲染层组件，零 RPC。
  */
 const { t } = pageSdk;
+
+/** 内置 Git 命令手册：与插件包同接缝注册（builtin 层）。模块 eval 期 = loader 注入窗口内，层级自动归因。 */
+pageSdk.registerDoc({
+  id: "builtin.git-commands",
+  title: () => t("Terminal_DocTitle"),
+  source: () => docSource,
+});
 
 interface TocItem {
   id: string;
@@ -35,25 +44,65 @@ function markLabel(text: string, kw: string) {
 
 export function GitDocPanel({ onClose }: { onClose: () => void }) {
   useAppState(); // 订阅宿主 store：语言/主题切换时随渲染更新
+  const docs = useDocs();
   const bodyRef = useRef<HTMLDivElement>(null);
   const tocSearchRef = useRef<HTMLInputElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
   const hitsRef = useRef<HTMLElement[]>([]);
   const curRef = useRef(-1);
 
-  const html = useMemo(() => renderMarkdown(docSource), []);
+  const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  const activeDoc = docs.find((d) => d.doc.id === activeDocId) ?? docs[0] ?? null;
+  const activeId = activeDoc?.doc.id ?? "";
+
+  const [content, setContent] = useState<string | null>(null);
   const [toc, setToc] = useState<TocItem[]>([]);
   const [tocOpen, setTocOpen] = useState(false);
   const [tocKw, setTocKw] = useState("");
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [spyId, setSpyId] = useState<string | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findKw, setFindKw] = useState("");
   const [findState, setFindState] = useState<{ count: number; cur: number } | null>(null);
 
-  /** 渲染后处理：标题分配锚点 id + 命令名徽标 + 构建三级目录（html 恒定，只跑一次） */
+  // 切换文档：查找/目录搜索/滚动位置全部重置（TOC 随内容重建）
+  useEffect(() => {
+    clearMarks();
+    setFindOpen(false);
+    setFindKw("");
+    setFindState(null);
+    setTocKw("");
+    setSpyId(null);
+    bodyRef.current?.scrollTo({ top: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
+  // 加载当前文档源（source 可同步可 Promise——包资源/远程文档均可）
+  useEffect(() => {
+    let alive = true;
+    if (!activeDoc) {
+      setContent(null);
+      return;
+    }
+    Promise.resolve(activeDoc.doc.source()).then(
+      (md) => {
+        if (alive) setContent(md);
+      },
+      () => {
+        if (alive) setContent(null);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
+  const html = useMemo(() => renderMarkdown(content ?? ""), [content]);
+
+  /** 渲染后处理：标题分配锚点 id + 命令名徽标 + 构建三级目录（每次内容变化后重建） */
   useEffect(() => {
     const root = bodyRef.current;
-    if (!root) return;
+    if (!root || content === null) return;
     const items: TocItem[] = [];
     let sec = 0;
     for (const h of Array.from(root.querySelectorAll("h1, h2, h3, h4"))) {
@@ -74,10 +123,11 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
       }
     }
     setToc(items);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [html]);
 
   /** 清除正文查找高亮（mark → 还原纯文本节点） */
-  const clearMarks = () => {
+  function clearMarks() {
     const root = bodyRef.current;
     if (!root) return;
     root.querySelectorAll("mark.hit").forEach((m) => {
@@ -88,7 +138,7 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
     });
     hitsRef.current = [];
     curRef.current = -1;
-  };
+  }
 
   const paintCur = (cur: number) => {
     const hits = hitsRef.current;
@@ -98,7 +148,7 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
   };
 
   /** 正文查找：大小写不敏感子串，全部命中 <mark.hit>，当前命中加 .cur */
-  const runFind = (kw: string) => {
+  function runFind(kw: string) {
     const root = bodyRef.current;
     if (!root) return;
     clearMarks();
@@ -138,16 +188,16 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
     curRef.current = cur;
     setFindState({ count: hits.length, cur });
     if (cur >= 0) hits[cur].scrollIntoView({ block: "center" });
-  };
+  }
 
-  const stepFind = (d: number) => {
+  function stepFind(d: number) {
     const hits = hitsRef.current;
     if (!hits.length) return;
     const cur = (curRef.current + d + hits.length) % hits.length;
     curRef.current = cur;
     paintCur(cur);
     setFindState({ count: hits.length, cur });
-  };
+  }
 
   const openFind = () => {
     setFindOpen(true);
@@ -167,7 +217,7 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
   };
 
   /** scroll-spy：正文滚动位置 → 当前章节（目录条目高亮联动） */
-  const syncActive = () => {
+  function syncActive() {
     const root = bodyRef.current;
     if (!root || !toc.length) return;
     const top = root.scrollTop;
@@ -177,8 +227,8 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
       if (el && el.offsetTop <= top + 24) cur = it.id;
       else break;
     }
-    setActiveId(cur);
-  };
+    setSpyId(cur);
+  }
 
   const jumpTo = (id: string) => {
     const el = document.getElementById(id);
@@ -212,7 +262,17 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
             onClick={() => (tocOpen ? setTocOpen(false) : openToc())}>
             <span className="glyph">{"\uE700"}</span>
           </button>
-          <span className="git-doc-title">{t("Terminal_DocTitle")}</span>
+          {docs.length > 1 ? (
+            <Select
+              className="git-doc-switch"
+              title={t("Terminal_DocSwitch")}
+              value={activeId}
+              options={docs.map((d) => ({ value: d.doc.id, label: docTitle(d.doc) }))}
+              onChange={(id) => setActiveDocId(id)}
+            />
+          ) : (
+            <span className="git-doc-title">{activeDoc ? docTitle(activeDoc.doc) : ""}</span>
+          )}
           <span style={{ flex: 1 }} />
           <button className={"tool-btn icon" + (findOpen ? " on" : "")} title={t("Terminal_DocFind")}
             onClick={() => (findOpen ? closeFind() : openFind())}>
@@ -292,7 +352,7 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
           {visibleToc.map((it) => (
             <button
               key={it.id}
-              className={"git-doc-toc-item lv-" + it.level + (it.id === activeId ? " active" : "")}
+              className={"git-doc-toc-item lv-" + it.level + (it.id === spyId ? " active" : "")}
               data-id={it.id}
               onClick={() => jumpTo(it.id)}
             >

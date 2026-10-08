@@ -8,7 +8,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import "@xterm/xterm/css/xterm.css";
 import "../src/styles.css";
-import { renderMarkdown } from "../src/kit/index.ts";
+import { renderMarkdown, Select } from "../src/kit/index.ts";
 
 // ---------- 主题（tokens 抄 harness/main.tsx） ----------
 const TOKEN_VARS: Record<string, string> = {
@@ -100,12 +100,39 @@ const I18N: Record<string, string> = {
   Terminal_DocFindNext: "下一个（Enter）",
   Terminal_DocFindClose: "关闭查找（Esc）",
   Terminal_DocResize: "拖动调整宽度 · 双击恢复默认",
+  Terminal_DocSwitch: "切换文档",
 };
 
 const listeners: Record<string, ((p: unknown) => void)[]> = {};
 (window as any).__emit = (method: string, payload?: unknown) => {
   for (const cb of listeners[method] ?? []) cb(payload);
 };
+
+// ---- 文档注册表桩（同 docRegistry 语义：同 id 用户包 > 内置包 > 宿主） ----
+type DocEntry = { doc: { id: string; title: any; source: () => any }; packageId: string; tier: "host" | "builtin" | "user" };
+const docRegs = new Map<string, DocEntry>();
+const docListeners = new Set<() => void>();
+let docVer = 0;
+const TIER_ORDER: Record<string, number> = { host: 1, builtin: 2, user: 3 };
+function docNotify() { docVer++; for (const fn of docListeners) fn(); }
+(window as any).__stubTier = "builtin"; // 页面包 eval 前 = builtin 归因窗口
+(window as any).__registerDoc = (def: { id: string; title: any; source: () => any }) => {
+  const tier = ((window as any).__stubTier ?? "builtin") as DocEntry["tier"];
+  const prev = docRegs.get(def.id);
+  if (prev && TIER_ORDER[prev.tier] > TIER_ORDER[tier]) return () => {};
+  docRegs.set(def.id, { doc: def, packageId: tier === "user" ? "demo.plug" : "gitui.page.bash", tier });
+  docNotify();
+  const id = def.id;
+  return () => { docRegs.delete(id); docNotify(); };
+};
+(window as any).__docs = () =>
+  [...docRegs.values()].sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier]);
+(window as any).__docTitle = (doc: { title: any }) => (typeof doc.title === "function" ? doc.title() : doc.title);
+(window as any).__onDocsChanged = (cb: () => void) => {
+  docListeners.add(cb);
+  return () => docListeners.delete(cb);
+};
+(window as any).__docsVersion = () => docVer;
 
 // 调试用错误边界：直接吐 stack
 class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { err: Error | null }> {
@@ -124,7 +151,7 @@ class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { er
   ReactDOM: (await import("react-dom")),
   ReactDOMClient: (await import("react-dom/client")),
   ReactJSXRuntime: (await import("react/jsx-runtime")),
-  renderMarkdown, PageErrorBoundary: DebugBoundary,
+  renderMarkdown, Select, PageErrorBoundary: DebugBoundary,
 };
 
 (window as any).GITTER_UI = {
@@ -155,6 +182,12 @@ class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { er
   context: () => ({ selectedFile: null, selectedCommitSha: null }), setContext: () => {},
   focusTask: () => {}, clearTaskFocus: () => {},
   runCommand: () => {}, extTree: () => ({ pages: [], agentUIReg: [] }),
+  registerDoc: (def: { id: string; title: any; source: () => any }) => (window as any).__registerDoc(def),
+  unregisterDoc: (id: string) => { docRegs.delete(id); docNotify(); },
+  docs: () => (window as any).__docs(),
+  docTitle: (doc: { title: any }) => (window as any).__docTitle(doc),
+  onDocsChanged: (cb: () => void) => (window as any).__onDocsChanged(cb),
+  docsVersion: () => (window as any).__docsVersion(),
   subscribeState: (cb: () => void) => {
     const s = (window as any).__stateSubs ??= new Set<() => void>();
     s.add(cb);
@@ -192,6 +225,42 @@ setTimeout(() => {
   ].join("\r\n");
   (window as any).__emit("terminal.data", { id: [...SESSIONS.keys()][0], b64: btoa(unescape(encodeURIComponent(text))) });
 }, 600);
+
+// 预置一篇"插件贡献"文档（user 层）：演示文档切换器——第三方包经 registerDoc 贡献的文档
+const DEMO_MD = [
+  "# 示例：插件贡献文档",
+  "",
+  "本篇由插件包经 `GITTER_UI.registerDoc` 贡献——与内置 Git 命令手册同一注册表；",
+  "同 id 时用户包（user 层）可整体覆盖内置篇（builtin 层）。",
+  "",
+  "## 快速上手",
+  "",
+  "### 初始化 my-plugin",
+  "一行命令初始化插件脚手架，生成 manifest 与入口脚本。",
+  "",
+  "```bash",
+  "my-plugin init --dev        # --dev 跳过签名校验",
+  "```",
+  "",
+  "| 参数 | 说明 |",
+  "| --- | --- |",
+  "| --dev | 开发模式，跳过签名校验 |",
+  "| --dir | 指定脚手架输出目录 |",
+  "",
+  "## 进阶",
+  "",
+  "### 发布 my-plugin",
+  "打包并发布到插件市场。",
+  "",
+  "```bash",
+  "my-plugin publish",
+  "```",
+].join("\n");
+docRegs.set("demo.plug.guide", {
+  doc: { id: "demo.plug.guide", title: "示例：插件贡献文档", source: () => DEMO_MD },
+  packageId: "demo.plug", tier: "user",
+});
+docNotify();
 
 // 主题切换按钮（截图两档用）
 const bar = document.createElement("div");

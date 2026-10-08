@@ -9,6 +9,8 @@ import { useApp } from "./state/store";
 import { hostSurface, onEvent, subscribeContextChanged, type PageSurface } from "./surface";
 
 export type { PageSurface, ExtTreeSnapshot, ExtTreeNodePage, ExtTreeAgentUIReg } from "./surface";
+export type { DocDescriptor, DocEntry, DocTier } from "./docRegistry";
+export { docTitle, useDocs } from "./surface";
 
 /** 单例 surface（函数内部动态读 store，无过期状态问题）。 */
 export const pageSdk: PageSurface = hostSurface(

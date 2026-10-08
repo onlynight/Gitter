@@ -697,6 +697,7 @@ Terminal_DocFindPrev	Previous match (Shift+Enter)	上一个（Shift+Enter）
 Terminal_DocFindNext	Next match (Enter)	下一个（Enter）
 Terminal_DocFindClose	Close search (Esc)	关闭查找（Esc）
 Terminal_DocResize	Drag to resize · double-click to reset	拖动调整宽度 · 双击恢复默认
+Terminal_DocSwitch	Switch document	切换文档
 Diff_BinaryFile	Binary file (not shown)	二进制文件（不显示）
 Diff_NoNewlineAtEof	No newline at end of file	文件末尾无换行符
 Settings_AppearanceSection	Appearance	外观

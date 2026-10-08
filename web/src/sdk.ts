@@ -6,6 +6,12 @@ import {
   registerAgentUI, resolveTimelineRenderer, composerProviders, onAgentUIChanged, agentUIVersion,
   type AgentUITier,
 } from "./agentUIRegistry";
+import {
+  docTitle, docs as registryDocs, docsVersion as registryDocsVersion,
+  onDocsChanged as registryOnDocsChanged, registerDoc as registryRegisterDoc,
+  unregisterDoc as registryUnregisterDoc,
+  type DocDescriptor, type DocTier,
+} from "./docRegistry";
 import { runCommand } from "./commands";
 
 /**
@@ -89,6 +95,15 @@ declare global {
       composerProviders(): import("./agentUIRegistry").ComposerMentionProviderDef[];
       onAgentUIChanged(cb: () => void): () => void;
       agentUIVersion(): number;
+      /** 文档贡献（终端页文档面板可读；同 id 用户包 > 内置包 > 宿主，层级由 loader 注入的包身份决定；
+       * 返回退订函数——插件页卸载时撤销本包文档） */
+      registerDoc(def: import("./docRegistry").DocDescriptor): () => void;
+      unregisterDoc(id: string, packageId?: string): void;
+      /** 文档注册表查询面（注册表单源在宿主；页面包经 pageSdk 消费） */
+      docs(): import("./docRegistry").DocEntry[];
+      docTitle(doc: import("./docRegistry").DocDescriptor): string;
+      onDocsChanged(cb: () => void): () => void;
+      docsVersion(): number;
       context(): PageContextSnapshot;
       getState(): ReturnType<typeof getState>;
       subscribeState(cb: () => void): () => void;
@@ -134,6 +149,7 @@ export function installUiApi(): void {
         composerProviders: reg.composerProviders ?? [],
       });
     },
+
     resolveTimelineRenderer,
     composerProviders,
     onAgentUIChanged,
@@ -161,6 +177,15 @@ export function installUiApi(): void {
       registerUiPage(pageDef);
     },
     ...surface,
+    // 文档贡献（终端页文档面板）：层级归因同 registerAgentUI——注入窗口内 = 包贡献。
+    // 置于 ...surface 之后覆盖其宿主层实现；docs/onDocsChanged/docsVersion 与 surface 同源
+    registerDoc(def: DocDescriptor) {
+      const tier: DocTier = loadingPackageId ? (loadingIsBuiltIn ? "builtin" : "user") : "host";
+      const packageId = loadingPackageId ?? "host";
+      return registryRegisterDoc({ doc: def, packageId, tier });
+    },
+    unregisterDoc: registryUnregisterDoc,
+    docTitle,
     context: () => ({ repo: getState().repo, ...getState().context }),
     t: surface.t,
     getState,
