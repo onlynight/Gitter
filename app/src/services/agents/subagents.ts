@@ -144,6 +144,7 @@ export async function runSubtask(req: SubtaskRequest): Promise<SubtaskResult> {
         statusSummary: req.context.statusSummary, mode: req.mode_, taskTypeId: null, isSubtask: true,
       },
       preset.addendum,
+      req.thinking,
     );
     const result = await runLoop({
       model: req.model,

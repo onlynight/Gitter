@@ -15,6 +15,7 @@ import { buildToolset, type PermissionRequest, type ShellRecord, type ToolEnv } 
 import "./builtinTools"; // 内置工具自举注册（§14.4：与插件同接缝，import 副作用）
 import "./webTools"; // Web 工具自举注册（§21.2.2：web_search / web_fetch）
 import "./builtinHooks"; // 内置 turn 钩子自举（§20.3.6：todo 防腐，与插件钩子同接缝）
+import "./cacheGuard"; // 前缀缓存卫兵自举（§二十二：轮末工作区采样走尾部 reminder 通道）
 import { runLoop } from "./loop";
 import { collectRepoContext, composeSystemPrompt, wrapReminder, type RepoContext } from "./prompts";
 import { budgetOf, compactNow, estimateMessagesTokens, validateMessageSequence } from "./compaction";
@@ -320,6 +321,10 @@ export class AgentSessionManager {
     if (!record) throw new Error("任务不存在");
     const tt = resolveTaskType(this.deps.store, record.taskType);
     const sf = loadSessionFile(repo, args.taskId);
+    // §22.4 修复：会话保存为 250ms 防抖，轮末立即续跑时磁盘可能落后于内存——
+    // 保留较长的一份并维持 live.messages ↔ sessionFile.messages 别名（否则防抖保存会写丢内存历史）
+    const existing = this.live.get(args.taskId);
+    if (existing && existing.messages.length > sf.messages.length) sf.messages = existing.messages;
     const live = this.ensureLive(record, tt.spec, record.worktreePath, sf.messages, sf);
     const mention = this.resolveTaskMentions(record, args.prompt.trim());
     const imgs = await this.ingestAttachments(record, args.attachments);
@@ -945,6 +950,9 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     live.record = record;
     live.worktreePath = worktreePath;
     live.messages = messages;
+    // §22.4 修复（P1）：messages 与会话文件同数组别名——否则防抖保存写盘的 messages 恒为空，
+    // createTask 路径历史从未持久化（重启丢记忆，@任务引用读不到内容）
+    live.sessionFile.messages = messages;
     live.taskType = tt;
     live.queued = record.queued ?? [];
     return live;
@@ -976,15 +984,17 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         break;
       }
 
+      // §22.4 E2：UI 状态行逐轮刷新；提示词面用会话首冻结副本（前缀稳定——分支/状态不逐轮变化）
       const ctx = await collectRepoContext(record.worktreePath);
-      live.turnCtx = ctx;
+      live.turnCtx = live.turnCtx ?? ctx;
+      const frozen = live.turnCtx;
       this.emit(record, { type: "status", phase: "editing", summary: `分支 ${ctx.branch ?? "?"} · ${ctx.statusSummary}` });
 
       const mode: PermissionMode = record.permissionMode ?? "default";
-      const slotCtx = { worktreePath: record.worktreePath, repoPath: this.repoOrNull(), branch: ctx.branch, statusSummary: ctx.statusSummary, mode, taskTypeId: live.taskType.fullId, isSubtask: false };
-      // §14.5/§20.3.2 接缝：内置三采集器 + 插件采集器；技能清单（F7.5，数据来自 PackageStore）
+      const slotCtx = { worktreePath: record.worktreePath, repoPath: this.repoOrNull(), branch: frozen.branch, statusSummary: frozen.statusSummary, mode, taskTypeId: live.taskType.fullId, isSubtask: false };
+      // §14.5/§20.3.2 接缝：内置 agentsMd 采集器 + 插件采集器（易变采集器已退役 → §22.2 K2/K3）；技能清单（F7.5）
       const contextSections = await runContextCollectors(slotCtx);
-      const contextText = [`- 分支：${ctx.branch ?? "未知"}；工作区：${ctx.statusSummary}`, ...contextSections].join("\n");
+      const contextText = [`- 分支：${frozen.branch ?? "未知"}`, ...contextSections].join("\n");
       const skills = this.deps.store.skillsOf().map((s) => ({ name: s.name, description: s.description }));
       const skillsText = skills.length > 0
         ? ["可用技能（人类 /skill 或任务模板引用时展开）：", ...skills.map((s) => `- ${s.name}：${s.description}`)].join("\n")
@@ -1154,6 +1164,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       if (this.deps.settings.current.agentsPostTurnHooks !== false) {
         const hookTexts = await runTurnHooks({
           taskId: record.taskId,
+          worktreePath: record.worktreePath,
           outcome: result.outcome,
           lastMessage: result.lastMessage,
           todoState: record.todoState ?? null,

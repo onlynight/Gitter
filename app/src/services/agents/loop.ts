@@ -1,5 +1,4 @@
 import { streamText, stepCountIs, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
-import { thinkingDirective } from "./prompts";
 import type { AgentSessionEvent, ThinkingLevel } from "./types";
 
 /**
@@ -133,7 +132,8 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
       const roundStartedAt = Date.now();
       const result = streamText({
         model: o.model,
-        system: o.system + thinkingDirective(o.thinking),
+        // §22.4 E5：思考深度指令归组装侧（composeSystemPrompt/composeSubagentPrompt），循环不再追加
+        system: o.system,
         messages: o.messages,
         tools: o.tools,
         stopWhen: stepCountIs(o.maxSteps ?? 50),

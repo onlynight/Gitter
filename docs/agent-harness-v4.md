@@ -14,7 +14,8 @@
 > **D 系列功能补齐第一批（2026-10-07 第七轮）**：§二十一 D 系列路线落地（D2–D5）——`web_search`/`web_fetch` 内置工具（DuckDuckGo 免钥 + 正文剥离，session 权限、readonly、私网地址防护）；内置 `review` 子代理预设 + `/review`、`/init` 模板命令（模板命令走 resume/queue 分发，零新增 RPC）；任务完成 OS 通知（completed/failed/interrupted、窗口未聚焦时弹、点击聚焦、`agentsNotify` 开关）。D1 图片输入 / D6–D9 列入下轮（§21.3）。
 > **任务页渲染层第 2 期迁移 + 溢出根治（2026-10-07 第五轮）**：agentUIRegistry 升级三级提供者（user > builtin > host，特异性（工具精确>前缀>blockKind）×层级×rank 竞争 + 版本号响应式）；**注册表单源回宿主**——页面包此前把 registry 打包成自己的副本（外部包贡献根本到不了任务页的接线断裂），现 build 面经 external/agentUIShim 消费 GITTER_UI 查询面（resolveTimelineRenderer/composerProviders/onAgentUIChanged）；gitui.page.tasks **十类展示块 + @文件 provider 以 builtin 层自举注册**，renderBlock 仅余裁决面三卡（授权/提问/计划）硬接线（§20.3.7 语义达成，§20.5"任务页十类块硬 switch"行关闭）；composer 提及匹配通用化（长前缀优先、prefix 不竞争并存、同前缀用户包覆盖内置）；pageLoader 包注销连带 unregisterAgentUI（修注册残留泄漏）。**任务页窗口溢出根治**：grid `1fr`→`minmax(0,1fr)` + 右栏 minWidth:0（grid item 自动最小尺寸回收——对话内容的 min-content 宽度不再撑破窗口轨道）、时间线 overflowX hidden、状态行/输入台行 flexWrap、检查点行换行、md-body img/table 限宽、工具卡 tail break-all、ChangesTab 文件头路径省略；Electron 夹具（真实 page.js + 真实注册表 + 假外部包）760/900/1000/1280 四档 docScrollW==clientWidth 全绿 + 接缝断言（builtin 10 渲染器自举、user 包 tool 精确渲染卡命中、@ 与 #qa 双 provider 浮层）。
 > **插件挂载树（2026-10-07 第六轮）**：设置页扩展管理支持**树状视图**（默认）——页面（槽位）→ 页面提供者（含 agent UI 本页自举计数）/ 挂载其下的插件（时间线渲染器、输入台 provider、会话命令 agent.command、同槽位替补提供者）→ 贡献明细卡（启停/卸载/配置沿用原卡片）；非页面级包（主题/模型/安全规则…）归入"全局（非页面级）"分支按类型分组；保留"类型分组"视图切换。数据面 = PageSurface 新增 `extTree()` 快照（uiPages 胜者 + uiPageProvidersFor 替补 + agentUIRegistrations，surface.ts 单一源，pageSdk/GITTER_UI 双面同实现，gen-ui-sdk d.ts 已同步）；渲染层注册表数据不出进程（RPC 不可达），设置页经 pageSdk 消费。顺带修复：gitui.page.tasks manifest 补声明 `settings.write` 权限域——授权卡"总是允许前缀"写持久规则调 settings.set 此前缺声明（运行时会被桥拒绝，smoke-ui-pages 权限足迹断言抓获）。回归：tsc / check-page-imports / boot-check / e2e-pages-check（node-pty ConPTY agent 在本机 shell 偶发 AttachConsole 崩溃为环境抖动，探针断言恒 PASS）/ smoke-agent-v4 / smoke-ui-pages / smoke-ui-runtime 全绿。**余项**：F10.3 图片输入进模型上下文
-> 阅读顺序：§〇 缺口矩阵（先看）→ §一 架构 → §二~§十三 功能分册 F1–F12 → §十四 全插件化（v4.1，被 §二十 深化）→ §十五 协议汇总 → §十六 配置增量 → §十七 路线 B1–B6 → **§二十 全阶段插件化 v5.0（当前设计前沿）**
+> **补充 v5.2（2026-10-08）：F13 前缀缓存优化（§二十二）**——组装三律（系统提示词会话内冻结 / 工具面确定性序列化 / 历史 append-only + 易变内容走尾部 reminder 通道）+ 内置自举钩子 `builtin.hook.cache-guard`（轮末采样、变更检测、零变化零注入）；易变采集器（git-status/top-level）退役，TurnHookInfo 增 worktreePath，thinkingDirective 归一。验收 = smoke-agent-e2e E10（五次调用系统提示词字节一致 + 前缀包含性断言）
+> 阅读顺序：§〇 缺口矩阵（先看）→ §一 架构 → §二~§十三 功能分册 F1–F12 → §十四 全插件化（v4.1，被 §二十 深化）→ §十五 协议汇总 → §十六 配置增量 → §十七 路线 B1–B6 → §二十 全阶段插件化 v5.0 → §二十一 D 系列功能补齐 → **§二十二 前缀缓存优化（当前设计前沿）**
 
 ---
 
@@ -1199,3 +1200,76 @@ GITTER_UI.registerAgentUI({
 2. D3：`/review` → review 子代理产出问题清单（文件:行号 + 级别），零文件修改（工具面断言）。
 3. D4：`/init` → 仓库根出现/更新 AGENTS.md（过授权卡）；再跑一次为合并改进。
 4. D5：任务 completed/failed → OS 通知出现；窗口聚焦时静默；设置开关关闭后静默。
+
+---
+
+## 二十二、F13 前缀缓存优化——cacheGuard 模块（2026-10-08）
+
+> 状态：v5.2 增补提案，当日落地。背景：DeepSeek 等提供方的上下文缓存按**请求字节序列的最长公共前缀**命中（64-token 块粒度，命中价约为未命中的 1/10，数小时不活跃才驱逐）——命中率几乎完全由 harness 组装请求的方式决定，与模型本身无关。dsh 的高命中不是模型特性，而是组装纪律：系统提示词稳定、工具定义稳定、历史 append-only、**易变内容永远放请求末尾**。本册把该纪律固化为 Gitter 的组装规则，并新增一个内置自举模块承接"易变状态"的尾部注入。
+
+### 22.1 组装三律（前缀稳定的充分条件）
+
+1. **系统提示词会话内字节级不变**——只含会话首冻结的事实（worktree/分支/AGENTS.md/技能清单）。例外（计划性断点，断后重新稳定）：用户显式动作（模式切换、思考档调整、装包、`/clear`）与自动压缩。
+2. **工具定义序列确定**——与注册顺序无关的确定性序列化（名字序），包启停/重启不再打散工具段前缀。
+3. **消息历史严格 append-only**——易变信息只允许以新消息从尾部追加一次，写入后不再改写；每轮采样的易变状态一律走尾部 `<system-reminder>` 通道（§20.3.6 钩子通道），**禁止进入系统提示词**。
+
+### 22.2 缓存杀手审计（改造前）
+
+| # | 位置 | 问题 | 处置 |
+|---|---|---|---|
+| K1 | session.ts contextText 核心行 `- 分支：X；工作区：N 个文件有变更` | 每轮采样、位于请求最前部（context 槽在 identity 之后第 2 段），N 逐轮变化 → 其后全部前缀失效 | 冻结为会话首采样，核心行只留分支（E2/E3） |
+| K2 | prompts.ts `builtin.collector.git-status` | 与 K1 双份重复（采集器自举后的遗留冗余），同位同害 | 退役（信息迁 cacheGuard 尾部通道） |
+| K3 | prompts.ts `builtin.collector.top-level` | agent 新建目录即变 → 跨轮前缀失效 | 退役（迁 cacheGuard 变更检测注入） |
+| K4 | registry.ts buildToolset 按 Map 插入序迭代 | 跨重启/包启停工具序漂移 → 工具定义段失效 | 名字序确定性迭代（E4） |
+| K5 | prompts.ts 组装与 loop.ts 各拼一次 thinkingDirective | 重复文本（不破坏缓存，纯浪费 ~40 token/请求） | 归一到组装侧（E5） |
+| ✔ | 消息历史 / 排队投递 / 计划批准 / 中断补记 | 已 append-only | 保持 |
+| ✔ | usageHistory.cacheRead / 任务 DTO cacheHitRate | 命中率观测面已有 | 保持 |
+
+补充说明：checkpoint 在轮末 `git add -A` 提交，使"轮首 status 计数"在顺利路径上恰好稳定——这让 K1 的危害呈**间歇性**（failed/interrupted 轮、checkpoint 关闭、外部改动时爆），反而更隐蔽。K3 则在每次新建顶层条目时必然爆掉一次全量前缀。
+
+### 22.3 cacheGuard 模块（`builtin.hook.cache-guard`）
+
+- **形态**：引擎自举 turn 钩子（`agents/cacheGuard.ts`，import 副作用注册），经 `registerTurnHook` 公开接缝——与插件钩子同表并列、同审计视图、同总闸。**不做 entry 包**：`allowCodePlugins` 默认关，entry 形态默认不激活；L1 manifest 承载不了采样代码。第三方可用 `ctx.registerTurnHook` 贡献增强版（如附 diff 摘要），同槽并列追加。
+- **采样**（轮末、checkpoint 之后——天然稳定点）：`branch`（rev-parse --abbrev-ref HEAD）/ `changed`（status --porcelain 行数）/ `topLevel`（顶层条目排序串，cap 40）。git 不可用/目录缺失 → 软失败返回 null，零注入。
+- **注入策略（变更检测，零变化零注入——前缀逐字节不动）**：
+  - 首轮末 → 基线注入：`仓库状态基线（轮末采样）：分支 X；N 个文件有变更；顶层条目：…`
+  - 后续轮末对比快照，变化才注入增量：`仓库状态更新（轮末采样）：分支 …；M → K 个文件有变更；顶层新增：c.txt；顶层移除：…`（增/删各 cap 10 项）
+  - 快照按 taskId 隔离，Map cap 500 FIFO。
+- **开关与可见性**：`settings.agentsPostTurnHooks` 总闸（既有，默认开）；包停用/钩子异常 → 无产物（软失败）；设置页贡献审计可见。模型侧价值：被动获得轮末工作区快照，替代已退役的两个易变采集器，且信息更新且位置正确（尾部）。
+
+### 22.4 引擎配套改造（E1–E5）
+
+| # | 改造 | 文件 |
+|---|---|---|
+| E1 | `TurnHookInfo` 增 `worktreePath`（钩子只读采样入参） | seams.ts / session.ts |
+| E2 | 提示词面冻结：`live.turnCtx` 会话首采样冻结供提示词组装；UI 状态行仍逐轮刷新；子代理 env 沿用同一冻结副本 | session.ts |
+| E3 | context 槽只留稳定内容：核心行删状态计数；git-status / top-level 采集器退役 | session.ts / prompts.ts |
+| E4 | 工具面名字序确定性迭代 | registry.ts |
+| E5 | thinkingDirective 归一：`composeSystemPrompt` / `composeSubagentPrompt`（增 thinking 参）组装侧各一次，builtinLoop 不再追加（顺带修掉插件适配循环收到双份的问题） | prompts.ts / subagents.ts / loop.ts |
+
+**顺带修复的两个 P1（历史完整性，缓存工作的前置——前缀断即全断）**：
+
+1. **会话文件 messages 从未持久化（createTask 路径）**：`live.messages` 与 `live.sessionFile.messages` 未建立数组别名，防抖保存（scheduleSave → saveSessionFile）写盘的 messages 恒为空——任务重启即丢全部对话记忆（journal 仅够 UI 回放）、`@任务` 引用读不到内容。修复：ensureLive 统一 `live.sessionFile.messages = live.messages` 别名（压缩/清空/序列自愈均为就地变更，别名不破）。回归 = E1"会话文件 messages 持久化"断言。
+2. **防抖窗口内快速续跑丢历史**：resumeTask 每次从磁盘 loadSessionFile，轮末 250ms 防抖未 flush 时磁盘落后于内存，ensureLive 用陈旧数组整体覆盖 live.messages。修复：resumeTask 保留较长的一份（内存优先）再进 ensureLive。该缺陷被 E10 捕获（轮 2 请求只剩 system+单条 user）。
+
+### 22.5 已知断点（可接受，非缺陷）
+
+- 自动压缩：摘要替换旧历史 → 一次全量 miss，此后前缀重新稳定（计划性）；
+- 模式切换 / 思考档调整 / 装包 / AGENTS.md 修改 / `/clear`：用户显式动作，一次断点；
+- 应用重启续跑：冻结副本在内存，重启后重新冻结（期间工作区若变化则一次断点）；
+- 多钩子产物合并为宿主包裹的单条 user 消息——形状稳定。
+
+### 22.6 验收（smoke-agent-e2e E10）
+
+1. 三轮会话（跨两次续跑、期间新建文件）共 5 次模型调用，系统提示词**字节一致**；
+2. 工具面定义 JSON 跨调用一致（E4 断言）;
+3. 第 3 次调用的 prompt 数组逐元素等于第 5 次的前缀（append-only 结构断言）；
+4. 基线提醒出现在第二轮请求、变更提醒（顶层新增 c.txt）出现在第三轮请求、基线全程恰一次；
+5. 回归：全套 smoke 通过（E1 角色断言加 reminder 过滤后恢复确定性）。
+
+### 22.7 明确不做
+
+- 不做跨会话/跨任务前缀共享优化（通用提示词段前缀已天然共享）；
+- 不做 provider 侧显式缓存控制 API（Anthropic cache_control breakpoints 留待模型档案层出现真实需求）；
+- 不改 journal / 会话文件格式（冻结副本不入盘，重启重冻结）;
+- 不做命中率调优面板（cacheRead / cacheHitRate 已在 usageHistory 与任务 DTO 暴露）。

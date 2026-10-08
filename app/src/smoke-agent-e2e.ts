@@ -2,7 +2,8 @@
  * Agent v4 编排端到端烟雾（agent-harness-v4.md §十七：假 provider 脚本化 tool-call 流）：
  * 真实 AgentSessionManager + 真实 git 临时仓库 + 脚本化 LanguageModel——
  * 覆盖：E1 历史回写（P0）/ E2 读→patch 写链 / E3 前缀规则门 / E4 ask_user 回传 /
- * E5 plan 批准自动续执行轮 / E6 子代理结果回传 / E7 排队投递注入 / E8 journal+会话落盘 / E9 图片输入（D1）。
+ * E5 plan 批准自动续执行轮 / E6 子代理结果回传 / E7 排队投递注入 / E8 journal+会话落盘 / E9 图片输入（D1）/
+ * E10 前缀缓存稳定性（§二十二：系统提示词冻结 / 工具面确定性 / cacheGuard 尾部注入）。
  * 运行：node dist/smoke-agent-e2e.js（app/ 下，先 npm run build）
  */
 import * as fs from "fs";
@@ -42,14 +43,23 @@ function toolChunks(name: string, input: unknown, callId = "call1"): Chunk[] {
   return [STREAM_START, { type: "tool-call", toolCallId: callId, toolName: name, input: JSON.stringify(input) }, FIN_TOOL];
 }
 
-function scriptedModel(script: Chunk[][], initialDelays: number[] = []): LanguageModel {
+interface CallCapture {
+  prompts: string[];
+  tools: string[];
+}
+
+function scriptedModel(script: Chunk[][], initialDelays: number[] = [], calls?: CallCapture): LanguageModel {
   let i = 0;
   return {
     specificationVersion: "v3",
     provider: "mock",
     modelId: "scripted",
     supportedUrls: async () => ({}),
-    doStream: async () => {
+    doStream: async (params: { prompt?: unknown; tools?: unknown }) => {
+      if (calls) {
+        calls.prompts.push(JSON.stringify((params as { prompt?: unknown }).prompt ?? null));
+        calls.tools.push(JSON.stringify((params as { tools?: unknown }).tools ?? null));
+      }
       const idx = Math.min(i, script.length - 1);
       const chunks = script[idx] ?? [STREAM_START, FIN_STOP];
       i++;
@@ -68,6 +78,7 @@ interface Env {
   agents: AgentSessionManager;
   events: { taskId: string; event: AgentSessionEvent }[];
   settings: SettingsStore;
+  calls: CallCapture;
 }
 
 async function makeEnv(script: Chunk[][], opts?: { rules?: unknown[]; initialDelays?: number[] }): Promise<Env> {
@@ -90,7 +101,8 @@ async function makeEnv(script: Chunk[][], opts?: { rules?: unknown[]; initialDel
   const store = new PackageStore([builtinRoot], [path.join(tmp, "pkgs")], "0.1.0", () => ({}) as never);
   const events: { taskId: string; event: AgentSessionEvent }[] = [];
   // 模型对象每个环境一份（生产语义：档案解析返回同一 LanguageModel，跨轮复用脚本指针）
-  const model = scriptedModel(script, opts?.initialDelays);
+  const calls: CallCapture = { prompts: [], tools: [] };
+  const model = scriptedModel(script, opts?.initialDelays, calls);
   const agents = new AgentSessionManager({
     repoOf: () => repo,
     store,
@@ -101,7 +113,7 @@ async function makeEnv(script: Chunk[][], opts?: { rules?: unknown[]; initialDel
       if (method === "agent.event") events.push(params as { taskId: string; event: AgentSessionEvent });
     },
   });
-  return { repo, tmp, agents, events, settings };
+  return { repo, tmp, agents, events, settings, calls };
 }
 
 async function waitFor(label: string, fn: () => unknown | Promise<unknown>, timeoutMs = 20_000): Promise<unknown> {
@@ -158,12 +170,25 @@ async function main() {
     const record = await env.agents.createTask({ prompt: "读一下 a.txt" });
     await waitFor("E1 turn end", () => env.agents.listTasks()[0]?.state === "awaiting-input");
     const hist = env.agents.taskHistory({ taskId: record.taskId });
-    const roles = hist.messages.map((m) => m.role).join(",");
+    // 轮末钩子（todo 防腐/cacheGuard）在 awaiting-input 之后异步注入 reminder → 角色断言过滤之（§22.6）
+    const roles = hist.messages
+      .filter((m) => !(m.role === "user" && JSON.stringify(m.content).includes("<system-reminder>")))
+      .map((m) => m.role)
+      .join(",");
     check("E1 消息序列 user→assistant→tool→assistant", roles === "user,assistant,tool,assistant", roles);
     check("E1 tool 结果含文件内容", lastMessageContent(hist.messages, "tool").includes("hello"));
     check("E1 assistant 终文持久", lastMessageContent(hist.messages, "assistant").includes("读完 a.txt"));
     // 只读轮工作区干净 → checkpoint 正确跳过（写轮的 checkpoint 断言见 E2）
     env.agents.dispose();
+    await sleep(400); // 防抖保存窗口（250ms）
+    const sfDisk = JSON.parse(
+      fs.readFileSync(path.join(env.repo, ".git", "gitter", "agent-sessions", `${record.taskId}.json`), "utf8"),
+    ) as { messages?: unknown[] };
+    check(
+      "E1 会话文件 messages 持久化（别名修复 §22.4）",
+      Array.isArray(sfDisk.messages) && sfDisk.messages.length >= 4,
+      `messages=${sfDisk.messages?.length}`,
+    );
     check(
       "E1 会话文件+journal 落盘",
       fs.existsSync(path.join(env.repo, ".git", "gitter", "agent-sessions", `${record.taskId}.json`)) &&
@@ -307,6 +332,54 @@ async function main() {
     const onDisk = fs.existsSync(env.repo) && fs.existsSync(path.join(env.repo, ".git", "gitter", "agent-sessions", record.taskId, "attachments"));
     check("E9 附件落盘（主仓库 gitdir）", onDisk);
     check("E9 read-image 事件", env.events.some((e) => e.event.type === "file-change" && (e.event as { kind?: string }).kind === "read-image"));
+  });
+
+  // ---- E10 前缀缓存稳定性（§二十二：cacheGuard 尾部注入 + 提示词冻结 + 工具面确定性）----
+  await scenario("E10 前缀缓存稳定性", async () => {
+    const { cacheGuardReset } = await import("./services/agents/cacheGuard");
+    cacheGuardReset();
+    // 三轮：轮1建 sub/b.txt（顶层新增目录）、轮2建 c.txt（顶层新增文件）、轮3无改动 → 共 5 次模型调用
+    const env = await makeEnv([
+      toolChunks("file_write", { path: "sub/b.txt", content: "x" }),
+      textChunks("第一轮完成：已创建 sub/b.txt"),
+      toolChunks("file_write", { path: "c.txt", content: "y" }),
+      textChunks("第二轮完成：已创建 c.txt"),
+      textChunks("第三轮完成：无改动"),
+    ]);
+    const record = await env.agents.createTask({ prompt: "建 sub/b.txt" });
+    await waitFor("E10 第一轮结束", () => env.agents.listTasks()[0]?.state === "awaiting-input");
+    await waitFor("E10 基线注入", () =>
+      env.agents.taskHistory({ taskId: record.taskId }).messages.some((m) => m.role === "user" && JSON.stringify(m.content).includes("仓库状态基线")),
+    );
+    await env.agents.resumeTask({ taskId: record.taskId, prompt: "再建 c.txt" });
+    await waitFor("E10 第二轮结束", () => env.agents.listTasks()[0]?.lastMessage === "第二轮完成：已创建 c.txt");
+    await waitFor("E10 更新注入", () =>
+      env.agents.taskHistory({ taskId: record.taskId }).messages.some((m) => m.role === "user" && JSON.stringify(m.content).includes("仓库状态更新")),
+    );
+    await env.agents.resumeTask({ taskId: record.taskId, prompt: "收尾" });
+    await waitFor("E10 第三轮结束", () => env.agents.listTasks()[0]?.lastMessage === "第三轮完成：无改动");
+    await sleep(300); // 轮末钩子注入窗口
+
+    const prompts = env.calls.prompts;
+    check("E10 共 5 次模型调用", prompts.length === 5, String(prompts.length));
+    if (prompts.length === 5) {
+      const sysOf = (i: number) => JSON.stringify((JSON.parse(prompts[i]) as { role: string }[]).filter((m) => m.role === "system"));
+      check(
+        "E10 系统提示词五次调用字节一致（冻结+无易变采集器）",
+        sysOf(0) === sysOf(1) && sysOf(0) === sysOf(2) && sysOf(0) === sysOf(3) && sysOf(0) === sysOf(4),
+      );
+      const t0 = env.calls.tools[0];
+      check("E10 工具面定义跨调用一致（确定性序列化）", env.calls.tools.every((t) => t === t0));
+      // append-only 结构断言：第 3 次调用（轮2首请求）的 prompt 是第 5 次的前缀
+      const p2 = JSON.parse(prompts[2]) as unknown[];
+      const p4 = JSON.parse(prompts[4]) as unknown[];
+      const prefixOk = p2.length <= p4.length && p2.every((m, i) => JSON.stringify(m) === JSON.stringify(p4[i]));
+      check("E10 消息前缀包含（append-only）", prefixOk, `p2=${p2.length} p4=${p4.length}`);
+      check("E10 基线提醒进入第二轮请求", prompts[2].includes("仓库状态基线"));
+      check("E10 变更提醒（顶层新增 c.txt）进入第三轮请求", prompts[4].includes("仓库状态更新") && prompts[4].includes("c.txt"));
+      check("E10 基线全程恰一次", (prompts[4].match(/仓库状态基线/g) ?? []).length === 1);
+      check("E10 易变状态未进系统提示词", !sysOf(0).includes("仓库状态") && !sysOf(0).includes("顶层条目"));
+    }
   });
   console.log(`\n${failures === 0 ? "全部通过 ✔" : `${failures} 项失败 ✘`}`);
   if (failures > 0) process.exit(1);

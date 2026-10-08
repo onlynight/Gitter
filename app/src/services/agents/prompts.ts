@@ -1,5 +1,4 @@
 import * as fsp from "fs/promises";
-import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { tryGit } from "../gitexec";
@@ -84,43 +83,8 @@ export async function collectRepoContext(worktreePath: string): Promise<RepoCont
 }
 
 // ---- 内置上下文采集器自举（§20.3.2：与插件同一接缝 registerContextCollector）----
-
-registerContextCollector({
-  id: "builtin.collector.git-status",
-  order: 10,
-  tokenBudget: 800,
-  source: "builtin",
-  async collect({ worktreePath }) {
-    const branch = (await tryGit(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim() || "未知";
-    let status = "工作区干净";
-    try {
-      const st = (await tryGit(worktreePath, ["status", "--porcelain"])).stdout.trim();
-      status = st ? `${st.split("\n").length} 个文件有变更` : "工作区干净";
-    } catch {
-      status = "（status 不可用）";
-    }
-    return `当前仓库上下文：\n- 分支：${branch}；工作区：${status}`;
-  },
-});
-
-registerContextCollector({
-  id: "builtin.collector.top-level",
-  order: 20,
-  tokenBudget: 600,
-  source: "builtin",
-  async collect({ worktreePath }) {
-    try {
-      const topLevel = fs
-        .readdirSync(worktreePath, { withFileTypes: true })
-        .filter((d) => d.name !== ".git")
-        .slice(0, 40)
-        .map((d) => (d.isDirectory() ? d.name + "/" : d.name));
-      return `顶层条目：${topLevel.join("  ") || "（空）"}`;
-    } catch {
-      return null;
-    }
-  },
-});
+// §22.2 K2/K3：易变采集器（git-status / top-level）已退役——每轮采样的状态进系统提示词
+// 会打散请求前缀；该信息改由 cacheGuard 轮末采样经尾部 reminder 通道注入。
 
 registerContextCollector({
   id: "builtin.collector.agents-md",
@@ -215,10 +179,10 @@ export async function composeSystemPrompt(args: SystemPromptOpts): Promise<strin
   return parts.join("\n\n");
 }
 
-/** 子代理系统提示词（§20.3.1：subagent 专用槽 + 预设 addendum 追加）。 */
-export async function composeSubagentPrompt(env: PromptRenderEnv, presetAddendum: string): Promise<string> {
+/** 子代理系统提示词（§20.3.1：subagent 专用槽 + 预设 addendum 追加；思考深度由组装侧收尾，§22.4 E5）。 */
+export async function composeSubagentPrompt(env: PromptRenderEnv, presetAddendum: string, thinking?: ThinkingLevel): Promise<string> {
   const base = await renderPromptSlot("subagent", env);
-  return [base, presetAddendum].filter((x) => !!x && !!x.trim()).join("\n\n");
+  return [base, presetAddendum].filter((x) => !!x && !!x.trim()).concat(thinkingDirective(thinking)).join("\n\n");
 }
 
 /** 压缩摘要提示词（§20.3.1：compaction 专用槽渲染）。 */
