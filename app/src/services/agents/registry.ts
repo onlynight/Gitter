@@ -198,7 +198,9 @@ export interface BuildToolsetOptions {
 /** 注册表视图 → AI SDK ToolSet。统一门序：规则 deny → 模式/分级授权 → 执行。 */
 export function buildToolset(env: ToolEnv, opts: BuildToolsetOptions): ToolSet {
   const out: ToolSet = {};
-  for (const def of AGENT_TOOLS.values()) {
+  // §22.4 E4：名字序确定性迭代——Map 插入序随包启停/重启漂移，会打散工具定义段前缀
+  const defs = [...AGENT_TOOLS.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  for (const def of defs) {
     if (opts.noSubtaskSpawn && def.noSubtask) continue;
     if (opts.mode === "plan" && !(def.readonly || def.planAlways)) continue;
     if (opts.allowedTools && !opts.allowedTools.includes(def.name)) continue;

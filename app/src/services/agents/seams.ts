@@ -228,6 +228,8 @@ export function syncPackagePromptSections(store: PackageStore): void {
 
 export interface TurnHookInfo {
   taskId: string;
+  /** 任务 worktree（钩子只读采样用，§22 cacheGuard；不授予任何写通道） */
+  worktreePath: string;
   outcome: string;
   lastMessage: string | null;
   todoState: { content: string; status: "pending" | "in_progress" | "completed" }[] | null;
