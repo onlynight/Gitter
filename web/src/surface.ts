@@ -14,6 +14,12 @@ import {
 import { runCommand, type RunContext } from "./commands";
 import { uiPages, uiPageProvidersFor } from "./uiRegistry";
 import { agentUIRegistrations } from "./agentUIRegistry";
+import {
+  docTitle, docs as registryDocs, docsVersion as registryDocsVersion,
+  onDocsChanged as registryOnDocsChanged, registerDoc as registryRegisterDoc,
+  type DocDescriptor, type DocEntry,
+} from "./docRegistry";
+import { useSyncExternalStore } from "react";
 
 /** 扩展管理树·页面节点（设置页"插件挂载树"数据面）：槽位 + 胜出提供者 + 同槽位替补。 */
 export interface ExtTreeNodePage {
@@ -90,6 +96,14 @@ export interface PageSurface {
   runCommand(cmd: { id: string; title?: string; titleKey?: string }, ctx?: RunContext): Promise<void>;
   /** 扩展管理树快照（页面槽位 → 提供者/替补 + agent UI 注册；设置页"插件挂载树"消费） */
   extTree(): ExtTreeSnapshot;
+  /** 贡献文档（终端页文档面板可读；同 id 用户包 > 内置包 > 宿主，返回退订函数） */
+  registerDoc(def: DocDescriptor): () => void;
+  /** 已注册文档清单（同 id 覆盖已解析；层级/归属包随条目返回） */
+  docs(): DocEntry[];
+  /** 文档注册表变化订阅 */
+  onDocsChanged(cb: () => void): () => void;
+  /** 文档注册表版本（React 响应式消费用） */
+  docsVersion(): number;
 }
 
 /**
@@ -145,8 +159,22 @@ export function hostSurface(callFn: PageSurface["call"], onFn: PageSurface["on"]
       })),
       agentUI: agentUIRegistrations(),
     }),
+    // 文档注册表：宿主直呼 = 宿主缺省层；sdk.ts 的 window 面按注入窗口归因 builtin/user
+    registerDoc: (def) => registryRegisterDoc({ doc: def, packageId: "host", tier: "host" }),
+    docs: registryDocs,
+    onDocsChanged: registryOnDocsChanged,
+    docsVersion: registryDocsVersion,
   };
 }
+
+/** 文档清单响应式钩子（内置页用；外部页同型实现在 external/pageSurface.ts）。 */
+export function useDocs(): DocEntry[] {
+  useSyncExternalStore(registryOnDocsChanged, registryDocsVersion);
+  return registryDocs();
+}
+
+export type { DocDescriptor, DocEntry, DocTier } from "./docRegistry";
+export { docTitle } from "./docRegistry";
 
 /** context.changed 的统一订阅（渲染层本地 CustomEvent；store.setSharedContext 派发）。 */
 export function subscribeContextChanged(cb: (context: unknown) => void): () => void {

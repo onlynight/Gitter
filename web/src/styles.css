@@ -1024,12 +1024,19 @@ select.input {
 .term-tabs .tool-btn.icon.on { color: var(--c-link); }
 
 /* 面板头：左 ☰ 目录 + 标题，右 ⌕ 查找 + × 关闭 */
-.git-doc-head { display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 6px; flex: none; }
+.git-doc-head { display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 6px; flex: none; position: relative; z-index: 5; } /* z 抬升：切换器弹层(z120)压过下方查找条 */
 .git-doc-title {
   font-size: 12.5px; font-weight: 600; color: var(--c-text); margin-left: 4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .git-doc-head .tool-btn.icon.on { color: var(--c-link); }
+/* 文档切换器（>1 篇时出现在面板头；复用 kit Select 触发器视觉） */
+.git-doc-switch { flex: 1; min-width: 0; }
+.git-doc-switch .select-trigger {
+  width: 100%; height: 26px; justify-content: flex-start; padding: 0 22px 0 8px;
+  font-size: 12.5px; font-weight: 600;
+}
+.git-doc-switch .select-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 查找条（右上 ⌕ 展开） */
 .git-doc-find {

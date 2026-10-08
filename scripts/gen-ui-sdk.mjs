@@ -96,6 +96,21 @@ interface GITTER_UI_API {
     }>;
     agentUI: Array<{ packageId: string; tier: "host" | "builtin" | "user"; renderers: number; providers: number }>;
   };
+  /** 贡献文档（终端页文档面板可读；同 id 用户包 > 内置包 > 宿主，层级由 loader 注入的包身份决定；
+   * 返回退订函数——插件页卸载时撤销本包文档）。内容一律经 renderMarkdown 渲染，无脚本注入面。 */
+  registerDoc(def: { id: string; title: string | (() => string); source: () => string | Promise<string> }): () => void;
+  unregisterDoc(id: string, packageId?: string): void;
+  /** 已注册文档清单（同 id 覆盖已解析） */
+  docs(): Array<{
+    doc: { id: string; title: string | (() => string); source: () => string | Promise<string> };
+    packageId: string; tier: "host" | "builtin" | "user";
+  }>;
+  /** 文档标题求值（title 为函数时调用） */
+  docTitle(doc: { id: string; title: string | (() => string); source: () => string | Promise<string> }): string;
+  /** 文档注册表变化订阅 */
+  onDocsChanged(cb: () => void): () => void;
+  /** 文档注册表版本 */
+  docsVersion(): number;
   /** 宿主活状态快照（配合 subscribeState 组装 useSyncExternalStore） */
   getState(): AppStateSnapshot;
   /** 订阅宿主状态变化（setState 即触发；返回退订函数） */

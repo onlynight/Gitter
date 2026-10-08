@@ -57,7 +57,11 @@
     focusTask: (taskId) => U$1().focusTask(taskId),
     clearTaskFocus: () => U$1().clearTaskFocus(),
     runCommand: (cmd, ctx) => U$1().runCommand(cmd, ctx),
-    extTree: () => U$1().extTree()
+    extTree: () => U$1().extTree(),
+    registerDoc: (def) => U$1().registerDoc(def),
+    docs: () => U$1().docs(),
+    onDocsChanged: (cb) => U$1().onDocsChanged(cb),
+    docsVersion: () => U$1().docsVersion()
   };
   function useAppState() {
     const g = U$1();

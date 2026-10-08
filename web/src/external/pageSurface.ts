@@ -6,6 +6,7 @@
  */
 import { useSyncExternalStore } from "react";
 import type { PageSurface, ExtTreeSnapshot, ExtTreeNodePage, ExtTreeAgentUIReg } from "../surface";
+import type { DocDescriptor, DocEntry } from "../docRegistry";
 import type { AppState } from "../state/store";
 
 function U(): NonNullable<Window["GITTER_UI"]> {
@@ -49,9 +50,22 @@ export const pageSdk: PageSurface = {
   clearTaskFocus: () => U().clearTaskFocus(),
   runCommand: (cmd, ctx) => U().runCommand(cmd, ctx),
   extTree: (): ExtTreeSnapshot => U().extTree(),
+  registerDoc: (def) => U().registerDoc(def),
+  docs: () => U().docs(),
+  onDocsChanged: (cb) => U().onDocsChanged(cb),
+  docsVersion: () => U().docsVersion(),
 };
 
 export type { PageSurface, ExtTreeSnapshot, ExtTreeNodePage, ExtTreeAgentUIReg };
+export type { DocDescriptor, DocEntry, DocTier } from "../docRegistry";
+export { docTitle } from "../docRegistry";
+
+/** 文档清单响应式钩子（外部页用；宿主同型实现在 surface.ts——注册表单源在宿主 window 面）。 */
+export function useDocs(): DocEntry[] {
+  const g = U();
+  useSyncExternalStore((cb) => g.onDocsChanged(cb), () => g.docsVersion());
+  return g.docs();
+}
 
 /** React 响应式面：useSyncExternalStore 订阅宿主活 store（跨 React 实例安全的纯 JS 订阅）。 */
 export function useAppState(): AppState {

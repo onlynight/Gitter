@@ -82,17 +82,35 @@ export interface BranchItemDTO {
   isRemote: boolean;
 }
 
+export interface TagItemDTO {
+  name: string;
+  shortSha: string;
+  subject: string;
+}
+
 export interface BranchesStateDTO {
   workDir: string | null;
   current: string | null;
   local: BranchItemDTO[];
   remote: BranchItemDTO[];
+  tags: TagItemDTO[];
 }
 
 export interface DeletePreviewDTO {
   forceRequired: boolean;
   lostCount: number;
   lostSamples: { shortSha: string; subject: string }[];
+}
+
+export interface ReflogEntryDTO {
+  sha: string;
+  shortSha: string;
+  /** reflog 选择子（如 dev@{0}，0 = 最新） */
+  selector: string;
+  /** reflog 描述（commit: xxx / reset: moving to xxx 等） */
+  subject: string;
+  /** unix 秒 */
+  timestamp: number;
 }
 
 export interface ProjectDTO {
@@ -178,6 +196,8 @@ export interface SettingsDTO {
   mcpEnabled: boolean;
   logSplitterFraction: number | null;
   changesSplitterFraction: number | null;
+  /** 终端页 Git 文档面板分栏比例 */
+  terminalDocFraction: number | null;
   packages: Record<string, PackageLedgerDTO>;
   confirmedCommands: string[];
   allowCodePlugins: boolean;
@@ -217,6 +237,9 @@ export interface AgentPermissionRuleDTO {
   createdAt: string;
 }
 
+/** 思考深度档位（任务级可覆盖档案默认值）。 */
+export type ThinkingLevel = "off" | "low" | "medium" | "high";
+
 /** 用户模型档案（settings.models[]；包模板实例化后同 fullId 遮蔽）。 */
 export interface UserModelProfileDTO {
   id: string;
@@ -226,8 +249,24 @@ export interface UserModelProfileDTO {
   modelId: string;
   apiKeyProtected: string | null;
   params?: { temperature?: number; maxOutputTokens?: number };
+  /** 默认思考深度（添加模型时配置，默认 medium；任务输入台可逐次覆盖） */
+  thinking?: ThinkingLevel;
   capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; /** D1 多模态：可接收图片输入 */ vision?: boolean };
   tags: string[];
+}
+
+/** models.discover 条目：/models 列表项原始形状（OpenAI 兼容 / Anthropic 均归一到此）。 */
+export interface ModelDiscoveryEntryDTO {
+  id: string;
+  name: string;
+  /** OpenAI v1/v2 原生模型卡的上下文窗口；null = 端点未提供 */
+  contextTokens: number | null;
+  /** 原生模型卡 image 类输入模态（v3 模型卡）；null = 端点未提供 */
+  image: boolean | null;
+  /** 命名启发式的视觉判定（无原生声明时供 UI 置灰/勾选参考） */
+  imageGuess: boolean;
+  /** 命名启发式的上下文提示（无原生声明时供 UI 回填参考） */
+  contextHint: number | null;
 }
 
 /** models.list RPC 条目：用户档案与包模板的合并视图。 */
@@ -242,11 +281,18 @@ export interface ModelProfileDTO {
   enabled: boolean;
   hasKey: boolean;
   keyHint: string | null;
-  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; /** D1 多模态：可接收图片输入 */ vision?: boolean };
+  /** 档案默认思考深度（未配置视为 medium） */
+  thinking?: ThinkingLevel;
+  /** D1 多模态：可接收图片输入 */
+  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; vision?: boolean };
   tags: string[];
   isDefault: boolean;
   isFast: boolean;
   usage: { turns: number; inputTokens: number; outputTokens: number };
+  /** 分组 id（档案 id 去掉 `#成员` 后缀）。同一分组的多个模型共享名称/API URL/密钥。 */
+  groupId: string;
+  /** 分组成员明细（仅分组主条目携带，供设置页分组卡片与编辑回填）。 */
+  groupModels?: { modelId: string; vision: boolean; contextTokens?: number; thinking: ThinkingLevel }[];
 }
 
 /** agent.taskTypes.list RPC 条目。 */
@@ -375,10 +421,15 @@ export type AgentContextStatsDTO = {
   ratio: number;
   breakdown: { system: number; messages: number; reserved: number };
   compactions: number;
+  totalInput?: number;
+  totalOutput?: number;
+  lastOutput?: number;
+  tokPerSec?: number;
+  cacheHitRate?: number;
 };
 
 export type AgentPermissionPayloadDTO = {
-  kind: "command" | "git-stage" | "git-commit" | "git-push" | "mcp" | "plugin" | "restore";
+  kind: "command" | "git-stage" | "git-commit" | "git-push" | "mcp" | "plugin" | "restore" | "fs-outside";
   paths?: string[];
   diffStat?: string;
   risk?: "high" | "medium" | null;
@@ -506,6 +557,21 @@ interface GITTER_UI_API {
     }>;
     agentUI: Array<{ packageId: string; tier: "host" | "builtin" | "user"; renderers: number; providers: number }>;
   };
+  /** 贡献文档（终端页文档面板可读；同 id 用户包 > 内置包 > 宿主，层级由 loader 注入的包身份决定；
+   * 返回退订函数——插件页卸载时撤销本包文档）。内容一律经 renderMarkdown 渲染，无脚本注入面。 */
+  registerDoc(def: { id: string; title: string | (() => string); source: () => string | Promise<string> }): () => void;
+  unregisterDoc(id: string, packageId?: string): void;
+  /** 已注册文档清单（同 id 覆盖已解析） */
+  docs(): Array<{
+    doc: { id: string; title: string | (() => string); source: () => string | Promise<string> };
+    packageId: string; tier: "host" | "builtin" | "user";
+  }>;
+  /** 文档标题求值（title 为函数时调用） */
+  docTitle(doc: { id: string; title: string | (() => string); source: () => string | Promise<string> }): string;
+  /** 文档注册表变化订阅 */
+  onDocsChanged(cb: () => void): () => void;
+  /** 文档注册表版本 */
+  docsVersion(): number;
   /** 宿主活状态快照（配合 subscribeState 组装 useSyncExternalStore） */
   getState(): AppStateSnapshot;
   /** 订阅宿主状态变化（setState 即触发；返回退订函数） */
