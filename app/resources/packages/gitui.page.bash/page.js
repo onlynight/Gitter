@@ -6506,6 +6506,7 @@ WARNING: This link could potentially be dangerous`)) {
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
   K().Select;
+  K().ReflogDialog;
   K().ScrollArea;
   window.GITTER_UI.registerPage({ id: "bash" }, (container) => {
     var _a2;

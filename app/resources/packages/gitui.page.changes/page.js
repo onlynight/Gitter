@@ -56,6 +56,7 @@
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
   K().Select;
+  K().ReflogDialog;
   const ScrollArea = K().ScrollArea;
   const { call, t, navigate, refresh: refreshCurrent, openSettings, setContext: setSharedContext } = pageSdk;
   const useApp = useAppState;

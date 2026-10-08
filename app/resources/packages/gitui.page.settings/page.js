@@ -61,6 +61,7 @@
   const PageErrorBoundary = K().PageErrorBoundary;
   const NavIcon = K().NavIcon;
   const Select = K().Select;
+  K().ReflogDialog;
   K().ScrollArea;
   const PATHS = {
     // 纸飞机（Octicons paper-airplane-16 改绘）
