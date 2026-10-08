@@ -186,17 +186,17 @@ export function BranchesPage() {
     <>
       <div className="toolbar">
         <button className="tool-btn icon" data-tip={t("Branches_Create")} onClick={() => setDialog({ kind: "create", name: "", startPoint: "HEAD", startPointTab: "branch", checkout: true })}>
-          <span className="glyph">{""}</span>
+          <span className="glyph">{""}</span>
         </button>
         <span className="grow" />
         <button className="tool-btn icon" data-tip={t("Branches_Pull")} disabled={busy} onClick={() => void run(async () => { await call("branches.pull", { rebase: false }); return t("Branches_Pulled"); })}>
-          <span className="glyph">{""}</span>
+          <span className="glyph">{""}</span>
         </button>
         <button className="tool-btn icon" data-tip={t("Branches_PullRebase")} disabled={busy} onClick={() => void run(async () => { await call("branches.pull", { rebase: true }); return t("Branches_PulledRebase"); })}>
-          <span className="glyph">{""}</span>
+          <span className="glyph">{""}</span>
         </button>
         <button className="tool-btn icon" data-tip={t("Branches_Push")} disabled={busy} onClick={() => void run(async () => { await call("branches.push", {}); return t("Branches_Pushed"); })}>
-          <span className="glyph">{""}</span>
+          <span className="glyph">{""}</span>
         </button>
       </div>
 
