@@ -24,6 +24,7 @@
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
   K().Select;
+  K().ReflogDialog;
   K().ScrollArea;
   function U$1() {
     const g = window.GITTER_UI;
