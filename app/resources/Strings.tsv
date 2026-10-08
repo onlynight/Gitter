@@ -499,6 +499,13 @@ Common_Create	Create	创建
 Common_Delete	Delete	删除
 Common_Loading	Loading…	加载中…
 Common_Merge	Merge	合并
+Nav_Projects	Projects	项目
+Nav_Log	Log	日志
+Nav_Changes	Changes	更改
+Nav_Branches	Branches	分支
+Nav_Tasks	Tasks	任务
+Nav_Terminal	Terminal	终端
+Nav_Settings	Settings	设置
 Common_Branch	Branch	分支
 Select_SearchPlaceholder	Search (contains)	搜索（关键字包含）
 Select_Empty	No matches — switch tab or change keyword	无匹配项——切换 tab 或修改关键字
