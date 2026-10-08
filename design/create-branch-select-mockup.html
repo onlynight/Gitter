@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>设计稿：创建分支·起点选择（type tab + 关键字搜索）</title>
+<style>
+  /* ---- 应用主题 token（theme.gitui.solid / dark 实测值） ---- */
+  :root {
+    --c-base: #0D0D0D; --c-panel: #171717; --c-panel2: #202020;
+    --c-hover: #272727; --c-selected: #333333;
+    --c-border: #2B2B2B; --c-border-strong: #3E3E3E;
+    --c-text: #EAEAEA; --c-text2: #A0A0A0; --c-text3: #6E6E6E;
+    --c-accent: #EAEAEA; --c-on-accent: #0D0D0D;
+    --c-link: #6BABF5; --c-green: #3FB950; --c-red: #F0655A;
+    --c-chip-purple-bg: #241F33; --c-chip-purple-fg: #B9A3EC;
+    --c-chip-blue-bg: #1D2733; --c-chip-blue-fg: #8DB8F5;
+    --radius: 4px; --radius-md: 6px; --radius-lg: 10px;
+    --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--c-base); color: var(--c-text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    padding: 24px;
+  }
+  .page-title { color: var(--c-text3); font-size: 12px; letter-spacing: .5px; }
+
+  /* ---- Modal（对齐应用 .modal：440px、panel 底、10px 圆角） ---- */
+  .modal-overlay { width: 100%; display: flex; justify-content: center; }
+  .modal { width: 440px; background: var(--c-panel); border: 1px solid var(--c-border);
+    border-radius: var(--radius-lg); padding: 16px; box-shadow: 0 12px 32px color-mix(in srgb, #000 28%, transparent); }
+  .modal h3 { margin: 0 0 14px; font-size: 15px; }
+  .modal .input {
+    width: 100%; height: 30px; padding: 0 10px; font: inherit; color: var(--c-text);
+    background: var(--c-base); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    outline: none;
+  }
+  .modal .input:focus { border-color: var(--c-link); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-link) 18%, transparent); }
+  .field-label { font-size: 12px; color: var(--c-text3); margin: 12px 0 6px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  .tool-btn {
+    height: 28px; padding: 0 14px; font: inherit; color: var(--c-text); cursor: pointer;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  }
+  .tool-btn:hover { background: var(--c-hover); }
+  .tool-btn.primary { background: var(--c-accent); color: var(--c-on-accent); font-weight: 600; }
+  .tool-btn.primary:disabled { opacity: .45; cursor: default; }
+  .check-row { display: flex; gap: 6px; align-items: center; margin-top: 12px; color: var(--c-text2); }
+
+  /* ---- 起点选择器：触发钮（对齐 .select-trigger，表单态带边框） ---- */
+  .select-wrap { position: relative; }
+  .select-trigger {
+    width: 100%; height: 30px; padding: 0 26px 0 10px; text-align: left; font: inherit; color: var(--c-text);
+    background: var(--c-base) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M2.2 2.6L6 6.4L9.8 2.6' fill='none' stroke='%23989ea8' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat right 9px center;
+    border: 1px solid var(--c-border-strong); border-radius: var(--radius-md); cursor: pointer;
+  }
+  .select-trigger:hover { background-color: var(--c-hover); }
+  .select-trigger[aria-expanded="true"] {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M2.2 5.4L6 1.6L9.8 5.4' fill='none' stroke='%23989ea8' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  }
+  .trigger-type {
+    display: inline-block; margin-right: 6px; padding: 0 6px; font-size: 10px; line-height: 16px;
+    border-radius: 999px; vertical-align: 1px;
+  }
+  .tt-branch { background: var(--c-chip-blue-bg); color: var(--c-chip-blue-fg); }
+  .tt-tag { background: var(--c-chip-purple-bg); color: var(--c-chip-purple-fg); }
+  .tt-head { background: var(--c-chip-blue-bg); color: var(--c-chip-blue-fg); }
+
+  /* ---- 弹层：搜索框 + type tab + 分组列表 ---- */
+  .select-pop {
+    position: absolute; top: calc(100% + 6px); left: 0; width: 100%; z-index: 30;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
+    display: none; overflow: hidden;
+  }
+  .select-pop.open { display: block; }
+  .pop-search { position: relative; }
+  .pop-search input {
+    width: 100%; height: 30px; padding: 0 10px 0 28px; font: inherit; color: var(--c-text);
+    background: var(--c-panel); border: none; border-bottom: 1px solid var(--c-border-strong); outline: none;
+  }
+  .pop-search input::placeholder { color: var(--c-text3); }
+  .pop-search .icon { position: absolute; left: 9px; top: 8px; color: var(--c-text3); font-size: 12px; }
+  .pop-tabs { display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--c-border); }
+  .pop-tab {
+    display: flex; align-items: center; gap: 6px; padding: 5px 12px 7px; font: inherit; font-size: 12px;
+    color: var(--c-text3); background: none; border: none; border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+  .pop-tab:hover { color: var(--c-text2); }
+  .pop-tab.active { color: var(--c-text); font-weight: 600; border-bottom-color: var(--c-accent); }
+  .pop-tab .cnt { font-size: 10px; color: var(--c-text3); background: var(--c-hover); border-radius: 999px; padding: 0 6px; line-height: 15px; }
+  .pop-tab.active .cnt { background: var(--c-selected); color: var(--c-text2); }
+
+  .pop-list { max-height: 240px; overflow-y: auto; padding: 4px; }
+  .pop-list::-webkit-scrollbar { width: 8px; }
+  .pop-list::-webkit-scrollbar-thumb { background: var(--c-border-strong); border-radius: 4px; }
+  .group-head {
+    display: flex; align-items: center; gap: 6px; padding: 5px 8px 3px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: .6px; color: var(--c-text3); text-transform: uppercase;
+    position: sticky; top: 0; background: var(--c-panel2);
+  }
+  .opt {
+    display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 8px; text-align: left;
+    font: inherit; font-size: 12px; color: var(--c-text); background: none; border: none; border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .opt:hover, .opt.hi { background: var(--c-hover); }
+  .opt.sel { font-weight: 600; }
+  .opt .check { width: 14px; flex: none; font-size: 11px; color: var(--c-text2); }
+  .opt .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .opt .name mark { background: color-mix(in srgb, var(--c-link) 30%, transparent); color: inherit; padding: 0 1px; border-radius: 2px; }
+  .opt .badge-tag { margin-left: auto; flex: none; font-size: 10px; padding: 0 6px; line-height: 15px; border-radius: 999px;
+    background: var(--c-chip-purple-bg); color: var(--c-chip-purple-fg); }
+  .opt .sha { margin-left: auto; flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--c-text3); }
+  .opt .sha + .badge-tag { margin-left: 6px; }
+  .empty { padding: 18px 10px; text-align: center; color: var(--c-text3); font-size: 12px; }
+  .empty .sub { margin-top: 4px; font-size: 11px; color: var(--c-text3); opacity: .8; }
+
+  /* ---- 设计说明 ---- */
+  .notes { width: 440px; color: var(--c-text2); font-size: 12px; line-height: 1.8; }
+  .notes b { color: var(--c-text); }
+  .notes .t { color: var(--c-text3); font-size: 11px; letter-spacing: .5px; margin-bottom: 4px; }
+  .notes li { margin: 2px 0; }
+  code { font-family: var(--mono); font-size: 11px; background: var(--c-panel2); border: 1px solid var(--c-border); border-radius: 3px; padding: 0 4px; }
+</style>
+</head>
+<body>
+  <div class="page-title">设计稿 · 创建分支对话框 — 起点选择：type tab 区分分支/标签 + 关键字子串搜索（可交互原型）</div>
+
+  <div class="modal-overlay">
+    <div class="modal">
+      <h3>创建分支</h3>
+
+      <div class="field-label" style="margin-top:0">分支名</div>
+      <input class="input" id="branchName" placeholder="分支名" value="">
+
+      <div class="field-label">起点</div>
+      <div class="select-wrap">
+        <button class="select-trigger" id="trigger" aria-expanded="false">
+          <span class="trigger-type tt-head">HEAD</span><span id="triggerLabel">当前 HEAD（main）</span>
+        </button>
+        <div class="select-pop" id="pop">
+          <div class="pop-search">
+            <span class="icon">⌕</span>
+            <input id="search" placeholder="搜索：关键字包含匹配，如 1.0 / feature / origin" autocomplete="off">
+          </div>
+          <div class="pop-tabs">
+            <button class="pop-tab active" data-tab="branch">分支 <span class="cnt" id="cntBranch"></span></button>
+            <button class="pop-tab" data-tab="tag">标签 <span class="cnt" id="cntTag"></span></button>
+          </div>
+          <div class="pop-list" id="list"></div>
+        </div>
+      </div>
+
+      <label class="check-row"><input type="checkbox" checked> 创建后检出</label>
+
+      <div class="modal-actions">
+        <button class="tool-btn">取消</button>
+        <button class="tool-btn primary" id="btnCreate" disabled>创建</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="t">设计要点</div>
+    <ul>
+      <li><b>type tab 在弹层内部</b>（搜索框下方）：分支 / 标签两类，不占对话框空间；打开弹层时 tab 自动定位到当前选中值的类型。</li>
+      <li><b>分支 tab 内保留 本地 / 远程 分组</b>；「当前 HEAD」钉在分支 tab 顶部，不参与搜索过滤（默认项永远可见可选）。</li>
+      <li><b>搜索 = 关键字包含</b>：大小写不敏感的子串匹配（<code>name.includes(kw)</code>），非全量/前缀匹配；命中片段高亮；只过滤当前 tab；tab 上实时显示各自命中数；无命中给空态提示。</li>
+      <li><b>键盘</b>：打开即聚焦搜索框；↑↓ 在可见项间移动、Enter 选中、Esc 关闭；tab 用鼠标点击切换。</li>
+      <li><b>触发钮</b>带类型徽标（HEAD / 分支 / 标签），选中 tag 后仍以徽标区分，不再依赖 “(tag)” 文字后缀。</li>
+      <li><b>实现落点</b>：扩展现有 <code>kit/Select</code>（新增可选 props：tabs / searchable / group），不新建组件；后端零改动（branches.state 已含全部数据，过滤纯前端）。</li>
+    </ul>
+  </div>
+
+<script>
+// ---- 模拟数据（branches.state 形状）----
+const CURRENT = "main";
+const DATA = {
+  branch: [
+    { group: "当前", name: "当前 HEAD（main）", type: "head", pinned: true, keywords: "head 当前 main" },
+    { group: "本地分支", name: "main", type: "branch" },
+    { group: "本地分支", name: "dev", type: "branch" },
+    { group: "本地分支", name: "feature/merge-ui", type: "branch", sha: "b7c8d9e" },
+    { group: "本地分支", name: "feature/tag-picker", type: "branch", sha: "c8d9e0f" },
+    { group: "本地分支", name: "release/1.0", type: "branch", sha: "d9e0f1a" },
+    { group: "本地分支", name: "hotfix/old", type: "branch", sha: "c9d0e1f" },
+    { group: "远程分支", name: "origin/main", type: "branch" },
+    { group: "远程分支", name: "origin/dev", type: "branch" },
+    { group: "远程分支", name: "origin/feature/merge-ui", type: "branch", sha: "b7c8d9e" },
+    { group: "远程分支", name: "origin/release/1.0", type: "branch", sha: "d9e0f1a" },
+    { group: "远程分支", name: "upstream/main", type: "branch" },
+  ],
+  tag: [
+    { group: "标签", name: "v0.9.0", type: "tag", sha: "1a2b3c4" },
+    { group: "标签", name: "v0.9.1", type: "tag", sha: "2b3c4d5" },
+    { group: "标签", name: "v0.10.0", type: "tag", sha: "3c4d5e6" },
+    { group: "标签", name: "v1.0.0", type: "tag", sha: "4d5e6f7" },
+    { group: "标签", name: "v1.0.1", type: "tag", sha: "5e6f7a8" },
+    { group: "标签", name: "v1.1.0-rc1", type: "tag", sha: "6f7a8b9" },
+    { group: "标签", name: "nightly-2026.09.30", type: "tag", sha: "7a8b9c0" },
+    { group: "标签", name: "legacy-2025.12.01", type: "tag", sha: "8b9c0d1" },
+  ],
+};
+
+// ---- 状态：activeTab 与 selected 分离（清空选中不影响列表与 tab）----
+let activeTab = "branch";
+let selected = { name: "当前 HEAD（main）", type: "head" };
+let kw = "";
+let hi = -1;
+
+const pop = document.getElementById("pop");
+const trigger = document.getElementById("trigger");
+const search = document.getElementById("search");
+const list = document.getElementById("list");
+const nameInput = document.getElementById("branchName");
+const btnCreate = document.getElementById("btnCreate");
+
+const typeOf = (t) => (t === "tag" ? "tag" : "branch");
+
+function syncCreate() {
+  btnCreate.disabled = !nameInput.value.trim() || !selected;
+}
+nameInput.addEventListener("input", syncCreate);
+
+// ---- 关键字子串包含（大小写不敏感）；钉住的 HEAD 不过滤 ----
+const hit = (item) => {
+  if (item.pinned) return true;
+  if (!kw) return true;
+  const hay = (item.name + " " + (item.keywords ?? "")).toLowerCase();
+  return hay.includes(kw.toLowerCase());
+};
+const highlight = (name) => {
+  if (!kw || name.startsWith("当前 HEAD")) return name;
+  const i = name.toLowerCase().indexOf(kw.toLowerCase());
+  if (i < 0) return name;
+  return name.slice(0, i) + "<mark>" + name.slice(i, i + kw.length) + "</mark>" + name.slice(i + kw.length);
+};
+
+function render() {
+  const items = DATA[activeTab].filter(hit);
+  document.getElementById("cntBranch").textContent = kw ? DATA.branch.filter((x) => x.pinned || x.name.toLowerCase().includes(kw.toLowerCase())).length : DATA.branch.length;
+  document.getElementById("cntTag").textContent = kw ? DATA.tag.filter(hit).length : DATA.tag.length;
+
+  let html = "";
+  // 钉住项（仅分支 tab）：不进分组头、不受过滤，置顶
+  if (activeTab === "branch") {
+    for (const it of DATA.branch.filter((x) => x.pinned)) {
+      const sel = selected && selected.type === "head";
+      html += `<button class="opt${sel ? " sel" : ""}" data-name="${it.name}" data-type="head"><span class="check">${sel ? "✓" : ""}</span><span class="name">${highlight(it.name)}</span></button>`;
+    }
+  }
+  // 分组（空组不渲染）
+  let groups = [];
+  for (const it of items.filter((x) => !x.pinned)) {
+    let g = groups.find((x) => x.name === it.group);
+    if (!g) { g = { name: it.group, items: [] }; groups.push(g); }
+    g.items.push(it);
+  }
+  for (const g of groups) {
+    html += `<div class="group-head">${g.name} <span style="font-weight:400">· ${g.items.length}</span></div>`;
+    for (const it of g.items) {
+      const sel = selected && selected.name === it.name && selected.type === it.type;
+      const right = it.type === "tag" ? `<span class="badge-tag">tag</span>` : (it.sha ? `<span class="sha">${it.sha}</span>` : "");
+      html += `<button class="opt${sel ? " sel" : ""}" data-name="${it.name}" data-type="${it.type}"><span class="check">${sel ? "✓" : ""}</span><span class="name">${highlight(it.name)}</span>${right}</button>`;
+    }
+  }
+  // 空态：分支 tab 只剩钉住项且有关键字 / 标签 tab 无命中
+  const nonPinned = items.filter((x) => !x.pinned).length;
+  if (nonPinned === 0) {
+    html += `<div class="empty">无匹配项<div class="sub">切换 tab 或修改关键字${kw ? "（当前 tab 内包含「" + kw + "」）" : ""}</div></div>`;
+  }
+  list.innerHTML = html;
+  hi = -1;
+
+  // 触发钮：未选中 → 占位；选中 → 类型徽标 + 名称
+  const tt = !selected ? "" : selected.type === "tag" ? "tt-tag" : "tt-head";
+  const badge = !selected ? "" : selected.type === "tag" ? "TAG" : (selected.type === "head" ? "HEAD" : "分支");
+  const label = !selected ? '<span style="color:var(--c-text3)">请选择起点…</span>' : highlight(selected.type === "tag" ? selected.name + "（tag）" : selected.name);
+  document.getElementById("triggerLabel").innerHTML = label;
+  const bt = trigger.querySelector(".trigger-type");
+  bt.className = "trigger-type " + tt;
+  bt.textContent = badge;
+  bt.style.display = selected ? "" : "none";
+  syncCreate();
+}
+
+function openPop() {
+  activeTab = selected ? typeOf(selected.type) : "branch";
+  document.querySelectorAll(".pop-tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === activeTab));
+  pop.classList.add("open");
+  trigger.setAttribute("aria-expanded", "true");
+  kw = "";
+  search.value = "";
+  render();
+  search.focus();
+}
+function closePop() {
+  pop.classList.remove("open");
+  trigger.setAttribute("aria-expanded", "false");
+}
+const isOpen = () => pop.classList.contains("open");
+
+trigger.addEventListener("click", () => (isOpen() ? closePop() : openPop()));
+document.addEventListener("mousedown", (e) => {
+  if (!pop.contains(e.target) && e.target !== trigger && !trigger.contains(e.target)) closePop();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && isOpen()) { closePop(); e.stopPropagation(); }
+});
+search.addEventListener("input", () => { kw = search.value.trim(); render(); });
+
+// tab 切换：新类型没有已选中值 → 清空选择（创建钮置灰），不静默代选
+document.querySelectorAll(".pop-tab").forEach((b) =>
+  b.addEventListener("click", () => {
+    activeTab = b.dataset.tab;
+    document.querySelectorAll(".pop-tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === activeTab));
+    if (selected && typeOf(selected.type) !== activeTab) selected = null;
+    render();
+  })
+);
+
+// 键盘导航：↑↓ 移动、Enter 选中
+search.addEventListener("keydown", (e) => {
+  const opts = [...list.querySelectorAll(".opt")];
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (opts.length === 0) return;
+    hi = e.key === "ArrowDown" ? (hi + 1) % opts.length : (hi - 1 + opts.length) % opts.length;
+    opts.forEach((o, i) => o.classList.toggle("hi", i === hi));
+    opts[hi].scrollIntoView({ block: "nearest" });
+  } else if (e.key === "Enter" && hi >= 0) {
+    e.preventDefault();
+    opts[hi].click();
+  }
+});
+
+// 选中
+list.addEventListener("click", (e) => {
+  const b = e.target.closest(".opt");
+  if (!b) return;
+  const type = b.dataset.type;
+  selected = { name: b.dataset.name, type };
+  activeTab = typeOf(type);
+  render();
+  closePop();
+});
+
+render();
+</script>
+</body>
+</html>

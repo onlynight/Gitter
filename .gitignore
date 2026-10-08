@@ -22,3 +22,8 @@ app/release*
 
 # 视觉验收 harness 产物
 web/harness/harness-dist/
+scripts/node_modules/
+
+# 图标/构建产物
+app/build/
+web/harness-dist/
