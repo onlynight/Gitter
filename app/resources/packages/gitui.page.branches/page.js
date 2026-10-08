@@ -61,6 +61,77 @@
     if (!msg) return false;
     return /push\.autoSetupRemote|set-upstream|no upstream|上游/i.test(msg);
   }
+  const GRAPH_LANE_W = 26;
+  const GRAPH_ROW_H = 28;
+  const GRAPH_PAD = 14;
+  const GRAPH_COLORS = ["#6BABF5", "#B9A3EC", "#3FB950", "#E3B341", "#F0655A", "#56D364"];
+  function BranchGraphPane(props) {
+    const [sel, setSel] = react.useState(null);
+    let slots = [];
+    const colorOf = /* @__PURE__ */ new Map();
+    const colorOfId = (id) => {
+      if (!colorOf.has(id)) colorOf.set(id, GRAPH_COLORS[colorOf.size % GRAPH_COLORS.length]);
+      return colorOf.get(id);
+    };
+    const segs = [];
+    const rowEls = [];
+    props.graph.rows.forEach((r, i) => {
+      const top = i * GRAPH_ROW_H, mid = top + GRAPH_ROW_H / 2, bottom = top + GRAPH_ROW_H;
+      const slotOf = (id) => slots.indexOf(id);
+      const mergeFroms = new Set(r.merges.map((m) => m.from));
+      const line = (x, y1, y2, c) => `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="${c}" stroke-width="2" />`;
+      const curve = (x1, y1, x2, y2, c) => `<path d="M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}" stroke="${c}" stroke-width="2" fill="none" />`;
+      for (const id of slots) {
+        if (mergeFroms.has(id)) continue;
+        segs.push(line(GRAPH_PAD + slotOf(id) * GRAPH_LANE_W, top, bottom, colorOfId(id)));
+      }
+      for (const m of r.merges) segs.push(curve(GRAPH_PAD + slotOf(m.from) * GRAPH_LANE_W, top, GRAPH_PAD + slotOf(m.to) * GRAPH_LANE_W, mid, colorOfId(m.from)));
+      const dotSlot = slotOf(r.lane);
+      const dotX = GRAPH_PAD + dotSlot * GRAPH_LANE_W;
+      const isHead = r.refs.some((x) => x.isHead);
+      segs.push(`<circle cx="${dotX}" cy="${mid}" r="${isHead ? 6 : 4.5}" fill="${colorOfId(r.lane)}" stroke="var(--c-base)" stroke-width="${isHead ? 2 : 1.5}" />`);
+      if (isHead) segs.push(`<circle cx="${dotX}" cy="${mid}" r="9" fill="none" stroke="${colorOfId(r.lane)}" stroke-width="1" opacity=".55" />`);
+      for (const id of r.spawns) {
+        segs.push(curve(dotX, mid, GRAPH_PAD + r.slotAfter.indexOf(id) * GRAPH_LANE_W, bottom, colorOfId(id)));
+      }
+      slots = r.slotAfter;
+      r.refs.filter((x) => !x.isHead).map((x) => x.name);
+      rowEls.push(
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "div",
+          {
+            className: "grow-row" + (sel === r.sha ? " sel" : ""),
+            style: { top },
+            title: `${r.shortSha} ${r.subject} · ${r.author}`,
+            onClick: () => setSel(r.sha),
+            children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grow-txt", style: { left: GRAPH_PAD + slots.length * GRAPH_LANE_W + 10 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow-sha", children: r.shortSha }),
+              r.refs.map((x) => /* @__PURE__ */ jsxRuntime.jsx("span", { className: "badge" + (x.isTag ? " tag" : "") + (x.isHead ? " head" : ""), children: x.name }, x.name)),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow-subject", children: r.subject })
+            ] })
+          },
+          r.sha + i
+        )
+      );
+    });
+    const slotsMax = Math.max(slots.length, 3);
+    const svgW = GRAPH_PAD + slotsMax * GRAPH_LANE_W + 6;
+    return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { height: props.graph.rows.length * GRAPH_ROW_H + 8, position: "relative", minWidth: svgW + 130 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "svg",
+          {
+            width: svgW,
+            height: props.graph.rows.length * GRAPH_ROW_H + 8,
+            style: { position: "absolute", left: 0, top: 4 },
+            dangerouslySetInnerHTML: { __html: segs.join("") }
+          }
+        ),
+        rowEls
+      ] }),
+      props.graph.hasMore && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", padding: "4px 0 8px" }, children: /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: props.loading, onClick: props.onLoadMore, children: t("Branches_LoadMore") }) })
+    ] });
+  }
   function BranchesPage() {
     var _a2;
     const app = useApp();
@@ -71,6 +142,8 @@
     const [transient, setTransient] = react.useState(null);
     const [busy, setBusy] = react.useState(false);
     const [selected, setSelected] = react.useState(null);
+    const [graph, setGraph] = react.useState(null);
+    const [graphLoading, setGraphLoading] = react.useState(false);
     const [dialog, setDialog] = react.useState(null);
     const { showMenu, menuElement } = useContextMenu();
     const [syncProgress, clearSyncProgress] = useSyncProgress();
@@ -85,8 +158,31 @@
         setErrorDetail(e.detail ?? null);
       }
     }, [repo]);
+    const loadGraph = react.useCallback(async () => {
+      if (!repo) return;
+      setGraphLoading(true);
+      try {
+        setGraph(await call("branch.graph", { limit: 300 }));
+        setError(null);
+      } catch {
+        setGraph(null);
+      } finally {
+        setGraphLoading(false);
+      }
+    }, [repo]);
+    const loadMoreGraph = react.useCallback(async () => {
+      if (!graph || graphLoading) return;
+      setGraphLoading(true);
+      try {
+        const more = await call("branch.graph", { limit: 300, skip: graph.rows.length });
+        setGraph({ rows: [...graph.rows, ...more.rows], hasMore: more.hasMore });
+      } finally {
+        setGraphLoading(false);
+      }
+    }, [graph, graphLoading]);
     react.useEffect(() => {
       void reload();
+      void loadGraph();
     }, [repo, app.refreshTick]);
     react.useEffect(() => {
       var _a3;
@@ -203,6 +299,14 @@
             b.name,
             (state == null ? void 0 : state.current) === b.name && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "badge", style: { marginLeft: 6 }, children: "HEAD" })
           ] }),
+          !remote && b.ahead != null && b.ahead > 0 && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chip ahead", title: t("Branches_AheadBehind", b.ahead, 0), children: [
+            "↑",
+            b.ahead
+          ] }),
+          !remote && b.behind != null && b.behind > 0 && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chip behind", title: t("Branches_AheadBehind", 0, b.behind), children: [
+            "↓",
+            b.behind
+          ] }),
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "trim", style: { color: "var(--c-text3)", fontSize: 11, maxWidth: 180 }, children: b.subject })
         ]
       },
@@ -261,15 +365,19 @@
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setTransient(null), children: "✕" })
       ] }),
       busy && /* @__PURE__ */ jsxRuntime.jsx(SyncBar, { progress: syncProgress }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", gap: 12, margin: "10px 12px 12px" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pane-card", style: { flex: 1.7, display: "flex", flexDirection: "column", overflow: "hidden" }, children: state ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", gap: 10, margin: "8px 12px 10px" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "pane-card", style: { flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
+          groupHeader(t("Branches_Graph"), (graph == null ? void 0 : graph.rows.length) ?? 0),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "branch-graph-scroll", children: graph ? graph.rows.length > 0 ? /* @__PURE__ */ jsxRuntime.jsx(BranchGraphPane, { graph, loading: graphLoading, onLoadMore: () => void loadMoreGraph() }) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "14px 12px", color: "var(--c-text3)", fontSize: 12 }, children: t("Branches_NoTags") }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: graphLoading ? t("Common_Loading") : t("Branches_NoTags") }) })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pane-card", style: { flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: state ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" }, children: [
           groupHeader(t("Branches_LocalGroup"), state.local.length),
           renderBranchRows(false),
           /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: 8 } }),
           groupHeader(t("Branches_RemoteGroup"), state.remote.length),
           renderBranchRows(true)
         ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", style: { flex: 1 }, children: t("Common_Loading") }) }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pane-card", style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }, children: state ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pane-card", style: { flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: state ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" }, children: [
           groupHeader(t("Branches_TagGroup"), state.tags.length),
           state.tags.length > 0 ? renderTagRows() : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "14px 12px", color: "var(--c-text3)", fontSize: 12 }, children: t("Branches_NoTags") })
         ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", style: { flex: 1 }, children: t("Common_Loading") }) })
