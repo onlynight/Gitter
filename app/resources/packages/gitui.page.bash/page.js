@@ -6460,9 +6460,9 @@ WARNING: This link could potentially be dangerous`)) {
             {
               className: "tool-btn icon",
               "aria-expanded": tocOpen,
-              title: tocOpen ? t$1("Terminal_DocTocClose") : t$1("Terminal_DocToc"),
+              title: t$1("Terminal_DocToc"),
               onClick: () => tocOpen ? setTocOpen(false) : openToc(),
-              children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: tocOpen ? "" : "" })
+              children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" })
             }
           ),
           docs.length > 1 ? /* @__PURE__ */ jsxRuntime.jsx(
@@ -6530,7 +6530,7 @@ WARNING: This link could potentially be dangerous`)) {
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "git-doc-scrim" + (tocOpen ? " open" : ""), onClick: () => setTocOpen(false) }),
       /* @__PURE__ */ jsxRuntime.jsxs("aside", { className: "git-doc-toc" + (tocOpen ? " open" : ""), "aria-hidden": !tocOpen, children: [
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "git-doc-toc-head", children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn sm icon", title: t$1("Terminal_DocTocClose"), onClick: () => setTocOpen(false), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
           t$1("Terminal_DocToc")
         ] }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "git-doc-toc-search", children: [
