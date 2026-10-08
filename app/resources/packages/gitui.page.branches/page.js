@@ -227,20 +227,20 @@
     ));
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "toolbar", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Create"), onClick: () => setDialog({ kind: "create", name: "", startPoint: "HEAD", startPointTab: "branch", checkout: true }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Create"), onClick: () => setDialog({ kind: "create", name: "", startPoint: "HEAD", startPointTab: "branch", checkout: true }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Pull"), disabled: busy, onClick: () => void run(async () => {
           await call("branches.pull", { rebase: false });
           return t("Branches_Pulled");
-        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_PullRebase"), disabled: busy, onClick: () => void run(async () => {
           await call("branches.pull", { rebase: true });
           return t("Branches_PulledRebase");
-        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Push"), disabled: busy, onClick: () => void run(async () => {
           await call("branches.push", {});
           return t("Branches_Pushed");
-        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
+        }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
       ] }),
       error && /* @__PURE__ */ jsxRuntime.jsx(
         Banner,
