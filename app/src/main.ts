@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen } from "electron";
 import * as os from "os";
 import * as path from "path";
 import { Bridge, SharedServices } from "./bridge";
@@ -104,13 +104,43 @@ function applyWindowMaterialToAll(): void {
   }
 }
 
+// ---- 窗口状态持久化：记录正常尺寸/位置与最大化态，重启恢复上次状态 ----
+type SavedWindowBounds = Electron.Rectangle & { isMaximized?: boolean };
+
+function windowBoundsFile(): string {
+  return path.join(app.getPath("userData"), "window-bounds.json");
+}
+
+function loadWindowBounds(): SavedWindowBounds | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(windowBoundsFile(), "utf8")) as SavedWindowBounds;
+    return raw && typeof raw.width === "number" && typeof raw.height === "number" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 至少 1/3 宽高落在某台显示器工作区内才恢复，防止拔掉显示器后窗口跑丢。 */
+function boundsVisibleOnSomeDisplay(b: { x: number; y: number; width: number; height: number }): boolean {
+  return screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    const ox = Math.max(0, Math.min(b.x + b.width, a.x + a.width) - Math.max(b.x, a.x));
+    const oy = Math.max(0, Math.min(b.y + b.height, a.y + a.height) - Math.max(b.y, a.y));
+    return ox >= Math.min(160, b.width / 3) && oy >= Math.min(120, b.height / 3);
+  });
+}
+
 /** 窗口创建（首窗 / 命令面板与项目·任务页"新窗口"/ second-instance）。 */
 function createWindow(repoPath?: string): void {
   syncNativeTheme();
   const material = resolveWindowMaterial(activeThemeMaterial());
+  const saved = loadWindowBounds();
+  const restored = saved && boundsVisibleOnSomeDisplay(saved) ? saved : null;
   const win = new BrowserWindow({
-    width: Number(process.env.GITTER_WIN?.split("x")[0]) || 1120,
-    height: Number(process.env.GITTER_WIN?.split("x")[1]) || 700,
+    width: restored?.width ?? (Number(process.env.GITTER_WIN?.split("x")[0]) || 1120),
+    height: restored?.height ?? (Number(process.env.GITTER_WIN?.split("x")[1]) || 700),
+    x: restored?.x,
+    y: restored?.y,
     minWidth: 720,
     minHeight: 480,
     backgroundColor: material === "none" ? currentOpaqueBackground() : "#00000000",
@@ -132,6 +162,26 @@ function createWindow(repoPath?: string): void {
     bridges.delete(win.id);
   });
   win.once("ready-to-show", () => win.show());
+
+  // 尺寸/位置变更防抖落盘；关闭时兜底保存一次（getNormalBounds 在最大化时也返回正常态边界）
+  let boundsTimer: NodeJS.Timeout | null = null;
+  const persistBounds = () => {
+    try {
+      const b: SavedWindowBounds = { ...win.getNormalBounds(), isMaximized: win.isMaximized() };
+      fs.mkdirSync(path.dirname(windowBoundsFile()), { recursive: true });
+      fs.writeFileSync(windowBoundsFile(), JSON.stringify(b));
+    } catch {
+      // 落盘失败静默忽略（只读目录等）
+    }
+  };
+  const schedulePersistBounds = () => {
+    if (boundsTimer) clearTimeout(boundsTimer);
+    boundsTimer = setTimeout(persistBounds, 500);
+  };
+  win.on("resize", schedulePersistBounds);
+  win.on("move", schedulePersistBounds);
+  win.on("close", persistBounds);
+  if (restored?.isMaximized) win.maximize();
 
   win.on("maximize", () => win.webContents.send("evt", { method: "win.maximized", params: { value: true } }));
   win.on("unmaximize", () => win.webContents.send("evt", { method: "win.maximized", params: { value: false } }));
