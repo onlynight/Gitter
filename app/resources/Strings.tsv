@@ -41,7 +41,7 @@ Nav.Terminal	Terminal	终端
 Nav.Settings	Settings	设置
 
 # ==== Main（主窗口 chrome）====
-Main.WindowTitle	{0} - GitUI	{0} - GitUI
+Main.WindowTitle	{0} - Gitter	{0} - Gitter
 Main.StatusHint	Ctrl+1..6 switch pages · F5 refresh	Ctrl+1..6 切换页签 · F5 刷新
 
 # ==== Palette（命令面板）====
@@ -513,7 +513,7 @@ Common_NoProjectSelected	No project selected	未选择项目
 Common_Rename	Rename	重命名
 Common_ToggleSidebar	Toggle sidebar	收起/展开侧边栏
 Main_StatusHint	Ctrl+Shift+P: command palette	Ctrl+Shift+P：命令面板
-Main_WindowTitle	GitUI — {0}	GitUI — {0}
+Main_WindowTitle	Gitter — {0}	Gitter — {0}
 Palette_Title	Command Palette	命令面板
 Palette_InputPlaceholder	Type a command or search…	输入命令或搜索…
 Palette_NoMatches	No matching commands	没有匹配的命令

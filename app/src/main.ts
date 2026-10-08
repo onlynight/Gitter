@@ -145,6 +145,8 @@ function createWindow(repoPath?: string): void {
     minHeight: 480,
     backgroundColor: material === "none" ? currentOpaqueBackground() : "#00000000",
     backgroundMaterial: material,
+    // dev（app/dist）与打包（asar 内同级）下 resources/ 都在 __dirname 上一级
+    icon: path.join(__dirname, "..", "resources", "icons", "gitter.png"),
     titleBarStyle: "hidden",
     frame: false,
     show: false,

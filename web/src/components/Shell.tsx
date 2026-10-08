@@ -13,7 +13,7 @@ export function TitleBar() {
     isMaximized().then(setMaxed);
     return onEvent("win.maximized", (p: { value: boolean }) => setMaxed(p.value));
   }, []);
-  const title = repo ? t("Main_WindowTitle", repo.name) : "GitUI";
+  const title = repo ? t("Main_WindowTitle", repo.name) : "Gitter";
   return (
     <div className="titlebar">
       <button
@@ -23,6 +23,7 @@ export function TitleBar() {
       >
         ☰
       </button>
+      <img className="tb-logo" src="./gitter-logo.svg" alt="Gitter" draggable={false} />
       <span className="tb-title">{title}</span>
       <span className="tb-spacer" />
       <button className="tb-palette" onClick={() => window.dispatchEvent(new CustomEvent("gitter:palette"))}>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Gitter — "G 形提交环"：G 环 = 提交历史；与 scripts/build-icon.py 的字形参数保持一致 -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4D9EFF"/>
+      <stop offset="0.52" stop-color="#3D6BF5"/>
+      <stop offset="1" stop-color="#7C53F7"/>
+    </linearGradient>
+    <radialGradient id="gloss" cx="0.28" cy="0.16" r="0.9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="url(#tile)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="url(#gloss)"/>
+
+  <g fill="none" stroke="#FFFFFF" stroke-width="128" stroke-linecap="round" stroke-linejoin="round">
+    <!-- G 环：右上 58° 起，逆时针绕过顶/左/底，止于右下 46° -->
+    <path d="M 623.3 331.9 A 210 210 0 1 0 657.9 661.1"/>
+    <!-- 竖笔 + 横笔 -->
+    <path d="M 657.9 661.1 L 657.9 510 L 486.0 510"/>
+  </g>
+</svg>
