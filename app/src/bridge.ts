@@ -436,6 +436,7 @@ export class Bridge {
     R("agent.context.stats", (args: { taskId: string }) => this.agents.contextStats(args));
     R("agent.task.compact", (args: { taskId: string }) => this.agents.compactTask(args));
     R("agent.task.clear", (args: { taskId: string }) => this.agents.clearTask(args));
+    R("agent.task.checkpoint", (args: { taskId: string; summary?: string }) => this.agents.createCheckpoint(args));
     // §20.6 审计视图（提示词段/采集器/钩子/压缩器/预设 逐包可见）
     R("agent.seams.audit", () => auditSeams());
     // 后台 shell 面板（F4 逃生舱联动）+ 图片预览（F2.1）

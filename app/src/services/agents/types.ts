@@ -66,7 +66,7 @@ export interface PlanHistoryEntry {
 
 /** 结构化授权卡 payload（F5.2）：渲染层按 kind 分型渲染。 */
 export type PermissionPayloadKind =
-  | "command" | "git-stage" | "git-commit" | "git-push" | "mcp" | "plugin" | "restore";
+  | "command" | "git-stage" | "git-commit" | "git-push" | "mcp" | "plugin" | "restore" | "fs-outside";
 
 export interface PermissionPayload {
   kind: PermissionPayloadKind;
@@ -217,4 +217,12 @@ export interface AgentContextStats {
   ratio: number;
   breakdown: { system: number; messages: number; reserved: number };
   compactions: number;
+  /** 会话累计输入/输出 token（usageHistory 汇总；无记录时缺省） */
+  totalInput?: number;
+  totalOutput?: number;
+  /** 最近一轮输出 token 与生成速度（tok/s） */
+  lastOutput?: number;
+  tokPerSec?: number;
+  /** 最近一轮缓存命中率（cacheRead / input，0~1） */
+  cacheHitRate?: number;
 }

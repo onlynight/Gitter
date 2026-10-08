@@ -99,7 +99,7 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "extensions.setConfig": "extensions.admin", "extensions.uninstall": "extensions.admin",
 
   // ---- terminal ----
-  "terminal.ensure": "terminal", "terminal.write": "terminal", "terminal.resize": "terminal",
+  "terminal.ensure": "terminal", "terminal.write": "terminal", "terminal.resize": "terminal", "terminal.close": "terminal",
 
   // ---- ai.invoke ----
   "ai.generateCommitMessage": "ai.invoke", "ai.explain": "ai.invoke",

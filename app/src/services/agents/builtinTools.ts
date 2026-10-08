@@ -9,7 +9,7 @@ import { readFeedback } from "../feedback";
 import { registerAgentTool, type ToolEnv } from "./registry";
 import {
   globMatch, isImageExt, lineDiffOf, looksBinary, nearestSimilarLine,
-  readFileText, resolveSafe, statSafe,
+  readFileText, resolveReal, resolveSafe, statSafe,
 } from "./fsx";
 import type { FileChangeKind } from "./types";
 
@@ -20,6 +20,33 @@ import type { FileChangeKind } from "./types";
  */
 
 const normRel = (p: string): string => p.replace(/\\/g, "/");
+
+// ---- 工作区外文件访问授权（ZCode 式：越界弹授权卡，按目录记住本会话选择） ----
+const fsOutsideAllowed = new Map<string, Set<string>>();
+
+/** 工具路径解析统一入口：worktree 内直接放行；越界时向用户请求授权，
+ * 批准后该目录本会话内免重复询问（写面其余护栏不受影响）。 */
+async function resolveAccess(env: ToolEnv, p: string): Promise<string> {
+  try {
+    return await resolveSafe(env.worktreePath, p);
+  } catch (e) {
+    if (!(e as Error).message.includes("worktree")) throw e;
+    const abs = path.resolve(env.worktreePath, normRel(p));
+    const allows = fsOutsideAllowed.get(env.taskId) ?? new Set<string>();
+    fsOutsideAllowed.set(env.taskId, allows);
+    const granted = [...allows].find((dir) => abs === dir || abs.startsWith(dir + path.sep));
+    if (granted) return resolveReal(env.worktreePath, p);
+    const ok = await env.requestPermission("file_access", {
+      title: "访问工作区以外的路径",
+      detail: `${abs}\n\n该路径在任务 worktree 之外。批准后本会话内对该目录的访问不再询问；拒绝则 agent 需改用其他方式。`,
+      payload: { kind: "fs-outside", paths: [abs], source: "builtin" },
+      rememberable: false,
+    });
+    if (!ok) throw new Error(`用户拒绝访问工作区以外的路径：${p}`);
+    allows.add(path.dirname(abs));
+    return resolveReal(env.worktreePath, p);
+  }
+}
 
 function err(e: unknown): string {
   return `错误：${(e as Error).message}`;
@@ -104,7 +131,7 @@ registerAgentTool({
   readonly: true,
   async execute(env, args) {
     const p = typeof args.path === "string" ? args.path : undefined;
-    const abs = p ? await resolveSafe(env.worktreePath, p) : null;
+    const abs = p ? await resolveAccess(env, p) : null;
     const gitArgs = ["diff", "--no-color"];
     if (args.staged) gitArgs.push("--cached");
     if (args.baseline) gitArgs.push(String(args.baseline));
@@ -158,7 +185,7 @@ registerAgentTool({
   readonly: true,
   async execute(env, args) {
     const rel = normRel(String(args.path));
-    const abs = await resolveSafe(env.worktreePath, rel);
+    const abs = await resolveAccess(env, rel);
     const st = await statSafe(abs);
     if (!st) return `错误：文件不存在：${rel}`;
 
@@ -217,7 +244,7 @@ registerAgentTool({
   source: "builtin",
   readonly: true,
   async execute(env, args) {
-    const base = args.dir ? await resolveSafe(env.worktreePath, String(args.dir)) : env.worktreePath;
+    const base = args.dir ? await resolveAccess(env, String(args.dir)) : env.worktreePath;
     const skip = new Set([".git", "node_modules", "dist", "target", "bin", "obj"]);
     const out: string[] = [];
     // 异步迭代目录（async IO，F1.3），深度上限 8
@@ -291,7 +318,7 @@ registerAgentTool({
   async execute(env, args) {
     const pattern = String(args.pattern);
     const max = Math.min(Number(args.maxResults ?? 100), 200);
-    const dirAbs = args.dir ? await resolveSafe(env.worktreePath, String(args.dir)) : env.worktreePath;
+    const dirAbs = args.dir ? await resolveAccess(env, String(args.dir)) : env.worktreePath;
     const cap = (s: string) => (s.length > 400 ? s.slice(0, 400) + "…" : s);
 
     if (await hasRipgrep()) {
@@ -321,7 +348,7 @@ registerAgentTool({
 // ================ 写面（F3） ================
 
 async function guardWritable(env: ToolEnv, rel: string): Promise<string | null> {
-  const abs = await resolveSafe(env.worktreePath, rel);
+  const abs = await resolveAccess(env, rel);
   const st = await statSafe(abs);
   if (st && st.size > 2 * 1024 * 1024) return `错误：目标文件超过 2MB 护栏（${st.size} 字节），拒绝写入。`;
   return null;
@@ -350,7 +377,7 @@ registerAgentTool({
     const rel = normRel(String(args.path));
     const g = await guardWritable(env, rel);
     if (g) return g;
-    const abs = await resolveSafe(env.worktreePath, rel);
+    const abs = await resolveAccess(env, rel);
     const existed = await statSafe(abs);
     let oldText: string | null = null;
     if (existed) {
@@ -386,7 +413,7 @@ registerAgentTool({
   source: "builtin",
   async execute(env, args) {
     const rel = normRel(String(args.path));
-    const abs = await resolveSafe(env.worktreePath, rel);
+    const abs = await resolveAccess(env, rel);
     const st = await statSafe(abs);
     if (!st) return `错误：文件不存在：${rel}（新建文件请用 file_write）`;
     const g = await guardWritable(env, rel);
@@ -469,7 +496,7 @@ registerAgentTool({
   async execute(env, args) {
     const paths = (args.paths ?? []) as string[];
     const abs = [] as string[];
-    for (const p of paths) abs.push(await resolveSafe(env.worktreePath, p));
+    for (const p of paths) abs.push(await resolveAccess(env, p));
     await status.stageFiles(env.worktreePath, abs);
     return `已暂存 ${paths.length} 个文件`;
   },
@@ -571,7 +598,7 @@ registerAgentTool({
   async execute(env, args) {
     const command = String(args.command ?? "");
     const timeoutMs = Math.max(5000, Math.min(Number(args.timeoutMs ?? 120_000), 600_000));
-    const cwd = args.cwd ? await resolveSafe(env.worktreePath, String(args.cwd)) : env.worktreePath;
+    const cwd = args.cwd ? await resolveAccess(env, String(args.cwd)) : env.worktreePath;
 
     const run = (id: string | null): Promise<string> =>
       new Promise((resolve) => {

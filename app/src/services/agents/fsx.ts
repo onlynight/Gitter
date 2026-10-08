@@ -29,6 +29,17 @@ export async function resolveSafe(worktreePath: string, p: string): Promise<stri
   }
 }
 
+/** 放宽解析：仅 resolve + realpath，不做 worktree 边界校验。
+ * 只允许在用户对「工作区以外访问」显式授权后使用（resolveAccess 内部），不可直接作为工具默认路径。 */
+export async function resolveReal(worktreePath: string, p: string): Promise<string> {
+  const abs = path.resolve(worktreePath, p);
+  try {
+    return await fsp.realpath(abs);
+  } catch {
+    return abs; // 不存在（写入场景）
+  }
+}
+
 /** glob → regex：** 跨目录，* 单段，? 单字符。 */
 export function globToRegex(glob: string): RegExp {
   let re = "";

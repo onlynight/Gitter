@@ -370,10 +370,15 @@ export type AgentContextStatsDTO = {
   ratio: number;
   breakdown: { system: number; messages: number; reserved: number };
   compactions: number;
+  totalInput?: number;
+  totalOutput?: number;
+  lastOutput?: number;
+  tokPerSec?: number;
+  cacheHitRate?: number;
 };
 
 export type AgentPermissionPayloadDTO = {
-  kind: "command" | "git-stage" | "git-commit" | "git-push" | "mcp" | "plugin" | "restore";
+  kind: "command" | "git-stage" | "git-commit" | "git-push" | "mcp" | "plugin" | "restore" | "fs-outside";
   paths?: string[];
   diffStat?: string;
   risk?: "high" | "medium" | null;
