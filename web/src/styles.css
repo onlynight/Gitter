@@ -1004,7 +1004,7 @@ select.input {
   cursor: col-resize; touch-action: none; border-radius: 3px;
 }
 .term-doc-splitter::after {
-  content: ""; position: absolute; left: 2px; top: 14%; bottom: 14%; width: 2px; border-radius: 1px;
+  content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px; /* 通高：分割线指示条填满 */
   background: transparent; transition: background var(--dur-fast) var(--ease-std);
 }
 .term-doc-splitter:hover::after, .term-doc-splitter.dragging::after { background: var(--c-border-strong); }
