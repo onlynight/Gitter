@@ -1126,14 +1126,19 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         this.emit(record, { type: "log", level: "error", text: `消息序列校验失败（索引 ${seq.badIndex}），已自愈截断至 ${cut}` });
       }
 
+      // 用量明细修复：usage 只要有就记录——失败/中断轮同样消耗 token（限流重试的大头正在这里）。
+      // 原先仅 completed 记账，会话失败率高时 累计输入/输出/速度/缓存命中率 长期「—」
+      if (result.usage) {
+        this.deps.addUsage(rr.profileRef, result.usage);
+        live.sessionFile.usageHistory.push({ ts: new Date().toISOString(), input: result.usage.input, output: result.usage.output, elapsedMs: result.usage.elapsedMs, cacheRead: result.usage.cacheRead });
+      }
+
       if (result.outcome === "cancelled") {
         record.state = this.manualStop.has(record.taskId) ? "stopped" : "interrupted";
         this.manualStop.delete(record.taskId);
       } else if (result.outcome === "completed") {
         record.state = "awaiting-input";
         if (result.lastMessage) record.lastMessage = result.lastMessage;
-        this.deps.addUsage(rr.profileRef, result.usage);
-        live.sessionFile.usageHistory.push({ ts: new Date().toISOString(), input: result.usage?.input, output: result.usage?.output, elapsedMs: result.usage?.elapsedMs, cacheRead: result.usage?.cacheRead });
         if (this.deps.settings.current.agentsCheckpoint !== false) {
           try {
             const cp = await commitCheckpoint(record.worktreePath, {

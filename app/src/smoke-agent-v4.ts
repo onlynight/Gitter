@@ -252,6 +252,103 @@ async function main() {
     check("20.4 #8 未闭合调用检出+切点", !r1.ok && r1.cutIndex === 1, JSON.stringify(r1));
   }
 
+  // ---- 12. §22.8 数据链路：DeepSeek usage 方言归一（缓存命中率数据源修复）----
+  {
+    const { resolveProfileModel } = await import("./services/agents/provider");
+    const { streamText, generateText } = await import("ai");
+    const enc = new TextEncoder();
+    const sse = (chunks: string[]) =>
+      new Response(
+        new ReadableStream({
+          start(c) {
+            for (const s of chunks) c.enqueue(enc.encode(s));
+            c.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+
+    let capturedBody: Record<string, unknown> | null = null;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      if (init?.body && typeof init.body === "string") {
+        try { capturedBody = JSON.parse(init.body) as Record<string, unknown>; } catch { /* ignore */ }
+      }
+      return sse(["data: [DONE]\n\n"]);
+    }) as typeof fetch;
+    try {
+      // ① includeUsage 接线：流式请求带 stream_options.include_usage（否则 DeepSeek 流式不回 usage）
+      const rr = resolveProfileModel({ kind: "openai-compatible", baseURL: "https://api.deepseek.com/v1", modelId: "deepseek-chat", apiKey: "k" });
+      check("22.8 模型解析", rr.ok);
+      if (rr.ok) {
+        await streamText({ model: rr.model, messages: [{ role: "user", content: "hi" }] }).usage;
+        const body = capturedBody as { stream_options?: { include_usage?: boolean } } | null;
+        check(
+          "22.8 includeUsage 接线（stream_options 注入）",
+          body?.stream_options?.include_usage === true,
+          JSON.stringify(body?.stream_options),
+        );
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+      capturedBody = null;
+    }
+
+    // ② DeepSeek 方言 SSE → cacheRead 回填（真实 provider→SDK 转换链路；usage 在 chunk 顶层）
+    globalThis.fetch = (async () =>
+      sse([
+        `data: {"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"你好"},"finish_reason":null}]}\n\n`,
+        `data: {"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":10,"prompt_cache_hit_tokens":80,"total_tokens":110}}\n\n`,
+        "data: [DONE]\n\n",
+      ])) as typeof fetch;
+    try {
+      const rr = resolveProfileModel({ kind: "openai-compatible", baseURL: "https://api.deepseek.com/v1", modelId: "deepseek-chat", apiKey: "k" });
+      if (rr.ok) {
+        const usage = await streamText({ model: rr.model, messages: [{ role: "user", content: "hi" }] }).usage;
+        check("22.8 DeepSeek 流式 cacheRead 回填", usage.inputTokenDetails?.cacheReadTokens === 80, JSON.stringify(usage.inputTokenDetails));
+        check("22.8 inputTokens 总数不受影响", usage.inputTokens === 100, String(usage.inputTokens));
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+
+    // ③ OpenAI 形状透传不破坏（prompt_tokens_details 原样）
+    globalThis.fetch = (async () =>
+      sse([
+        `data: {"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":10,"prompt_tokens_details":{"cached_tokens":42},"total_tokens":110}}\n\n`,
+        "data: [DONE]\n\n",
+      ])) as typeof fetch;
+    try {
+      const rr = resolveProfileModel({ kind: "openai-compatible", baseURL: "https://api.openai.com/v1", modelId: "gpt-x", apiKey: "k" });
+      if (rr.ok) {
+        const usage = await streamText({ model: rr.model, messages: [{ role: "user", content: "hi" }] }).usage;
+        check("22.8 OpenAI 形状透传", usage.inputTokenDetails?.cacheReadTokens === 42, JSON.stringify(usage.inputTokenDetails));
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+
+    // ④ 非流式 JSON（压缩摘要 generateText 路径）
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "x", object: "chat.completion", created: 1, model: "m",
+          choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 100, completion_tokens: 10, prompt_cache_hit_tokens: 80, total_tokens: 110 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      const rr = resolveProfileModel({ kind: "openai-compatible", baseURL: "https://api.deepseek.com/v1", modelId: "deepseek-chat", apiKey: "k" });
+      if (rr.ok) {
+        const usage = (await generateText({ model: rr.model, prompt: "hi" })).usage;
+        check("22.8 DeepSeek 非流式 cacheRead 回填", usage.inputTokenDetails?.cacheReadTokens === 80, JSON.stringify(usage.inputTokenDetails));
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  }
+
   console.log(`\n${failures === 0 ? "全部通过 ✔" : `${failures} 项失败 ✘`}`);
   if (failures > 0) process.exit(1);
 }

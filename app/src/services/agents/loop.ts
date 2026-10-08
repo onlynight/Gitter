@@ -52,6 +52,8 @@ interface UsageShape {
   totalTokens?: number;
   input?: { tokens?: number };
   output?: { tokens?: number };
+  /** ai@7：缓存读在 inputTokenDetails.cacheReadTokens（旧版 SDK 是独立顶层字段） */
+  inputTokenDetails?: { cacheReadTokens?: number };
   cacheReadInputTokens?: number;
   cache_read_input_tokens?: number;
 }
@@ -61,7 +63,7 @@ function normalizeUsage(u: unknown): { input?: number; output?: number; cacheRea
   const s = u as UsageShape;
   const input = s.inputTokens ?? s.input?.tokens;
   const output = s.outputTokens ?? s.output?.tokens;
-  const cacheRead = s.cacheReadInputTokens ?? s.cache_read_input_tokens;
+  const cacheRead = s.inputTokenDetails?.cacheReadTokens ?? s.cacheReadInputTokens ?? s.cache_read_input_tokens;
   return input === undefined && output === undefined && cacheRead === undefined ? null : { input, output, cacheRead };
 }
 
@@ -100,6 +102,23 @@ function isRetryableError(message: string): boolean {
   );
 }
 
+/**
+ * 历史回写（P0 修复）：assistant/tool 消息追加回宿主数组。
+ * ai@7 的 StreamTextResult.response 不含 messages，正确出口是 responseMessages（自动消费流）。
+ * 实测语义：中途出错/中断仍 resolve 出已完成步的消息，仅首步失败（无步可回写）才 reject。
+ */
+async function writebackMessages(messages: ModelMessage[], result: { responseMessages: PromiseLike<unknown> } | null): Promise<void> {
+  if (!result) return;
+  try {
+    const respMsgs = await result.responseMessages;
+    if (Array.isArray(respMsgs) && respMsgs.length > 0) {
+      messages.push(...(respMsgs as unknown as ModelMessage[]));
+    }
+  } catch {
+    /* 首步失败、无已完成步：无可回写 */
+  }
+}
+
 async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
   let finalText = "";
   let pending = "";
@@ -128,9 +147,11 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
   let attempt = 0;
   for (;;) {
     errorText = undefined;
+    // 迭代作用域持有引用：catch 的中断分支也要做 best-effort 回写
+    let result: ReturnType<typeof streamText> | null = null;
     try {
       const roundStartedAt = Date.now();
-      const result = streamText({
+      result = streamText({
         model: o.model,
         // §22.4 E5：思考深度指令归组装侧（composeSystemPrompt/composeSubagentPrompt），循环不再追加
         system: o.system,
@@ -217,17 +238,19 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
         }
       }
       flush(true);
-      usage = normalizeUsage(await result.usage);
-      if (usage) usage.elapsedMs = Date.now() - roundStartedAt;
-      // 历史回写（P0 修复）：assistant/tool 消息追加回宿主数组。
-      // ai@7 的 StreamTextResult.response 不含 messages，正确出口是 responseMessages（自动消费流）。
+      // 回写与 usage 读取各自独立成 try：失败轮 usage 恒 reject，异常上抛会跳过回写（限流场景上下文全丢）
+      await writebackMessages(o.messages, result);
       try {
-        const respMsgs = await result.responseMessages;
-        if (Array.isArray(respMsgs) && respMsgs.length > 0) {
-          o.messages.push(...(respMsgs as unknown as ModelMessage[]));
-        }
+        usage = normalizeUsage(await result.usage);
+        if (usage) usage.elapsedMs = Date.now() - roundStartedAt;
       } catch {
-        /* 中断/流异常：已完成步的回写尽力而为 */
+        /* 失败/中断轮无 usage 数据（限流重试耗尽等） */
+      }
+      // 中断判定不依赖 usage 是否 reject：挂起流被 abort 后 fullStream 正常收尾、流中无 error part，
+      // 必须显式检查信号，否则误判为 completed
+      if (o.signal.aborted) {
+        o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
+        return { outcome: "cancelled", lastMessage: finalText.trim() || null, usage, error: "已中断" };
       }
       if (errorText) {
         const retryable = isRetryableError(errorText);
@@ -254,6 +277,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
       flush(true);
       const err = e as Error;
       if (err.name === "AbortError" || o.signal.aborted) {
+        await writebackMessages(o.messages, result);
         o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
         return { outcome: "cancelled", lastMessage: finalText.trim() || null, usage, error: "已中断" };
       }
@@ -269,6 +293,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
         continue;
       }
       o.onEvent({ type: "log", level: "error", text: `循环异常：${err.message}` });
+      o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
       return { outcome: "failed", lastMessage: finalText.trim() || null, usage, error: err.message };
     }
   }

@@ -388,6 +388,8 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 }
 .comp-pop.open { opacity: 1; transform: none; visibility: visible; pointer-events: auto; transition: opacity var(--dur-fast) var(--ease-std), transform 200ms var(--ease-std); }
 .comp-pop.right { right: 0; left: auto; transform-origin: bottom right; }
+/* 加宽变体（+ 附件/命令面板）：默认 190/320px 的 2 倍，容纳更多内容与多语言文案不换行；窄窗口下按视口收缩 */
+.comp-pop.wide { min-width: 380px; max-width: min(640px, calc(100vw - 32px)); }
 .comp-pop-head { padding: 5px 9px 6px; font-size: 10.5px; color: var(--c-text3); text-transform: uppercase; letter-spacing: .04em; }
 .comp-opt {
   display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border-radius: 7px;

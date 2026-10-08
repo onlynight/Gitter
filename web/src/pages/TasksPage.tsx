@@ -443,6 +443,8 @@ interface ModelGroupVM {
 function CompPopover(props: {
   open: boolean;
   anchor: "left" | "right";
+  /** 加宽变体（默认宽度的 2 倍）：内容多的面板用，如 + 附件/命令 */
+  wide?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -472,7 +474,7 @@ function CompPopover(props: {
     return () => { document.removeEventListener("mousedown", h); document.removeEventListener("keydown", k); };
   }, [props.open, props.onClose]);
   return (
-    <div ref={ref} className={"comp-pop" + (props.open ? " open" : "") + (props.anchor === "right" ? " right" : "")}
+    <div ref={ref} className={"comp-pop" + (props.open ? " open" : "") + (props.wide ? " wide" : "") + (props.anchor === "right" ? " right" : "")}
       style={{ maxHeight: maxH, overflowY: maxH !== undefined ? "auto" : undefined }} aria-hidden={!props.open}>
       {props.children}
     </div>
@@ -612,7 +614,7 @@ const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function Compose
             style={{ padding: "0 7px" }} onClick={() => toggle("plus")}>
             <TlIcon name="plus" size={14} />
           </button>
-          <CompPopover open={open === "plus"} anchor="left" onClose={() => setOpen("")}>
+          <CompPopover open={open === "plus"} wide anchor="left" onClose={() => setOpen("")}>
             <div className="comp-pop-head">附件</div>
             <div className="comp-opt" onClick={() => { props.onAttachImage(); setOpen(""); }}>
               <TlIcon name="file" size={13} color="var(--c-text2)" />
@@ -1358,12 +1360,14 @@ export function TasksPage() {
   })();
   const runningSubs = selectedTask ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length : 0;
 
+  // 切任务即复位：避免上一个任务的用量残留到新任务（轮询数据到达前短暂空窗，正确优于误导）
+  useEffect(() => { setStats(null); }, [selectedTask]);
   useEffect(() => {
     if (!selectedTask) return;
     let cancelled = false;
     const pull = () => {
       void call<AgentContextStatsDTO | null>("agent.context.stats", { taskId: selectedTask })
-        .then((s) => { if (!cancelled && s) setStats(s); })
+        .then((s) => { if (!cancelled) setStats(s); })
         .catch(() => {});
     };
     pull();
