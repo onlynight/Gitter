@@ -258,9 +258,10 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
     <div className="git-doc" onKeyDown={onKeyDown}>
       <div className="git-doc-inner">
         <div className="git-doc-head">
-          <button className={"tool-btn icon" + (tocOpen ? " on" : "")} aria-expanded={tocOpen} title={t("Terminal_DocToc")}
+          <button className="tool-btn icon" aria-expanded={tocOpen}
+            title={tocOpen ? t("Terminal_DocTocClose") : t("Terminal_DocToc")}
             onClick={() => (tocOpen ? setTocOpen(false) : openToc())}>
-            <span className="glyph">{"\uE700"}</span>
+            <span className="glyph">{tocOpen ? "\uE711" : "\uE700"}</span>
           </button>
           {docs.length > 1 ? (
             <Select

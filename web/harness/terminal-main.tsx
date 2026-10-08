@@ -90,6 +90,7 @@ const I18N: Record<string, string> = {
   Terminal_DocClosePanel: "关闭文档面板",
   Terminal_DocToc: "目录",
   Terminal_DocTocSearch: "搜索目录标题…",
+  Terminal_DocTocClose: "关闭目录",
   Terminal_DocTocEmpty: "无匹配章节",
   Terminal_DocTocEmptyHint: "换个关键字试试",
   Terminal_DocSections: "共 {0} 个章节",

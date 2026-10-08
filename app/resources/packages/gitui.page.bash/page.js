@@ -6458,11 +6458,11 @@ WARNING: This link could potentially be dangerous`)) {
           /* @__PURE__ */ jsxRuntime.jsx(
             "button",
             {
-              className: "tool-btn icon" + (tocOpen ? " on" : ""),
+              className: "tool-btn icon",
               "aria-expanded": tocOpen,
-              title: t$1("Terminal_DocToc"),
+              title: tocOpen ? t$1("Terminal_DocTocClose") : t$1("Terminal_DocToc"),
               onClick: () => tocOpen ? setTocOpen(false) : openToc(),
-              children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" })
+              children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: tocOpen ? "" : "" })
             }
           ),
           docs.length > 1 ? /* @__PURE__ */ jsxRuntime.jsx(

@@ -686,6 +686,7 @@ Terminal_EmptyHint	＋ open a new terminal	＋ 打开新终端
 Terminal_DocTitle	Git command handbook	Git 命令手册
 Terminal_DocClosePanel	Close documentation panel	关闭文档面板
 Terminal_DocToc	Table of contents	目录
+Terminal_DocTocClose	Close table of contents	关闭目录
 Terminal_DocTocSearch	Search headings…	搜索目录标题…
 Terminal_DocTocEmpty	No matching sections	无匹配章节
 Terminal_DocTocEmptyHint	Try another keyword	换个关键字试试
