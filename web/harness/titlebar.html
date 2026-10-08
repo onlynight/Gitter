@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>标题栏品牌位预览</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+  <style>
+    html, body { margin: 0; background: #0b0c0f; }
+    .frame { width: 960px; }
+    .frame + .frame { border-top: 1px solid #333; }
+    /* 仅预览用：把主题 token 直接钉在 frame 上（值取自 app/src/services/themes.ts BUILTIN） */
+    .theme-dark {
+      --c-base: #14161B; --c-hover: #FFFFFF14; --c-text: #EAEAEA; --c-text2: #A8B0BC; --c-text3: #78828E;
+      --c-border: #FFFFFF21; --c-border-strong: #FFFFFF40;
+    }
+    .theme-light {
+      --c-base: #F6F6F7; --c-hover: #0000000D; --c-text: #1F2127; --c-text2: #5A6270; --c-text3: #9AA2AE;
+      --c-border: #00000014; --c-border-strong: #00000038;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame theme-dark">
+    <div class="titlebar">
+      <button class="tb-hamburger" title="切换侧栏">☰</button>
+      <img class="tb-logo" src="/public/gitter-logo.svg" alt="Gitter" draggable="false" />
+      <span class="tb-title">Gitter — gitter</span>
+      <span class="tb-spacer"></span>
+      <button class="tb-palette">命令面板 <kbd>Ctrl+Shift+P</kbd></button>
+      <button class="tb-btn">─</button>
+      <button class="tb-btn">☐</button>
+      <button class="tb-btn close">✕</button>
+    </div>
+  </div>
+  <div class="frame theme-light">
+    <div class="titlebar">
+      <button class="tb-hamburger" title="切换侧栏">☰</button>
+      <img class="tb-logo" src="/public/gitter-logo.svg" alt="Gitter" draggable="false" />
+      <span class="tb-title">Gitter — gitter</span>
+      <span class="tb-spacer"></span>
+      <button class="tb-palette">命令面板 <kbd>Ctrl+Shift+P</kbd></button>
+      <button class="tb-btn">─</button>
+      <button class="tb-btn">☐</button>
+      <button class="tb-btn close">✕</button>
+    </div>
+  </div>
+</body>
+</html>
