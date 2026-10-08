@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.hello-command",
+  "name": "Hello Command",
+  "version": "1.0.0",
+  "description": "最小的 L1 数据包示例：命令 + 配置 + i18n + 模板插值 + when 表达式",
+  "apiVersion": 3,
+  "engines": { "gitter": ">=0.1.0" },
+  "contributes": {
+    "configuration": [
+      { "key": "greeting", "type": "string", "default": "hello", "title": "问候语" },
+      { "key": "verbose", "type": "boolean", "default": false, "title": "附带分支信息" }
+    ],
+    "commands": [
+      {
+        "id": "greet",
+        "title": "%cmd.greet%",
+        "category": "%cat%",
+        "when": "repoOpen",
+        "action": "terminal.run",
+        "args": { "command": "echo ${config.greeting} from ${repo.branch}" }
+      },
+      {
+        "id": "greet-verbose",
+        "title": "%cmd.greetVerbose%",
+        "when": "repoOpen config:verbose",
+        "action": "terminal.run",
+        "args": { "command": "git log -1 --oneline" },
+        "confirm": false
+      },
+      {
+        "id": "reveal-file",
+        "title": "在资源管理器中显示选中文件",
+        "when": "fileSelected",
+        "action": "shell.reveal",
+        "args": { "path": "${file.path}" }
+      }
+    ],
+    "menus": [
+      { "command": "reveal-file", "location": "changesFile", "order": 105 }
+    ],
+    "keybindings": [
+      { "command": "greet", "key": "Ctrl+Shift+H" }
+    ],
+    "emptyHints": [
+      { "slot": "changes.empty", "text": "%hint.empty%" }
+    ]
+  }
+}

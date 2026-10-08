@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.model-profile",
+  "name": "LM Studio 本地模型",
+  "version": "1.0.0",
+  "description": "L1 模型档案：OpenAI 兼容的本地推理端点（无需密钥）",
+  "engines": { "gitter": ">=0.1.0" },
+  "contributes": {
+    "models": [
+      {
+        "id": "lmstudio-7b",
+        "name": "LM Studio 本地",
+        "kind": "openai-compatible",
+        "baseURL": "http://127.0.0.1:1234/v1",
+        "modelId": "local-model",
+        "keyHint": null,
+        "params": { "temperature": 0.2 },
+        "capabilities": { "tools": true, "streaming": true, "contextTokens": 32768 },
+        "tags": ["local", "privacy"]
+      }
+    ]
+  }
+}

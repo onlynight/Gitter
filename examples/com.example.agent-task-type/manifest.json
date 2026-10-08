@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.agent-task-type",
+  "name": "Agent 任务型示例",
+  "version": "1.0.0",
+  "description": "L1 任务型：promptTemplate + 工具白名单 + 权限收紧（只能加严不能放宽）",
+  "engines": { "gitter": ">=0.1.0" },
+  "contributes": {
+    "taskTypes": [
+      {
+        "id": "bugfix-lite",
+        "name": "轻量 Bug 修复",
+        "promptTemplate": "修复以下问题，改动范围保持在最小集合内：{input}",
+        "systemAddendum": "只改必要的文件，不重构、不改格式。改动前先用 repo_grep 定位。",
+        "tools": ["repo_status", "repo_diff", "repo_read_file", "repo_glob", "repo_grep", "file_patch"],
+        "maxSteps": 30
+      },
+      {
+        "id": "docs-only",
+        "name": "文档改动",
+        "promptTemplate": "更新文档：{input}",
+        "systemAddendum": "只允许修改 markdown 文档文件，不要改任何源码。",
+        "tools": ["repo_status", "repo_read_file", "repo_glob", "repo_grep", "file_write", "file_patch"],
+        "maxSteps": 40,
+        "permissionPolicy": {
+          "git_commit": "each-time"
+        }
+      },
+      {
+        "id": "readonly-audit",
+        "name": "只读审计",
+        "promptTemplate": "对当前仓库做只读审计，关注点：{input}",
+        "systemAddendum": "严禁修改任何文件。输出结论 + 证据（文件:行号）+ 未解决项。",
+        "tools": ["repo_status", "repo_log", "repo_diff", "repo_read_file", "repo_list_files", "repo_glob", "repo_grep"],
+        "maxSteps": 60
+      }
+    ],
+    "subagentPresets": [
+      {
+        "id": "audit-readonly",
+        "name": "审计子代理",
+        "description": "只读、零副作用的调研子任务",
+        "tools": ["repo_read_file", "repo_glob", "repo_grep", "repo_status", "repo_log"],
+        "readonly": true,
+        "addendum": "只读调研：不修改任何文件，产出结论 + 证据（文件:行号）。",
+        "timeoutMs": 300000
+      }
+    ]
+  }
+}

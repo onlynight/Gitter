@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.git-dashboard-page",
+  "name": "Git 仪表盘页",
+  "version": "1.0.0",
+  "description": "渲染层页面示例：新增独占槽位、RPC 权限域、GITTER_UI/GITTER_KIT 消费、事件订阅",
+  "engines": { "gitter": ">=0.1.0" },
+  "contributes": {
+    "pages": [
+      {
+        "id": "dashboard",
+        "slot": "dashboard",
+        "title": "%Nav_Dashboard%",
+        "entry": "page.js",
+        "icon": "📊",
+        "svg": "M2 3h12v1.5H2V3zm0 4.25h8.5v1.5H2v-1.5zM2 11.5h12V13H2v-1.5z",
+        "styles": ["page.css"],
+        "lazy": false,
+        "permissions": ["git.read", "git.write"]
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.agent-tool",
+  "name": "Agent 工具示例",
+  "version": "1.0.0",
+  "description": "L2 代码插件：ctx.registerAgentTool —— Agent 可调用的自定义工具（zod 参数、权限档、workDir 收窄）",
+  "entry": "main.js",
+  "engines": { "gitter": ">=0.1.0" },
+  "apiVersion": 3,
+  "contributes": {
+    "agentTools": [
+      { "id": "word-count", "description": "统计文本字数（纯计算，免询问）", "permission": "auto" },
+      { "id": "recent-commits", "description": "读取最近提交摘要", "permission": "auto" },
+      { "id": "open-link", "description": "用浏览器打开 URL", "permission": "each-time" }
+    ]
+  }
+}

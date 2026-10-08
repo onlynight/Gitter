@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.sandboxed-plugin",
+  "name": "沙箱插件示例",
+  "version": "1.0.0",
+  "description": "L3 隔离子进程：utility 沙箱 + 权限清单 + connectL3",
+  "entry": "main.js",
+  "entrySandbox": "utility",
+  "permissions": ["storage", "notify", "events", "git.read", "tools", "statusbar", "webview"],
+  "engines": { "gitter": ">=0.1.0" },
+  "apiVersion": 3
+}
