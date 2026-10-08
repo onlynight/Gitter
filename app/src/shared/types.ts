@@ -235,6 +235,9 @@ export interface AgentPermissionRuleDTO {
   createdAt: string;
 }
 
+/** 思考深度档位（任务级可覆盖档案默认值）。 */
+export type ThinkingLevel = "off" | "low" | "medium" | "high";
+
 /** 用户模型档案（settings.models[]；包模板实例化后也落在这里，同 fullId 遮蔽模板）。 */
 export interface UserModelProfileDTO {
   id: string; // 全限定：user/<slug> 或 <包id>/<模型id>（遮蔽模板）
@@ -245,8 +248,24 @@ export interface UserModelProfileDTO {
   /** safeStorage 密文 base64（keyRef 即档案 id） */
   apiKeyProtected: string | null;
   params?: { temperature?: number; maxOutputTokens?: number };
+  /** 默认思考深度（添加模型时配置，默认 medium；任务输入台可逐次覆盖） */
+  thinking?: ThinkingLevel;
   capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; /** D1 多模态：可接收图片输入 */ vision?: boolean };
   tags: string[];
+}
+
+/** models.discover 条目：/models 列表项原始形状（OpenAI 兼容 / Anthropic 均归一到此）。 */
+export interface ModelDiscoveryEntryDTO {
+  id: string;
+  name: string;
+  /** OpenAI v1/v2 原生模型卡的上下文窗口；null = 端点未提供 */
+  contextTokens: number | null;
+  /** 原生模型卡 image 类输入模态（v3 模型卡）；null = 端点未提供 */
+  image: boolean | null;
+  /** 命名启发式的视觉判定（无原生声明时供 UI 置灰/勾选参考） */
+  imageGuess: boolean;
+  /** 命名启发式的上下文提示（无原生声明时供 UI 回填参考） */
+  contextHint: number | null;
 }
 
 /** models.list RPC 条目：用户档案与包模板的合并视图。 */
@@ -262,11 +281,17 @@ export interface ModelProfileDTO {
   enabled: boolean;
   hasKey: boolean;
   keyHint: string | null;
-  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number };
+  /** 档案默认思考深度（未配置视为 medium） */
+  thinking?: ThinkingLevel;
+  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; vision?: boolean };
   tags: string[];
   isDefault: boolean;
   isFast: boolean;
   usage: { turns: number; inputTokens: number; outputTokens: number };
+  /** 分组 id（档案 id 去掉 `#成员` 后缀）。同一分组的多个模型共享名称/API URL/密钥。 */
+  groupId: string;
+  /** 分组成员明细（仅分组主条目携带，供设置页分组卡片与编辑回填）。 */
+  groupModels?: { modelId: string; vision: boolean; contextTokens?: number; thinking: ThinkingLevel }[];
 }
 
 /** agent.taskTypes.list RPC 条目。 */

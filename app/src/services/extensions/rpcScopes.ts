@@ -104,6 +104,7 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   // ---- ai.invoke ----
   "ai.generateCommitMessage": "ai.invoke", "ai.explain": "ai.invoke",
   "models.test": "ai.invoke", "models.save": "ai.invoke", "models.delete": "ai.invoke",
+  "models.discover": "ai.invoke",
   "models.setDefault": "ai.invoke", "models.setFast": "ai.invoke", "models.setKey": "ai.invoke",
 
   // ---- approval（可替人类放行 MCP 写操作——高危域） ----
