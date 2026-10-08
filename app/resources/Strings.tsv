@@ -682,6 +682,21 @@ Terminal_NewTabProfile	New tab from profile	选择配置文件新建
 Terminal_ProfileDefault	default	默认
 Terminal_CloseRunningConfirm	{name} is still running. Close this tab?	{name} 仍在运行，确定关闭该标签？
 Terminal_EmptyHint	＋ open a new terminal	＋ 打开新终端
+# 终端页 Git 命令文档面板（design/terminal-git-docs-mockup.html）
+Terminal_DocTitle	Git command handbook	Git 命令手册
+Terminal_DocClosePanel	Close documentation panel	关闭文档面板
+Terminal_DocToc	Table of contents	目录
+Terminal_DocTocSearch	Search headings…	搜索目录标题…
+Terminal_DocTocEmpty	No matching sections	无匹配章节
+Terminal_DocTocEmptyHint	Try another keyword	换个关键字试试
+Terminal_DocSections	{0} sections	{0} 个章节
+Terminal_DocSectionsHit	{0} / {1} sections	{0} / {1} 个章节
+Terminal_DocFind	Search in document	搜索文档内容
+Terminal_DocFindPlaceholder	Search document…	搜索文档内容…
+Terminal_DocFindPrev	Previous match (Shift+Enter)	上一个（Shift+Enter）
+Terminal_DocFindNext	Next match (Enter)	下一个（Enter）
+Terminal_DocFindClose	Close search (Esc)	关闭查找（Esc）
+Terminal_DocResize	Drag to resize · double-click to reset	拖动调整宽度 · 双击恢复默认
 Diff_BinaryFile	Binary file (not shown)	二进制文件（不显示）
 Diff_NoNewlineAtEof	No newline at end of file	文件末尾无换行符
 Settings_AppearanceSection	Appearance	外观
