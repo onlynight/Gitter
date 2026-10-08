@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Modal, Select, useContextMenu, SyncBar, useSyncProgress, Banner, type CtxMenuItem, type SelectOption } from "../kit";
+import { Modal, Select, ReflogDialog, useContextMenu, SyncBar, useSyncProgress, Banner, type CtxMenuItem, type SelectOption } from "../kit";
 import type { BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -29,6 +29,7 @@ export function BranchesPage() {
     | { kind: "deletePreview"; name: string; preview: DeletePreviewDTO | null }
     | { kind: "deleteRemote"; name: string }
     | { kind: "deleteTag"; name: string }
+    | { kind: "reflog"; name: string }
     | { kind: "merge"; source: string; target: string; noFf: boolean; message: string }
     | null
   >(null);
@@ -117,6 +118,7 @@ export function BranchesPage() {
     return [
       ...(isCurrent ? [] : [{ label: t("Branches_Checkout"), action: () => void run(async () => { await call("branches.checkout", { name }); return t("Branches_CheckedOut", name); }) }]),
       { label: t("Branches_Rename"), action: () => setDialog({ kind: "rename", oldName: name, newName: name }) },
+      { label: t("Reflog_View"), action: () => setDialog({ kind: "reflog", name }) },
       { sep: true, label: "", action: () => {} },
       { label: t("Branches_Merge"), action: () => setDialog({ kind: "merge", source: "refs/heads/" + name, target: state?.current ?? state?.local?.[0]?.name ?? "", noFf: false, message: "" }) },
       { label: t("Branches_Rebase"), action: () => void run(async () => { await call("branches.rebase", { name }); return t("Branches_Rebased", name); }) },
@@ -327,6 +329,15 @@ export function BranchesPage() {
         >
           <div>{t("Branches_DeleteRemoteWarning", dialog.name)}</div>
         </Modal>
+      )}
+      {dialog?.kind === "reflog" && (
+        <ReflogDialog
+          refName={dialog.name}
+          title={t("Reflog_Title", dialog.name)}
+          currentBranch={state?.current ?? null}
+          onChanged={() => void reload()}
+          onClose={() => setDialog(null)}
+        />
       )}
       {dialog?.kind === "deleteTag" && (
         <Modal

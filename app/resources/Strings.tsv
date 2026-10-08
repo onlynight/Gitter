@@ -526,6 +526,22 @@ Log_NoFiles	No changed files	没有变更文件
 Log_SelectCommitHint	Select a commit to view details	选择一个提交查看详情
 Log_CompareWithSelected	Set/unset as compare base	设为/取消比较基准
 Log_ResetToHere	Reset branch to here…	重置分支到此…
+Log_ResetTitle	Reset branch	重置分支
+Log_ResetConfirm	Reset	重置
+Log_ResetBranchInfo	Reset {0} to	将把 {0} 重置到
+Log_ResetMode_soft	Soft — keep changes staged	软重置——改动保留在暂存区
+Log_ResetMode_mixed	Mixed — keep changes unstaged	混合重置——改动保留在工作区
+Log_ResetMode_hard	Hard — discard all changes	硬重置——丢弃全部改动
+Log_ResetDesc_soft	Moves the branch pointer only; index and worktree untouched	只移动分支指针，暂存区与工作区不动
+Log_ResetDesc_mixed	Moves the pointer and resets the index; worktree changes are kept	移动指针并重置暂存区，工作区改动保留
+Log_ResetDesc_hard	Discards all uncommitted changes — irreversible	丢弃全部未提交改动——不可恢复
+Log_ResetHardWarning	Hard reset discards ALL uncommitted changes in the worktree.	硬重置将丢弃工作区全部未提交改动。
+Log_ResetPointerHint	Target branch is not checked out: only its pointer moves to this commit (worktree and current branch untouched).	目标分支未检出：仅移动该分支指针到目标提交（工作区与当前分支不受影响）。
+Log_ViewReflog	View reflog…	查看 reflog…
+Reflog_View	View reflog…	查看 reflog…
+Reflog_Title	Reflog · {0}	reflog · {0}
+Reflog_Empty	No reflog entries	暂无 reflog 记录
+Reflog_Hint	Newest first. Entries are kept for ~90 days.	最新在前。记录默认保留约 90 天。
 Log_ComparingWith	Comparing against {0}	正在对比基准 {0}
 Log_CopySha	Copy SHA	复制 SHA
 Log_CreateTag	Create tag…	创建 tag…

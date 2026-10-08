@@ -1601,6 +1601,7 @@
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
   const Select = K().Select;
+  const ReflogDialog = K().ReflogDialog;
   K().ScrollArea;
   const GAP_WINDOW_MS = 30 * 60 * 1e3;
   function groupSessions(commitsDesc) {
@@ -1685,6 +1686,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     const [compareBase, setCompareBase] = React$1.useState(null);
     const [resetTarget, setResetTarget] = React$1.useState(null);
     const [resetMode, setResetMode] = React$1.useState("mixed");
+    const [reflogBranch, setReflogBranch] = React$1.useState(null);
     const [tagTarget, setTagTarget] = React$1.useState(null);
     const [tagName, setTagName] = React$1.useState("");
     const [tagMessage, setTagMessage] = React$1.useState("");
@@ -1838,7 +1840,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     const doReset = async () => {
       if (!resetTarget) return;
       try {
-        await call("log.reset", { sha: resetTarget.sha, mode: resetMode });
+        await call("log.reset", { sha: resetTarget.sha, mode: resetMode, branch: branch || branches.current || void 0 });
         setError(null);
         setResetTarget(null);
         refreshCurrent();
@@ -1981,6 +1983,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
                       setTagMessage("");
                       setTagTarget(c);
                     } },
+                    { label: t("Log_ViewReflog"), action: () => setReflogBranch(branch || branches.current || "HEAD") },
                     {
                       label: t("Log_CompareWithSelected"),
                       action: () => setCompareBase((cur) => (cur == null ? void 0 : cur.sha) === c.sha ? null : c)
@@ -2058,11 +2061,12 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
           onConfirm: () => void doReset(),
           children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { userSelect: "text" }, children: [
             /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
-              t("Log_ResetBranchInfo", branches.current ?? "?"),
+              t("Log_ResetBranchInfo", branch || branches.current || "?"),
               " → ",
               /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: resetTarget.shortSha }),
               " ",
-              resetTarget.subject
+              resetTarget.subject,
+              branch && branch !== branches.current && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5, marginTop: 4 }, children: t("Log_ResetPointerHint") })
             ] }),
             ["soft", "mixed", "hard"].map((m) => /* @__PURE__ */ jsxRuntime.jsxs("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", marginTop: 8, cursor: "pointer" }, children: [
               /* @__PURE__ */ jsxRuntime.jsx(
@@ -2119,6 +2123,16 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
               }
             )
           ]
+        }
+      ),
+      reflogBranch && /* @__PURE__ */ jsxRuntime.jsx(
+        ReflogDialog,
+        {
+          refName: reflogBranch,
+          title: t("Reflog_Title", reflogBranch),
+          currentBranch: branches.current,
+          onChanged: () => refreshCurrent(),
+          onClose: () => setReflogBranch(null)
         }
       ),
       menuElement

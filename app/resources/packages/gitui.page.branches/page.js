@@ -53,6 +53,7 @@
   const PageErrorBoundary = K().PageErrorBoundary;
   K().NavIcon;
   const Select = K().Select;
+  const ReflogDialog = K().ReflogDialog;
   K().ScrollArea;
   const { call, t, openSettings } = pageSdk;
   const useApp = useAppState;
@@ -151,6 +152,7 @@
           return t("Branches_CheckedOut", name);
         }) }],
         { label: t("Branches_Rename"), action: () => setDialog({ kind: "rename", oldName: name, newName: name }) },
+        { label: t("Reflog_View"), action: () => setDialog({ kind: "reflog", name }) },
         { sep: true, label: "", action: () => {
         } },
         { label: t("Branches_Merge"), action: () => {
@@ -390,6 +392,16 @@
             setDialog(null);
           },
           children: /* @__PURE__ */ jsxRuntime.jsx("div", { children: t("Branches_DeleteRemoteWarning", dialog.name) })
+        }
+      ),
+      (dialog == null ? void 0 : dialog.kind) === "reflog" && /* @__PURE__ */ jsxRuntime.jsx(
+        ReflogDialog,
+        {
+          refName: dialog.name,
+          title: t("Reflog_Title", dialog.name),
+          currentBranch: (state == null ? void 0 : state.current) ?? null,
+          onChanged: () => void reload(),
+          onClose: () => setDialog(null)
         }
       ),
       (dialog == null ? void 0 : dialog.kind) === "deleteTag" && /* @__PURE__ */ jsxRuntime.jsx(

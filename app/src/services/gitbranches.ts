@@ -1,6 +1,6 @@
 import { git, tryGit, GitError } from "./gitexec";
 import { pullWithProgress, push as pushRaw, type SyncProgress } from "./gitstatus";
-import type { BranchesStateDTO, DeletePreviewDTO, TagItemDTO } from "../shared/types";
+import type { BranchesStateDTO, DeletePreviewDTO, ReflogEntryDTO, TagItemDTO } from "../shared/types";
 
 /** 分支+tag 列表（含 tip 主题，一次 for-each-ref 取回——对齐 GetBranchTipSubjects）。 */
 export async function getBranches(workDir: string): Promise<BranchesStateDTO> {
@@ -91,6 +91,35 @@ export async function deleteTag(workDir: string, name: string): Promise<void> {
 /** 在指定提交上创建 tag（message 非空时为附注 tag）。 */
 export async function createTag(workDir: string, name: string, sha: string, message?: string | null): Promise<void> {
   const args = ["tag", ...(message ? ["-m", message] : []), name, sha];
+  const r = await tryGit(workDir, args);
+  if (r.code !== 0) throw new GitError(args, r);
+}
+
+/** ref 名守卫：防 "-开头被当 flag" 与路径穿越；分支名/tag 名/HEAD 均合法。 */
+function guardRef(ref: string): string {
+  if (!/^[A-Za-z0-9._/@{}~-]+$/.test(ref) || ref.startsWith("-")) throw new Error(`非法引用: ${ref}`);
+  return ref;
+}
+
+/** 分支/引用的 reflog（最新在前，cap 条）。 */
+export async function listReflog(workDir: string, ref: string, limit = 100): Promise<ReflogEntryDTO[]> {
+  const safe = guardRef(ref);
+  const fmt = "%H%x09%h%x09%gd%x09%gs%x09%at";
+  const r = await tryGit(workDir, ["reflog", "show", safe, `--format=${fmt}`, "-n", String(limit)]);
+  if (r.code !== 0) throw new GitError(["reflog", "show", safe], r);
+  return r.stdout
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, shortSha, selector, subject, at] = line.split("\t");
+      return { sha, shortSha: shortSha ?? "", selector: selector ?? "", subject: subject ?? "", timestamp: Number(at) || 0 };
+    });
+}
+
+/** 强制移动分支指针到指定提交（git branch -f；分支在其它 worktree 检出时 git 自行拒绝）。 */
+export async function moveBranch(workDir: string, branch: string, sha: string): Promise<void> {
+  const safe = guardRef(branch);
+  const args = ["branch", "-f", safe, sha];
   const r = await tryGit(workDir, args);
   if (r.code !== 0) throw new GitError(args, r);
 }
