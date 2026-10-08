@@ -208,11 +208,14 @@ html[data-window-material="acrylic"] .select-pop {
 .select-trigger:hover { background-color: var(--c-hover); }
 .select-trigger:disabled { opacity: .5; cursor: default; }
 .select-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 表单内整行下拉（对话框用）：trigger 撑满 wrapper */
+.select-wrap.full { display: block; }
+.select-wrap.full .select-trigger { width: 100%; border: 1px solid var(--c-border-strong); }
 .select-pop {
   position: absolute; top: calc(100% + 6px); left: 0; width: max-content; max-width: 340px;
   z-index: 120; max-height: 260px; overflow-y: auto;
   background: var(--c-panel2, var(--c-panel)); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
-  padding: 4px; box-shadow: 0 12px 32px color-mix(in srgb, #000 45%, transparent);
+  padding: 4px; box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
 }
 .select-pop.up { top: auto; bottom: calc(100% + 6px); }
 .select-pop .select-opt {
