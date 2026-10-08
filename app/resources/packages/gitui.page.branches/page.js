@@ -90,25 +90,27 @@
     react.useEffect(() => {
       var _a3;
       if (((_a3 = app.routedCommand) == null ? void 0 : _a3.id) === "branches.create") {
-        setDialog({ kind: "create", name: "", startPoint: "HEAD", checkout: true });
+        setDialog({ kind: "create", name: "", startPoint: "HEAD", startPointTab: "branch", checkout: true });
       }
     }, [app.routedCommand]);
     const startPointOptions = () => {
       const cur = (state == null ? void 0 : state.current) ?? null;
       return [
-        { value: "HEAD", label: t("Branches_StartHead", cur ?? "HEAD") },
-        ...((state == null ? void 0 : state.local) ?? []).filter((b) => b.name !== cur).map((b) => ({ value: "refs/heads/" + b.name, label: b.name })),
-        ...((state == null ? void 0 : state.remote) ?? []).map((b) => ({ value: "refs/remotes/" + b.name, label: b.name })),
-        ...((state == null ? void 0 : state.tags) ?? []).map((tg) => ({ value: "refs/tags/" + tg.name, label: `${tg.name} (${t("Branches_TagSuffix")})` }))
+        // 钉住项：置顶、不受搜索过滤（默认起点永远可选）
+        { value: "HEAD", label: t("Branches_StartHead", cur ?? "HEAD"), tab: "branch", pinned: true, triggerBadge: "head", keywords: `head ${cur ?? ""}` },
+        ...((state == null ? void 0 : state.local) ?? []).filter((b) => b.name !== cur).map((b) => ({ value: "refs/heads/" + b.name, label: b.name, group: t("Branches_LocalGroup"), tab: "branch", triggerBadge: "branch" })),
+        ...((state == null ? void 0 : state.remote) ?? []).map((b) => ({ value: "refs/remotes/" + b.name, label: b.name, group: t("Branches_RemoteGroup"), tab: "branch", triggerBadge: "branch" })),
+        ...((state == null ? void 0 : state.tags) ?? []).map((tg) => ({ value: "refs/tags/" + tg.name, label: tg.name, group: t("Branches_TagGroup"), tab: "tag", badge: t("Branches_TagSuffix"), hint: tg.shortSha || void 0, triggerBadge: "tag" }))
       ];
     };
+    const startPointType = (v) => v.startsWith("refs/tags/") ? "tag" : "branch";
     const mergeSourceOptions = () => [
       ...((state == null ? void 0 : state.local) ?? []).map((b) => ({ value: "refs/heads/" + b.name, label: b.name })),
       ...((state == null ? void 0 : state.remote) ?? []).map((b) => ({ value: "refs/remotes/" + b.name, label: b.name }))
     ];
     const mergeTargetOptions = () => ((state == null ? void 0 : state.local) ?? []).map((b) => ({ value: b.name, label: b.name }));
     const tagMenu = (name) => [
-      { label: t("Branches_CreateBranchFromTag"), action: () => setDialog({ kind: "create", name: "", startPoint: "refs/tags/" + name, checkout: true }) },
+      { label: t("Branches_CreateBranchFromTag"), action: () => setDialog({ kind: "create", name: "", startPoint: "refs/tags/" + name, startPointTab: "tag", checkout: true }) },
       { sep: true, label: "", action: () => {
       } },
       { label: t("Branches_DeleteTag"), action: () => setDialog({ kind: "deleteTag", name }) }
@@ -223,7 +225,7 @@
     ));
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "toolbar", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Create"), onClick: () => setDialog({ kind: "create", name: "", startPoint: "HEAD", checkout: true }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Create"), onClick: () => setDialog({ kind: "create", name: "", startPoint: "HEAD", startPointTab: "branch", checkout: true }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow" }),
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Branches_Pull"), disabled: busy, onClick: () => void run(async () => {
           await call("branches.pull", { rebase: false });
@@ -275,7 +277,7 @@
         {
           title: t("Branches_CreateTitle"),
           confirmText: t("Common_Create"),
-          confirmDisabled: !dialog.name.trim(),
+          confirmDisabled: !dialog.name.trim() || !dialog.startPoint,
           onClose: () => setDialog(null),
           onConfirm: () => {
             const name = dialog.name.trim();
@@ -307,7 +309,18 @@
                   style: { width: "100%" },
                   value: dialog.startPoint,
                   options: startPointOptions(),
-                  onChange: (v) => setDialog({ ...dialog, startPoint: v })
+                  onChange: (v) => setDialog({ ...dialog, startPoint: v }),
+                  searchable: true,
+                  searchPlaceholder: t("Branches_SearchPlaceholder"),
+                  tabs: [{ key: "branch", label: t("Common_Branch") }, { key: "tag", label: t("Branches_TagGroup") }],
+                  activeTab: dialog.startPointTab,
+                  onTabChange: (key) => setDialog({
+                    ...dialog,
+                    startPointTab: key,
+                    // 切到没有选中值的类型：清空选择（创建钮置灰），不静默代选
+                    startPoint: startPointType(dialog.startPoint) === key ? dialog.startPoint : ""
+                  }),
+                  placeholder: t("Branches_StartPointPlaceholder")
                 }
               ),
               /* @__PURE__ */ jsxRuntime.jsxs("label", { style: { display: "flex", gap: 6, alignItems: "center" }, children: [

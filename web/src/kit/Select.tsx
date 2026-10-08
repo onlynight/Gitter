@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { t } from "../state/store";
 
 /**
  * 自绘下拉选择（与右键菜单 .ctxmenu 同视觉：panel2 实底 + 边框 + 阴影，磨砂材质下
@@ -6,10 +7,32 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
  * 磨砂窗口下无法做成实底/统一样式，故全部下拉一律使用本组件。
  * 触发器：无边框 + 右侧箭头 + hover 圆角底；弹层：键盘 ↑↓/Enter/Esc、外点关闭、
  * 选中项高亮并滚入视野、空间不足自动上翻。
+ *
+ * 可选扩展（创建分支起点选择器等大数据场景，ui-design create-branch-select）：
+ * - searchable：弹层顶部搜索框，关键字「包含」匹配（大小写不敏感，命中高亮），
+ *   pinned 项置顶且不受过滤；键盘搜索框内 ↑↓/Enter。
+ * - tabs + activeTab + onTabChange：type tab（如 分支/标签），选项用 option.tab 归属；
+ *   tab 标题实时显示各自命中数；打开弹层时自动定位到当前选中值所在 tab。
+ * - option.group：同组连续渲染为粘性组头（空组不渲染）；option.pinned 项不进分组头。
+ * - option.hint / option.badge：右侧短 SHA / 徽标；option.triggerBadge：触发器类型徽标。
  */
 export interface SelectOption<T extends string = string> {
   value: T;
   label: string;
+  /** 分组头（同组连续渲染为一组）；缺省 = 不进分组 */
+  group?: string;
+  /** 右侧 hint（短 SHA 等，等宽字体） */
+  hint?: string;
+  /** 右侧徽标文字（如 tag） */
+  badge?: string;
+  /** 钉住：置顶显示且不受搜索过滤（仅 searchable 时有意义） */
+  pinned?: boolean;
+  /** 搜索附加匹配串（如 HEAD 项带上当前分支名） */
+  keywords?: string;
+  /** 所属 type tab（props.tabs 存在时必填） */
+  tab?: string;
+  /** 触发器类型徽标（选中后显示在名称前） */
+  triggerBadge?: "tag" | "head" | "branch";
 }
 
 export function Select<T extends string = string>(props: {
@@ -20,12 +43,49 @@ export function Select<T extends string = string>(props: {
   className?: string;
   title?: string;
   disabled?: boolean;
+  /** 弹层顶部搜索框（关键字包含匹配） */
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  /** type tab 定义（option.tab 归属；命中数实时显示在 tab 上） */
+  tabs?: { key: string; label: string }[];
+  activeTab?: string;
+  onTabChange?: (key: string) => void;
+  /** 过滤后无匹配的空态文案 */
+  emptyText?: string;
+  /** value 无匹配选项时的触发器占位文案 */
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(-1);
   const [dropUp, setDropUp] = useState(false);
+  const [kw, setKw] = useState("");
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  const tabs = props.tabs;
+  const activeTab = tabs ? (props.activeTab ?? tabs[0]?.key) : undefined;
+
+  // ---- 过滤：tab 归属 + 关键字包含（pinned 豁免）----
+  const matches = (o: SelectOption<T>) => {
+    if (!kw) return true;
+    if (o.pinned) return true;
+    const hay = (o.label + " " + (o.keywords ?? "")).toLowerCase();
+    return hay.includes(kw.toLowerCase());
+  };
+  const tabItems = (key: string) => props.options.filter((o) => o.tab === key && matches(o));
+  const visible = tabs
+    ? tabItems(activeTab ?? "")
+    : props.options.filter(matches);
+
+  // ---- 高亮：首个大小写不敏感命中片段（HTML 转义后注入 mark）----
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const highlight = (label: string) => {
+    if (!kw) return esc(label);
+    const i = label.toLowerCase().indexOf(kw.toLowerCase());
+    if (i < 0) return esc(label);
+    return esc(label.slice(0, i)) + "<mark>" + esc(label.slice(i, i + kw.length)) + "</mark>" + esc(label.slice(i + kw.length));
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -38,23 +98,61 @@ export function Select<T extends string = string>(props: {
 
   useEffect(() => {
     if (!open) return;
-    const idx = props.options.findIndex((o) => o.value === props.value);
+    const idx = visible.findIndex((o) => o.value === props.value);
     setHi(idx);
     const el = wrapRef.current;
     if (el) {
       const rect = el.getBoundingClientRect();
-      setDropUp(window.innerHeight - rect.bottom < 264 && rect.top > 264);
+      setDropUp(window.innerHeight - rect.bottom < 320 && rect.top > 320);
     }
-    const list = listRef.current;
-    if (list && idx >= 0) (list.children[idx] as HTMLElement | undefined)?.scrollIntoView({ block: "nearest" });
+    // 可搜索弹层：打开即聚焦搜索框
+    if (props.searchable) searchRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const commit = (v: T) => { props.onChange(v); setOpen(false); setHi(-1); };
   const move = (d: number) => setHi((h) => {
-    const n = props.options.length;
+    const n = visible.length;
     return n === 0 ? h : (((h ?? 0) + d) % n + n) % n;
   });
+
+  // ---- 弹层列表渲染：pinned 置顶（不进组头）+ 分组 ----
+  const renderItems = () => {
+    let html = "";
+    for (const it of visible.filter((x) => x.pinned)) {
+      const sel = it.value === props.value;
+      html += itemHtml(it, sel);
+    }
+    let groups: { name: string; items: SelectOption<T>[] }[] = [];
+    for (const it of visible.filter((x) => !x.pinned)) {
+      const g = it.group;
+      if (!g) { html += itemHtml(it, it.value === props.value); continue; }
+      let bucket = groups.find((x) => x.name === g);
+      if (!bucket) { bucket = { name: g, items: [] }; groups.push(bucket); }
+      bucket.items.push(it);
+    }
+    for (const g of groups) {
+      html += `<div class="select-group">${g.name} <span style="font-weight:400">· ${g.items.length}</span></div>`;
+      for (const it of g.items) html += itemHtml(it, it.value === props.value);
+    }
+    if (visible.filter((x) => !x.pinned).length === 0 && visible.filter((x) => x.pinned).length === 0) {
+      html += `<div class="select-empty">${props.emptyText ?? t("Select_Empty")}</div>`;
+    } else if (visible.length === 0) {
+      // 只剩 pinned 项（分支 tab 搜索无命中）也要给空态提示
+      html += `<div class="select-empty">${props.emptyText ?? t("Select_Empty")}</div>`;
+    }
+    return { __html: html };
+  };
+
+  const itemHtml = (it: SelectOption<T>, sel: boolean) => {
+    const badge = it.badge ? `<span class="opt-badge">${esc(it.badge)}</span>` : "";
+    const hint = it.hint ? `<span class="opt-hint">${esc(it.hint)}</span>` : "";
+    return `<button type="button" data-v="${esc(it.value)}" role="option" aria-selected="${sel}" class="select-opt${sel ? " sel" : ""}${it === visible[hi] ? " hi" : ""}"><span class="select-opt-check">${sel ? "✓" : ""}</span><span class="select-opt-label">${highlight(it.label)}</span>${hint}${badge}</button>`;
+  };
+
+  // 触发器：当前值 → 选项；无匹配 → 占位文案
+  const current = props.options.find((o) => o.value === props.value);
+  const badgeText = current?.triggerBadge === "tag" ? "TAG" : current?.triggerBadge === "head" ? "HEAD" : current?.triggerBadge === "branch" ? t("Common_Branch") : "";
 
   return (
     <div
@@ -68,37 +166,85 @@ export function Select<T extends string = string>(props: {
         aria-expanded={open}
         title={props.title}
         disabled={props.disabled}
-        onClick={() => { if (!props.disabled) { setOpen(!open); setHi(-1); } }}
+        onClick={() => {
+          if (props.disabled) return;
+          const next = !open;
+          setOpen(next);
+          setHi(-1);
+          // 打开时 tab 跟随当前选中值所在类型
+          if (next && tabs && props.onTabChange) {
+            const cur = props.options.find((o) => o.value === props.value);
+            if (cur?.tab && cur.tab !== activeTab) props.onTabChange(cur.tab);
+          }
+          if (next && props.searchable) setKw("");
+        }}
         onKeyDown={(e) => {
           if (props.disabled) return;
           if (!open) {
-            if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(true); }
+            if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(true); setHi(-1); }
             return;
           }
+          if (props.searchable) return; // 可搜索弹层的键盘在搜索框内处理
           if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
           else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
-          else if (e.key === "Enter" && hi >= 0) { e.preventDefault(); commit(props.options[hi].value); }
+          else if (e.key === "Enter" && hi >= 0 && visible[hi]) { e.preventDefault(); commit(visible[hi].value); }
           else if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
         }}
       >
-        <span className="select-trigger-label">{props.options.find((o) => o.value === props.value)?.label ?? props.value}</span>
+        {current?.triggerBadge && badgeText ? (
+          <span className={"trigger-badge" + (current.triggerBadge === "tag" ? " tag" : "")}>{badgeText}</span>
+        ) : null}
+        <span className="select-trigger-label">
+          {current
+            ? open ? highlight(current.label) : esc(current.label)
+            : props.placeholder
+              ? <span className="placeholder">{props.placeholder}</span>
+              : props.value}
+        </span>
       </button>
       {open && (
         <div ref={listRef} className={"select-pop" + (dropUp ? " up" : "")} role="listbox">
-          {props.options.map((o, i) => (
-            <button
-              type="button"
-              key={o.value}
-              role="option"
-              aria-selected={o.value === props.value}
-              className={"select-opt" + (o.value === props.value ? " sel" : "") + (i === hi ? " hi" : "")}
-              onMouseEnter={() => setHi(i)}
-              onClick={() => commit(o.value)}
-            >
-              <span className="select-opt-check">{o.value === props.value ? "✓" : ""}</span>
-              <span className="select-opt-label">{o.label}</span>
-            </button>
-          ))}
+          {props.searchable && (
+            <div className="pop-search">
+              <input
+                ref={searchRef}
+                value={kw}
+                placeholder={props.searchPlaceholder ?? t("Select_SearchPlaceholder")}
+                onChange={(e) => { setKw(e.target.value); setHi(-1); }}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
+                  else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+                  else if (e.key === "Enter" && hi >= 0 && visible[hi]) { e.preventDefault(); commit(visible[hi].value); }
+                  else if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
+                }}
+              />
+            </div>
+          )}
+          {tabs && (
+            <div className="pop-tabs">
+              {tabs.map((tb) => {
+                const n = props.options.filter((o) => o.tab === tb.key && matches(o)).length;
+                return (
+                  <button
+                    type="button"
+                    key={tb.key}
+                    className={"pop-tab" + (tb.key === activeTab ? " active" : "")}
+                    onClick={() => { props.onTabChange?.(tb.key); setHi(-1); }}
+                  >
+                    {tb.label} <span className="cnt">{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div
+            className="pop-list"
+            onClick={(e) => {
+              const b = (e.target as HTMLElement).closest("[data-v]") as HTMLElement | null;
+              if (b) commit(b.dataset.v as T);
+            }}
+            dangerouslySetInnerHTML={renderItems()}
+          />
         </div>
       )}
     </div>

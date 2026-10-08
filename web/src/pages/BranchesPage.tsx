@@ -24,7 +24,7 @@ export function BranchesPage() {
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<{ kind: "local" | "remote" | "tag"; name: string } | null>(null);
   const [dialog, setDialog] = useState<
-    | { kind: "create"; name: string; startPoint: string; checkout: boolean }
+    | { kind: "create"; name: string; startPoint: string; startPointTab: "branch" | "tag"; checkout: boolean }
     | { kind: "rename"; oldName: string; newName: string }
     | { kind: "deletePreview"; name: string; preview: DeletePreviewDTO | null }
     | { kind: "deleteRemote"; name: string }
@@ -54,7 +54,7 @@ export function BranchesPage() {
   // 命令面板/菜单的 branches.create 路由到本页：打开创建对话框
   useEffect(() => {
     if (app.routedCommand?.id === "branches.create") {
-      setDialog({ kind: "create", name: "", startPoint: "HEAD", checkout: true });
+      setDialog({ kind: "create", name: "", startPoint: "HEAD", startPointTab: "branch", checkout: true });
     }
   }, [app.routedCommand]);
 
@@ -62,12 +62,16 @@ export function BranchesPage() {
   const startPointOptions = (): SelectOption[] => {
     const cur = state?.current ?? null;
     return [
-      { value: "HEAD", label: t("Branches_StartHead", cur ?? "HEAD") },
-      ...(state?.local ?? []).filter((b) => b.name !== cur).map((b) => ({ value: "refs/heads/" + b.name, label: b.name })),
-      ...(state?.remote ?? []).map((b) => ({ value: "refs/remotes/" + b.name, label: b.name })),
-      ...(state?.tags ?? []).map((tg) => ({ value: "refs/tags/" + tg.name, label: `${tg.name} (${t("Branches_TagSuffix")})` })),
+      // 钉住项：置顶、不受搜索过滤（默认起点永远可选）
+      { value: "HEAD", label: t("Branches_StartHead", cur ?? "HEAD"), tab: "branch", pinned: true, triggerBadge: "head" as const, keywords: `head ${cur ?? ""}` },
+      ...(state?.local ?? []).filter((b) => b.name !== cur).map((b) => ({ value: "refs/heads/" + b.name, label: b.name, group: t("Branches_LocalGroup"), tab: "branch", triggerBadge: "branch" as const })),
+      ...(state?.remote ?? []).map((b) => ({ value: "refs/remotes/" + b.name, label: b.name, group: t("Branches_RemoteGroup"), tab: "branch", triggerBadge: "branch" as const })),
+      ...(state?.tags ?? []).map((tg) => ({ value: "refs/tags/" + tg.name, label: tg.name, group: t("Branches_TagGroup"), tab: "tag", badge: t("Branches_TagSuffix"), hint: tg.shortSha || undefined, triggerBadge: "tag" as const })),
     ];
   };
+
+  /** 起点值的类型归属（HEAD/分支 → branch；refs/tags/ → tag） */
+  const startPointType = (v: string): "branch" | "tag" => (v.startsWith("refs/tags/") ? "tag" : "branch");
 
   const mergeSourceOptions = (): SelectOption[] => [
     ...(state?.local ?? []).map((b) => ({ value: "refs/heads/" + b.name, label: b.name })),
@@ -78,7 +82,7 @@ export function BranchesPage() {
   const mergeTargetOptions = (): SelectOption[] => (state?.local ?? []).map((b) => ({ value: b.name, label: b.name }));
 
   const tagMenu = (name: string): CtxMenuItem[] => [
-    { label: t("Branches_CreateBranchFromTag"), action: () => setDialog({ kind: "create", name: "", startPoint: "refs/tags/" + name, checkout: true }) },
+    { label: t("Branches_CreateBranchFromTag"), action: () => setDialog({ kind: "create", name: "", startPoint: "refs/tags/" + name, startPointTab: "tag", checkout: true }) },
     { sep: true, label: "", action: () => {} },
     { label: t("Branches_DeleteTag"), action: () => setDialog({ kind: "deleteTag", name }) },
   ];
@@ -179,7 +183,7 @@ export function BranchesPage() {
   return (
     <>
       <div className="toolbar">
-        <button className="tool-btn icon" data-tip={t("Branches_Create")} onClick={() => setDialog({ kind: "create", name: "", startPoint: "HEAD", checkout: true })}>
+        <button className="tool-btn icon" data-tip={t("Branches_Create")} onClick={() => setDialog({ kind: "create", name: "", startPoint: "HEAD", startPointTab: "branch", checkout: true })}>
           <span className="glyph">{""}</span>
         </button>
         <span className="grow" />
@@ -241,7 +245,7 @@ export function BranchesPage() {
         <Modal
           title={t("Branches_CreateTitle")}
           confirmText={t("Common_Create")}
-          confirmDisabled={!dialog.name.trim()}
+          confirmDisabled={!dialog.name.trim() || !dialog.startPoint}
           onClose={() => setDialog(null)}
           onConfirm={() => {
             const name = dialog.name.trim();
@@ -254,8 +258,21 @@ export function BranchesPage() {
             value={dialog.name} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={{ color: "var(--c-text3)", fontSize: 12 }}>{t("Branches_StartPoint")}</span>
-            <Select className="full" style={{ width: "100%" }} value={dialog.startPoint} options={startPointOptions()}
-              onChange={(v) => setDialog({ ...dialog, startPoint: v })} />
+            <Select
+              className="full" style={{ width: "100%" }}
+              value={dialog.startPoint} options={startPointOptions()}
+              onChange={(v) => setDialog({ ...dialog, startPoint: v })}
+              searchable searchPlaceholder={t("Branches_SearchPlaceholder")}
+              tabs={[{ key: "branch", label: t("Common_Branch") }, { key: "tag", label: t("Branches_TagGroup") }]}
+              activeTab={dialog.startPointTab}
+              onTabChange={(key) => setDialog({
+                ...dialog,
+                startPointTab: key as "branch" | "tag",
+                // 切到没有选中值的类型：清空选择（创建钮置灰），不静默代选
+                startPoint: startPointType(dialog.startPoint) === key ? dialog.startPoint : "",
+              })}
+              placeholder={t("Branches_StartPointPlaceholder")}
+            />
             <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
               <input type="checkbox" checked={dialog.checkout} onChange={(e) => setDialog({ ...dialog, checkout: e.target.checked })} />
               {t("Branches_CheckoutAfter")}

@@ -499,6 +499,9 @@ Common_Create	Create	创建
 Common_Delete	Delete	删除
 Common_Loading	Loading…	加载中…
 Common_Merge	Merge	合并
+Common_Branch	Branch	分支
+Select_SearchPlaceholder	Search (contains)	搜索（关键字包含）
+Select_Empty	No matches — switch tab or change keyword	无匹配项——切换 tab 或修改关键字
 Common_NoProjectSelected	No project selected	未选择项目
 Common_Rename	Rename	重命名
 Common_ToggleSidebar	Toggle sidebar	收起/展开侧边栏
@@ -617,8 +620,10 @@ Branches_DeleteTagTitle	Delete tag {0}	删除 tag {0}
 Branches_DeleteTagSafe	This deletes local tag {0} only. Commits and the remote are not affected.	只删除本地 tag {0}，提交与远程不受影响。
 Branches_DeletedTag	Tag deleted: {0}	已删除 tag：{0}
 Branches_StartPoint	Start point	起点
+Branches_SearchPlaceholder	Search: keyword contains	搜索：关键字包含匹配
 Branches_StartHead	Current HEAD ({0})	当前 HEAD（{0}）
 Branches_TagSuffix	tag	tag
+Branches_StartPointPlaceholder	Pick a start point…	请选择起点…
 Branches_CheckoutAfter	Checkout after creating	创建后检出
 Branches_CheckoutLocal	Checkout as local branch	检出为本地分支
 Branches_DeleteRemote	Delete remote branch…	删除远程分支…
