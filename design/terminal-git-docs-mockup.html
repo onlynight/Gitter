@@ -1700,7 +1700,7 @@ splitter.addEventListener("pointermove", (e) => {
   if (!fracDrag) return;
   const w = pageArea.clientWidth;
   if (!w) return;
-  fraction = clampFrac(fracDrag.startFrac + (e.clientX - fracDrag.startX) / w);
+  fraction = clampFrac(fracDrag.startFrac - (e.clientX - fracDrag.startX) / w); // 分割线跟手：鼠标左移 → 面板变宽
   applyFraction(false);
 });
 const endFracDrag = (e) => {

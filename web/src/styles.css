@@ -35,6 +35,8 @@
   }
   /* 豁免：侧边栏折叠/展开是功能性状态切换（宽度骤变无过渡会显得破碎），保留 300ms */
   .main { transition-duration: 300ms !important; }
+  /* 终端页文档面板：过渡承载空间语义（抽屉自汉堡侧滑出/查找条向下展开/分栏推移终端），同 .main 豁免 */
+  .git-doc-toc, .git-doc-find, .git-doc-scrim, .doc-panel { transition-duration: 250ms !important; }
 }
 
 /* 主题底色标记（store.applyThemeToDom 写 html[data-base]）→ 原生控件配色方案同步 */
@@ -995,6 +997,8 @@ select.input {
    文档钮开合 + 分隔条拖拽（默认 2/5，settings.terminalDocFraction 持久化）；
    .md-body 覆写仅限 .git-doc 内，不外溢 agent 时间线 ---- */
 .term-page-area { flex: 1; min-height: 0; display: flex; gap: 4px; }
+/* 分栏态：抵消 .term-wrap 右外边距（12px），分割线两侧各留 4px 视觉等距 */
+.term-page-area > .term-wrap { margin-right: 0; min-width: 0; } /* min-width 0：xterm fit 后内部带固定像素宽，自动最小尺寸会顶住不收缩、把文档面板挤没 */
 .term-doc-splitter {
   flex: 0 0 6px; align-self: stretch; margin: 4px 0 8px; position: relative;
   cursor: col-resize; touch-action: none; border-radius: 3px;
