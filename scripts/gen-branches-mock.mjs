@@ -19,6 +19,7 @@ const commits = [
   { sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0", shortSha: "a1b2c3d", subject: "feat: 分支页左右双栏", body: "", author: "wyndam", authorEmail: "w@x.co", authorDate: Math.floor(Date.now() / 1000) - 3600, committerDate: Math.floor(Date.now() / 1000) - 3600, parents: ["b0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9"], refs: [], assistedBy: [], sessionId: null, files: [] },
 ];
 
+const graphRows = [{"sha":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0","shortSha":"a1b2c3d","subject":"feat: 分支页左右双栏","author":"wyndam","timestamp":1791485941,"lane":0,"merges":[],"spawns":[],"slotAfter":[0],"refs":[{"name":"HEAD","isHead":true,"isTag":false},{"name":"main","isHead":false,"isTag":false}]},{"sha":"c8d9e0fa7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2","shortSha":"c8d9e0f","subject":"fix: dev 提交","author":"wyndam","timestamp":1791478741,"lane":1,"merges":[],"spawns":[],"slotAfter":[0,1],"refs":[{"name":"dev","isHead":false,"isTag":false}]},{"sha":"b0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a","shortSha":"b0a1b2c","subject":"feat: 起点 tab 选择器","author":"wyndam","timestamp":1791403141,"lane":0,"merges":[{"from":1,"to":0}],"spawns":[],"slotAfter":[0],"refs":[]},{"sha":"e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6","shortSha":"e7f8a9b","subject":"wip: 合并对话框","author":"wyndam","timestamp":1791316741,"lane":2,"merges":[],"spawns":[],"slotAfter":[0,2],"refs":[{"name":"feature/merge-ui","isHead":false,"isTag":false}]},{"sha":"897a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a","shortSha":"897a6b5","subject":"fix: release 包白屏","author":"wyndam","timestamp":1791057541,"lane":0,"merges":[{"from":2,"to":0}],"spawns":[],"slotAfter":[0],"refs":[{"name":"origin/main","isHead":false,"isTag":false},{"name":"v1.0.0","isHead":false,"isTag":true}]}];
 const reflogEntries = [
   { sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0", shortSha: "a1b2c3d", selector: "dev@{0}", subject: "commit: feat: 分支页左右双栏", timestamp: Math.floor(Date.now() / 1000) - 600 },
   { sha: "b0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9", shortSha: "b0a1b2c", selector: "dev@{1}", subject: "commit: fix: 合并对话框预选值", timestamp: Math.floor(Date.now() / 1000) - 86400 },
@@ -57,7 +58,11 @@ const invokeBody = `
       case 'repo.open': return ok({ workDir: 'D:/mock/repo', name: 'mock-repo' });
       case 'branches.state': return ok({
         workDir: 'D:/mock/repo', current: 'main',
-        local: [b('main', 'a1b2c3d', 'feat: 分支页左右双栏', true), b('dev', 'e4f5a6b', 'fix: dev 提交'), b('feature/merge-ui', 'b7c8d9e', 'wip')],
+        local: [
+          { name: 'main', shortSha: 'a1b2c3d', subject: 'feat: 分支页左右双栏', isHead: true, isRemote: false, ahead: 2, behind: null },
+          { name: 'dev', shortSha: 'e4f5a6b', subject: 'fix: dev 提交', isHead: false, isRemote: false, ahead: 2, behind: 1 },
+          { name: 'feature/merge-ui', shortSha: 'b7c8d9e', subject: 'wip', isHead: false, isRemote: false, ahead: 1, behind: null },
+        ],
         remote: [r('origin/main', 'a1b2c3d', 'feat'), r('origin/dev', 'e4f5a6b', 'fix')],
         tags: [tg('v1.0.0', '4d5e6f7', 'release 1.0.0')],
       });
@@ -66,6 +71,7 @@ const invokeBody = `
       case 'log.query': return ok({ commits: COMMITS_JSON, hasMore: false, total: 1 });
       case 'log.detail': return ok({ sha: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', subject: 'feat', author: 'wyndam', authorEmail: 'w@x.co', authorDate: 1, committerDate: 1, parents: [], body: '', files: [], refs: [] });
       case 'reflog.list': return ok(REFLOG_JSON);
+      case 'branch.graph': return ok({ rows: GRAPH_ROWS_JSON, hasMore: false });
       case 'changes.state': return ok({ changes: [], staged: [], unversioned: [], conflicts: [] });
       case 'branches.deletePreview': return ok({ forceRequired: true, lostCount: 2, lostSamples: [{ shortSha: 'c9d0e1f', subject: 'chore' }] });
       case 'branches.checkoutRemote': return ok('main');
@@ -79,6 +85,7 @@ const invokeBody = `
       default: return ok({});
     }`
   .replace("COMMITS_JSON", JSON.stringify(commits))
+  .replace("GRAPH_ROWS_JSON", JSON.stringify(graphRows))
   .replace("REFLOG_JSON", JSON.stringify(reflogEntries));
 
 const mockScript = `<script>

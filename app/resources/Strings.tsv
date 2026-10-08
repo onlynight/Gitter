@@ -636,6 +636,9 @@ Branches_Pushed	Pushed	已推送
 Branches_LocalGroup	Local	本地分支
 Branches_RemoteGroup	Remote	远程分支
 Branches_TagGroup	Tags	标签
+Branches_Graph	Branch graph	分支图
+Branches_LoadMore	Load more	加载更多
+Branches_AheadBehind	{0} ahead, {1} behind	领先 {0}，落后 {1}
 Branches_NoTags	No tags yet	暂无 tag
 Branches_CreateBranchFromTag	Create branch from this tag…	基于此 tag 创建分支…
 Branches_DeleteTag	Delete tag…	删除 tag…

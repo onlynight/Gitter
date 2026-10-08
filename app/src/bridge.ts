@@ -393,6 +393,8 @@ export class Bridge {
       branches.createTag(this.needRepo(), args.name, args.sha, args.message ?? null));
     R("reflog.list", (args: { ref: string; limit?: number }) =>
       branches.listReflog(this.needRepo(), args.ref, args.limit ?? 100));
+    R("branch.graph", (args: { limit?: number; skip?: number }) =>
+      branches.listGraph(this.needRepo(), args.limit ?? 300, args.skip ?? 0));
     R("branches.pull", (args: { rebase?: boolean }) => branches.pull(this.needRepo(), !!args?.rebase, this.syncProgress()));
     R("branches.push", () => branches.push(this.needRepo(), this.syncProgress()));
 

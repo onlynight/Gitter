@@ -111,6 +111,19 @@ body {
 /* 侧栏展开宽度由 JS 按最宽导航项动态更新 --sidebar-w（贴合内容 + 对称边距，上限 188 超出打点）；
  * 折叠态走 --sidebar-w-collapsed。展开/折叠动画即原有的 grid 列过渡 */
 
+/* ---- 分支图/徽章 ---- */
+.branch-graph-scroll { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.grow-row { position: absolute; left: 0; right: 0; height: 28px; display: flex; align-items: center; cursor: default; }
+.grow-row:hover { background: var(--c-hover); }
+.grow-row.sel { background: var(--c-selected); }
+.grow-row .grow-txt { position: absolute; right: 8px; display: flex; align-items: center; gap: 6px; }
+.grow-row .grow-sha { font-family: var(--mono); font-size: 11px; color: var(--c-text3); flex: none; }
+.grow-row .grow-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0; }
+.grow-row .badge.head { outline: 1px solid var(--c-chip-blue-fg); font-weight: 600; }
+.chip { font-size: 10px; padding: 0 6px; line-height: 15px; border-radius: 999px; flex: none; }
+.chip.ahead { background: var(--c-chip-green-bg); color: var(--c-chip-green-fg); }
+.chip.behind { background: rgba(240, 101, 90, .15); color: var(--c-red); }
+
 /* ---- 侧栏 ---- */
 .sidebar {
   background: var(--c-base); /* 与窗口底/边框同色：左缘无色差（模糊窗口下侧栏融入壳层） */

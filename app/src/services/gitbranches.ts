@@ -1,23 +1,26 @@
 import { git, tryGit, GitError } from "./gitexec";
 import { pullWithProgress, push as pushRaw, type SyncProgress } from "./gitstatus";
-import type { BranchesStateDTO, DeletePreviewDTO, ReflogEntryDTO, TagItemDTO } from "../shared/types";
+import type { BranchGraphDTO, BranchGraphRowDTO, BranchItemDTO, BranchesStateDTO, DeletePreviewDTO, ReflogEntryDTO, TagItemDTO } from "../shared/types";
 
-/** 分支+tag 列表（含 tip 主题，一次 for-each-ref 取回——对齐 GetBranchTipSubjects）。 */
+/** 分支+tag 列表（含 tip 主题，一次 for-each-ref 取回——对齐 GetBranchTipSubjects）。
+ * 本地分支附带 ahead/behind：有 upstream 用 %(upstream:track)，无 upstream 相对当前分支
+ * （rev-list --left-right --count，上限 30 个分支防刷子仓库拖慢刷新）。 */
 export async function getBranches(workDir: string): Promise<BranchesStateDTO> {
-  const fmt = "%(refname)%09%(objectname:short)%09%(subject)%09%(HEAD)";
+  const fmt = "%(refname)%09%(objectname:short)%09%(subject)%09%(HEAD)%09%(upstream:track)";
   const [localOut, remoteOut, tagsOut, headOut] = await Promise.all([
     git(workDir, ["for-each-ref", `--format=${fmt}`, "refs/heads"]),
     tryGit(workDir, ["for-each-ref", `--format=${fmt}`, "refs/remotes", "--exclude=refs/remotes/*/HEAD"]),
     tryGit(workDir, ["for-each-ref", "--format=%(refname:short)%09%(objectname:short)%09%(subject)", "--sort=refname", "refs/tags"]),
     tryGit(workDir, ["branch", "--show-current"]),
   ]);
+  const current = headOut.stdout.trim() || null;
 
-  const parse = (out: string, isRemote: boolean) =>
+  const parse = (out: string, isRemote: boolean, withTrack: boolean): (BranchItemDTO & { refname: string; track: string })[] =>
     out
       .split(/\r?\n/)
       .filter(Boolean)
       .map((line) => {
-        const [refname, shortSha, subject, head] = line.split("\t");
+        const [refname, shortSha, subject, head, track] = line.split("\t");
         return {
           // 远端名剥前缀：origin/main → origin/main（v1 保留全短名，仅去 refs/remotes/）
           name: isRemote ? refname.replace(/^refs\/remotes\//, "") : refname.replace(/^refs\/heads\//, ""),
@@ -25,8 +28,35 @@ export async function getBranches(workDir: string): Promise<BranchesStateDTO> {
           subject: subject ?? "",
           isHead: head === "*",
           isRemote,
+          refname,
+          track: (withTrack ? (track ?? "").trim() : ""),
         };
       });
+
+  const local = parse(localOut, false, true);
+  const remote = parse(remoteOut.stdout, true, false);
+
+  // 本地分支 ahead/behind：有 upstream 用 %(upstream:track)；无 upstream 相对当前分支
+  // （rev-list --left-right --count，上限 30 个分支防超多分支仓库拖慢刷新）
+  const need: BranchItemDTO[] = [];
+  for (const b of local) {
+    const track = b.track.replace(/^\[|\]$/g, "");
+    if (track && track !== "gone") {
+      const ahead = /ahead (\d+)/.exec(track)?.[1];
+      const behind = /behind (\d+)/.exec(track)?.[1];
+      if (ahead) b.ahead = Number(ahead);
+      if (behind) b.behind = Number(behind);
+    } else if (current && b.name !== current) {
+      need.push(b);
+    }
+  }
+  await Promise.all(need.slice(0, 30).map(async (b) => {
+    const r = await tryGit(workDir, ["rev-list", "--left-right", "--count", `${current}...${b.name}`]);
+    if (r.code !== 0) return;
+    const [behind, ahead] = r.stdout.trim().split(/\s+/);
+    if (ahead) b.ahead = Number(ahead);
+    if (behind) b.behind = Number(behind);
+  }));
 
   const tags: TagItemDTO[] = tagsOut.stdout
     .split(/\r?\n/)
@@ -38,9 +68,9 @@ export async function getBranches(workDir: string): Promise<BranchesStateDTO> {
 
   return {
     workDir,
-    current: headOut.stdout.trim() || null,
-    local: parse(localOut, false),
-    remote: parse(remoteOut.stdout, true),
+    current,
+    local: local.map(({ refname: _r, track: _t, ...rest }) => { void _r; void _t; return rest; }),
+    remote: remote.map(({ refname: _r, track: _t, ...rest }) => { void _r; void _t; return rest; }),
     tags,
   };
 }
@@ -192,4 +222,56 @@ export async function pull(workDir: string, rebase: boolean, onProgress?: SyncPr
 export async function push(workDir: string, onProgress?: SyncProgress): Promise<void> {
   const r = await pushRaw(workDir, onProgress);
   if (r.code !== 0) throw new GitError(["push"], r);
+}
+
+/** 分支图（全部分支的提交泳道拓扑，date-order）。
+ * 泳道指派：经典 walk——槽位表记录每条泳道“期望的下一提交”，提交落到匹配槽位；
+ * 未匹配则新开泳道；首父占用原槽位、次父新开槽位（spawn）；其他槽位命中同一提交
+ * 记为并入（merge，画分叉/合并曲线）。返回行带 lane/merges/spawns/slotAfter，
+ * 前端按 id 稳定重放绘制（槽位索引可在行间平移，id 不变）。 */
+export async function listGraph(workDir: string, limit = 300, skip = 0): Promise<BranchGraphDTO> {
+  const cap = Math.min(Math.max(limit, 20), 1000);
+  const args = ["log", "--branches", "--remotes", "--date-order", `--skip=${skip}`, "-n", String(cap + 1),
+    "--pretty=format:%H%x09%h%x09%s%x09%an%x09%at%x09%P%x09%D"];
+  const r = await tryGit(workDir, args);
+  if (r.code !== 0) throw new GitError(args, r);
+  let lines = r.stdout.split(/\r?\n/).filter(Boolean);
+  const hasMore = lines.length > cap;
+  if (hasMore) lines = lines.slice(0, cap);
+
+  const slots: { sha: string | null; id: number }[] = [];
+  let nextId = 0;
+  const rows: BranchGraphRowDTO[] = [];
+  for (const line of lines) {
+    const [sha, shortSha, subject, author, at, parentsStr, decoRaw] = line.split('	');
+    const parents = (parentsStr ?? '').split(' ').filter(Boolean);
+    let li = slots.findIndex((s2) => s2.sha === sha);
+    const merges: { from: number; to: number }[] = [];
+    if (li < 0) { li = slots.length; slots.push({ sha, id: nextId++ }); }
+    else {
+      // 同提交的其他槽位 → 并入本槽位（从右往左收集；id 在移除前取，槽位索引会平移）
+      for (let j = slots.length - 1; j >= 0; j--) {
+        if (j !== li && slots[j].sha === sha) merges.unshift({ from: slots[j].id, to: slots[li].id });
+      }
+      for (const m of [...merges].sort((a, b) => b.from - a.from)) {
+        const idx = slots.findIndex((s2) => s2.id === m.from);
+        slots.splice(idx, 1);
+      }
+    }
+    const laneId = slots[li].id;
+    slots[li] = { sha: parents[0] ?? null, id: laneId };
+    const spawns: number[] = [];
+    for (const p of parents.slice(1)) { slots.push({ sha: p, id: nextId++ }); spawns.push(slots[slots.length - 1].id); }
+    const refs = (decoRaw ?? '').split(', ').filter(Boolean).map((d): { name: string; isTag: boolean; isHead: boolean } => {
+      if (d.startsWith('HEAD -> ')) return { name: d.slice(8), isTag: false, isHead: true };
+      if (d.startsWith('tag: ')) return { name: d.slice(5), isTag: true, isHead: false };
+      return { name: d, isTag: false, isHead: false };
+    });
+    rows.push({
+      sha, shortSha: shortSha ?? '', subject: subject ?? '', author: author ?? '',
+      timestamp: Number(at) || 0, lane: laneId, merges, spawns,
+      slotAfter: slots.map((s2) => s2.id), refs,
+    });
+  }
+  return { rows, hasMore };
 }
