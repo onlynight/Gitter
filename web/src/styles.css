@@ -211,6 +211,7 @@ html[data-window-material="acrylic"] .select-pop {
 /* 表单内整行下拉（对话框用）：trigger 撑满 wrapper */
 .select-wrap.full { display: block; }
 .select-wrap.full .select-trigger { width: 100%; border: 1px solid var(--c-border-strong); }
+.select-wrap.full .select-pop { width: 100%; max-width: none; }
 .select-pop {
   position: absolute; top: calc(100% + 6px); left: 0; width: max-content; max-width: 340px;
   z-index: 120; max-height: 260px; overflow-y: auto;
@@ -227,6 +228,41 @@ html[data-window-material="acrylic"] .select-pop {
 .select-pop .select-opt:hover, .select-pop .select-opt.hi { background: var(--c-hover); }
 .select-pop .select-opt.sel { font-weight: 600; }
 .select-pop .select-opt-check { width: 14px; flex: none; color: var(--c-text2); font-size: 11px; }
+/* ---- 可搜索/分组下拉（Select 扩展：创建分支起点选择器等） ---- */
+.select-pop .pop-search { position: relative; border-bottom: 1px solid var(--c-border-strong); }
+.select-pop .pop-search input {
+  width: 100%; height: 30px; padding: 0 10px 0 26px; font: inherit; font-size: 12px; color: var(--c-text);
+  background: var(--c-panel); border: none; border-radius: 0; outline: none;
+}
+.select-pop .pop-search input::placeholder { color: var(--c-text3); }
+.select-pop .pop-search::before { content: "⌕"; position: absolute; left: 9px; top: 6px; color: var(--c-text3); font-size: 13px; }
+.select-pop .pop-tabs { display: flex; gap: 2px; padding: 5px 6px 0; border-bottom: 1px solid var(--c-border); }
+.select-pop .pop-tab {
+  display: flex; align-items: center; gap: 6px; padding: 4px 12px 6px; font: inherit; font-size: 12px;
+  color: var(--c-text3); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer;
+}
+.select-pop .pop-tab:hover { color: var(--c-text2); }
+.select-pop .pop-tab.active { color: var(--c-text); font-weight: 600; border-bottom-color: var(--c-accent); }
+.select-pop .pop-tab .cnt { font-size: 10px; color: var(--c-text3); background: var(--c-hover); border-radius: 999px; padding: 0 6px; line-height: 15px; }
+.select-pop .pop-tab.active .cnt { background: var(--c-selected); color: var(--c-text2); }
+.select-pop .select-group {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; padding: 5px 8px 3px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .6px; color: var(--c-text3);
+  background: var(--c-panel2, var(--c-panel)); text-transform: uppercase;
+}
+.select-pop mark { background: color-mix(in srgb, var(--c-link) 30%, transparent); color: inherit; padding: 0 1px; border-radius: 2px; }
+.select-pop .opt-hint { margin-left: auto; flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--c-text3); }
+.select-pop .opt-badge {
+  margin-left: auto; flex: none; font-size: 10px; padding: 0 6px; line-height: 15px; border-radius: 999px;
+  background: var(--c-chip-purple-bg); color: var(--c-chip-purple-fg);
+}
+.select-pop .opt-hint + .opt-badge { margin-left: 6px; }
+.select-pop .select-empty { padding: 16px 10px; text-align: center; color: var(--c-text3); font-size: 12px; }
+.select-trigger .trigger-badge {
+  display: inline-block; margin-right: 6px; padding: 0 6px; font-size: 10px; line-height: 16px;
+  border-radius: 999px; vertical-align: 1px; background: var(--c-chip-blue-bg); color: var(--c-chip-blue-fg);
+}
+.select-trigger .trigger-badge.tag { background: var(--c-chip-purple-bg); color: var(--c-chip-purple-fg); }
 /* 磨砂材质下大分区容器透明：内容与边框同源同透（卡片式白底叠在彩色材质上会形成灰白色差）；
  * solid 主题不受影响（Base 实色下 --c-panel 卡片照常） */
 html[data-window-material="mica"] .split-pane,
