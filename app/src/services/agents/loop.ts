@@ -43,7 +43,7 @@ export interface LoopOptions {
 export interface LoopResult {
   outcome: "completed" | "failed" | "cancelled";
   lastMessage: string | null;
-  usage: { input?: number; output?: number } | null;
+  usage: { input?: number; output?: number; cacheRead?: number; elapsedMs?: number } | null;
   error?: string;
 }
 
@@ -53,14 +53,17 @@ interface UsageShape {
   totalTokens?: number;
   input?: { tokens?: number };
   output?: { tokens?: number };
+  cacheReadInputTokens?: number;
+  cache_read_input_tokens?: number;
 }
 
-function normalizeUsage(u: unknown): { input?: number; output?: number } | null {
+function normalizeUsage(u: unknown): { input?: number; output?: number; cacheRead?: number } | null {
   if (!u || typeof u !== "object") return null;
   const s = u as UsageShape;
   const input = s.inputTokens ?? s.input?.tokens;
   const output = s.outputTokens ?? s.output?.tokens;
-  return input === undefined && output === undefined ? null : { input, output };
+  const cacheRead = s.cacheReadInputTokens ?? s.cache_read_input_tokens;
+  return input === undefined && output === undefined && cacheRead === undefined ? null : { input, output, cacheRead };
 }
 
 // ---- 统一循环注册表（§14.3：内置自举 + ctx.registerLoop 转发 + 插件循环适配）----
@@ -102,7 +105,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
   let finalText = "";
   let pending = "";
   let lastFlush = 0;
-  let usage: { input?: number; output?: number } | null = null;
+  let usage: { input?: number; output?: number; cacheRead?: number; elapsedMs?: number } | null = null;
   let errorText: string | undefined;
   // toolCallId → start 信息（工具卡配对）
   const openCalls = new Map<string, { name: string; args: unknown; start: number; source?: string | null }>();
@@ -127,6 +130,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
   for (;;) {
     errorText = undefined;
     try {
+      const roundStartedAt = Date.now();
       const result = streamText({
         model: o.model,
         system: o.system + thinkingDirective(o.thinking),
@@ -214,6 +218,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
       }
       flush(true);
       usage = normalizeUsage(await result.usage);
+      if (usage) usage.elapsedMs = Date.now() - roundStartedAt;
       // 历史回写（P0 修复）：assistant/tool 消息追加回宿主数组。
       // ai@7 的 StreamTextResult.response 不含 messages，正确出口是 responseMessages（自动消费流）。
       try {

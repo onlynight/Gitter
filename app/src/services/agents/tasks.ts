@@ -34,6 +34,10 @@ export interface UsageEntry {
   ts: string;
   input?: number;
   output?: number;
+  /** 最近一轮流式耗时（speed = output / elapsedMs），旧会话文件无此字段 */
+  elapsedMs?: number;
+  /** 本轮命中缓存的输入 token 数（cache_hit_rate = cacheRead / input） */
+  cacheRead?: number;
 }
 
 export interface SessionFile {

@@ -56,7 +56,7 @@ export interface AgentSessionDeps {
   /** D5 任务完成 OS 通知（bridge 实现：窗口未聚焦时弹系统通知） */
   notifyTaskDone?: (task: { taskId: string; title: string; state: string; summary: string | null }) => void;
   /** D8 模型硬失败自动降级（§21.3.3）：挑一个 ≠ 失败档案的备用（default 优先，否则首个可用） */
-  alternateModel?: (excludeRef: string) =>
+  alternateModel?: (excludeRef: string, thinking?: ThinkingLevel) =>
     { ok: true; model: import("ai").LanguageModel; profileRef: string; contextWindow: number } | { ok: false; error: string };
 }
 
@@ -212,7 +212,10 @@ export class AgentSessionManager {
       if (resolve) {
         s.perms.delete(args.requestId);
         resolve(!!args.ok, !!args.remember);
-        if (s.record.state === "awaiting-permission") s.record.state = "working";
+        if (s.record.state === "awaiting-permission") {
+          s.record.state = "working";
+          this.deps.send("agent.tasks.changed", {});
+        }
         this.scheduleSave();
         return { ok: true };
       }
@@ -220,7 +223,10 @@ export class AgentSessionManager {
       if (q) {
         s.questions.delete(args.requestId);
         const answer = args.answer ?? (args.optionIndex !== undefined ? q.options[args.optionIndex] : undefined) ?? "";
-        if (s.record.state === "awaiting-input") s.record.state = "working";
+        if (s.record.state === "awaiting-input") {
+          s.record.state = "working";
+          this.deps.send("agent.tasks.changed", {});
+        }
         q.resolve(answer);
         this.scheduleSave();
         return { ok: true };
@@ -228,7 +234,10 @@ export class AgentSessionManager {
       const plan = s.plans.get(args.requestId);
       if (plan) {
         s.plans.delete(args.requestId);
-        if (s.record.state === "awaiting-input") s.record.state = "working";
+        if (s.record.state === "awaiting-input") {
+          s.record.state = "working";
+          this.deps.send("agent.tasks.changed", {});
+        }
         plan({ ok: !!args.ok, feedback: args.answer });
         this.scheduleSave();
         return { ok: true };
@@ -671,11 +680,33 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     const lines = mentioned.map((t) => {
       const todos = t.todoState ?? [];
       const prog = todos.length > 0 ? ` · todo ${todos.filter((x) => x.status === "completed").length}/${todos.length}` : "";
-      return `- 「${t.title}」（${t.state} · ${t.branch}${prog}）：${(t.lastMessage ?? "（无消息）").slice(0, 200)}`;
+      const todoLines = todos.length > 0
+        ? "\n   清单：" + todos.map((x) => `${x.status === "completed" ? "✔" : x.status === "in_progress" ? "▸" : "○"} ${x.content}`).join("；")
+        : "";
+      return `- 任务 ${t.taskId}「${t.title}」（${t.state} · ${t.branch}${prog}）：${(t.lastMessage ?? "（无消息）").slice(0, 300)}${todoLines}`;
     });
+    // 附执行过程尾部（最近消息摘要）：让 agent 能读到被引任务的实际内容与执行轨迹
+    for (const t of mentioned) {
+      try {
+        const sf = loadSessionFile(repo, t.taskId);
+        const texts = sf.messages.slice(-8).map((m) => {
+          const c = typeof m.content === "string"
+            ? m.content
+            : Array.isArray(m.content)
+              ? m.content.filter((p) => (p as { type?: string }).type === "text").map((p) => String((p as { text?: string }).text ?? "")).join(" ")
+              : "";
+          return `[${m.role}] ${c.replace(/\s+/g, " ").trim().slice(0, 400)}`;
+        }).filter((x) => x.length > 10);
+        if (texts.length > 0) {
+          lines.push(`  「${t.title}」最近执行过程（${texts.length} 条）：\n    ${texts.join("\n    ")}`);
+        }
+      } catch {
+        // 无会话文件（从未运行）——仅给摘要行
+      }
+    }
     return {
       prompt: replaced,
-      reminder: `用户引用了以下任务（跨任务上下文，仅供了解背景，不要修改这些任务）：\n${lines.join("\n")}`,
+      reminder: `用户引用了以下任务（跨任务上下文，仅供了解背景，不要修改这些任务）。以下是它们的摘要、清单与最近执行过程：\n${lines.join("\n")}`,
     };
   }
 
@@ -749,6 +780,20 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     });
   }
 
+  /** 手动检查点（/cp）：立即对当前工作区打一次 checkpoint 提交。 */
+  async createCheckpoint(args: { taskId: string; summary?: string }): Promise<{ sha: string | null; skipped: boolean }> {
+    const record = this.recordOf(args.taskId);
+    const summary = (args.summary ?? "手动检查点").replace(/\r?\n/g, " ").slice(0, 72);
+    const cp = await commitCheckpoint(record.worktreePath, {
+      summary,
+      assistedBy: "gitter-user",
+      sessionId: record.taskId,
+    });
+    if (cp.sha) this.emit(record, { type: "checkpoint", commitSha: cp.sha, summary });
+    else this.emit(record, { type: "log", level: "info", text: `checkpoint 跳过：${cp.reason ?? "无改动"}` });
+    return { sha: cp.sha, skipped: cp.skipped };
+  }
+
   /** 恢复（整点 reset --hard / 逐文件 checkout；UI 侧确认后调用）。 */
   async restore(args: { taskId: string; sha: string; path?: string }): Promise<{ ok: boolean }> {
     const record = this.recordOf(args.taskId);
@@ -765,12 +810,22 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     return { ok: true };
   }
 
-  /** 上下文用量（F7.6）。 */
+  /** 上下文用量（F7.6）。非活动任务从持久化会话文件估算，统计栏默认可见。 */
   contextStats(args: { taskId: string }): AgentContextStats | null {
     const live = this.live.get(args.taskId);
-    if (!live) return null;
-    const window = live.contextStats?.contextWindow ?? 128_000;
-    return this.computeStats(live, window);
+    if (live) {
+      const window = live.contextStats?.contextWindow ?? 128_000;
+      return this.computeStats(live.messages, live.systemEst, live.sessionFile, window);
+    }
+    const repo = this.repoOrNull();
+    if (!repo) return null;
+    const record = findTask(loadAgentTasks(repo), args.taskId);
+    if (!record) return null;
+    let session: SessionFile;
+    try { session = loadSessionFile(repo, args.taskId); } catch { session = emptySessionFile(args.taskId); }
+    const rr = record.modelRef ? this.deps.resolveModel(record.modelRef) : null;
+    const window = (rr && rr.ok ? rr.contextWindow : 0) || 128_000;
+    return this.computeStats(session.messages, 0, session, window);
   }
 
   /** 后台 shell 状态（F4 逃生舱联动：任务卡面板数据源）。 */
@@ -909,6 +964,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       record.lastActiveAt = new Date().toISOString();
       this.emit(record, { type: "status", phase: "thinking", summary: "组装上下文…" });
       this.deps.onBusEvent?.("agent.turn.started", { taskId: record.taskId, mode: record.permissionMode ?? "default" });
+      this.deps.send("agent.tasks.changed", {});
       this.scheduleSave();
 
       const rr = this.deps.resolveModel(live.forceModelRef ?? record.modelRef, record.thinking);
@@ -916,6 +972,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         record.state = "failed";
         record.lastMessage = rr.error;
         this.emit(record, { type: "completed", outcome: "failed", summary: rr.error });
+        this.deps.send("agent.tasks.changed", {});
         break;
       }
 
@@ -967,7 +1024,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           });
         }
       }
-      live.contextStats = this.computeStats(live, rr.contextWindow || 128_000);
+      live.contextStats = this.computeStats(live.messages, live.systemEst, live.sessionFile, rr.contextWindow || 128_000);
 
       const tt = live.taskType;
       const env: ToolEnv = {
@@ -1066,7 +1123,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         record.state = "awaiting-input";
         if (result.lastMessage) record.lastMessage = result.lastMessage;
         this.deps.addUsage(rr.profileRef, result.usage);
-        live.sessionFile.usageHistory.push({ ts: new Date().toISOString(), input: result.usage?.input, output: result.usage?.output });
+        live.sessionFile.usageHistory.push({ ts: new Date().toISOString(), input: result.usage?.input, output: result.usage?.output, elapsedMs: result.usage?.elapsedMs, cacheRead: result.usage?.cacheRead });
         if (this.deps.settings.current.agentsCheckpoint !== false) {
           try {
             const cp = await commitCheckpoint(record.worktreePath, {
@@ -1081,7 +1138,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         }
       } else {
         // D8 降级链（§21.3.3）：硬失败且本轮未降级过 → 切备用模型续跑一次（再失败按原样 failed）
-        const alt = !live.degradedOnce && this.deps.alternateModel ? this.deps.alternateModel(rr.profileRef) : null;
+        const alt = !live.degradedOnce && this.deps.alternateModel ? this.deps.alternateModel(rr.profileRef, record.thinking) : null;
         if (alt?.ok) {
           live.degradedOnce = true;
           live.forceModelRef = alt.profileRef;
@@ -1179,7 +1236,10 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
   private handleLoopEvent(record: AgentTaskRecord, ev: AgentSessionEvent): void {
     if (ev.type === "output" && ev.text.trim() && ev.stream === "assistant") record.lastMessage = ev.text;
     if (ev.type === "turn-completed" && ev.lastMessage) record.lastMessage = ev.lastMessage;
-    if (record.state === "starting") record.state = "working";
+    if (record.state === "starting") {
+      record.state = "working";
+      this.deps.send("agent.tasks.changed", {}); // 列表实时性：starting→working 广播（每个迁移只发一次，不随事件刷屏）
+    }
     if (ev.type === "tool" && ev.phase === "end") {
       // §14.7 只读广播：post 工具调用事件（pre-tool 拦截不开放）
       this.deps.onBusEvent?.("agent.tool.called", {
@@ -1194,16 +1254,25 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     this.emit(record, ev);
   }
 
-  private computeStats(live: LiveSession, contextWindow: number): AgentContextStats {
-    const estTokens = estimateMessagesTokens(live.messages) + live.systemEst;
+  private computeStats(messages: SessionFile["messages"], systemEst: number, sessionFile: SessionFile, contextWindow: number): AgentContextStats {
+    const estTokens = estimateMessagesTokens(messages) + systemEst;
     const budget = budgetOf(contextWindow);
+    const hist = sessionFile.usageHistory;
+    const last = hist.length > 0 ? hist[hist.length - 1] : undefined;
+    const totalInput = hist.reduce((a, e) => a + (e.input ?? 0), 0);
+    const totalOutput = hist.reduce((a, e) => a + (e.output ?? 0), 0);
     return {
       estTokens,
       contextWindow,
       budget,
       ratio: contextWindow > 0 ? Math.min(1, estTokens / budget) : 0,
-      breakdown: { system: live.systemEst, messages: estTokens - live.systemEst, reserved: contextWindow - budget },
-      compactions: live.sessionFile.compactions.length,
+      breakdown: { system: systemEst, messages: estTokens - systemEst, reserved: contextWindow - budget },
+      compactions: sessionFile.compactions.length,
+      totalInput: totalInput > 0 ? totalInput : undefined,
+      totalOutput: totalOutput > 0 ? totalOutput : undefined,
+      lastOutput: last?.output,
+      tokPerSec: last?.output && last.elapsedMs ? Math.max(1, Math.round(last.output / (last.elapsedMs / 1000))) : undefined,
+      cacheHitRate: last?.cacheRead != null && last.input ? Math.min(1, last.cacheRead / last.input) : undefined,
     };
   }
 
@@ -1227,6 +1296,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     }
     const requestId = randomUUID();
     record.state = "awaiting-permission";
+    this.deps.send("agent.tasks.changed", {});
     this.deps.onBusEvent?.("agent.permission.raised", { taskId: record.taskId, subtaskId: subtaskId ?? null, toolName, requestId, payload: req.payload ?? null });
     this.emit(record, {
       type: "permission",
@@ -1244,6 +1314,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       live.perms.set(requestId, (ok, remember) => {
         if (ok && remember && req.rememberable !== false) live.approved.add(toolName);
         record.state = "working";
+        this.deps.send("agent.tasks.changed", {});
         this.deps.onBusEvent?.("agent.permission.decided", { taskId: record.taskId, toolName, requestId, approved: ok, remembered: !!remember });
         resolve(ok);
       });
@@ -1259,6 +1330,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
   ): Promise<string> {
     const requestId = randomUUID();
     record.state = "awaiting-input";
+    this.deps.send("agent.tasks.changed", {});
     this.emit(record, { type: "question", question, options, requestId, subtaskId });
     this.scheduleSave();
     return new Promise<string>((resolve) => {
@@ -1274,6 +1346,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     live.planSubmittedThisTurn = true;
     const requestId = randomUUID();
     record.state = "awaiting-input";
+    this.deps.send("agent.tasks.changed", {});
     this.emit(record, { type: "plan", plan, requestId });
     this.scheduleSave();
     const decision = await new Promise<{ ok: boolean; feedback?: string }>((resolve) => {
