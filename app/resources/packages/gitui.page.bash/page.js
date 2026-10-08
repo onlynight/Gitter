@@ -6828,17 +6828,27 @@ WARNING: This link could potentially be dangerous`)) {
       void updateSettings({ terminalDocFraction: docFracRef.current });
     };
     react.useEffect(() => {
-      if (docFracDragging) return;
-      const t0 = termsRef.current.get(activeId ?? "");
-      if (!t0) return;
-      const id = requestAnimationFrame(() => {
+      if (!activeId) return;
+      const host = hostsRef.current.get(activeId);
+      const t2 = termsRef.current.get(activeId);
+      if (!host || !t2) return;
+      let lastCols = 0;
+      let lastRows = 0;
+      const ro = new ResizeObserver(() => {
         try {
-          t0.fit.fit();
+          t2.fit.fit();
+          const dims = t2.fit.proposeDimensions();
+          if (dims && (dims.cols !== lastCols || dims.rows !== lastRows)) {
+            lastCols = dims.cols;
+            lastRows = dims.rows;
+            void call("terminal.resize", { id: activeId, cols: dims.cols, rows: dims.rows });
+          }
         } catch {
         }
       });
-      return () => cancelAnimationFrame(id);
-    }, [docFracDragging, docOpen, activeId]);
+      ro.observe(host);
+      return () => ro.disconnect();
+    }, [activeId]);
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-page-area", ref: areaRef, children: [
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-wrap", ref: wrapRef, children: [

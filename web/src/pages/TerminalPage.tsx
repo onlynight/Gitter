@@ -280,16 +280,28 @@ export function TerminalPage() {
     void updateSettings({ terminalDocFraction: docFracRef.current });
   };
 
-  // 分栏拖拽 / 面板开合改变终端宽度后，重排当前 xterm
+  // 容器尺寸变化（窗口缩放/最大化全屏/分栏拖拽/面板开合）→ 重排 xterm 并同步 pty 尺寸
   useEffect(() => {
-    if (docFracDragging) return;
-    const t0 = termsRef.current.get(activeId ?? "");
-    if (!t0) return;
-    const id = requestAnimationFrame(() => {
-      try { t0.fit.fit(); } catch { /* 忽略 */ }
+    if (!activeId) return;
+    const host = hostsRef.current.get(activeId);
+    const t = termsRef.current.get(activeId);
+    if (!host || !t) return;
+    let lastCols = 0;
+    let lastRows = 0;
+    const ro = new ResizeObserver(() => {
+      try {
+        t.fit.fit();
+        const dims = t.fit.proposeDimensions();
+        if (dims && (dims.cols !== lastCols || dims.rows !== lastRows)) {
+          lastCols = dims.cols;
+          lastRows = dims.rows;
+          void call("terminal.resize", { id: activeId, cols: dims.cols, rows: dims.rows });
+        }
+      } catch { /* 忽略 */ }
     });
-    return () => cancelAnimationFrame(id);
-  }, [docFracDragging, docOpen, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
