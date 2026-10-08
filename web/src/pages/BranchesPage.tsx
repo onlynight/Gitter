@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Modal, useContextMenu, SyncBar, useSyncProgress, type CtxMenuItem } from "../kit";
+import { Modal, useContextMenu, SyncBar, useSyncProgress, Banner, type CtxMenuItem } from "../kit";
 import type { BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -19,6 +19,7 @@ export function BranchesPage() {
   const repo = app.repo;
   const [state, setState] = useState<BranchesStateDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [transient, setTransient] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<{ name: string; isRemote: boolean } | null>(null);
@@ -37,8 +38,10 @@ export function BranchesPage() {
     try {
       setState(await call<BranchesStateDTO>("branches.state"));
       setError(null);
+      setErrorDetail(null);
     } catch (e) {
       setError((e as Error).message);
+      setErrorDetail((e as { detail?: string }).detail ?? null);
     }
   }, [repo]);
 
@@ -53,6 +56,7 @@ export function BranchesPage() {
       await reload();
     } catch (e) {
       setError((e as Error).message);
+      setErrorDetail((e as { detail?: string }).detail ?? null);
     } finally {
       clearSyncProgress();
       setBusy(false);
@@ -80,6 +84,7 @@ export function BranchesPage() {
             setDialog({ kind: "deletePreview", name, preview });
           } catch (e) {
             setError((e as Error).message);
+            setErrorDetail((e as { detail?: string }).detail ?? null);
           }
         })() },
     ];
@@ -140,13 +145,14 @@ export function BranchesPage() {
       </div>
 
       {error && (
-        <div className="banner error">
-          <span className="banner-text">{error}</span>
-          {isNoUpstreamError(error) && (
-            <button className="tool-btn" onClick={() => openSettings("git")}>{t("Common_GoToSettings")}</button>
-          )}
-          <button className="tool-btn" onClick={() => setError(null)}>✕</button>
-        </div>
+        <Banner
+          text={error}
+          detail={errorDetail ?? undefined}
+          error
+          onCopyDetail={errorDetail ? () => navigator.clipboard.writeText(errorDetail) : undefined}
+          onClose={() => { setError(null); setErrorDetail(null); }}
+          actions={isNoUpstreamError(error) ? [{ label: t("Common_GoToSettings"), onClick: () => openSettings("git") }] : undefined}
+        />
       )}
       {transient && <div className="banner"><span className="banner-text">{transient}</span><button className="tool-btn" onClick={() => setTransient(null)}>✕</button></div>}
       {busy && <SyncBar progress={syncProgress} />}

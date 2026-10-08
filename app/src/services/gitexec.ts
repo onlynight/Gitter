@@ -8,13 +8,49 @@ export interface GitResult {
   stderr: string;
 }
 
+/** 归一化退出码：128 + 信号号（Node 在 SIGKILL 等被信号终止时 code 为 null）；无码视为 -1。 */
+function exitCode(code: number | null, signal: NodeJS.Signals | null): number {
+  if (code != null) return code;
+  return signal ? 128 + nodeSignals[signal] : -1;
+}
+
+const nodeSignals: Record<string, number> = {
+  SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6, SIGBUS: 7,
+  SIGFPE: 8, SIGKILL: 9, SIGUSR1: 10, SIGSEGV: 11, SIGUSR2: 12, SIGPIPE: 13,
+  SIGALRM: 14, SIGTERM: 15,
+};
+
+/**
+ * Git 失败的人类可读文本：取 git 的 error 行（可能多行，如 rebase 前的三段提示），
+ * 去掉行尾空白与 git 的换行续行符（error 输出常用 "line1\n line2" 软折行）。
+ */
+function gitErrorText(stderr: string): string {
+  const trimmed = stderr.trim();
+  if (!trimmed) return "";
+  const errorLines = trimmed
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\s+$/, ""))
+    .filter((l) => /^error:\s/i.test(l));
+  if (errorLines.length === 0) return trimmed.replace(/^[^\S\n]+/gm, "");
+  return errorLines.join(" ");
+}
+
 export class GitError extends Error {
+  /** git 完整输出（含非 error 行，如 remote: 输出）——供横幅 detail 展开/复制。 */
+  readonly detail?: string;
+
   constructor(
     public readonly args: string[],
     public readonly result: GitResult,
   ) {
-    super(result.stderr.trim().split(/\r?\n/).filter(Boolean).pop() ?? `git ${args[0]} failed (code ${result.code})`);
+    super(
+      gitErrorText(result.stderr) ||
+        [result.stdout, result.stderr].map((s) => s.trim()).filter(Boolean).join(" ") ||
+        `git ${args.join(" ")} failed (exit ${result.code})`,
+    );
     this.name = "GitError";
+    const all = [result.stderr, result.stdout].map((s) => s.trim()).filter(Boolean).join("\n");
+    if (all && all !== this.message) this.detail = all;
   }
 }
 
@@ -90,10 +126,10 @@ export async function tryGitStream(
       drainErr();
     });
     child.on("error", (err) => resolve({ code: -1, stdout: "", stderr: String(err) }));
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       drainErr();
       resolve({
-        code: code ?? -1,
+        code: exitCode(code, signal),
         stdout: Buffer.concat(outChunks).toString("utf8"),
         stderr: errBuf,
       });
@@ -145,9 +181,9 @@ function spawnOnce(exe: string, workDir: string, args: string[], input?: string)
       const enoent = (err as NodeJS.ErrnoException).code === "ENOENT";
       resolve({ code: -1, stdout: "", stderr: enoent ? "SPAWN_ENOENT" : String(err) });
     });
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       resolve({
-        code: code ?? -1,
+        code: exitCode(code, signal),
         stdout: Buffer.concat(outChunks).toString("utf8"),
         stderr: Buffer.concat(errChunks).toString("utf8"),
       });
