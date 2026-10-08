@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { call, isMaximized, onEvent, winAction } from "../bridge/client";
 import type { StatusItemDTO } from "../bridge/types";
 import { runCommand } from "../commands";
@@ -37,8 +37,32 @@ export function TitleBar() {
 
 export function Sidebar() {
   const { page, settings } = useApp();
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [, setPagesTick] = useState(0);
   useEffect(() => onUiPagesChanged(() => setPagesTick((x) => x + 1)), []);
+
+  // 展开宽度动态贴合内容（ui-branch-reflog 批）：宽度 = 最宽导航项内容 + 与左侧一致的边距
+  // （左：4px 外边距 + 10px 内边距 = 14px，右侧对称），上限 188px（:root 默认值，
+  // 超出上限由 .nav-label 打点截断）。折叠态测量仍准确——scrollWidth 取文本自然宽度。
+  // 每次渲染后重测（语言/页面包/字体变化都会经此收敛），图标字体晚到时由 fonts.ready 兜底。
+  // 注意：直接写 .main 内联 grid 列而非改 --sidebar-w 变量——Chromium 对「变量值变化 +
+  // grid-template-columns 过渡」存在失效（变量已新值、轨道恒滞后一步）；内联直写属直接
+  // 属性值变化，过渡动画正常。折叠态写 48px 与 --sidebar-w-collapsed 默认值一致。
+  useLayoutEffect(() => {
+    const measure = () => {
+      const root = rootRef.current;
+      if (!root) return;
+      let maxLabel = 0;
+      for (const el of root.querySelectorAll<HTMLElement>(".nav-label")) {
+        maxLabel = Math.max(maxLabel, el.scrollWidth, el.offsetWidth);
+      }
+      const extAllowance = root.querySelector(".nav-ext-x") ? 26 : 0; // 外部页行尾 ✕ 钮
+      const w = Math.min(188, Math.max(48, 16 + 10 + maxLabel + 20 + 8 + extAllowance));
+      root.style.width = root.classList.contains("collapsed") ? "48px" : `${w}px`;
+    };
+    measure();
+    document.fonts?.ready.then(measure).catch(() => {});
+  });
   // 槽位-提供者模型（ui-full-pluginization-plan.md R0-2）：侧栏展示各槽位的胜出提供者。
   // 主导航 = 有宿主内置提供者的槽位（被替换时原位显示替换者的图标/标题，来源标记进 tooltip）；
   // 追加区 = 无内置提供者的纯外部页（带 ✕ 跳扩展管理）。
@@ -79,7 +103,7 @@ export function Sidebar() {
     );
   };
   return (
-    <div className={"sidebar" + (collapsed ? " collapsed" : "")}>
+    <div ref={rootRef} className={"sidebar" + (collapsed ? " collapsed" : "")}>
       <div className="nav-top">{NAV.map(navButton)}</div>
       {/* 外部页区块（含上下分隔线）仅在有外部页时渲染——空区块双分隔线是视觉缺陷 */}
       {extNav.length > 0 && (
