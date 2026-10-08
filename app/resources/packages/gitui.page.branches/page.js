@@ -43,7 +43,7 @@
   K().renderSegments;
   K().wordDiff;
   K().SplitPane;
-  K().Banner;
+  const Banner = K().Banner;
   const Modal = K().Modal;
   const useContextMenu = K().useContextMenu;
   const SyncBar = K().SyncBar;
@@ -66,6 +66,7 @@
     const repo = app.repo;
     const [state, setState] = react.useState(null);
     const [error, setError] = react.useState(null);
+    const [errorDetail, setErrorDetail] = react.useState(null);
     const [transient, setTransient] = react.useState(null);
     const [busy, setBusy] = react.useState(false);
     const [selected, setSelected] = react.useState(null);
@@ -77,8 +78,10 @@
       try {
         setState(await call("branches.state"));
         setError(null);
+        setErrorDetail(null);
       } catch (e) {
         setError(e.message);
+        setErrorDetail(e.detail ?? null);
       }
     }, [repo]);
     react.useEffect(() => {
@@ -91,6 +94,7 @@
         await reload();
       } catch (e) {
         setError(e.message);
+        setErrorDetail(e.detail ?? null);
       } finally {
         clearSyncProgress();
         setBusy(false);
@@ -128,6 +132,7 @@
             setDialog({ kind: "deletePreview", name, preview });
           } catch (e) {
             setError(e.message);
+            setErrorDetail(e.detail ?? null);
           }
         })() }
       ];
@@ -187,11 +192,20 @@
           return t("Branches_Pushed");
         }), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
       ] }),
-      error && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner error", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: error }),
-        isNoUpstreamError(error) && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => openSettings("git"), children: t("Common_GoToSettings") }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setError(null), children: "✕" })
-      ] }),
+      error && /* @__PURE__ */ jsxRuntime.jsx(
+        Banner,
+        {
+          text: error,
+          detail: errorDetail ?? void 0,
+          error: true,
+          onCopyDetail: errorDetail ? () => navigator.clipboard.writeText(errorDetail) : void 0,
+          onClose: () => {
+            setError(null);
+            setErrorDetail(null);
+          },
+          actions: isNoUpstreamError(error) ? [{ label: t("Common_GoToSettings"), onClick: () => openSettings("git") }] : void 0
+        }
+      ),
       transient && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner", children: [
         /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: transient }),
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setTransient(null), children: "✕" })

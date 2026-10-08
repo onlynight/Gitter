@@ -220,10 +220,6 @@ export function classifyPushError(stderr: string): string {
   return "other";
 }
 
-export async function pull(workDir: string, rebase: boolean): Promise<void> {
-  await git(workDir, rebase ? ["pull", "--rebase"] : ["pull"]);
-}
-
 /** 同步操作进度回调：text = git 进度行，percent = 解析出的百分比（无则 null）。 */
 export type SyncProgress = (text: string, percent: number | null) => void;
 
@@ -239,10 +235,12 @@ async function syncOp(workDir: string, args: string[], onProgress?: SyncProgress
   return tryGitStream(workDir, args, (line: string) => onProgress(line.replace(/^remote:\s*/, ""), parsePercent(line)));
 }
 
+/** 推送（调用方判 code；失败分类见 classifyPushError）。 */
 export async function push(workDir: string, onProgress?: SyncProgress): Promise<GitResult> {
   return syncOp(workDir, ["push", "--progress"], onProgress);
 }
 
+/** 拉取：--progress + 可选 --rebase（返回 GitResult，调用方判 code）。 */
 export async function pullWithProgress(workDir: string, rebase: boolean, onProgress?: SyncProgress): Promise<GitResult> {
   return syncOp(workDir, ["pull", "--progress", ...(rebase ? ["--rebase"] : [])], onProgress);
 }
@@ -250,3 +248,4 @@ export async function pullWithProgress(workDir: string, rebase: boolean, onProgr
 export async function fetchAll(workDir: string, onProgress?: SyncProgress): Promise<GitResult> {
   return syncOp(workDir, ["fetch", "--all", "--progress"], onProgress);
 }
+

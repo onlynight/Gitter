@@ -1,7 +1,7 @@
 import { BrowserWindow, dialog, Notification, shell, safeStorage } from "electron";
 import * as fs from "fs";
 import * as path from "path";
-import { tryGit, looksLikeRepo } from "./services/gitexec";
+import { tryGit, looksLikeRepo, GitError } from "./services/gitexec";
 import { commitFilesWithCounts, fileDiff, getCommit, listBranches, queryLog } from "./services/gitlog";
 import * as status from "./services/gitstatus";
 import * as branches from "./services/gitbranches";
@@ -231,7 +231,7 @@ export class Bridge {
     } catch (e) {
       if (e instanceof BridgeError) return { ok: false, error: { message: e.message, detail: e.detail } };
       const err = e as Error;
-      const detail = (err as { stderr?: string }).stderr ?? (err as { detail?: string }).detail;
+      const detail = (err as { detail?: string }).detail ?? (err as { stderr?: string }).stderr;
       return { ok: false, error: { message: err.message, detail: typeof detail === "string" ? detail : undefined } };
     }
   }
@@ -340,12 +340,19 @@ export class Bridge {
       void this.shared.events.emit("sync.pushed", { repo: this.repo });
       return r;
     });
-    R("changes.pull", (args: { rebase?: boolean }) =>
-      status.pullWithProgress(this.needRepo(), !!args?.rebase, this.syncProgress()).then(() => {
-        void this.shared.events.emit("sync.pulled", { repo: this.repo });
-        return {};
-      }));
-    R("changes.fetch", () => status.fetchAll(this.needRepo(), this.syncProgress()).then(() => ({})));
+    // 拉取/抓取失败要抛：pullWithProgress/fetchAll 自身不抛（返回 GitResult），
+    // 吞掉非零退出会让按钮报"已拉取"且无任何提示（脏工作区时 git 返回 128）。
+    R("changes.pull", async (args: { rebase?: boolean }) => {
+      const r = await status.pullWithProgress(this.needRepo(), !!args?.rebase, this.syncProgress());
+      if (r.code !== 0) throw new GitError(["pull", "--progress"], r);
+      void this.shared.events.emit("sync.pulled", { repo: this.repo });
+      return {};
+    });
+    R("changes.fetch", async () => {
+      const r = await status.fetchAll(this.needRepo(), this.syncProgress());
+      if (r.code !== 0) throw new GitError(["fetch", "--all", "--progress"], r);
+      return {};
+    });
 
     // ---- 分支 ----
     R("branches.state", () => branches.getBranches(this.needRepo()));
