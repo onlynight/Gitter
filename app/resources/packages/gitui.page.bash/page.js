@@ -6179,14 +6179,333 @@ WARNING: This link could potentially be dangerous`)) {
     t: (key, ...args) => U().t(key, ...args),
     repo: () => U().repo(),
     settings: () => U().settings(),
-    theme: () => U().theme()
+    theme: () => U().theme(),
+    updateSettings: (patch) => U().updateSettings(patch)
   };
   function useAppState() {
     const g = U();
     return react.useSyncExternalStore(g.subscribeState, g.getState);
   }
-  const { call, on: onEvent, t, repo: repoOf, settings: settingsOf, theme: themeOf } = pageSdk;
+  const K = () => {
+    const k = window.GITTER_KIT;
+    if (!k) throw new Error("GITTER_KIT 未注入（外部页必须经宿主 pageLoader 装载）");
+    return k;
+  };
+  const React = K().React;
+  K().ReactDOM;
+  const ReactDOMClient = K().ReactDOMClient;
+  K().DiffView;
+  K().diffStatusLetter;
+  K().renderSegments;
+  K().wordDiff;
+  K().SplitPane;
+  K().Banner;
+  K().Modal;
+  K().useContextMenu;
+  K().SyncBar;
+  K().useSyncProgress;
+  const renderMarkdown = K().renderMarkdown;
+  K().registerMarkdownPlugin;
+  const PageErrorBoundary = K().PageErrorBoundary;
+  K().NavIcon;
+  K().Select;
+  K().ReflogDialog;
+  K().ScrollArea;
+  const docSource = '# Git 命令手册\n\n命令标题统一为「中文功能名 + 命令名」，每条命令包含**用途**、**常用参数**与**调用示例**；示例统一以 GitHub 仓库 `gitter-demo/todo-app` 为例。所有命令均可在终端页直接执行。\n\n## 一、配置与仓库初始化\n\n### 配置 git config\n设置用户信息、编辑器、别名等；`--global` 写用户级配置（~/.gitconfig），缺省只作用于当前仓库。\n\n| 参数 | 说明 |\n| --- | --- |\n| --global | 读写当前用户的全局配置 |\n| --local | 读写当前仓库配置（默认） |\n| --list | 列出配置项及其来源 |\n| alias.名 "命令" | 定义命令别名，如 alias.st "status -sb" |\n\n**示例**\n\n```bash\ngit config --global user.name "wyndam"\ngit config --global user.email "wyndam@example.com"\ngit config --global alias.st "status -sb"       # 别名：git st\ngit config --global init.defaultBranch main     # 新仓库默认主分支名\ngit config --list --global\n```\n\n### 初始化仓库 git init\n把当前目录初始化为 Git 仓库（生成 .git 目录）。\n\n| 参数 | 说明 |\n| --- | --- |\n| 目录 | 在指定目录新建仓库 |\n| -b 名 | 指定初始分支名 |\n| --bare | 创建不带工作区的裸仓库（服务端用） |\n\n**示例**\n\n```bash\ngit init todo-app          # 新建 todo-app 仓库并初始化\ngit init -b main           # 当前目录初始化，初始分支叫 main\n```\n\n### 下载远程仓库 git clone\n把 GitHub 等远端仓库完整复制到本地（自动配置 origin 远端并检出默认分支）。\n\n| 参数 | 说明 |\n| --- | --- |\n| url | 仓库地址（HTTPS / SSH / 本地路径） |\n| 目录 | 指定本地目录名 |\n| -b 分支 | 克隆后直接检出指定分支 |\n| --depth 1 | 浅克隆：只取最近一次提交 |\n| --recurse-submodules | 同时拉取并初始化子模块 |\n\n**示例**（HTTPS 与 SSH 两种写法）\n\n```bash\ngit clone https://github.com/gitter-demo/todo-app.git\ngit clone git@github.com:gitter-demo/todo-app.git          # SSH 协议\ngit clone -b dev --depth 1 https://github.com/gitter-demo/todo-app.git todo-app-dev\n```\n\n## 二、日常高频命令\n\n### 查看状态 git status\n查看工作区与暂存区状态——用得最多的命令。\n\n| 参数 | 说明 |\n| --- | --- |\n| -s | 短格式（两列状态码） |\n| -b | 附显示分支与领先/落后 |\n| --ignored | 额外列出被忽略的文件 |\n\n**示例**\n\n```bash\ngit status\ngit status -sb         # 分支信息 + 短格式\n```\n\n### 暂存改动 git add\n把改动加入暂存区，等待提交。\n\n| 参数 | 说明 |\n| --- | --- |\n| 文件… | 暂存指定文件 |\n| . / -A | 暂存全部改动（含删除、重命名） |\n| -p | 逐块（hunk）确认暂存 |\n| -u | 只暂存已跟踪文件的改动 |\n\n**示例**\n\n```bash\ngit add src/app.ts        # 暂存单个文件\ngit add .                 # 暂存当前目录全部改动\ngit add -p                # 交互式逐块暂存\n```\n\n### 提交 git commit\n把暂存区内容记录为一次新提交。\n\n| 参数 | 说明 |\n| --- | --- |\n| -m "说明" | 直接指定提交信息 |\n| -a | 自动暂存已跟踪文件改动后提交 |\n| --amend | 修补上一次提交（追加改动 / 改信息） |\n| --no-verify | 跳过 pre-commit 等钩子 |\n\n**示例**\n\n```bash\ngit commit -m "feat: add login page"\ngit commit -a -m "fix: typo in README"\ngit commit --amend -m "feat: add login page and validation"   # 修补上一提交\n```\n\n### 查看历史 git log\n查看提交历史。\n\n| 参数 | 说明 |\n| --- | --- |\n| --oneline | 单行显示（短 SHA + 标题） |\n| --graph | ASCII 拓扑图 |\n| -n | 只看最近 n 条 |\n| -p 文件 | 附带该文件的 diff |\n| --author / --since | 按作者 / 时间过滤 |\n\n**示例**\n\n```bash\ngit log --oneline --graph --all\ngit log -5\ngit log -p src/app.ts\ngit log --author="wyndam" --since="2026-01-01"\n```\n\n### 比较差异 git diff\n比较工作区、暂存区与提交之间的差异。\n\n| 参数 | 说明 |\n| --- | --- |\n| （无参） | 工作区 vs 暂存区 |\n| --staged | 暂存区 vs HEAD |\n| A..B | 两个提交 / 分支 / 标签之间 |\n| --stat | 只显示改动统计 |\n\n**示例**\n\n```bash\ngit diff\ngit diff --staged\ngit diff dev..main          # dev 与 main 的差异\ngit diff v1.0 v1.1 --stat\n```\n\n### 分支管理 git branch\n列出、创建、删除、重命名分支。\n\n| 参数 | 说明 |\n| --- | --- |\n| （无参） | 列出本地分支（* 为当前） |\n| -a | 含远程分支 |\n| -d / -D | 删除（已合并 / 强制） |\n| -m 新名 | 重命名当前分支 |\n\n**示例**\n\n```bash\ngit branch feature/login            # 创建分支\ngit branch -a\ngit branch -d feature/old\ngit branch -m main                  # 当前分支重命名为 main\n```\n\n### 切换与检出 git switch / git checkout\nswitch 专职切换分支（新语法）；checkout 兼负文件级恢复。\n\n| 参数 | 说明 |\n| --- | --- |\n| switch -c 名 | 新建并切换 |\n| switch - | 回到上一个分支 |\n| checkout 文件 | 丢弃该文件工作区改动 |\n| checkout 提交 -- 文件 | 恢复文件到指定提交版本 |\n\n**示例**\n\n```bash\ngit switch dev\ngit switch -c feature/login\ngit switch -\ngit checkout src/app.ts                   # 丢弃该文件未暂存改动\ngit checkout 9bb416d -- src/app.ts        # 恢复到指定提交的版本\n```\n\n### 合并分支 git merge\n把指定分支合并进当前分支。\n\n| 参数 | 说明 |\n| --- | --- |\n| --no-ff | 强制生成合并提交 |\n| --squash | 压缩为一次待提交改动 |\n| --abort | 冲突时放弃合并、回到合并前 |\n| --continue | 冲突解决后完成合并 |\n\n**示例**\n\n```bash\ngit switch main\ngit merge dev                    # 把 dev 合入 main\ngit merge --no-ff feature/login  # 保留合并节点\n# 冲突：编辑 <<<<<<< 标记的文件 → git add → git commit\n```\n\n### 变基 git rebase\n把当前分支的提交「搬到」目标分支之上，历史保持线性。\n\n| 参数 | 说明 |\n| --- | --- |\n| 基点 | 变基到指定分支 / 提交 |\n| -i | 交互式整理提交（合并/改序/改信息） |\n| --continue / --abort | 解决冲突后继续 / 中止 |\n| --onto 目标 | 指定新基底的进阶用法 |\n\n**示例**\n\n```bash\ngit switch dev\ngit rebase main              # dev 变基到 main 最新\ngit rebase -i HEAD~3         # 交互式整理最近 3 个提交\n```\n\n### 储藏改动 git stash\n把未完成的改动临时入栈，腾出干净工作区。\n\n| 参数 | 说明 |\n| --- | --- |\n| push -m "说明" | 带说明入栈 |\n| list / pop / apply | 列出 / 恢复并出栈 / 恢复但保留 |\n| -u | 连未跟踪文件一起储藏 |\n| drop 条目 | 删除指定条目 |\n\n**示例**\n\n```bash\ngit stash push -m "wip: login form"\ngit stash list\ngit stash pop                # 恢复最近一条并出栈\ngit stash -u                 # 含新文件\n```\n\n### 撤销改动 git reset / git restore\nreset 移动分支指针；restore 专职恢复文件（新语法）。\n\n| 参数 | 说明 |\n| --- | --- |\n| restore 文件 | 丢弃工作区改动 |\n| restore --staged 文件 | 取消暂存（保留改动） |\n| reset --soft HEAD~1 | 撤销提交，改动回到暂存区 |\n| reset --mixed HEAD~1 | 撤销提交，改动回到工作区（默认） |\n| reset --hard HEAD~1 | 彻底丢弃（危险，不可恢复） |\n\n**示例**\n\n```bash\ngit restore src/app.ts\ngit restore --staged src/app.ts\ngit reset --soft HEAD~1      # 撤销上次提交，改完再重新提交\n```\n\n### 拉取更新 git fetch / git pull\nfetch 只取回远端更新不合并；pull = fetch + merge（或 rebase）。\n\n| 参数 | 说明 |\n| --- | --- |\n| --all --prune | 取全部远端并清理失效引用 |\n| pull --rebase | 取回后变基而非合并 |\n| 远端 分支 | 指定远端与分支 |\n\n**示例**\n\n```bash\ngit fetch --all --prune\ngit pull\ngit pull --rebase origin dev\n```\n\n### 推送 git push\n推送本地提交到远端（GitHub）。\n\n| 参数 | 说明 |\n| --- | --- |\n| 远端 分支 | 推到指定远端分支 |\n| -u | 首推并建立上游跟踪 |\n| --force-with-lease | 安全强推（远端有新提交则拒绝） |\n| 远端 --delete 分支 | 删除远程分支 |\n\n**示例**\n\n```bash\ngit push -u origin main\ngit push origin dev\ngit push --force-with-lease          # 谨慎使用强推\ngit push origin --delete dev\n```\n\n### 打标签 git tag\n打标签，常用于版本发布点。\n\n| 参数 | 说明 |\n| --- | --- |\n| -a 名 -m "说明" | 附注标签（含信息与时间） |\n| -d 名 | 删除本地标签 |\n| -l "模式" | 按模式列出 |\n\n**示例**\n\n```bash\ngit tag -a v1.0.0 -m "first release"\ngit tag -l "v1.*"\ngit push origin v1.0.0       # push 默认不带标签，需显式推\n```\n\n### 远端管理 git remote\n管理远端仓库。\n\n| 参数 | 说明 |\n| --- | --- |\n| -v | 列出远端地址 |\n| add 名 url | 添加远端 |\n| set-url 名 url | 修改远端地址 |\n| remove 名 | 移除远端 |\n\n**示例**\n\n```bash\ngit remote add origin https://github.com/gitter-demo/todo-app.git\ngit remote -v\ngit remote set-url origin git@github.com:gitter-demo/todo-app.git\n```\n\n## 三、其余命令分类详解\n\n以下命令按「用途 → 参数 → 示例」完整收录（含底层 plumbing 命令），格式与前文一致。\n\n### 检查与历史\n\n#### 查看对象 git show\n显示某次提交、标签或对象的详情与 diff。\n**参数**：`对象` 提交/标签/SHA · `--stat` 只看改动统计 · `--name-only` 只列文件名\n\n```bash\ngit show v1.0.0\ngit show 9bb416d --stat\n```\n\n#### 按作者汇总 git shortlog\n按作者分组汇总提交，常用于统计贡献。\n**参数**：`-s` 只显示计数 · `-n` 按数量排序 · `-e` 显示邮箱\n\n```bash\ngit shortlog -sn --since="2026-01-01"\n```\n\n#### 生成版本号 git describe\n根据最近可达标签生成可读版本号（如 v1.0.0-3-g9bb416d）。\n**参数**：`--tags` 含轻量标签 · `--abbrev=n` SHA 位数 · `--dirty` 附脏标记\n\n```bash\ngit describe --tags --dirty      # 发布脚本里生成版本串\n```\n\n#### 行级追溯 git blame\n逐行显示最后修改的提交。\n**参数**：`-L 起,止` 限定行范围 · `-e` 显示邮箱 · `-w` 忽略空白改动\n\n```bash\ngit blame -L 10,20 src/app.ts\n```\n\n#### 引用移动史 git reflog\n记录本地 HEAD 与分支的移动历史，找回"丢失"提交的救命命令。\n**参数**：`引用` 查看指定分支 · `--date=iso` 显示绝对时间\n\n```bash\ngit reflog\ngit reset --hard HEAD@{2}        # 回到两次移动前的位置\n```\n\n#### 二分定位 git bisect\n二分查找引入缺陷的提交。\n**参数**：`start / bad / good` 标记区间 · `run 脚本` 自动化 · `reset` 结束\n\n```bash\ngit bisect start\ngit bisect bad HEAD\ngit bisect good v1.0.0           # 自动切换提交，反复标记直到定位\ngit bisect reset\n```\n\n#### 内容搜索 git grep\n在已跟踪内容中按模式搜索（只搜仓库内容，快）。\n**参数**：`-n` 行号 · `-i` 忽略大小写 · `-e 模式` 多模式\n\n```bash\ngit grep -n "TODO" -- "*.ts"\n```\n\n#### 区间对比 git range-diff\n比较两段提交区间的差异（典型：变基前后）。\n**参数**：`基..旧 基..新` 两个区间\n\n```bash\ngit range-diff main...dev main...dev-rebased\n```\n\n#### 分支对照 git show-branch\n以表格式对照各分支的提交覆盖情况。\n**参数**：`-a` 含远程分支 · `分支…` 指定分支\n\n```bash\ngit show-branch -a\n```\n\n#### 未合并检查 git cherry\n列出当前分支有而上游没有的提交。\n**参数**：`上游` 对比目标 · `-v` 显示标题\n\n```bash\ngit cherry -v main\n```\n\n### 分支与整合\n\n#### 摘取提交 git cherry-pick\n把其他分支上的单个提交复制到当前分支。\n**参数**：`-x` 记录来源 SHA · `-n` 只应用不提交 · `--continue / --abort` 冲突后续行/放弃\n\n```bash\ngit cherry-pick 9bb416d\ngit cherry-pick A^..B            # 摘取 (A, B] 区间多个提交\n```\n\n#### 反向撤销 git revert\n生成一条与目标提交相反的新提交来安全撤销（不改写历史，适合共享分支）。\n**参数**：`-n` 只改不提交 · `-m 1` 撤销合并时选主线父提交\n\n```bash\ngit revert 9bb416d\ngit revert -m 1 2e5be4f          # 撤销一次错误合并\n```\n\n#### 多工作树 git worktree\n同一仓库检出多个工作目录并行开发。\n**参数**：`add 路径 分支` 新增 · `list` 列出 · `remove` 移除\n\n```bash\ngit worktree add ../todo-app-hotfix hotfix/urgent\ngit worktree list\n```\n\n#### 合并工具 git mergetool\n调用配置的外部工具解决冲突。\n**参数**：`-t 工具` 指定工具 · `--tool-help` 列出可用工具\n\n```bash\ngit mergetool -t vscode\n```\n\n#### 冲突复用 git rerere\n记录并自动复用已解决过的冲突方案。\n**参数**：`status` 查看记录 · `forget 路径` 忘记某文件方案（需先 rerere.enabled）\n\n```bash\ngit config --global rerere.enabled true\n```\n\n#### 公共祖先 git merge-base\n求两个分支的最近公共祖先提交。\n**参数**：`-a` 输出全部候选 · `--is-ancestor` 判断祖先关系（脚本用）\n\n```bash\ngit merge-base main dev\ngit merge-base --is-ancestor v1.0.0 main && echo contained\n```\n\n### 远程与同步\n\n#### 列出远端引用 git ls-remote\n列出远端的分支/标签引用，不取回对象。\n**参数**：`--heads` 只看分支 · `--tags` 只看标签 · `模式` 过滤\n\n```bash\ngit ls-remote --heads https://github.com/gitter-demo/todo-app.git\n```\n\n#### 子模块 git submodule\n在仓库里嵌套引用另一个仓库。\n**参数**：`add url 路径` 添加 · `update --init` 拉取子模块 · `foreach` 遍历执行\n\n```bash\ngit submodule add https://github.com/gitter-demo/lib-utils.git libs/utils\ngit clone --recurse-submodules https://github.com/gitter-demo/todo-app.git\ngit submodule update --init --recursive\n```\n\n#### 子树合并 git subtree\n把别的仓库并入本仓库子目录（或拆出去），对协作者透明。\n**参数**：`add --prefix=目录 url` 并入 · `pull / push` 同步 · `--squash` 不带历史\n\n```bash\ngit subtree add  --prefix=libs/utils --squash https://github.com/gitter-demo/lib-utils.git main\ngit subtree pull --prefix=libs/utils --squash https://github.com/gitter-demo/lib-utils.git main\n```\n\n#### 拉取请求摘要 git request-pull\n生成"请拉取 xx"摘要文本（含提交与 diffstat），邮件协作用。\n**参数**：`基点 url 端点` 对比区间与仓库\n\n```bash\ngit request-pull main https://github.com/wyndam/todo-app.git feature/login\n```\n\n### 打包与归档\n\n#### 导出归档 git archive\n把指定提交/标签的内容导出为 zip/tar（不含 .git）。\n**参数**：`--format=zip` 格式 · `-o 文件` 输出\n\n```bash\ngit archive --format=zip -o todo-app-v1.0.0.zip v1.0.0\n```\n\n#### 离线打包 git bundle\n把分支及其对象打成单文件，可当远端用（离线/U盘传输）。\n**参数**：`create 文件 分支` 打包 · `verify` 校验 · `clone 包 目录` 从包克隆\n\n```bash\ngit bundle create todo-app.bundle main\ngit clone todo-app.bundle todo-app-offline\n```\n\n#### tar 提交号 git get-tar-commit-id\n从 git archive 生成的 tar 流读出提交 SHA。\n**参数**：从标准输入读 tar 流，无命令行参数\n\n```bash\ncat todo-app.tar | git get-tar-commit-id\n```\n\n### 补丁与协作\n\n#### 导出补丁 git format-patch\n把提交导出为带元数据的补丁文件（邮箱格式）。\n**参数**：`-n` 最近 n 条 · `A..B` 区间 · `-o 目录` 输出目录\n\n```bash\ngit format-patch main -o patches/     # dev 领先 main 的全部提交\n```\n\n#### 应用补丁 git am\n应用 format-patch 补丁并保留作者/信息成提交。\n**参数**：`补丁…` 文件 · `-3` 三方合并兜底 · `--abort` 放弃\n\n```bash\ngit am patches/0001-*.patch\n```\n\n#### 应用 diff git apply\n应用普通 diff/补丁（不生成提交）。\n**参数**：`--stat` 预览 · `--check` 只校验可否应用 · `-R` 反向应用\n\n```bash\ngit apply --check fix.diff && git apply fix.diff\n```\n\n#### 补丁指纹 git patch-id\n计算补丁的稳定指纹，用于跨分支识别同一改动。\n**参数**：`--stable` 稳定算法；diff 从标准输入读\n\n```bash\ngit show 9bb416d | git patch-id --stable\n```\n\n#### 邮件发送 git send-email\n把补丁以邮件发出（需配置 SMTP）。\n**参数**：`--to / --cc` 收件人 · `--compose` 附说明信\n\n```bash\ngit send-email patches/*.patch --to dev@example.com\n```\n\n#### 邮件拆解 git mailinfo / git mailsplit\n把邮箱补丁拆成信息与正文 / 拆成单文件（am 的底层件）。\n**参数**：mailinfo `信息文件 正文文件`；mailsplit `-o 目录` 输出目录\n\n```bash\ngit mailsplit -o mails/ < inbox.mbox\n```\n\n#### 提交尾注 git interpret-trailers\n解析或添加提交信息的尾注（Signed-off-by 等）。\n**参数**：`--trailer "键=值"` 添加 · `--parse` 只取尾注\n\n```bash\ngit interpret-trailers --trailer "Signed-off-by: wyndam <wyndam@example.com>" msg.txt\n```\n\n### 撤销与清理\n\n#### 清理未跟踪 git clean\n删除未跟踪文件（不带 -n/-f 会拒绝执行）。\n**参数**：`-n` 预览 · `-f` 执行 · `-d` 含目录 · `-x` 连被忽略文件一起\n\n```bash\ngit clean -nd          # 先预览\ngit clean -fd          # 删除未跟踪文件与目录\n```\n\n#### 移除文件 git rm\n从版本控制（和工作区）移除文件。\n**参数**：`--cached` 只从索引移除（保留本地文件） · `-r` 递归目录\n\n```bash\ngit rm --cached secret.local       # 停止跟踪但保留文件\ngit rm -r legacy/\n```\n\n#### 移动重命名 git mv\n移动/重命名已跟踪文件（等同 mv + rm + add）。\n**参数**：`-f` 覆盖已存在目标\n\n```bash\ngit mv src/app.ts src/main.ts\n```\n\n#### 对象替换 git replace\n用一个对象替换另一个（不改原历史的矫正手段）。\n**参数**：`旧 新` 建替换 · `-d` 删除替换 · `--graft 提交` 改父提交\n\n```bash\ngit replace 9bb416d 2e5be4f\ngit replace -d 9bb416d\n```\n\n### 维护与诊断\n\n#### 对象库整理 git gc\n压缩松散对象、清理不可达对象、优化包。\n**参数**：`--prune=时间` 清理时限 · `--aggressive` 深度优化（慢） · `--auto` 按阈值\n\n```bash\ngit gc\ngit gc --prune=now --aggressive       # 偶尔手动彻底清理\n```\n\n#### 完整性检查 git fsck\n检查对象库完整性，找悬空对象。\n**参数**：`--lost-found` 悬空对象落盘 · `--unreachable` 列不可达对象\n\n```bash\ngit fsck --lost-found\n```\n\n#### 对象统计 git count-objects\n统计对象数量与体积。\n**参数**：`-v` 详细 · `-H` 人类可读\n\n```bash\ngit count-objects -vH\n```\n\n#### 重打包 git repack\n把松散对象重新打包。\n**参数**：`-d` 打包后删冗余 · `-a` 全量打进一个包\n\n```bash\ngit repack -ad\n```\n\n#### 清理不可达 git prune\n删除全部不可达对象（gc 的一环）。\n**参数**：`-n` 预览 · `--expire 时间` 只清理早于该时间的\n\n```bash\ngit prune --expire 30.days.ago\n```\n\n#### 清已打包对象 git prune-packed\n删除已经打进包里的松散对象。\n**参数**：`-n` 预览\n\n```bash\ngit prune-packed\n```\n\n#### 后台维护 git maintenance\n注册/执行定期维护任务（gc、commit-graph、prefetch 等）。\n**参数**：`start` 注册后台任务 · `run --task=任务` 立即执行\n\n```bash\ngit maintenance start\ngit maintenance run --task=gc\n```\n\n#### 提交图 git commit-graph\n生成提交图加速文件（log 等明显提速）。\n**参数**：`write` 生成 · `--reachable` 覆盖全部引用 · `verify` 校验\n\n```bash\ngit commit-graph write --reachable\n```\n\n#### 多包索引 git multi-pack-index\n为多个包文件建统一索引，加速大仓库查找。\n**参数**：`write` 生成 · `--bitmap` 附位图 · `verify` 校验\n\n```bash\ngit multi-pack-index write\n```\n\n#### 引用打包 git pack-refs\n把零散引用打包成单个文件。\n**参数**：`--all` 含全部分支 · `--prune` 清理已打包散引用\n\n```bash\ngit pack-refs --all --prune\n```\n\n#### 包校验 git verify-pack\n校验包文件完整性与对象统计。\n**参数**：`-v` 详细（按大小排序） · `-s` 简要\n\n```bash\ngit verify-pack -v .git/objects/pack/*.idx\n```\n\n#### 诊断报告 git bugreport\n收集版本与环境信息生成 bug 报告骨架。\n**参数**：`-o 目录` 输出目录 · `-s 前缀` 文件名前缀\n\n```bash\ngit bugreport\n```\n\n#### 本地网页 git instaweb\n起一个本地网页服务浏览仓库（需 CGI 支持）。\n**参数**：`--httpd=服务` 指定服务器 · `--stop` 停止\n\n```bash\ngit instaweb --httpd=webrick\ngit instaweb --stop\n```\n\n### 服务端与协议\n\n自建 Git 服务 / 底层传输用，日常本地开发基本接触不到。\n\n#### Git 守护进程 git daemon\n以 git:// 协议对外提供只读仓库服务。\n**参数**：`--export-all` 免标记导出全部 · `--base-path=目录` 仓库根 · `--port=端口`\n\n```bash\ngit daemon --base-path=/srv/git --export-all\n```\n\n#### 受限登录 shell git shell\n只允许执行 git 传输命令的受限 shell（服务端账号专用）。\n**参数**：`-c "命令"` 执行限定命令；交互式给出帮助\n\n```bash\ngit shell -c "git-upload-pack \'/gitter-demo/todo-app.git\'"\n```\n\n#### HTTP 服务端 git http-backend\n作为 CGI 提供 smart HTTP 协议（配 nginx/Apache）。\n**参数**：经环境变量 GIT_PROJECT_ROOT / GIT_HTTP_EXPORT_ALL 配置\n\n```bash\nGIT_PROJECT_ROOT=/srv/git GIT_HTTP_EXPORT_ALL=1 git http-backend\n```\n\n#### HTTP 客户端 git http-fetch / git http-push\nHTTP 协议底层拉取/推送（哑协议时代客户端，多被 smart 协议取代）。\n**参数**：`提交 url` 目标与地址 · `-w` 写回引用（push）\n\n```bash\ngit http-fetch 9bb416d https://github.com/gitter-demo/todo-app.git\n```\n\n#### 传输底层 git fetch-pack / send-pack / receive-pack / upload-pack\nfetch/push 的底层实现对：客户端 fetch-pack/send-pack 与服务端 upload-pack/receive-pack 协商并传输打包对象。\n**参数**：`--all` 全部引用 · `--thin` 精简包；服务端通常由 ssh/http 通路自动调用\n\n```bash\ngit upload-pack --advertise-refs .      # 查看服务端协商引用（调试用）\ngit fetch-pack --all ./\n```\n\n#### 哑协议辅助 git update-server-info\n为哑协议 HTTP 服务生成 info/refs 等辅助文件。\n**参数**：`-f` 强制重写\n\n```bash\ngit update-server-info\n```\n\n### 其他实用\n\n#### 稀疏检出 git sparse-checkout\n只检出仓库的部分目录（monorepo 提效）。\n**参数**：`init` 启用 · `set 目录…` 设定集合 · `list` 列出 · `disable` 关闭\n\n```bash\ngit sparse-checkout set --cone packages/web packages/sdk\n```\n\n#### 暂存同义词 git stage\ngit add 的完全同义词（语义化别名）。\n**参数**：与 git add 完全一致\n\n```bash\ngit stage src/app.ts\n```\n\n#### 读逻辑变量 git var\n读取 Git 的逻辑变量（编辑器、分页器等）。\n**参数**：`-l` 列出全部 · `变量` 取单个\n\n```bash\ngit var GIT_EDITOR\n```\n\n#### 签名校验 git verify-commit / git verify-tag\n校验提交 / 标签的 GPG 签名。\n**参数**：`-v` 显示签名详情 · `--raw` 机器可读输出\n\n```bash\ngit verify-commit 9bb416d\ngit verify-tag v1.0.0\n```\n\n#### 邮箱映射 git check-mailmap\n把名字/邮箱按 mailmap 规则映射为规范身份。\n**参数**：`联系人…` 待映射项\n\n```bash\ngit check-mailmap "wyndam <wyndam@example.com>"\n```\n\n#### 图形界面 git gui / git citool\n内置 Tcl/Tk 图形提交界面（citool = 提交后即退出）。\n**参数**：`--amend` 进入修补模式\n\n```bash\ngit citool\n```\n\n#### 帮助 git help\n查看命令文档（等同 git 命令 --help）。\n**参数**：`-g` 概念指南 · `-a` 全部命令列表 · `命令` 指定命令\n\n```bash\ngit help rebase\n```\n\n### 底层命令 · 对象与引用\n\nplumbing：脚本与工具使用的底层接口，日常交互用不到。\n\n#### 读对象 git cat-file\n输出对象内容/类型/大小。\n**参数**：`-t / -s` 类型/大小 · `-p` 优雅输出\n\n```bash\ngit cat-file -p HEAD^{tree}\n```\n\n#### 算哈希 git hash-object\n计算 blob 哈希（可写入对象库）。\n**参数**：`-w` 写入对象库 · `--stdin` 从标准输入读\n\n```bash\necho hello | git hash-object --stdin\n```\n\n#### 列索引文件 git ls-files\n列出索引中的文件。\n**参数**：`-s` 状态模式 · `--others` 未跟踪 · `--ignored` 被忽略\n\n```bash\ngit ls-files --others --exclude-standard    # 未跟踪文件清单\n```\n\n#### 列树内容 git ls-tree\n列出树对象内容（模式/类型/名称）。\n**参数**：`-r` 递归 · `-t` 含树本身 · `-l` 附对象大小\n\n```bash\ngit ls-tree -r v1.0.0 --name-only\n```\n\n#### 解析引用 git rev-parse\n把任意引用/表达式解析为 SHA，兼查仓库信息。\n**参数**：`--verify` 严格校验 · `--short` 短 SHA · `--show-toplevel` 仓库根\n\n```bash\ngit rev-parse --short HEAD\ngit rev-parse --show-toplevel\n```\n\n#### 列提交集合 git rev-list\n按条件列出可达提交集合（log 的底层件）。\n**参数**：`--count` 只计数 · `--left-right` 分侧标记 · `A..B` 区间\n\n```bash\ngit rev-list --count main..dev\n```\n\n#### 符号引用 git symbolic-ref\n读写符号引用（如 HEAD 指向哪个分支）。\n**参数**：`引用` 读取 · `引用 目标` 设置 · `--short` 显示短名\n\n```bash\ngit symbolic-ref --short HEAD       # 当前分支名\ngit symbolic-ref HEAD refs/heads/main\n```\n\n#### 更新引用 git update-ref\n安全地写一个引用（含事务与旧值校验）。\n**参数**：`-d` 删除 · `--no-deref` 不解引用 · 附旧值做 CAS 校验\n\n```bash\ngit update-ref refs/heads/dev 9bb416d\n```\n\n#### 遍历引用 git for-each-ref\n按格式列出全部引用（分支/标签清单的底层件）。\n**参数**：`--format=模板` 输出格式 · `--count=n` 条数 · `--sort=键` 排序\n\n```bash\ngit for-each-ref --format="%(refname:short) %(objectname:short)" refs/heads/\n```\n\n#### 更新索引 git update-index\n直接操作索引条目（注册/删除/标记忽略改动等）。\n**参数**：`--add / --remove` 注册删除 · `--assume-unchanged` 忽略改动 · `--refresh` 刷新\n\n```bash\ngit update-index --assume-unchanged config.local\n```\n\n#### 索引写出树 git write-tree\n从当前索引写出一个树对象（返回其 SHA）。\n**参数**：`--missing-ok` 允许缺失对象 · `--prefix=目录` 只写子树\n\n```bash\nTREE=$(git write-tree)\n```\n\n#### 树读入索引 git read-tree\n把树对象读入索引（不含工作区）。\n**参数**：`-u` 同步工作区 · `-m` 合并模式 · `--prefix=目录` 读入子路径\n\n```bash\ngit read-tree --prefix=lib/ -u lib-utils-main\n```\n\n#### 造树对象 git mktree\n从标准输入的 ls-tree 格式行造一个树对象。\n**参数**：`-z` NUL 分隔输入 · `--missing` 允许对象缺失\n\n```bash\ngit ls-tree HEAD | git mktree\n```\n\n#### 造标签对象 git mktag\n按标签对象格式创建 tag 对象并校验。\n**参数**：内容从标准输入读，无命令行参数\n\n```bash\ngit mktag < signed-tag.txt\n```\n\n#### 造提交对象 git commit-tree\n从树对象创建提交对象（commit 的底层件）。\n**参数**：`-p 父` 父提交（可多次） · `-m 信息` 提交信息\n\n```bash\ngit commit-tree $TREE -p HEAD -m "snapshot"\n```\n\n#### 从索引检出 git checkout-index\n把索引内容批量复制到工作区（部署导出用）。\n**参数**：`-a` 全部 · `--prefix=目录` 输出前缀\n\n```bash\ngit checkout-index -a --prefix=/tmp/export/\n```\n\n### 底层命令 · 比较、合并与打包\n\n#### 树间差异 git diff-tree\n比较两个树对象的差异。\n**参数**：`-r` 递归 · `--name-only` 只列文件 · `--stdin` 从输入读提交\n\n```bash\ngit diff-tree -r --name-only 9bb416d 2e5be4f\n```\n\n#### 索引差异 git diff-index\n比较树对象与索引（--cached）或工作区的差异。\n**参数**：`--cached` 只比索引 · `-p` 输出补丁\n\n```bash\ngit diff-index --cached HEAD\n```\n\n#### 工作区差异 git diff-files\n比较索引与工作区的差异（git diff 的底层件）。\n**参数**：`-p` 输出补丁\n\n```bash\ngit diff-files -p\n```\n\n#### 单文件三方合并 git merge-file\n把两个文件相对共同基点的改动合并进第一个文件。\n**参数**：`-p` 输出而不改文件 · `--ours / --theirs` 冲突取侧\n\n```bash\ngit merge-file current.txt base.txt other.txt\n```\n\n#### 索引驱动合并 git merge-index\n对索引中指定状态的文件逐个调用合并脚本。\n**参数**：`脚本 -a` 对全部冲突文件执行\n\n```bash\ngit merge-index git-merge-one-file -a\n```\n\n#### 生成合并信息 git fmt-merge-msg\n根据合并的引用列表生成默认合并提交信息。\n**参数**：`--log` 附提交清单；引用行从标准输入读\n\n```bash\ngit fmt-merge-msg --log < .git/FETCH_HEAD\n```\n\n#### 属性检查 git check-attr\n查询 gitattributes 规则对路径的命中。\n**参数**：`-a` 全部属性 · `属性… 路径…` 指定属性与路径\n\n```bash\ngit check-attr -a -- src/app.ts\n```\n\n#### 忽略检查 git check-ignore\n查询 gitignore 规则是否命中路径（调试 ignore 用）。\n**参数**：`-v` 显示命中的规则行\n\n```bash\ngit check-ignore -v build/output.js\n```\n\n#### 打包对象 git pack-objects\n按给定对象清单生成打包文件。\n**参数**：`--revs` 从 rev 参数推导集合 · `--stdout` 输出到标准输出\n\n```bash\ngit rev-list --objects --all | git pack-objects pack_NAME\n```\n\n#### 包索引 git index-pack\n为已有包文件生成 .idx 索引。\n**参数**：`-o idx` 输出 · `--stdin` 从标准输入读\n\n```bash\ngit index-pack -o pack.idx pack.pack\n```\n\n#### 解包对象 git unpack-objects\n把包文件解成松散对象。\n**参数**：`-n` 只演练；包从标准输入读\n\n```bash\ngit unpack-objects < pack.pack\n```\n\n#### 解出单对象 git unpack-file\n把一个 blob 解出到临时文件并返回路径。\n**参数**：`blob` 对象 SHA\n\n```bash\ngit unpack-file 9bb416d\n```\n\n#### 流式导出 git fast-export\n把历史导出为可脚本处理的流格式。\n**参数**：`--all` 全部引用 · `--signed-tags=strip` 签名处理\n\n```bash\ngit fast-export --all > repo.dump\n```\n\n#### 流式导入 git fast-import\n从 fast-export 流格式导入历史（迁移工具通用后端）。\n**参数**：`--quiet` 静默；流从标准输入读\n\n```bash\ngit fast-import < repo.dump\n```\n\n### 版本控制桥接\n\n#### Subversion 桥接 git svn\nSubversion 仓库双向同步。\n**参数**：`clone svn地址` 克隆 · `dcommit` 推回 · `rebase` 拉取\n\n```bash\ngit svn clone https://example.com/svn/todo-app -T trunk\ngit svn rebase && git svn dcommit\n```\n\n#### Perforce 桥接 git p4\nPerforce 仓库双向同步。\n**参数**：`clone //depot/路径` 克隆 · `submit` 推回 · `rebase` 拉取\n\n```bash\ngit p4 clone //depot/project@all\ngit p4 rebase && git p4 submit\n```\n\n## 四、附录：全部命令字母序索引\n\n完整命令清单，按字母序排列供快速定位；参数与示例见对应分类章节。\n\n| 命令 | 一句话 | 章节 |\n| --- | --- | --- |\n| git add | 暂存改动 | 二 |\n| git am | 应用邮箱补丁为提交 | 三·补丁与协作 |\n| git apply | 应用 diff / 补丁 | 三·补丁与协作 |\n| git archive | 按提交导出 zip/tar 归档 | 三·打包与归档 |\n| git bisect | 二分定位坏提交 | 三·检查与历史 |\n| git blame | 逐行追溯修改来源 | 三·检查与历史 |\n| git branch | 分支管理 | 二 |\n| git bugreport | 生成诊断报告 | 三·维护与诊断 |\n| git bundle | 离线打包引用与对象 | 三·打包与归档 |\n| git cat-file | 读取对象内容（plumbing） | 三·对象与引用 |\n| git check-attr | 查询 gitattributes 命中 | 三·比较合并与打包 |\n| git check-ignore | 查询 gitignore 命中 | 三·比较合并与打包 |\n| git check-mailmap | 邮箱映射查询 | 三·其他实用 |\n| git checkout | 切换分支 / 恢复文件 | 二 |\n| git checkout-index | 从索引批量检出 | 三·对象与引用 |\n| git cherry | 列出未被上游合并的提交 | 三·检查与历史 |\n| git cherry-pick | 摘取单个提交 | 三·分支与整合 |\n| git citool | 图形化提交工具 | 三·其他实用 |\n| git clean | 清理未跟踪文件 | 三·撤销与清理 |\n| git clone | 下载远程仓库 | 一 |\n| git commit | 提交暂存区 | 二 |\n| git commit-graph | 生成提交图加速文件 | 三·维护与诊断 |\n| git commit-tree | 底层创建提交对象 | 三·对象与引用 |\n| git config | 配置 | 一 |\n| git count-objects | 对象统计 | 三·维护与诊断 |\n| git daemon | git:// 只读服务 | 三·服务端与协议 |\n| git describe | 生成可读版本号 | 三·检查与历史 |\n| git diff | 比较差异 | 二 |\n| git diff-files | 工作区差异（plumbing） | 三·比较合并与打包 |\n| git diff-index | 索引/树差异（plumbing） | 三·比较合并与打包 |\n| git diff-tree | 树间差异（plumbing） | 三·比较合并与打包 |\n| git fast-export | 历史流式导出 | 三·比较合并与打包 |\n| git fast-import | 历史流式导入 | 三·比较合并与打包 |\n| git fetch | 取回远端更新 | 二 |\n| git fetch-pack | 底层拉取打包对象 | 三·服务端与协议 |\n| git fmt-merge-msg | 生成合并提交信息 | 三·比较合并与打包 |\n| git for-each-ref | 格式化列出引用 | 三·对象与引用 |\n| git format-patch | 导出补丁邮件 | 三·补丁与协作 |\n| git fsck | 对象库完整性检查 | 三·维护与诊断 |\n| git gc | 对象库回收整理 | 三·维护与诊断 |\n| git get-tar-commit-id | 从 tar 读提交号 | 三·打包与归档 |\n| git grep | 仓库内容搜索 | 三·检查与历史 |\n| git gui | 图形界面 | 三·其他实用 |\n| git hash-object | 计算 blob 哈希 | 三·对象与引用 |\n| git help | 帮助文档 | 三·其他实用 |\n| git http-backend | smart HTTP 服务端 | 三·服务端与协议 |\n| git http-fetch | HTTP 底层拉取 | 三·服务端与协议 |\n| git http-push | HTTP 底层推送 | 三·服务端与协议 |\n| git index-pack | 为包生成索引 | 三·比较合并与打包 |\n| git init | 初始化仓库 | 一 |\n| git instaweb | 本地网页浏览仓库 | 三·维护与诊断 |\n| git interpret-trailers | 解析/添加提交尾注 | 三·补丁与协作 |\n| git log | 查看历史 | 二 |\n| git ls-files | 列出索引文件 | 三·对象与引用 |\n| git ls-remote | 列出远端引用 | 三·远程与同步 |\n| git ls-tree | 列出树对象 | 三·对象与引用 |\n| git mailinfo | 拆解邮件补丁信息 | 三·补丁与协作 |\n| git mailsplit | 拆分邮箱为单文件 | 三·补丁与协作 |\n| git maintenance | 后台定期维护 | 三·维护与诊断 |\n| git merge | 合并分支 | 二 |\n| git merge-base | 求公共祖先 | 三·分支与整合 |\n| git merge-file | 单文件三方合并 | 三·比较合并与打包 |\n| git merge-index | 索引驱动合并 | 三·比较合并与打包 |\n| git mergetool | 冲突解决工具 | 三·分支与整合 |\n| git mktag | 创建标签对象 | 三·对象与引用 |\n| git mktree | 创建树对象 | 三·对象与引用 |\n| git multi-pack-index | 多包统一索引 | 三·维护与诊断 |\n| git mv | 移动 / 重命名文件 | 三·撤销与清理 |\n| git p4 | Perforce 桥接 | 三·版本控制桥接 |\n| git pack-objects | 打包对象 | 三·比较合并与打包 |\n| git pack-refs | 引用打包 | 三·维护与诊断 |\n| git patch-id | 补丁指纹 | 三·补丁与协作 |\n| git prune | 清理不可达对象 | 三·维护与诊断 |\n| git prune-packed | 清已打包松散对象 | 三·维护与诊断 |\n| git pull | 取回并合并 | 二 |\n| git push | 推送 | 二 |\n| git read-tree | 树读入索引 | 三·对象与引用 |\n| git rebase | 变基 | 二 |\n| git reflog | 引用移动史 | 三·检查与历史 |\n| git remote | 远端管理 | 二 |\n| git repack | 重打包 | 三·维护与诊断 |\n| git replace | 对象替换 | 三·撤销与清理 |\n| git request-pull | 拉取请求摘要 | 三·远程与同步 |\n| git rerere | 复用冲突解决方案 | 三·分支与整合 |\n| git reset | 重置 HEAD / 分支 | 二 |\n| git restore | 恢复工作区 / 暂存 | 二 |\n| git rev-list | 列出提交集合 | 三·对象与引用 |\n| git rev-parse | 引用解析 | 三·对象与引用 |\n| git revert | 反向提交撤销 | 三·分支与整合 |\n| git rm | 移除文件 | 三·撤销与清理 |\n| git send-email | 邮件发送补丁 | 三·补丁与协作 |\n| git send-pack | 底层推送打包对象 | 三·服务端与协议 |\n| git shell | 受限登录 shell | 三·服务端与协议 |\n| git shortlog | 按作者汇总 | 三·检查与历史 |\n| git show | 查看对象详情 | 三·检查与历史 |\n| git show-branch | 分支提交对照 | 三·检查与历史 |\n| git sparse-checkout | 稀疏检出 | 三·其他实用 |\n| git stage | add 的同义词 | 三·其他实用 |\n| git stash | 改动储藏 | 二 |\n| git status | 查看状态 | 二 |\n| git submodule | 子模块管理 | 三·远程与同步 |\n| git subtree | 子目录合并 / 拆分 | 三·远程与同步 |\n| git switch | 切换分支 | 二 |\n| git svn | Subversion 桥接 | 三·版本控制桥接 |\n| git symbolic-ref | 读写符号引用 | 三·对象与引用 |\n| git tag | 标签管理 | 二 |\n| git unpack-file | 解出 blob 到临时文件 | 三·比较合并与打包 |\n| git unpack-objects | 解包对象 | 三·比较合并与打包 |\n| git update-index | 更新索引 | 三·对象与引用 |\n| git update-ref | 更新引用 | 三·对象与引用 |\n| git update-server-info | 哑协议辅助文件 | 三·服务端与协议 |\n| git upload-archive | 服务端归档服务 | 三·服务端与协议 |\n| git upload-pack | 服务端拉取服务 | 三·服务端与协议 |\n| git var | 读取逻辑变量 | 三·其他实用 |\n| git verify-commit | 验证提交签名 | 三·其他实用 |\n| git verify-pack | 校验包完整性 | 三·维护与诊断 |\n| git verify-tag | 验证标签签名 | 三·其他实用 |\n| git worktree | 多工作树 | 三·分支与整合 |\n| git write-tree | 索引写出树对象 | 三·对象与引用 |\n';
+  const { t: t$1 } = pageSdk;
+  const CMD_TAIL_RE = /^(.*?)(git\s+[\w./@^{}~-]+(?:\s*\/\s*git\s+[\w./@^{}~-]+)*)\s*$/;
+  function markLabel(text, kw) {
+    const i = kw ? text.toLowerCase().indexOf(kw.toLowerCase()) : -1;
+    if (!kw || i < 0) return text;
+    return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+      text.slice(0, i),
+      /* @__PURE__ */ jsxRuntime.jsx("mark", { children: text.slice(i, i + kw.length) }),
+      text.slice(i + kw.length)
+    ] });
+  }
+  function GitDocPanel({ onClose }) {
+    useAppState();
+    const bodyRef = react.useRef(null);
+    const tocSearchRef = react.useRef(null);
+    const findInputRef = react.useRef(null);
+    const hitsRef = react.useRef([]);
+    const curRef = react.useRef(-1);
+    const html = react.useMemo(() => renderMarkdown(docSource), []);
+    const [toc, setToc] = react.useState([]);
+    const [tocOpen, setTocOpen] = react.useState(false);
+    const [tocKw, setTocKw] = react.useState("");
+    const [activeId, setActiveId] = react.useState(null);
+    const [findOpen, setFindOpen] = react.useState(false);
+    const [findKw, setFindKw] = react.useState("");
+    const [findState, setFindState] = react.useState(null);
+    react.useEffect(() => {
+      const root = bodyRef.current;
+      if (!root) return;
+      const items = [];
+      let sec = 0;
+      for (const h of Array.from(root.querySelectorAll("h1, h2, h3, h4"))) {
+        const text = h.textContent ?? "";
+        const m = CMD_TAIL_RE.exec(text);
+        if (m) {
+          const name = document.createElement("span");
+          name.textContent = m[1];
+          const cmd = document.createElement("span");
+          cmd.className = "cmd";
+          cmd.textContent = m[2];
+          h.replaceChildren(name, cmd);
+        }
+        if (h.tagName !== "H1") {
+          const id = `gitdoc-sec-${sec++}`;
+          h.id = id;
+          items.push({ id, text, level: h.tagName.toLowerCase() });
+        }
+      }
+      setToc(items);
+    }, []);
+    const clearMarks = () => {
+      const root = bodyRef.current;
+      if (!root) return;
+      root.querySelectorAll("mark.hit").forEach((m) => {
+        const p = m.parentNode;
+        if (!p) return;
+        p.replaceChild(document.createTextNode(m.textContent ?? ""), m);
+        p.normalize();
+      });
+      hitsRef.current = [];
+      curRef.current = -1;
+    };
+    const paintCur = (cur) => {
+      var _a2;
+      const hits = hitsRef.current;
+      hits.forEach((m, i) => m.classList.toggle("cur", i === cur));
+      if (cur >= 0) hits[cur].scrollIntoView({ block: "center" });
+      else if (hits.length === 0 && findKw) (_a2 = bodyRef.current) == null ? void 0 : _a2.scrollTo({ top: 0 });
+    };
+    const runFind = (kw) => {
+      var _a2;
+      const root = bodyRef.current;
+      if (!root) return;
+      clearMarks();
+      if (!kw) {
+        setFindState(null);
+        return;
+      }
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => {
+          var _a3;
+          return ((_a3 = n.parentElement) == null ? void 0 : _a3.closest("mark.hit")) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      const kwL2 = kw.toLowerCase();
+      const hits = [];
+      for (const node of nodes) {
+        const text = node.nodeValue ?? "";
+        const low = text.toLowerCase();
+        let idx = low.indexOf(kwL2);
+        if (idx < 0) continue;
+        const frag = document.createDocumentFragment();
+        let pos = 0;
+        while (idx >= 0) {
+          frag.appendChild(document.createTextNode(text.slice(pos, idx)));
+          const mark = document.createElement("mark");
+          mark.className = "hit";
+          mark.textContent = text.slice(idx, idx + kw.length);
+          frag.appendChild(mark);
+          hits.push(mark);
+          pos = idx + kw.length;
+          idx = low.indexOf(kwL2, pos);
+        }
+        frag.appendChild(document.createTextNode(text.slice(pos)));
+        (_a2 = node.parentNode) == null ? void 0 : _a2.replaceChild(frag, node);
+      }
+      hitsRef.current = hits;
+      const cur = hits.length ? 0 : -1;
+      curRef.current = cur;
+      setFindState({ count: hits.length, cur });
+      if (cur >= 0) hits[cur].scrollIntoView({ block: "center" });
+    };
+    const stepFind = (d) => {
+      const hits = hitsRef.current;
+      if (!hits.length) return;
+      const cur = (curRef.current + d + hits.length) % hits.length;
+      curRef.current = cur;
+      paintCur(cur);
+      setFindState({ count: hits.length, cur });
+    };
+    const openFind = () => {
+      setFindOpen(true);
+      setTimeout(() => {
+        var _a2;
+        return (_a2 = findInputRef.current) == null ? void 0 : _a2.focus();
+      }, 150);
+    };
+    const closeFind = () => {
+      setFindOpen(false);
+      setFindKw("");
+      setFindState(null);
+      clearMarks();
+    };
+    const openToc = () => {
+      setTocOpen(true);
+      syncActive();
+      setTimeout(() => {
+        var _a2;
+        return (_a2 = tocSearchRef.current) == null ? void 0 : _a2.focus();
+      }, 150);
+    };
+    const syncActive = () => {
+      var _a2;
+      const root = bodyRef.current;
+      if (!root || !toc.length) return;
+      const top = root.scrollTop;
+      let cur = ((_a2 = toc[0]) == null ? void 0 : _a2.id) ?? null;
+      for (const it of toc) {
+        const el = document.getElementById(it.id);
+        if (el && el.offsetTop <= top + 24) cur = it.id;
+        else break;
+      }
+      setActiveId(cur);
+    };
+    const jumpTo = (id) => {
+      var _a2;
+      const el = document.getElementById(id);
+      if (el) (_a2 = bodyRef.current) == null ? void 0 : _a2.scrollTo({ top: Math.max(0, el.offsetTop - 8), behavior: "smooth" });
+      setTocOpen(false);
+    };
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape" || e.target.tagName === "INPUT") return;
+      if (findOpen) {
+        e.preventDefault();
+        closeFind();
+      } else if (tocOpen) {
+        e.preventDefault();
+        setTocOpen(false);
+      }
+    };
+    const kwL = tocKw.trim().toLowerCase();
+    const visibleToc = kwL ? toc.filter((it) => it.text.toLowerCase().includes(kwL)) : toc;
+    const findCountText = !findKw || !findState ? "" : `${findState.count > 0 ? findState.cur + 1 : 0} / ${findState.count}`;
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "git-doc", onKeyDown, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "git-doc-inner", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "git-doc-head", children: [
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "tool-btn icon" + (tocOpen ? " on" : ""),
+              "aria-expanded": tocOpen,
+              title: t$1("Terminal_DocToc"),
+              onClick: () => tocOpen ? setTocOpen(false) : openToc(),
+              children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "git-doc-title", children: t$1("Terminal_DocTitle") }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "tool-btn icon" + (findOpen ? " on" : ""),
+              title: t$1("Terminal_DocFind"),
+              onClick: () => findOpen ? closeFind() : openFind(),
+              children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", title: t$1("Terminal_DocClosePanel"), onClick: onClose, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "git-doc-find" + (findOpen ? " open" : ""), children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph git-doc-find-ico", children: "" }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "input",
+            {
+              ref: findInputRef,
+              value: findKw,
+              placeholder: t$1("Terminal_DocFindPlaceholder"),
+              autoComplete: "off",
+              onChange: (e) => {
+                setFindKw(e.target.value);
+                runFind(e.target.value.trim());
+              },
+              onKeyDown: (e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  stepFind(e.shiftKey ? -1 : 1);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeFind();
+                }
+              }
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "git-doc-find-count" + (findKw && (findState == null ? void 0 : findState.count) === 0 ? " none" : ""), children: findCountText }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn sm icon", title: t$1("Terminal_DocFindPrev"), onClick: () => stepFind(-1), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn sm icon", title: t$1("Terminal_DocFindNext"), onClick: () => stepFind(1), children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn sm icon", title: t$1("Terminal_DocFindClose"), onClick: closeFind, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "div",
+          {
+            className: "git-doc-body md-body",
+            ref: bodyRef,
+            onScroll: syncActive,
+            dangerouslySetInnerHTML: { __html: html }
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "git-doc-scrim" + (tocOpen ? " open" : ""), onClick: () => setTocOpen(false) }),
+      /* @__PURE__ */ jsxRuntime.jsxs("aside", { className: "git-doc-toc" + (tocOpen ? " open" : ""), "aria-hidden": !tocOpen, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "git-doc-toc-head", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }),
+          t$1("Terminal_DocToc")
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "git-doc-toc-search", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "input",
+            {
+              ref: tocSearchRef,
+              value: tocKw,
+              placeholder: t$1("Terminal_DocTocSearch"),
+              autoComplete: "off",
+              onChange: (e) => setTocKw(e.target.value),
+              onKeyDown: (e) => {
+                if (e.key !== "Escape") return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (tocKw) setTocKw("");
+                else setTocOpen(false);
+              }
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "git-doc-toc-count", children: kwL ? t$1("Terminal_DocSectionsHit", visibleToc.length, toc.length) : t$1("Terminal_DocSections", toc.length) }),
+        /* @__PURE__ */ jsxRuntime.jsxs("nav", { className: "git-doc-toc-list", children: [
+          visibleToc.map((it) => /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "git-doc-toc-item lv-" + it.level + (it.id === activeId ? " active" : ""),
+              "data-id": it.id,
+              onClick: () => jumpTo(it.id),
+              children: markLabel(it.text, kwL)
+            },
+            it.id
+          )),
+          kwL && visibleToc.length === 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "git-doc-toc-empty", children: [
+            t$1("Terminal_DocTocEmpty"),
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "git-doc-toc-empty-hint", children: t$1("Terminal_DocTocEmptyHint") })
+          ] })
+        ] })
+      ] })
+    ] });
+  }
+  const { call, on: onEvent, t, repo: repoOf, settings: settingsOf, theme: themeOf, updateSettings } = pageSdk;
   const useApp = useAppState;
+  const DOC_FRAC_DEFAULT = 0.4;
+  const DOC_FRAC_MIN = 0.26;
+  const DOC_FRAC_MAX = 0.65;
+  const clampDocFrac = (v) => Math.min(DOC_FRAC_MAX, Math.max(DOC_FRAC_MIN, v));
+  let docOpenMemo = false;
   const PROFILES = [
     { value: "powershell", label: "PowerShell" },
     { value: "cmd", label: "CMD" },
@@ -6207,6 +6526,24 @@ WARNING: This link could potentially be dangerous`)) {
     const [exits, setExits] = react.useState({});
     const [menuOpen, setMenuOpen] = react.useState(false);
     const restoredRef = react.useRef(false);
+    const areaRef = react.useRef(null);
+    const [docOpen, setDocOpenState] = react.useState(docOpenMemo);
+    const setDocOpen = (open) => {
+      docOpenMemo = open;
+      setDocOpenState(open);
+    };
+    const [docFrac, setDocFrac] = react.useState(() => {
+      var _a3;
+      const saved = (_a3 = settingsOf()) == null ? void 0 : _a3.terminalDocFraction;
+      return typeof saved === "number" ? clampDocFrac(saved) : DOC_FRAC_DEFAULT;
+    });
+    const docFracRef = react.useRef(docFrac);
+    const applyDocFrac = (f) => {
+      docFracRef.current = f;
+      setDocFrac(f);
+    };
+    const [docFracDragging, setDocFracDragging] = react.useState(false);
+    const docFracDragRef = react.useRef(null);
     const withAlpha = (hex, suffix, fallback) => {
       const m = /^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/.exec(hex ?? fallback);
       return m ? `#${m[1]}${suffix}` : hex ?? fallback;
@@ -6390,92 +6727,164 @@ WARNING: This link could potentially be dangerous`)) {
         sessionId: active.sessionId
       });
     };
+    const onDocSplitDown = (e) => {
+      if (!docOpen) return;
+      docFracDragRef.current = { startX: e.clientX, startFrac: docFrac };
+      e.target.setPointerCapture(e.pointerId);
+      setDocFracDragging(true);
+      document.body.style.userSelect = "none";
+      e.preventDefault();
+    };
+    const onDocSplitMove = (e) => {
+      var _a3;
+      const d = docFracDragRef.current;
+      const w = ((_a3 = areaRef.current) == null ? void 0 : _a3.clientWidth) ?? 0;
+      if (!d || !w) return;
+      applyDocFrac(clampDocFrac(d.startFrac + (e.clientX - d.startX) / w));
+    };
+    const endDocSplitDrag = (e) => {
+      if (!docFracDragRef.current) return;
+      docFracDragRef.current = null;
+      setDocFracDragging(false);
+      document.body.style.userSelect = "";
+      try {
+        e.target.releasePointerCapture(e.pointerId);
+      } catch {
+      }
+      void updateSettings({ terminalDocFraction: docFracRef.current });
+    };
+    react.useEffect(() => {
+      if (docFracDragging) return;
+      const t0 = termsRef.current.get(activeId ?? "");
+      if (!t0) return;
+      const id = requestAnimationFrame(() => {
+        try {
+          t0.fit.fit();
+        } catch {
+        }
+      });
+      return () => cancelAnimationFrame(id);
+    }, [docFracDragging, docOpen, activeId]);
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-wrap", ref: wrapRef, children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-tabs", children: [
-          tabs.map((tab) => /* @__PURE__ */ jsxRuntime.jsxs(
-            "div",
-            {
-              className: "term-tab" + (tab.sessionId === activeId ? " active" : ""),
-              title: labelOf(tab.shellKind),
-              onClick: () => setActiveId(tab.sessionId),
-              onAuxClick: (e) => {
-                if (e.button === 1) void closeTab(tab);
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-page-area", ref: areaRef, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-wrap", ref: wrapRef, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-tabs", children: [
+            tabs.map((tab) => /* @__PURE__ */ jsxRuntime.jsxs(
+              "div",
+              {
+                className: "term-tab" + (tab.sessionId === activeId ? " active" : ""),
+                title: labelOf(tab.shellKind),
+                onClick: () => setActiveId(tab.sessionId),
+                onAuxClick: (e) => {
+                  if (e.button === 1) void closeTab(tab);
+                },
+                children: [
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { className: "term-tab-ico", children: tab.shellKind === "bash" ? "bash" : tab.shellKind === "cmd" ? ">_" : "PS" }),
+                  /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "term-tab-label", children: [
+                    labelOf(tab.shellKind),
+                    exits[tab.sessionId] !== void 0 ? "（已退出）" : ""
+                  ] }),
+                  /* @__PURE__ */ jsxRuntime.jsx(
+                    "span",
+                    {
+                      className: "term-tab-x",
+                      title: t("Common_Close"),
+                      onClick: (e) => {
+                        e.stopPropagation();
+                        void closeTab(tab);
+                      },
+                      children: "✕"
+                    }
+                  )
+                ]
               },
-              children: [
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "term-tab-ico", children: tab.shellKind === "bash" ? "bash" : tab.shellKind === "cmd" ? ">_" : "PS" }),
-                /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "term-tab-label", children: [
-                  labelOf(tab.shellKind),
-                  exits[tab.sessionId] !== void 0 ? "（已退出）" : ""
-                ] }),
-                /* @__PURE__ */ jsxRuntime.jsx(
-                  "span",
-                  {
-                    className: "term-tab-x",
-                    title: t("Common_Close"),
-                    onClick: (e) => {
-                      e.stopPropagation();
-                      void closeTab(tab);
-                    },
-                    children: "✕"
-                  }
-                )
-              ]
-            },
-            tab.sessionId
-          )),
-          /* @__PURE__ */ jsxRuntime.jsx(
-            "button",
-            {
-              className: "term-tab-new",
-              title: t("Terminal_NewTab", labelOf(((_a2 = settingsOf()) == null ? void 0 : _a2.terminalShell) ?? "powershell")),
-              onClick: () => {
-                var _a3;
-                return void openTab(((_a3 = settingsOf()) == null ? void 0 : _a3.terminalShell) ?? "powershell");
-              },
-              children: "＋"
-            }
-          ),
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "profile-menu-anchor", children: [
+              tab.sessionId
+            )),
             /* @__PURE__ */ jsxRuntime.jsx(
               "button",
               {
-                className: "term-tab-new term-tab-profile",
-                "aria-expanded": menuOpen,
-                title: t("Terminal_NewTabProfile"),
-                onClick: () => setMenuOpen(!menuOpen),
-                children: /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "12", height: "8", viewBox: "0 0 12 8", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2.2 2.6L6 6.4L9.8 2.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round", strokeLinejoin: "round" }) })
+                className: "term-tab-new",
+                title: t("Terminal_NewTab", labelOf(((_a2 = settingsOf()) == null ? void 0 : _a2.terminalShell) ?? "powershell")),
+                onClick: () => {
+                  var _a3;
+                  return void openTab(((_a3 = settingsOf()) == null ? void 0 : _a3.terminalShell) ?? "powershell");
+                },
+                children: "＋"
               }
             ),
-            menuOpen && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "profile-menu", children: PROFILES.map((p) => {
-              var _a3;
-              return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "profile-menu-item", onClick: () => {
-                setMenuOpen(false);
-                void openTab(p.value);
-              }, children: [
-                /* @__PURE__ */ jsxRuntime.jsx("span", { children: p.label }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "profile-menu-k", children: p.value === (((_a3 = settingsOf()) == null ? void 0 : _a3.terminalShell) ?? "powershell") ? t("Terminal_ProfileDefault") : "" })
-              ] }, p.value);
-            }) })
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "profile-menu-anchor", children: [
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "term-tab-new term-tab-profile",
+                  "aria-expanded": menuOpen,
+                  title: t("Terminal_NewTabProfile"),
+                  onClick: () => setMenuOpen(!menuOpen),
+                  children: /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "12", height: "8", viewBox: "0 0 12 8", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2.2 2.6L6 6.4L9.8 2.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round", strokeLinejoin: "round" }) })
+                }
+              ),
+              menuOpen && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "profile-menu", children: PROFILES.map((p) => {
+                var _a3;
+                return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "profile-menu-item", onClick: () => {
+                  setMenuOpen(false);
+                  void openTab(p.value);
+                }, children: [
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { children: p.label }),
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { className: "profile-menu-k", children: p.value === (((_a3 = settingsOf()) == null ? void 0 : _a3.terminalShell) ?? "powershell") ? t("Terminal_ProfileDefault") : "" })
+                ] }, p.value);
+              }) })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", title: t("Terminal_Restart"), onClick: restartActive, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) }),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "tool-btn icon" + (docOpen ? " on" : ""),
+                title: t("Terminal_DocTitle"),
+                onClick: () => setDocOpen(!docOpen),
+                children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" })
+              }
+            )
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", title: t("Terminal_Restart"), onClick: restartActive, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", children: "" }) })
+          tabs.map((tab) => /* @__PURE__ */ jsxRuntime.jsx(
+            "div",
+            {
+              className: "term-host",
+              ref: (el) => {
+                hostsRef.current.set(tab.sessionId, el);
+              },
+              style: { display: tab.sessionId === activeId ? "block" : "none" }
+            },
+            tab.sessionId
+          )),
+          tabs.length === 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "big", children: "＋" }),
+            t("Terminal_EmptyHint")
+          ] })
         ] }),
-        tabs.map((tab) => /* @__PURE__ */ jsxRuntime.jsx(
+        /* @__PURE__ */ jsxRuntime.jsx(
           "div",
           {
-            className: "term-host",
-            ref: (el) => {
-              hostsRef.current.set(tab.sessionId, el);
-            },
-            style: { display: tab.sessionId === activeId ? "block" : "none" }
-          },
-          tab.sessionId
-        )),
-        tabs.length === 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
-          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "big", children: "＋" }),
-          t("Terminal_EmptyHint")
-        ] })
+            className: "term-doc-splitter" + (docFracDragging ? " dragging" : "") + (docOpen ? "" : " hidden"),
+            title: t("Terminal_DocResize"),
+            onPointerDown: onDocSplitDown,
+            onPointerMove: onDocSplitMove,
+            onPointerUp: endDocSplitDrag,
+            onLostPointerCapture: endDocSplitDrag,
+            onDoubleClick: () => {
+              applyDocFrac(DOC_FRAC_DEFAULT);
+              void updateSettings({ terminalDocFraction: DOC_FRAC_DEFAULT });
+            }
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "div",
+          {
+            className: "doc-panel" + (docFracDragging ? " dragging" : "") + (docOpen ? "" : " closed"),
+            style: { flexBasis: docOpen ? `${(docFrac * 100).toFixed(2)}%` : "0%" },
+            children: /* @__PURE__ */ jsxRuntime.jsx(GitDocPanel, { onClose: () => setDocOpen(false) })
+          }
+        )
       ] }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "term-status", children: [
         /* @__PURE__ */ jsxRuntime.jsx("span", { children: activeStatus }),
@@ -6483,31 +6892,6 @@ WARNING: This link could potentially be dangerous`)) {
       ] })
     ] });
   }
-  const K = () => {
-    const k = window.GITTER_KIT;
-    if (!k) throw new Error("GITTER_KIT 未注入（外部页必须经宿主 pageLoader 装载）");
-    return k;
-  };
-  const React = K().React;
-  K().ReactDOM;
-  const ReactDOMClient = K().ReactDOMClient;
-  K().DiffView;
-  K().diffStatusLetter;
-  K().renderSegments;
-  K().wordDiff;
-  K().SplitPane;
-  K().Banner;
-  K().Modal;
-  K().useContextMenu;
-  K().SyncBar;
-  K().useSyncProgress;
-  K().renderMarkdown;
-  K().registerMarkdownPlugin;
-  const PageErrorBoundary = K().PageErrorBoundary;
-  K().NavIcon;
-  K().Select;
-  K().ReflogDialog;
-  K().ScrollArea;
   window.GITTER_UI.registerPage({ id: "bash" }, (container) => {
     var _a2;
     const host = container;

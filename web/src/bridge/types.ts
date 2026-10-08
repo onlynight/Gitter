@@ -191,6 +191,8 @@ export interface SettingsDTO {
   mcpEnabled: boolean;
   logSplitterFraction: number | null;
   changesSplitterFraction: number | null;
+  /** 终端页 Git 文档面板分栏比例 */
+  terminalDocFraction: number | null;
   packages: Record<string, PackageLedgerDTO>;
   confirmedCommands: string[];
   allowCodePlugins: boolean;

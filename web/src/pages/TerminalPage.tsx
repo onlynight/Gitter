@@ -3,14 +3,26 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { pageSdk, useAppState } from "../pageSdk";
 import type { TerminalSessionDTO, ThemeStateDTO } from "../bridge/types";
+import { GitDocPanel } from "../components/GitDocPanel";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
-const { call, on: onEvent, t, repo: repoOf, settings: settingsOf, theme: themeOf } = pageSdk;
+const { call, on: onEvent, t, repo: repoOf, settings: settingsOf, theme: themeOf, updateSettings } = pageSdk;
 const useApp = useAppState;
 
 /** 终端页多标签（Windows Terminal 交互形式，docs/terminal-tabs.md）：
  *  每标签一个独立 pty 会话 + 独立 xterm 实例；切换不销毁（后台输出持续写入）；
- *  标签恢复经 terminal.list；＋/⌄ 新建；× 关闭（运行中确认）；Ctrl+Tab 循环切换。 */
+ *  标签恢复经 terminal.list；＋/⌄ 新建；× 关闭（运行中确认）；Ctrl+Tab 循环切换。
+ *  右侧 Git 命令文档面板（design/terminal-git-docs-mockup.html）：文档钮开合，
+ *  分隔条拖拽调宽（默认 2/5，松手持久化 settings.terminalDocFraction，双击复位）。 */
+
+/** 文档面板分栏比例钳制：保证终端/面板两侧最小可用宽度 */
+const DOC_FRAC_DEFAULT = 0.4;
+const DOC_FRAC_MIN = 0.26;
+const DOC_FRAC_MAX = 0.65;
+const clampDocFrac = (v: number) => Math.min(DOC_FRAC_MAX, Math.max(DOC_FRAC_MIN, v));
+
+/** 页间切换不丢开合状态（不入设置——只有宽度比例入设置） */
+let docOpenMemo = false;
 
 interface TermTab {
   sessionId: string;
@@ -35,6 +47,24 @@ export function TerminalPage() {
   const [exits, setExits] = useState<Record<string, number>>({});
   const [menuOpen, setMenuOpen] = useState(false);
   const restoredRef = useRef(false);
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [docOpen, setDocOpenState] = useState(docOpenMemo);
+  const setDocOpen = (open: boolean) => {
+    docOpenMemo = open;
+    setDocOpenState(open);
+  };
+  const [docFrac, setDocFrac] = useState(() => {
+    const saved = settingsOf()?.terminalDocFraction;
+    return typeof saved === "number" ? clampDocFrac(saved) : DOC_FRAC_DEFAULT;
+  });
+  // 最新比例镜像（ref）：拖拽保存读它，免受事件批处理时序影响
+  const docFracRef = useRef(docFrac);
+  const applyDocFrac = (f: number) => {
+    docFracRef.current = f;
+    setDocFrac(f);
+  };
+  const [docFracDragging, setDocFracDragging] = useState(false);
+  const docFracDragRef = useRef<{ startX: number; startFrac: number } | null>(null);
 
   /** 终端画布对齐表面档：材质开启时把 alpha 段重写为低不透明（叠层补偿）。 */
   const withAlpha = (hex: string | undefined, suffix: string, fallback: string): string => {
@@ -226,8 +256,44 @@ export function TerminalPage() {
     });
   };
 
+  // ---- 文档面板分隔条：拖拽调宽（拖动中禁过渡），松手持久化，双击恢复默认 ----
+  const onDocSplitDown = (e: React.PointerEvent) => {
+    if (!docOpen) return;
+    docFracDragRef.current = { startX: e.clientX, startFrac: docFrac };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    setDocFracDragging(true);
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  };
+  const onDocSplitMove = (e: React.PointerEvent) => {
+    const d = docFracDragRef.current;
+    const w = areaRef.current?.clientWidth ?? 0;
+    if (!d || !w) return;
+    applyDocFrac(clampDocFrac(d.startFrac + (e.clientX - d.startX) / w));
+  };
+  const endDocSplitDrag = (e: React.PointerEvent) => {
+    if (!docFracDragRef.current) return;
+    docFracDragRef.current = null;
+    setDocFracDragging(false);
+    document.body.style.userSelect = "";
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* 忽略 */ }
+    void updateSettings({ terminalDocFraction: docFracRef.current });
+  };
+
+  // 分栏拖拽 / 面板开合改变终端宽度后，重排当前 xterm
+  useEffect(() => {
+    if (docFracDragging) return;
+    const t0 = termsRef.current.get(activeId ?? "");
+    if (!t0) return;
+    const id = requestAnimationFrame(() => {
+      try { t0.fit.fit(); } catch { /* 忽略 */ }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [docFracDragging, docOpen, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <>
+      <div className="term-page-area" ref={areaRef}>
       <div className="term-wrap" ref={wrapRef}>
         <div className="term-tabs">
           {tabs.map((tab) => (
@@ -271,6 +337,13 @@ export function TerminalPage() {
           <button className="tool-btn icon" title={t("Terminal_Restart")} onClick={restartActive}>
             <span className="glyph">{""}</span>
           </button>
+          <button
+            className={"tool-btn icon" + (docOpen ? " on" : "")}
+            title={t("Terminal_DocTitle")}
+            onClick={() => setDocOpen(!docOpen)}
+          >
+            <span className="glyph">{"\uE8A5"}</span>
+          </button>
         </div>
         {tabs.map((tab) => (
           <div
@@ -283,6 +356,27 @@ export function TerminalPage() {
         {tabs.length === 0 && (
           <div className="empty-state"><div className="big">＋</div>{t("Terminal_EmptyHint")}</div>
         )}
+      </div>
+      <div
+        className={
+          "term-doc-splitter" + (docFracDragging ? " dragging" : "") + (docOpen ? "" : " hidden")
+        }
+        title={t("Terminal_DocResize")}
+        onPointerDown={onDocSplitDown}
+        onPointerMove={onDocSplitMove}
+        onPointerUp={endDocSplitDrag}
+        onLostPointerCapture={endDocSplitDrag}
+        onDoubleClick={() => {
+          applyDocFrac(DOC_FRAC_DEFAULT);
+          void updateSettings({ terminalDocFraction: DOC_FRAC_DEFAULT });
+        }}
+      />
+      <div
+        className={"doc-panel" + (docFracDragging ? " dragging" : "") + (docOpen ? "" : " closed")}
+        style={{ flexBasis: docOpen ? `${(docFrac * 100).toFixed(2)}%` : "0%" }}
+      >
+        <GitDocPanel onClose={() => setDocOpen(false)} />
+      </div>
       </div>
       <div className="term-status">
         <span>{activeStatus}</span>

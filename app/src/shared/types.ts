@@ -210,6 +210,8 @@ export interface SettingsDTO {
   /** 页面分割条位置（比例）持久化 */
   logSplitterFraction: number | null;
   changesSplitterFraction: number | null;
+  /** 终端页 Git 文档面板分栏比例（design/terminal-git-docs-mockup.html） */
+  terminalDocFraction: number | null;
   /** 扩展包账本（extension-system-v2.md §五）：启停/按 kind 启停/包配置 */
   packages: Record<string, PackageLedgerDTO>;
   /** L1 命令首跑确认账本（已确认的命令 id，terminal.run 类） */
