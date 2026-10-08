@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.safety-rules",
+  "name": "额外安全规则",
+  "version": "1.0.0",
+  "description": "L1 安全网规则 + 命令风险规则 + Agent 权限规则（只能加严）",
+  "contributes": {
+    "safetyRules": [
+      {
+        "id": "no-secret",
+        "pattern": "(?i)(api[_-]?key|secret|password|token)\\s*[:=]\\s*['\"][^'\"]{8,}",
+        "flags": "",
+        "message": "疑似硬编码密钥/凭据",
+        "fileExts": [".js", ".ts", ".py", ".go", ".rs", ".cs", ".json", ".yml", ".yaml", ".toml", ".env"]
+      },
+      {
+        "id": "no-todo-release",
+        "pattern": "(?i)//\\s*(todo|fixme|hack|xxx)\\b",
+        "flags": "i",
+        "message": "TODO/FIXME 注释残留",
+        "fileExts": [".js", ".ts", ".jsx", ".tsx", ".py", ".go"]
+      },
+      {
+        "id": "no-eval",
+        "pattern": "\\beval\\s*\\(",
+        "flags": "",
+        "message": "eval() 调用——动态代码执行风险"
+      }
+    ],
+    "commandRiskRules": [
+      { "pattern": "^\\s*(rm\\s+-rf|git\\s+push\\s+.*--force|git\\s+reset\\s+--hard)", "risk": "high", "message": "破坏性操作" },
+      { "pattern": "npm\\s+(publish|install\\s+-g)", "risk": "medium", "message": "影响全局/外部发布" }
+    ],
+    "agentPermissionRules": [
+      { "tool": "terminal_run", "pattern": "rm\\s+-rf\\s+/", "effect": "deny" },
+      { "tool": "terminal_run", "pattern": "git\\s+push\\s+.*--force", "effect": "deny" },
+      { "tool": "file_write", "pattern": "\\.env$", "effect": "deny" }
+    ],
+    "contextFiles": [
+      { "path": "SECURITY.md", "label": "安全策略", "capChars": 4000 }
+    ]
+  }
+}

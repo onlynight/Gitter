@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.agent-prompts",
+  "name": "Agent 提示词与上下文",
+  "version": "1.0.0",
+  "description": "L2 代码插件：提示词槽位 + 上下文采集器 + 子代理预设 + 压缩器 + turn 钩子 + L1 promptSections 静态段",
+  "entry": "main.js",
+  "engines": { "gitter": ">=0.1.0" },
+  "apiVersion": 3,
+  "contributes": {
+    "promptSections": [
+      {
+        "id": "tone",
+        "slot": "mode",
+        "order": 40,
+        "content": "回复风格：先结论后依据，避免寒暄。引用代码用 `文件:行号`。"
+      }
+    ],
+    "subagentPresets": [
+      {
+        "id": "readonly-probe",
+        "name": "只读探针",
+        "description": "只读快速探活，零副作用",
+        "tools": ["repo_status", "repo_read_file", "repo_glob", "repo_grep"],
+        "readonly": true,
+        "addendum": "只读探活：不修改任何文件，产出 3 行以内结论。",
+        "timeoutMs": 120000
+      }
+    ]
+  }
+}

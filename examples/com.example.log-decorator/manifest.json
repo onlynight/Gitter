@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.log-decorator",
+  "name": "提交日志增强",
+  "version": "1.0.0",
+  "description": "L2 代码插件：日志装饰器 + 预览提供者 + 自定义扫描器 + 只读 git API",
+  "entry": "main.js",
+  "engines": { "gitter": ">=0.1.0" },
+  "apiVersion": 3
+}

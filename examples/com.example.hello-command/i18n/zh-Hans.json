@@ -1,0 +1,6 @@
+{
+  "cmd.greet": "示例：问候当前分支",
+  "cmd.greetVerbose": "示例：打印最近一次提交",
+  "cat": "Hello Command",
+  "hint.empty": "没有待提交的改动 —— 试试 Ctrl+Shift+H 打个招呼"
+}

@@ -1,0 +1,6 @@
+{
+  "cmd.greet": "Hello: greet current branch",
+  "cmd.greetVerbose": "Hello: print latest commit",
+  "cat": "Hello Command",
+  "hint.empty": "No changes to commit — try Ctrl+Shift+H to say hi"
+}

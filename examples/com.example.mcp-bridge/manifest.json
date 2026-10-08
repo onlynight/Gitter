@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.mcp-bridge",
+  "name": "Playwright MCP 桥",
+  "version": "1.0.0",
+  "description": "L1 MCP 服务端声明：宿主以 stdio 拉起外部 MCP server",
+  "contributes": {
+    "mcpServers": [
+      {
+        "id": "playwright",
+        "name": "Playwright 浏览器自动化",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@playwright/mcp"],
+        "description": "打开/操作浏览器、截图验证前端"
+      },
+      {
+        "id": "github",
+        "name": "GitHub MCP",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "description": "需要环境变量 GITHUB_TOKEN（在终端会话环境中预设）"
+      }
+    ]
+  }
+}

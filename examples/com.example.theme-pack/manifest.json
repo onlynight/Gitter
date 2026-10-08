@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.theme-pack",
+  "name": "示例主题（暗夜蓝）",
+  "version": "1.0.0",
+  "description": "L1 主题包示例：亮/暗双档 + acrylic 材质。令牌名与 TokenKey 枚举一致。",
+  "contributes": {
+    "themes": [
+      { "id": "dark", "path": "theme/dark.json", "base": "dark", "material": "acrylic" },
+      { "id": "light", "path": "theme/light.json", "base": "light", "material": "acrylic" }
+    ]
+  }
+}

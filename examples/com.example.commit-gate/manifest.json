@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.commit-gate",
+  "name": "提交门禁",
+  "version": "1.0.0",
+  "description": "L2 代码插件示例：门禁钩子（只否决不篡改）+ 状态栏 + 面板 + 提交区块 + diff 注记 + 事件订阅 + 命令注册 + 配置读取 + 生命周期",
+  "entry": "main.js",
+  "engines": { "gitter": ">=0.1.0" },
+  "apiVersion": 3,
+  "contributes": {
+    "configuration": [
+      { "key": "forbidMergeCommits", "type": "boolean", "default": true, "title": "阻止 merge 提交" },
+      { "key": "warnBodyLines", "type": "number", "default": 6, "title": "提交正文超过多少行时提醒" },
+      { "key": "signOff", "type": "boolean", "default": false, "title": "要求 Signed-off-by" }
+    ]
+  }
+}

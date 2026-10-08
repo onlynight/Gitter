@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.agent-skill",
+  "name": "Agent 技能示例",
+  "version": "1.0.0",
+  "description": "L1 技能：markdown 正文注入 Agent 系统提示（纯数据，无代码）",
+  "engines": { "gitter": ">=0.1.0" },
+  "contributes": {
+    "skills": [
+      {
+        "id": "review-checklist",
+        "name": "代码审查清单",
+        "description": "执行代码审查时遵循的检查清单",
+        "tools": ["repo_diff", "repo_read_file", "repo_grep"],
+        "instructions": "## 代码审查清单\n\n审查按以下顺序进行，每条给出结论：\n\n1. **正确性** —— 逻辑是否匹配意图？边界条件（空输入、并发、超时）是否处理？\n2. **安全性** —— 是否引入注入点、权限绕过、敏感信息泄漏？\n3. **可维护性** —— 命名是否自解释？是否有重复实现已有工具函数？\n4. **测试** —— 关键路径是否有测试覆盖？\n\n输出格式：`文件:行号` → 严重级别（高/中/低）→ 问题 → 修复建议。\n最后给出是否可以合并的结论。"
+      },
+      {
+        "id": "concise-reply",
+        "name": "简洁回复",
+        "description": "让 Agent 回复更简短",
+        "instructions": "回复控制在三句话以内。先给结论，再给依据。不要用表格除非数据确实需要对比。"
+      }
+    ]
+  }
+}
