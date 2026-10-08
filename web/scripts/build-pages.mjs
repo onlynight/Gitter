@@ -34,6 +34,8 @@ for (const slot of PAGES) {
       outDir: path.join(outRoot, `gitui.page.${slot}`),
       // 不可清空目录：manifest.json / i18n/ 是随包静态资源（提交入库），只覆盖 page.js
       emptyOutDir: false,
+      // 页面包不需要宿主 public/ 资产（favicon / 品牌图），禁止 vite 复制
+      copyPublicDir: false,
       // 不压缩：内置页面包产物保持可读多行格式——安全网按行扫描、报错行号有意义；
       // 本地包随应用分发，体积代价可接受
       minify: false,
