@@ -817,7 +817,7 @@ Agents_FeedbackTitle	Send Feedback (NextTurn)	退回重做（直投下一轮）
 Agents_FeedbackSent	Feedback sent to running session	反馈已直投会话
 Agents_FeedbackPlaceholder	Review feedback for the agent…	给 agent 的审查反馈…
 Agents_PromptPlaceholder	Task description (sent via stdin)…	任务描述（经 stdin 投递）…
-Agents_HarnessPlaceholder	— select harness —
+Agents_HarnessPlaceholder	— select harness —	— 选择 harness —
 Agents_NoHarness	No usable harness detected (check CLI install / PATH)	未探测到可用的 harness（检查 CLI 安装与 PATH）
 Agents_PermTitle	Permission request	授权请求
 Agents_PermApprove	Approve	批准
@@ -827,8 +827,7 @@ Agents_PermDeny	Deny	驳回
 Agents_EmptyHint	No agent tasks yet — create one and hand it a task	还没有 Agent 任务——新建一个并派活
 Agents_SelectHint	Select a task on the left to view its session timeline	在左侧选择任务查看会话时间线
 Agents_TimelineEmpty	Session timeline will stream here once the turn starts	轮次开始后，会话时间线将在此流式呈现
-Agents_PermNote	each-time: confirm every run, never remembered
-each-time：每次确认，永不记忆
+Agents_PermNote	each-time: confirm every run, never remembered	each-time：每次确认，永不记忆
 Agents_InputPlaceholder	Continue / feedback (Ctrl+Enter to send)…	续跑 / 反馈（Ctrl+Enter 发送）…
 Agents_InputRunning	Agent is working — stop it before sending new input…	agent 正在工作——请先停止再发送新输入…
 Agents_Send	Send	发送
@@ -938,8 +937,7 @@ Agents_ThinkingLow	Low	低
 Agents_ThinkingOff	Off	关闭
 Cat_File	File	文件
 Ext_ConfirmTitle	Run command for the first time	首次运行命令
-Ext_ConfirmBody	This command comes from an extension package and will run with your privileges:
-该命令来自扩展包，将以你的权限执行：
+Ext_ConfirmBody	This command comes from an extension package and will run with your privileges:	该命令来自扩展包，将以你的权限执行：
 Ext_ConfirmRun	Run	执行
 Extensions_InstallFromUrl	Install from URL	从地址安装
 Changes_SendToRepair	Send to repair round	直投修复轮
