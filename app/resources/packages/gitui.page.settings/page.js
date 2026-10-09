@@ -7,6 +7,14 @@
     return g;
   }
   const BOOT = ((_b = (_a = window.GITTER_UI) == null ? void 0 : _a.getActiveCaller) == null ? void 0 : _b.call(_a)) ?? null;
+  (() => {
+    var _a2, _b2;
+    try {
+      return ((_b2 = (_a2 = window.GITTER_UI) == null ? void 0 : _a2.pageDocs) == null ? void 0 : _b2.call(_a2)) ?? null;
+    } catch {
+      return null;
+    }
+  })();
   const pageSdk = {
     call: (method, params) => {
       const g = U();

@@ -17,6 +17,12 @@ function U(): NonNullable<Window["GITTER_UI"]> {
 
 const BOOT = window.GITTER_UI?.getActiveCaller?.() ?? null;
 
+/** 装载期快照：本包 manifest 声明的文档多语言表。pageDocs() 读的瞬态变量在注入结束即被清空，
+ *  文档源是 eval 期注册的惰性闭包——必须在窗口内快照，运行时经 pageDocs() 再读恒为 null。 */
+const BOOT_PAGE_DOCS = (() => {
+  try { return window.GITTER_UI?.pageDocs?.() ?? null; } catch { return null; }
+})();
+
 /** 装载期窗口内可取：本包 manifest 声明的文档多语言表（lang → markdown 绝对路径）。 */
 export function pageDocs(): Record<string, string> | null {
   return U().pageDocs?.() ?? null;
@@ -61,7 +67,7 @@ export function docSource(
   const box = new Set<Record<string, string>>();
   if (_paths) box.add(_paths);
   return async () => {
-    const paths = [...box][0] || null;
+    const paths = [...box][0] || BOOT_PAGE_DOCS; // 字面 null 调用点：回退宿主注入的 manifest 文档表
     const pick = paths ? (paths[uiLang()] || paths["en"]) : null;
     const text = pick ? await fetchDoc(pick) : null;
     return text || fallback();

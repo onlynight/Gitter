@@ -6173,6 +6173,14 @@ WARNING: This link could potentially be dangerous`)) {
     return g;
   }
   const BOOT = ((_b = (_a = window.GITTER_UI) == null ? void 0 : _a.getActiveCaller) == null ? void 0 : _b.call(_a)) ?? null;
+  const BOOT_PAGE_DOCS = (() => {
+    var _a2, _b2;
+    try {
+      return ((_b2 = (_a2 = window.GITTER_UI) == null ? void 0 : _a2.pageDocs) == null ? void 0 : _b2.call(_a2)) ?? null;
+    } catch {
+      return null;
+    }
+  })();
   function uiLang() {
     var _a2;
     return ((_a2 = U().getState().i18n) == null ? void 0 : _a2.lang) ?? "en";
@@ -6190,7 +6198,7 @@ WARNING: This link could potentially be dangerous`)) {
   function docSource(_paths, fallback) {
     const box = /* @__PURE__ */ new Set();
     return async () => {
-      const paths = [...box][0] || null;
+      const paths = [...box][0] || BOOT_PAGE_DOCS;
       const pick = paths ? paths[uiLang()] || paths["en"] : null;
       const text = pick ? await fetchDoc(pick) : null;
       return text || fallback();

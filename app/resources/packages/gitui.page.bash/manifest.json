@@ -11,7 +11,7 @@
         "slot": "bash",
         "title": "%Nav_Terminal%",
           "entry": "page.js",
-          "icon": "",
+          "icon": "",
           "svg": null,
           "lazy": true,
           "permissions": [
