@@ -1,0 +1,17 @@
+{
+  "dash.title": "Git Dashboard",
+  "dash.empty": "Open a repository to view",
+  "dash.recent": "Recent commits",
+  "dash.repoReady": "Repo ready",
+  "dash.loadFailed": "Failed to load data: {0}",
+  "dash.loading": "Loading…",
+  "dash.noCommits": "No commits yet",
+  "dash.selected": "Selected: {0}",
+  "dash.staged": " (staged)",
+  "dash.noSelection": "No file selected",
+  "dash.refresh": "Refresh",
+  "dash.stageAll": "Stage all",
+  "dash.stagedAll": "All changes staged",
+  "dash.stageFailed": "Staging failed",
+  "dash.goChanges": "Go to Changes →"
+}

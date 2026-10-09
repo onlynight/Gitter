@@ -1,0 +1,17 @@
+{
+  "dash.title": "Git 仪表盘",
+  "dash.empty": "打开一个仓库以查看",
+  "dash.recent": "最近提交",
+  "dash.repoReady": "仓库就绪",
+  "dash.loadFailed": "数据加载失败：{0}",
+  "dash.loading": "加载中…",
+  "dash.noCommits": "没有提交记录",
+  "dash.selected": "选中：{0}",
+  "dash.staged": "（已暂存）",
+  "dash.noSelection": "未选中文件",
+  "dash.refresh": "刷新",
+  "dash.stageAll": "暂存全部",
+  "dash.stagedAll": "已暂存全部改动",
+  "dash.stageFailed": "暂存失败",
+  "dash.goChanges": "去改动页 →"
+}

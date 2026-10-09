@@ -1,10 +1,10 @@
 /*
- * Git 仪表盘页 —— 渲染层页面示例（经典 IIFE，非 ES module）。
+ * Git Dashboard Page —— renderer page example (classic IIFE, not an ES module).
  *
- * 三条硬约定：
- *  1. React 必须来自 window.GITTER_KIT（宿主单实例）——自带 React 会双实例崩溃；
- *  2. 所有 RPC 走 pageSdk.call（封装 caller 身份）——裸 window.GITTER_UI.call 会权限回退；
- *  3. mount 返回清理函数，卸载时由宿主调用。
+ * Three hard rules:
+ *  1. React must come from window.GITTER_KIT (single host instance) — bundling your own crashes with a double React;
+ *  2. All RPC goes through pageSdk.call (attaches caller identity) — bare window.GITTER_UI.call falls back to default permissions;
+ *  3. mount returns a cleanup function, which the host calls on unmount.
  */
 (function (react, kit) {
   "use strict";
@@ -15,18 +15,25 @@
 
   function U() {
     var g = window.GITTER_UI;
-    if (!g) throw new Error("GITTER_UI 未注入（页面必须经宿主 pageLoader 装载）");
+    if (!g) throw new Error("GITTER_UI not injected (pages must be loaded through the host pageLoader)");
     return g;
   }
 
-  // caller 身份必须在入口脚本 eval 期捕获——注入完成后 loader 窗口已重置，
-  // 挂载时再读会永远回退缺省权限（terminal/extensions.admin/git.write 全被拒）
+  // caller identity must be captured during entry-script eval — once injection finishes the
+  // loader window is reset, and reading it at mount time would always fall back to default
+  // permissions (terminal / extensions.admin / git.write all rejected)
   var BOOT = (U().getActiveCaller ? U().getActiveCaller() : null) || null;
 
   var pageSdk = {
     call: function (method, params) {
       var g = U();
       return BOOT ? g.callWith(BOOT, method, params) : g.call(method, params);
+    },
+    /** UI strings (%key% resolved through the package i18n/<lang>.json, lang -> en -> fallback) */
+    t: function (key) {
+      var rest = [];
+      for (var i = 1; i < arguments.length; i++) rest.push(arguments[i]);
+      return U().t.apply(U(), [key].concat(rest));
     },
     on: function (method, cb) { return U().on(method, cb); },
     repo: function () { return U().repo(); },
@@ -38,13 +45,13 @@
     subscribeState: function (cb) { return U().subscribeState(cb); }
   };
 
-  // 响应式状态：宿主活 store 的跨 React 实例安全订阅
+  // Reactive state: cross-React-instance-safe subscription to the host live store
   function useAppState() {
     var g = U();
     return React.useSyncExternalStore(g.subscribeState, g.getState);
   }
 
-  // 把 RPC 结果做成可订阅状态
+  // Make an RPC result subscribable state
   function useRpc(method, params) {
     var app = useAppState();
     var [state, setState] = React.useState({ data: null, loading: false, error: null });
@@ -72,27 +79,27 @@
 
     return h("div", { className: "gd" },
       h("header", { className: "gd-head" },
-        h("h1", null, "Git 仪表盘"),
+        h("h1", null, pageSdk.t("dash.title")),
         repo
           ? h("div", { className: "gd-repo" }, repo.name)
-          : h("div", { className: "gd-empty" }, "打开一个仓库以查看")
+          : h("div", { className: "gd-empty" }, pageSdk.t("dash.empty"))
       ),
 
       h("div", { className: "gd-stats" },
         h("div", { className: "gd-stat" },
           h("b", null, String(Array.isArray(log.data) ? log.data.length : 0)),
-          h("span", null, "最近提交")
+          h("span", null, pageSdk.t("dash.recent"))
         ),
         h("div", { className: "gd-stat" },
           h("b", null, log.loading ? "…" : String(repo ? 1 : 0)),
-          h("span", null, "仓库就绪")
+          h("span", null, pageSdk.t("dash.repoReady"))
         )
       ),
 
       log.error
-        ? h("div", { className: "gd-err" }, "数据加载失败：" + log.error)
+        ? h("div", { className: "gd-err" }, pageSdk.t("dash.loadFailed", log.error))
         : log.loading
-          ? h("div", { className: "gd-empty" }, "加载中…")
+          ? h("div", { className: "gd-empty" }, pageSdk.t("dash.loading"))
           : h("ol", { className: "gd-log" },
               (Array.isArray(log.data) ? log.data : []).map(function (c, i) {
                 return h("li", { key: c.sha || i },
@@ -102,43 +109,43 @@
                 );
               }),
               (!log.loading && (Array.isArray(log.data) ? log.data.length : 0) === 0)
-                ? h("li", { className: "gd-empty" }, "没有提交记录")
+                ? h("li", { className: "gd-empty" }, pageSdk.t("dash.noCommits"))
                 : null
             ),
 
       h("div", { className: "gd-foot" },
         h("div", { className: "gd-ctx" },
           ctx && ctx.selectedFile
-            ? "选中：" + ctx.selectedFile.path + (ctx.selectedFile.staged ? "（已暂存）" : "")
-            : "未选中文件"
+            ? pageSdk.t("dash.selected", ctx.selectedFile.path + (ctx.selectedFile.staged ? pageSdk.t("dash.staged") : ""))
+            : pageSdk.t("dash.noSelection")
         ),
         h("div", { className: "gd-actions" },
           h("button", {
             className: "gd-btn",
             disabled: !repo,
             onClick: function () { pageSdk.refresh(); }
-          }, "刷新"),
+          }, pageSdk.t("dash.refresh")),
           h("button", {
             className: "gd-btn",
             disabled: !repo,
-            // git.write 域：changes.stage 需权限声明含 git.write
+            // git.write scope: changes.stage requires git.write in the manifest permissions
             onClick: function () {
               pageSdk.call("changes.stage", {})
-                .then(function () { pageSdk.toast("已暂存全部改动"); })
-                .catch(function (e) { pageSdk.toast("暂存失败", String(e && e.message || e)); });
+                .then(function () { pageSdk.toast(pageSdk.t("dash.stagedAll")); })
+                .catch(function (e) { pageSdk.toast(pageSdk.t("dash.stageFailed"), String(e && e.message || e)); });
             }
-          }, "暂存全部"),
+          }, pageSdk.t("dash.stageAll")),
           h("button", {
             className: "gd-btn",
             disabled: !repo,
             onClick: function () { pageSdk.navigate("changes"); }
-          }, "去改动页 →")
+          }, pageSdk.t("dash.goChanges"))
         )
       )
     );
   }
 
-  // 注册页面。id 会被宿主展开为 ext.git-dashboard-page.dashboard
+  // Register the page. The host expands the id to ext.git-dashboard-page.dashboard
   window.GITTER_UI.registerPage({ id: "dashboard" }, function (container) {
     var prev = container.__gitterRoot;
     if (prev) prev.unmount();
