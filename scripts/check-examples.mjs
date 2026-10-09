@@ -36,6 +36,19 @@ const ID_RE = /^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/;
 const KNOWN_LANGS = new Set(["en", "zh-Hans"]);
 const HOST_ACTIONS = new Set(["terminal.run", "shell.openPath", "shell.reveal", "repo.refresh", "agent.task.create", "agent.task.resume"]);
 
+// 内置文案表（app/resources/Strings.tsv）：manifest 的 %key% 也可引用宿主内置键，
+// 渲染层 t() 按 lang → en → 原样解析，不走包 i18n 目录。
+const BUILTIN_KEYS = new Set();
+try {
+  for (const line of fs.readFileSync(path.join(repoRoot, "app", "resources", "Strings.tsv"), "utf8").split(/\r?\n/)) {
+    if (!line || line.startsWith("#")) continue;
+    const k = line.split("\t")[0].trim().replace(/\./g, "_");
+    if (k) BUILTIN_KEYS.add(k);
+  }
+} catch {
+  warnMsg("无法读取 app/resources/Strings.tsv——内置 %key% 引用将全部判为缺失");
+}
+
 const ok = [];
 const fail = [];
 const warn = [];
@@ -236,6 +249,9 @@ for (const dir of dirs) {
       }
     }
     const allKeys = new Set([...Object.keys(dicts.en ?? {}), ...Object.keys(dicts["zh-Hans"] ?? {})]);
+    // 内置键（app/resources/Strings.tsv，如 %Nav_Dashboard%）由渲染层 t() 解析，不走包 i18n——
+    // 解析顺序是 lang → en → 原样，故仅当内置表也没有时才报缺失。
+    for (const k of BUILTIN_KEYS) allKeys.add(k);
     const refs = [];
     for (const cmd of c.commands ?? []) refs.push(...String(cmd.title).matchAll(/%(.+)%/g).map((x) => x[1]));
     for (const p of c.pages ?? []) refs.push(...String(p.title).matchAll(/%(.+)%/g).map((x) => x[1]));

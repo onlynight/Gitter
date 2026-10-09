@@ -39,6 +39,7 @@ Nav.Changes	Changes	变更
 Nav.Branches	Branches	分支
 Nav.Terminal	Terminal	终端
 Nav.Settings	Settings	设置
+Nav.Dashboard	Dashboard	仪表盘
 
 # ==== Main（主窗口 chrome）====
 Main.WindowTitle	{0} - Gitter	{0} - Gitter
@@ -506,6 +507,7 @@ Nav_Branches	Branches	分支
 Nav_Tasks	Tasks	任务
 Nav_Terminal	Terminal	终端
 Nav_Settings	Settings	设置
+Nav_Dashboard	Dashboard	仪表盘
 Common_Branch	Branch	分支
 Select_SearchPlaceholder	Search (contains)	搜索（关键字包含）
 Select_Empty	No matches — switch tab or change keyword	无匹配项——切换 tab 或修改关键字
