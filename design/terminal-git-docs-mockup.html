@@ -40,7 +40,7 @@
   }
 
   /* ---- 页面区：终端 + 分隔条 + 文档面板（默认 3:2 = 终端 3/5 + 文档 2/5，可拖拽） ---- */
-  .page-area { flex: 1; min-height: 0; display: flex; gap: 2px; padding: 4px 12px 8px; }
+  .page-area { flex: 1; min-height: 0; display: flex; padding: 4px 12px 8px; }
 
   /* ---- 终端（对齐应用 .term-wrap / .term-tabs / .term-host） ---- */
   .term-wrap {
@@ -103,15 +103,11 @@
   .doc-panel.dragging { transition: none; }
   /* 分隔条：悬停/拖动显线，双击恢复默认 */
   .doc-splitter {
-    flex: 0 0 6px; align-self: stretch; position: relative;
-    cursor: col-resize; touch-action: none; border-radius: 3px;
-  }
-  .doc-splitter::after {
-    content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px;
+    flex: 0 0 4px; align-self: stretch; position: relative;
+    cursor: col-resize; touch-action: none;
     background: transparent; transition: background var(--dur-fast) var(--ease-std);
   }
-  .doc-splitter:hover::after { background: var(--c-border-strong); }
-  .doc-splitter.active::after { background: var(--c-link); }
+  .doc-splitter:hover, .doc-splitter.active { background: var(--c-border-strong); }
 
   /* 面板头：左 ☰ 目录 / 标题，右 ⌕ 查找 + × 关闭 */
   .doc-head { display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 6px; flex: none; }
