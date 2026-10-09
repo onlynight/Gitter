@@ -90,6 +90,8 @@ export interface PageContribution {
   styles: string[];
   /** 懒装载：首次导航到该页时才注入入口脚本（缺省 false = 启动即装载） */
   lazy: boolean | null;
+  /** 页面文档多语言表（lang → 包内相对路径）；整篇 markdown 走本段，i18n/<lang>.json 只管短文案 */
+  docs: Record<string, string> | null;
 }
 
 export interface EmptyHintContribution {
@@ -397,6 +399,10 @@ const manifestV2 = z.object({
             ])).nullish(),
             slot: z.string().min(1).nullish(),
             styles: z.array(z.string().min(1)).nullish(),
+            /** 文档多语言表（lang → docs/<lang>.md，包内相对路径；未列出的语言回退 en.md）。
+             *  包页面文档注册时由渲染层按当前语言选译；i18n/<lang>.json 是短文案接缝，
+             *  整篇 markdown 走本段，避免大段手册文案塞进 Strings.tsv/resx。 */
+            docs: z.record(z.string(), z.string().min(1)).nullish(),
             lazy: z.boolean().nullish(),
           }),
         )
@@ -709,6 +715,7 @@ export function normalizeManifest(raw: unknown): ManifestResult {
             slot: pg.slot ?? null,
             styles: [...(pg.styles ?? [])],
             lazy: pg.lazy ?? null,
+            docs: pg.docs ? { ...pg.docs } : null,
           })),
           skills: (c.skills ?? []).map((k) => ({
             id: k.id, name: k.name, description: k.description, instructions: k.instructions, tools: [...(k.tools ?? [])],

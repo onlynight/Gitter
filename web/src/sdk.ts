@@ -7,7 +7,7 @@ import {
   type AgentUITier,
 } from "./agentUIRegistry";
 import {
-  docTitle, docs as registryDocs, docsVersion as registryDocsVersion,
+  docTitle, docTitleI18n, docs as registryDocs, docsVersion as registryDocsVersion,
   onDocsChanged as registryOnDocsChanged, registerDoc as registryRegisterDoc,
   unregisterDoc as registryUnregisterDoc,
   type DocDescriptor, type DocTier,
@@ -62,19 +62,22 @@ type PageRegistration = Pick<PendingExternalPage, "id" | "title" | "icon" | "ord
 let loadingPackageId: string | null = null;
 let loadingPermissions: string[] | undefined = undefined;
 let loadingIsBuiltIn = false;
+let loadingPageDocs: { docs: Record<string, string> | null } | null = null;
 
 /** loader 在注入每个包的脚本前调用（包名与 manifest 权限用于页面归属与 __caller 强制；
  * isBuiltIn 决定 agent UI 贡献的提供者层级：内置包 > 宿主缺省，用户包最高）。 */
-export function beginExternalPackage(packageId: string, permissions?: string[], isBuiltIn = false): void {
+export function beginExternalPackage(packageId: string, permissions?: string[], isBuiltIn = false, pageDocs?: { docs: Record<string, string> | null }): void {
   loadingPackageId = packageId;
   loadingPermissions = permissions;
   loadingIsBuiltIn = isBuiltIn;
+  loadingPageDocs = pageDocs ?? null;
 }
 
 export function endExternalPackage(): void {
   loadingPackageId = null;
   loadingPermissions = undefined;
   loadingIsBuiltIn = false;
+  loadingPageDocs = null;
 }
 
 export interface CallerIdentityView {
@@ -111,6 +114,8 @@ declare global {
       getActiveCaller(): CallerIdentityView | null;
       /** 以显式 caller 调桥（页面挂载后的全部调用走这里——装载期模块变量早已重置） */
       callWith<T = unknown>(caller: CallerIdentityView | null, method: string, params?: unknown): Promise<T>;
+      /** 当前注入包的文档多语言表（lang → markdown 绝对路径）；装载期由 loader 注入 */
+      pageDocs(): Record<string, string> | null;
     };
     GITTER_KIT?: Record<string, unknown>;
   }
@@ -136,6 +141,7 @@ export function installUiApi(): void {
   );
   window.GITTER_UI = {
     getActiveCaller: () => (loadingPackageId ? { packageId: loadingPackageId, permissions: loadingPermissions } : null),
+    pageDocs: () => loadingPageDocs?.docs ?? null,
     callWith: <T,>(caller: CallerIdentityView | null, method: string, params?: unknown) =>
       callWithCaller(caller?.packageId ?? null, caller?.permissions, method, params) as Promise<T>,
     registerAgentUI(reg) {
@@ -185,7 +191,7 @@ export function installUiApi(): void {
       return registryRegisterDoc({ doc: def, packageId, tier });
     },
     unregisterDoc: registryUnregisterDoc,
-    docTitle,
+    docTitle: (d) => docTitleI18n("host", getState().i18n?.lang ?? "en", d),
     context: () => ({ repo: getState().repo, ...getState().context }),
     t: surface.t,
     getState,

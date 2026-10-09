@@ -10,13 +10,16 @@
         "id": "bash",
         "slot": "bash",
         "title": "%Nav_Terminal%",
-        "entry": "page.js",
-        "icon": "",
-        "svg": null,
-        "lazy": true,
-        "permissions": [
-          "terminal"
-        ]
+          "entry": "page.js",
+          "icon": "",
+          "svg": null,
+          "lazy": true,
+          "permissions": [
+            "terminal"
+          ],
+          "docs": {
+            "zh-Hans": "docs/zh-Hans.md"
+          }
       }
     ]
   }

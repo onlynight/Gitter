@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { renderMarkdown, Select } from "../kit";
-import { pageSdk, useAppState, useDocs, docTitle } from "../pageSdk";
+import { pageSdk, docSource, useAppState, useDocs, docTitle } from "../pageSdk";
 import type { DocDescriptor } from "../pageSdk";
-import docSource from "./GitCommands.md?raw";
+import docSourceEn from "./GitCommands.md?raw";
 
 /**
  * 终端页 Git 命令文档面板（design/terminal-git-docs-mockup.html 实现落点，插件化文档）：
@@ -10,6 +10,11 @@ import docSource from "./GitCommands.md?raw";
  * eval 期自举注册（builtin 层，第三方包可同 id 覆盖或另立新篇），面板按注册表渲染，
  * >1 篇时头部出 Select 切换器。左上汉堡 → 目录浮层（三级目录 + 标题搜索 + scroll-spy
  * + 点击跳转），右上查找条（n/m 循环定位）。纯渲染层组件，零 RPC。
+ *
+ * 多语言：en 篇构建期打包为缺省兜底（GitCommands.md），zh-Hans 篇随包分发
+ * （app/resources/packages/gitui.page.bash/docs/zh-Hans.md）——每次取源按当前语言
+ * 选译，读失败回退 en 兜底。GitCommands.md 与 docs/zh-Hans.md 是同一文档的两语言版，
+ * 需同步维护（见 docs/i18n.md）。
  */
 const { t } = pageSdk;
 
@@ -17,7 +22,7 @@ const { t } = pageSdk;
 pageSdk.registerDoc({
   id: "builtin.git-commands",
   title: () => t("Terminal_DocTitle"),
-  source: () => docSource,
+  source: docSource(null, () => docSourceEn),
 });
 
 interface TocItem {

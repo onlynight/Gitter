@@ -19,6 +19,10 @@ export interface DocDescriptor {
   title: string | (() => string);
   /** markdown 源（惰性取：同步字符串或 Promise——包资源/未来远程文档均可） */
   source: () => string | Promise<string>;
+  /** 宿主装载（GITTER_UI.docTitle 按语言选译）；贡献者自绘标题可省略，回退 title */
+  registryId?: string;
+  /** 注册表标题多语言表（lang → 标题，缺省 "en"）；宿主 docTitle 按当前语言解析 */
+  registryTitles?: Record<string, string>;
 }
 
 export interface DocEntry {
@@ -28,6 +32,9 @@ export interface DocEntry {
 }
 
 const TIER_ORDER: Record<DocTier, number> = { host: 1, builtin: 2, user: 3 };
+
+/** 包贡献文档标题多语言表（packageId → registryId → lang → 标题；宿主 docTitle 按语言解析） */
+export const registryTitles = new Map<string, Map<string, Record<string, string>>>();
 
 const entries = new Map<string, DocEntry>();
 const listeners = new Set<() => void>();
@@ -77,4 +84,22 @@ export function docs(): DocEntry[] {
 /** 标题求值（字符串或惰性函数）。 */
 export function docTitle(doc: DocDescriptor): string {
   return typeof doc.title === "function" ? doc.title() : doc.title;
+}
+
+/**
+ * 注册表标题解析（宿主 GITTER_UI.docTitle 实现）：
+ * 1. 带 registryId → 查贡献表（lang → en → 原样返回；键缺失时回退 doc.title，避免整篇标题空）；
+ * 2. 未登记 → docTitle 兜底（贡献者自定义标题）。
+ * 贡献表由 sdk 面随页面/文档注册写入（packageId + registryTitles），卸载时移除。
+ */
+export function docTitleI18n(packageId: string, lang: string, doc: DocDescriptor): string {
+  const registryId = doc.registryId;
+  if (registryId) {
+    const table = registryTitles.get(packageId)?.get(registryId) ?? doc.registryTitles;
+    if (table) {
+      const v = table[lang] ?? table["en"] ?? table[Object.keys(table)[0]];
+      if (v) return v;
+    }
+  }
+  return docTitle(doc);
 }
