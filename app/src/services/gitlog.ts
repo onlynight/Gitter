@@ -1,4 +1,4 @@
-import { git } from "./gitexec";
+import { git, GitError } from "./gitexec";
 import type { CommitDTO, DiffDTO, FileMetaDTO, HunkDTO, RefDTO } from "../shared/types";
 
 // ---------------------------------------------------------------------------
@@ -140,7 +140,16 @@ export async function queryLog(workDir: string, q: LogQuery): Promise<{ commits:
   if (parsed.grep) args.push("--grep", parsed.grep, "-i", "-F");
   if (q.branch) args.push(q.branch);
 
-  const out = await git(workDir, args);
+  let out: string;
+  try {
+    out = await git(workDir, args);
+  } catch (e) {
+    // 空仓库（git init 后还没有提交）：git log 对 unborn HEAD 报 fatal——视为空日志
+    if (e instanceof GitError && /does not have any commits yet/i.test(e.result.stderr)) {
+      return { commits: [], hasMore: false };
+    }
+    throw e;
+  }
   // git log 每条记录以 \x1e 结尾、后跟换行——split 后从第二条起带前导 \n，必须 trim
   const records = out.split(REC).map((r) => r.trimStart()).filter((r) => r.length > 0);
   const hasMore = records.length > limit;

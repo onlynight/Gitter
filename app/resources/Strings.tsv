@@ -268,7 +268,9 @@ Projects.PickFolderTitle	Select project folder	选择项目文件夹
 Projects.PickerFailed	Failed to open folder picker: {0}	打开目录选择器失败: {0}
 Projects.AlreadyInList	"{0}" is already in the list	「{0}」已在列表中
 Projects.NotRepoTitle	Not a Git repository	不是 Git 仓库
-Projects.NotRepoBody	"{0}" does not contain a Git repository.\n\nAdd it as a project anyway? (You can initialize a repo in this folder later.)	「{0}」不包含 Git 仓库。\n\n仍要添加为项目吗？（之后可在此目录初始化仓库）
+Projects.NotRepoBody	"{0}" is not a Git repository.\n\nInitialize a Git repository in this folder and add it as a project?	「{0}」不是 Git 仓库。\n\n是否在该文件夹初始化 Git 仓库并添加为项目？
+Projects.InitAndAdd	Initialize Git && Add	初始化 Git 并添加
+Projects.InitFailed	Failed to initialize Git repository	初始化 Git 仓库失败
 Projects.AddAnyway	Add Anyway	仍要添加
 Projects.RemoveCurrentTitle	Remove Current Project	移除当前项目
 Projects.RemoveCurrentBody	"{0}" is the currently open project; removing it returns all pages to the no-project state.\n\n(Only removes it from the list; files on disk are untouched.)	「{0}」是当前打开的项目，移除后各页面将回到未选择项目状态。\n\n（仅从列表移除，不会删除磁盘文件）
