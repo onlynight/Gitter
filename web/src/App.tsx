@@ -5,7 +5,7 @@ import { runCommand } from "./commands";
 import { CommandPalette } from "./components/CommandPalette";
 import { Modal, PageErrorBoundary } from "./kit";
 import { Sidebar, StatusBar, TitleBar } from "./components/Shell";
-import { appendAgentStream, applyDiffModeToDom, applyThemeToDom, getState, navigate, pushToast, reapplyLanguage, reapplyTheme, refreshCurrent, setState, t, useApp } from "./state/store";
+import { appendAgentStream, applyDiffModeToDom, applyThemeToDom, getState, navigate, notifyRepoChanged, pushToast, reapplyLanguage, reapplyTheme, refreshCurrent, setState, t, useApp } from "./state/store";
 import { onUiPagesChanged, resolveUiPage, uiPages, type UIPageDef } from "./uiRegistry";
 import { installUiApi } from "./sdk";
 import { ensureExternalPageLoaded, loadExternalPages, reloadExternalPages } from "./pageLoader";
@@ -267,6 +267,9 @@ export function App() {
   useEffect(() => onEvent("agent.stream", (p: { delta?: string }) => {
     if (typeof p?.delta === "string") appendAgentStream(p.delta);
   }), []);
+
+  // 任务状态变化（含 checkpoint 提交 / restore 恢复工作区等改仓动作）→ 各 git 页数据重拉
+  useEffect(() => onEvent("agent.tasks.changed", () => notifyRepoChanged()), []);
 
   // ctx.ui.notify → toast（L2 插件通知接缝）
   useEffect(() => onEvent("ui.notify", (p: { title: string; body?: string }) => {

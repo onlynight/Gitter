@@ -16,8 +16,10 @@ export interface AppState {
   maximized: boolean;
   /** 命令面板 → 页面命令路由（页面挂载时消费） */
   routedCommand: { id: string; ts: number } | null;
-  /** F5 / 外部刷新信号 */
+  /** F5 / 外部刷新信号（全量重载 + 页面本地 UI 态重置） */
   refreshTick: number;
+  /** 仓库数据变更信号（commit/push/pull/分支操作等成功后广播；各页仅重拉数据） */
+  repoChangedTick: number;
   /** 设置页定位（如 "git"：从错误横幅跳转后滚动到对应区块） */
   settingsFocus: string | null;
   /** L1 命令首跑确认（commands.exec confirm-required 的 GUI 侧，App 渲染 Modal） */
@@ -47,6 +49,7 @@ let state: AppState = {
   maximized: false,
   routedCommand: null,
   refreshTick: 0,
+  repoChangedTick: 0,
   settingsFocus: null,
   commandConfirm: null,
   toasts: [],
@@ -138,6 +141,15 @@ export function openSettings(section?: string) {
 /** F5 或手动刷新：tick 变化驱动当前页重载 */
 export function refreshCurrent() {
   setState({ refreshTick: state.refreshTick + 1 });
+}
+
+/**
+ * 仓库数据变更广播：本页/其它页/Agent 任务的改仓操作（commit/push/pull/checkout/
+ * reset 等）成功后调用。与 refreshTick（F5 语义：页面还会清空提交框、选中态等
+ * 本地 UI 态）不同——各 git 页只重拉数据，正在输入的内容与视图状态全部保留。
+ */
+export function notifyRepoChanged() {
+  setState({ repoChangedTick: state.repoChangedTick + 1 });
 }
 
 /**
