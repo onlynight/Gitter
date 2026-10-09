@@ -12,5 +12,6 @@ registerBuiltinPages([
   { id: "branches", titleKey: "Nav_Branches", svg: "M13.1 3.9a2.3 2.3 0 0 0-3.25 3.25l-.1.1a2.3 2.3 0 0 1-3.25 0L5.4 6.2a2.3 2.3 0 1 0-1.06 1.06l1.1 1.05a3.8 3.8 0 0 0 2.31 1.09v1.2a2.3 2.3 0 1 0 1.5 0V9.4a3.8 3.8 0 0 0 2.31-1.09l.1-.1a2.3 2.3 0 1 0 1.44-4.31z", order: 40 },
   { id: "tasks", titleKey: "Nav_Tasks", glyph: "\uE7C1", order: 50 },
   { id: "bash", titleKey: "Nav_Terminal", glyph: "\uE756", order: 60 },
+  { id: "files", titleKey: "Nav_Files", glyph: "\uE8A5", order: 70 },
   { id: "settings", titleKey: "Nav_Settings", glyph: "\uE713", order: 700 },
 ]);

@@ -15,7 +15,9 @@
   --radius: 5px;            /* 控件级圆角 */
   --radius-md: 8px;         /* 卡片/横幅 */
   --radius-lg: 10px;        /* 浮层/大面板 */
-  --mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  /* 等宽栈带中文回退（Microsoft YaHei UI）：Cascadia/Consolas 无 CJK 字形，不加回退时
+     中文会落到 generic monospace（中文 Windows = 宋体）——任务页工具卡/状态行中英混排发丑的根因 */
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
   color-scheme: dark;       /* 原生表单控件（select 弹层等）默认深色，随主题底色切换 */
 
   /* 动效 tokens（mockup §四）：只做状态反馈，全部 ≤240ms，减速曲线 */
@@ -72,6 +74,7 @@ body {
   display: flex; align-items: center; gap: 10px;
   -webkit-app-region: drag;
   background: var(--c-base);
+  border-bottom: 1px solid var(--c-border); /* 顶栏全宽分割线（与状态栏 border-top 对称） */
   padding-left: 6px; /* 汉堡中心 x=22 = 侧边栏导航图标中心（展开/折叠一致） */
 }
 .titlebar .tb-logo { width: 16px; height: 16px; flex: none; user-select: none; }
@@ -126,9 +129,14 @@ body {
 
 /* ---- 侧栏 ---- */
 .sidebar {
-  background: var(--c-base); /* 与窗口底/边框同色：左缘无色差（模糊窗口下侧栏融入壳层） */
+  background: var(--c-base);
+  position: relative; /* ::after 分割线定位锚点 */
   overflow: hidden; padding: 10px 0;
   display: flex; flex-direction: column; min-height: 0;
+}
+/* 导航栏 | 内容列 分割线：绝对定位画在最右像素，不占布局（占位 border 会挤掉 1px 文字宽度） */
+.sidebar::after {
+  content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 1px; background: var(--c-border);
 }
 .nav-top { flex: 1; min-height: 0; overflow-y: auto; }
 .nav-sep { border-top: 1px solid var(--c-border); margin: 8px 8px; flex: none; }
@@ -354,6 +362,36 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 /* 时间线运行态脉冲（工具运行/思考中/待授权） */
 @keyframes tl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 .tl-pulse { animation: tl-pulse 1.2s ease-in-out infinite; }
+/* 时间线思考卡（ThinkingCard）：chev 旋转随开合 */
+.tl-think .tl-chev { transition: transform var(--dur-fast) var(--ease-std); }
+.tl-think .tl-chev.open { transform: rotate(90deg); }
+/* 时间线轮次折叠头（执行过程）：轮结束默认折叠为摘要行，点击展开过程明细 */
+.tl-turn {
+  display: flex; align-items: center; gap: 8px; align-self: flex-start;
+  cursor: pointer; font-size: 11.5px; color: var(--c-text3);
+  padding: 2px 8px; border-radius: 6px; user-select: none;
+  transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
+}
+.tl-turn:hover { color: var(--c-text2); background: var(--c-hover); }
+.tl-turn .tl-chev { transition: transform var(--dur-fast) var(--ease-std); }
+.tl-turn .tl-chev.open { transform: rotate(90deg); }
+/* DeepSeek 式执行中提示：文字流光（渐变高亮带周期扫过） */
+@keyframes tl-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.shimmer-text {
+  background: linear-gradient(90deg, var(--c-text3) 0%, var(--c-text3) 35%, var(--c-text) 50%, var(--c-text3) 65%, var(--c-text3) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: tl-shimmer 1.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text { animation: none; background: none; -webkit-background-clip: initial; background-clip: initial; color: var(--c-text3); }
+}
+/* ---- 时间线消息复制（ZCode 式）：消息文本放行选择（Ctrl+C）；
+ * 每条用户/agent 消息底部固定一个复制图标钮（用户消息右对齐随气泡，agent 消息靠左） ---- */
+.msg-row { position: relative; user-select: text; }
+.msg-row .msg-copy { width: 22px; height: 20px; }
 /* ---- 任务页 composer（ZCode 中央输入框形态）----
  * 注意 font 必须逐项声明（font-family: inherit）——font 简写带 inherit 分量是非法 CSS，
  * 整条会被丢弃导致 textarea 退回浏览器默认字体（字体发虚事故根因） */
@@ -767,12 +805,17 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 }
 @keyframes menu-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
 .ctxmenu button {
-  display: block; width: 100%; text-align: left; padding: 6px 12px;
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 5px 10px;
   background: transparent; border: 0; border-radius: var(--radius);
   color: var(--c-text); font-family: inherit; font-size: 12px; cursor: pointer;
   transition: background var(--dur-fast) var(--ease-std);
 }
 .ctxmenu button:hover { background: var(--c-hover); }
+.ctxmenu button .ico { display: inline-flex; flex: none; color: var(--c-text2); }
+.ctxmenu button .lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctxmenu button .hint { flex: none; color: var(--c-text3); font-family: var(--mono); font-size: 10.5px; }
+.ctxmenu button.dis { color: var(--c-text3); opacity: .6; cursor: default; }
+.ctxmenu button.dis:hover { background: transparent; }
 .ctxmenu .sep { height: 1px; background: var(--c-border); margin: 4px 6px; }
 
 /* ---- 卡片（项目/任务）---- */
@@ -1248,3 +1291,223 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
 }
 .git-doc-toc-empty { padding: 18px 12px; text-align: center; color: var(--c-text3); font-size: 12px; }
 .git-doc-toc-empty-hint { margin-top: 4px; font-size: 11px; opacity: 0.85; }
+
+/* ---- 文件页（files）：资源管理器树 + 编辑器（files-editor-redesign-mockup.html） ----
+   层级：侧树/标签条/编辑区同底 Base，结构线划界；活动标签 = Panel2 浮起卡片 + 描边环
+   （终端页 term-tab 家内同款）；git 状态色走 gs-*（amber/green/red/link），agent 回合
+   = ChipPurple 左缘 bar + ✦ 徽标。 */
+
+/* git 状态着色（名字与徽标共用；D 的删除线只在名字语境加） */
+.gs-M { color: var(--c-amber); }
+.gs-A { color: var(--c-green); }
+.gs-D { color: var(--c-red); }
+.gs-R { color: var(--c-link); }
+.gs-U { color: var(--c-red); }
+.gs-Q { color: var(--c-green); opacity: .85; }
+
+/* ---- px 分栏（定宽持久化 localStorage，非比例） ---- */
+.files-split { display: flex; flex: 1; min-height: 0; }
+.files-gutter {
+  width: 5px; flex: none; cursor: col-resize; position: relative; touch-action: none; margin: 0 -2px; z-index: 5;
+}
+.files-gutter::after {
+  content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: var(--c-border);
+  transition: background var(--dur-fast) var(--ease-std);
+}
+.files-gutter:hover::after, .files-gutter.drag::after { background: var(--c-link); }
+.files-main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+
+/* ---- 资源管理器树 ---- */
+.files-side { display: flex; flex-direction: column; min-width: 0; background: var(--c-base); }
+/* TreePane 根（.files-side 内层实体）：撑满包裹层并约束高度，树体才能 overflow 滚动 */
+.files-pane { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.files-head {
+  height: 36px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+.files-head .cap { font-size: 11px; font-weight: 600; color: var(--c-text3); letter-spacing: .5px; flex: none; }
+.files-mtabs { display: flex; align-items: center; gap: 2px; flex: none; margin: 0 8px 0 -8px; }
+.files-mtab {
+  font: inherit; font-size: 12px; color: var(--c-text3); height: 24px; padding: 0 5px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 3px; white-space: nowrap; flex: none;
+  appearance: none; background: transparent; border: none; border-radius: var(--radius); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
+}
+.files-mtab:focus-visible { outline: 1px solid color-mix(in srgb, var(--c-link) 70%, transparent); }
+.files-mtab:hover { color: var(--c-text2); }
+.files-mtab.on { color: var(--c-text); background: var(--c-selected); font-weight: 600; }
+.files-mtab .n { font-size: 10px; color: var(--c-text3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.files-mtab.on .n { color: var(--c-text2); }
+.files-head .files-ibtn { width: 22px; height: 22px; }
+.files-hacts { margin-left: auto; flex: none; display: flex; gap: 2px; }
+.files-ibtn {
+  width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; border-radius: 4px; color: var(--c-text3); cursor: pointer; padding: 0;
+}
+.files-ibtn:hover { background: var(--c-hover); color: var(--c-text); }
+.files-ibtn.on { color: var(--c-link); }
+.files-filter { flex: none; display: flex; align-items: center; gap: 6px; padding: 2px 10px 8px; }
+.files-filter input {
+  flex: 1; min-width: 0; height: 26px; padding: 0 8px; font: inherit; font-size: 12px;
+  color: var(--c-text); background: var(--c-panel2); border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius); outline: none;
+}
+.files-filter input:focus { border-color: color-mix(in srgb, var(--c-link) 60%, transparent); }
+.files-filter input::placeholder { color: var(--c-text3); }
+.files-fcount { flex: none; font-size: 11px; color: var(--c-text3); font-variant-numeric: tabular-nums; }
+.files-tree { flex: 1; overflow: auto; padding: 2px 0 8px; position: relative; outline: none; }
+.files-row {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 24px; display: flex; align-items: center; gap: 4px; padding-right: 8px;
+  cursor: pointer; font-size: 13px; white-space: nowrap; user-select: none;
+}
+.files-row:hover { background: var(--c-hover); }
+.files-row.active { background: var(--c-selected); }
+.files-row.kb-focus { outline: 1px solid color-mix(in srgb, var(--c-link) 70%, transparent); outline-offset: -1px; }
+/* agent 回合层：左缘 2px 紫 bar（hover/active 底上仍可辨） */
+.files-row.agent { box-shadow: inset 2px 0 0 var(--c-chip-purple-fg); }
+.files-guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--c-border); pointer-events: none; }
+.files-chev {
+  width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--c-text3);
+}
+.files-chev svg { transition: transform 120ms ease; }
+.files-row.open > .files-chev svg { transform: rotate(90deg); }
+.files-fico { width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.files-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.files-nm mark {
+  background: color-mix(in srgb, var(--c-amber) 32%, transparent); color: inherit; border-radius: 2px; padding: 0 1px;
+}
+.files-nm.gs-D { text-decoration: line-through; }
+.files-agent-nm { color: var(--c-chip-purple-fg) !important; font-weight: 600; }
+.files-spark { flex: none; display: inline-flex; color: var(--c-chip-purple-fg); }
+.files-st {
+  flex: none; width: 14px; text-align: center; font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+}
+.files-empty { padding: 24px 16px; text-align: center; color: var(--c-text3); font-size: 12px; }
+
+/* ---- 编辑器标签条（直线方角；顶/底/左分割线围合，与编辑区框架同一语言） ----
+   未选中 = Panel 底（比编辑区降一档亮度，不突出）；选中 = Base 底与编辑区无缝相连，
+   两侧描边直落压过分隔线（margin-bottom: -1px），底边开放。 */
+.edtabs {
+  height: 36px; flex: none; display: flex; align-items: flex-end; background: var(--c-base);
+  border-bottom: 1px solid var(--c-border); min-width: 0; padding: 0 6px;
+}
+.edtabs-list { display: flex; align-items: flex-end; gap: 0; min-width: 0; }
+.edtab {
+  display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 12px;
+  max-width: 220px; min-width: 0; font-size: 12px; color: var(--c-text3);
+  cursor: pointer; flex: 0 1 auto; user-select: none;
+  margin-bottom: -1px;
+  border: 1px solid transparent; border-radius: 6px 6px 0 0;
+}
+.edtab:hover { background: var(--c-hover); color: var(--c-text2); }
+/* 选中：与编辑区同底色，两侧描边压过分隔线（margin-bottom: -1px），底边开放连成一体 */
+.edtab.active {
+  background: var(--c-base); color: var(--c-text);
+  border-color: var(--c-border-strong); border-bottom-color: var(--c-base);
+  margin-bottom: -1px;
+}
+.edtab .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edtab.preview .nm { font-style: italic; color: var(--c-text2); }
+/* 状态着色的名字：悬停/活动态回收为正文色，避免 chip 底上过花 */
+.edtab.active .nm.gs-M, .edtab.active .nm.gs-A, .edtab.active .nm.gs-D, .edtab.active .nm.gs-R, .edtab.active .nm.gs-U, .edtab.active .nm.gs-Q,
+.edtab:not(.active):hover .nm.gs-M, .edtab:not(.active):hover .nm.gs-A, .edtab:not(.active):hover .nm.gs-D,
+.edtab:not(.active):hover .nm.gs-R, .edtab:not(.active):hover .nm.gs-U, .edtab:not(.active):hover .nm.gs-Q { color: inherit; }
+.edtab .nm.gs-D, .edtab.active .nm.gs-D { text-decoration: line-through; }
+.edtab .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c-text2); }
+/* 关闭钮常显；脏点在悬停时让位（避免 ● 与 × 同现） */
+.edtab:hover .dot { display: none; }
+.edtab .x {
+  flex: none; width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 4px; color: var(--c-text3);
+}
+.edtab .x:hover { background: var(--c-hover); color: var(--c-text); }
+.edtab .fico { flex: none; display: inline-flex; }
+.edtabs-acts { margin-left: auto; flex: none; display: flex; align-items: flex-end; gap: 2px; padding: 0 4px 4px 6px; }
+.edtabs-acts .saving { font-size: 11px; color: var(--c-text3); padding: 0 6px; align-self: center; margin-bottom: 9px; }
+
+/* ---- 面包屑（路径段可点击 → 树中揭示） ---- */
+.edcrumbs {
+  height: 24px; flex: none; display: flex; align-items: center; gap: 1px; padding: 0 10px;
+  font-size: 12px; color: var(--c-text3); border-bottom: 1px solid var(--c-border); min-width: 0; overflow: hidden;
+  user-select: none;
+}
+.edcrumbs .cseg { display: flex; align-items: center; gap: 4px; padding: 1px 5px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+.edcrumbs .cseg:hover { color: var(--c-text); background: var(--c-hover); }
+.edcrumbs .cseg .fico { display: inline-flex; color: var(--c-text3); }
+.edcrumbs .csep { flex: none; opacity: .6; display: inline-flex; }
+
+/* ---- 编辑器页脚（光标/缩进/编码/EOL/语言） ---- */
+.edfoot {
+  height: 24px; flex: none; display: flex; align-items: center; gap: 1px; padding: 0 6px 0 10px;
+  font-size: 11px; color: var(--c-text3); border-top: 1px solid var(--c-border); background: var(--c-panel);
+  user-select: none; font-variant-numeric: tabular-nums;
+}
+.edfoot .it { display: flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.edfoot .it.click { cursor: pointer; }
+.edfoot .it.click:hover { background: var(--c-hover); color: var(--c-text2); }
+.edfoot .right { margin-left: auto; display: flex; }
+.edfoot .ok { color: var(--c-green); display: inline-flex; }
+.edfoot .st { font-family: var(--mono); font-weight: 700; font-size: 10.5px; }
+
+/* ---- 空态欢迎页（替代 emoji 空态） ---- */
+.edwelcome { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; min-height: 0; }
+.edwm {
+  position: absolute; right: 26px; bottom: 14px; font: 700 60px var(--mono); letter-spacing: 8px;
+  color: color-mix(in srgb, var(--c-text) 5%, transparent); pointer-events: none; user-select: none;
+}
+.edwelcome .list { display: flex; flex-direction: column; gap: 9px; font-size: 13px; }
+.edwelcome .h { font-size: 15px; font-weight: 600; color: var(--c-text2); margin-bottom: 4px; }
+.edwelcome .wrow { display: flex; align-items: center; gap: 10px; color: var(--c-link); cursor: pointer; }
+.edwelcome .wrow:hover { text-decoration: underline; }
+.edwelcome .wrow .nm2 { flex: none; width: 170px; }
+.kbd {
+  font-family: var(--mono); font-size: 10.5px; color: var(--c-text2);
+  border: 1px solid var(--c-border-strong); border-bottom-width: 2px; border-radius: 3px;
+  padding: 0 5px; line-height: 15px; background: var(--c-panel2); white-space: nowrap;
+}
+
+/* ---- 快速打开（Ctrl+P） ---- */
+.qo {
+  /* 以整个页面为基准：水平居中、贴近顶部。居中用独立 translate 属性——
+     不能用 transform：入场动画的关键帧 transform 会覆盖 translateX，导致面板
+     首帧停在页面中点向右展开、动画结束后跳回居中（首次打开闪一下的根因） */
+  position: fixed; top: 9vh; left: 50%; translate: -50%; width: min(560px, 88%); z-index: 120;
+  background: var(--c-panel2, var(--c-panel)); border: 1px solid var(--c-border-strong); border-radius: var(--radius-lg);
+  box-shadow: 0 10px 32px color-mix(in srgb, #000 35%, transparent); overflow: hidden;
+  animation: qo-in var(--dur-fast) var(--ease-out);
+}
+@keyframes qo-in { from { opacity: 0; } }
+.qo > input {
+  width: 100%; height: 38px; padding: 0 12px; font: inherit; font-size: 13px; color: var(--c-text);
+  background: transparent; border: 0; outline: none; border-bottom: 1px solid var(--c-border);
+}
+.qo > input::placeholder { color: var(--c-text3); }
+.qo .qlist { max-height: 328px; overflow: auto; padding: 4px; }
+.qo .qrow {
+  height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: var(--radius);
+  cursor: pointer; font-size: 12.5px;
+}
+.qo .qrow.sel { background: var(--c-selected); }
+.qo .qrow .nm { flex: none; }
+.qo .qrow .p {
+  margin-left: auto; min-width: 0; max-width: 58%; overflow: hidden; white-space: nowrap; direction: rtl; text-align: left;
+  color: var(--c-text3); font-family: var(--mono); font-size: 11px; user-select: text;
+}
+.qo .qhint { display: flex; gap: 14px; padding: 6px 10px; border-top: 1px solid var(--c-border); font-size: 11px; color: var(--c-text3); }
+.qo .qempty { padding: 18px 12px; text-align: center; color: var(--c-text3); font-size: 12px; }
+
+/* 加载覆盖层（Monaco 常驻不卸载，加载期显示在上一个画面之上） */
+.ed-loading {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--c-text3); pointer-events: none;
+}
+
+/* ---- 编辑器错误/截断提示条 ---- */
+.ed-note {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 10; padding: 4px 10px; font-size: 11px;
+  color: var(--c-red); background: color-mix(in srgb, var(--c-red) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-red) 25%, transparent);
+}
