@@ -105,9 +105,13 @@
   .doc-splitter {
     flex: 0 0 4px; align-self: stretch; position: relative;
     cursor: col-resize; touch-action: none;
+  }
+  .doc-splitter::after {
+    content: ""; position: absolute; left: 1px; top: 0; bottom: 0; width: 2px;
     background: transparent; transition: background var(--dur-fast) var(--ease-std);
   }
-  .doc-splitter:hover, .doc-splitter.active { background: var(--c-border-strong); }
+  .doc-splitter:hover::after { background: var(--c-border-strong); }
+  .doc-splitter.active::after { background: var(--c-link); }
 
   /* 面板头：左 ☰ 目录 / 标题，右 ⌕ 查找 + × 关闭 */
   .doc-head { display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 6px; flex: none; }
