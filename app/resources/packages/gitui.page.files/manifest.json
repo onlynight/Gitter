@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.page.files",
+  "name": "内置页面：项目文件树",
+  "version": "0.1.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——项目文件树 + Monaco 代码编辑器，支持手动编辑与 git 状态/agent 回合高亮",
+  "contributes": {
+    "pages": [
+      {
+        "id": "files",
+        "slot": "files",
+        "title": "%Nav_Files%",
+        "entry": "page.js",
+        "icon": "",
+        "svg": null,
+        "lazy": true,
+        "permissions": [
+          "git.read",
+          "git.write",
+          "window",
+          "lsp"
+        ],
+        "docs": {
+          "zh-Hans": "docs/zh-Hans.md"
+        }
+      }
+    ]
+  }
+}

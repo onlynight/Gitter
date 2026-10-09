@@ -90,7 +90,7 @@ const SEARCH_INDEX: { section: SectionId; labelKey: string; kw?: string }[] = [
   { section: "git", labelKey: "Settings_GitAutocrlf", kw: "autocrlf 换行" },
   { section: "git", labelKey: "Settings_GitRemotes", kw: "remote 远程 origin" },
   { section: "monitor", labelKey: "Settings_AutoFetch", kw: "fetch 自动拉取 后台 轮询" },
-  { section: "editor", labelKey: "Settings_ExternalEditor", kw: "编辑器 vscode 外部" },
+  { section: "editor", labelKey: "Settings_ExternalEditor", kw: "编辑器 vscode 外部 自动保存" },
   { section: "ai", labelKey: "Settings_AiProvider", kw: "provider openai anthropic ollama deepseek 模型端点" },
   { section: "ai", labelKey: "Settings_AiEndpoint", kw: "endpoint model 端点 模型名" },
   { section: "ai", labelKey: "Settings_AiApiKey", kw: "api key 密钥 safeStorage" },
@@ -99,6 +99,7 @@ const SEARCH_INDEX: { section: SectionId; labelKey: string; kw?: string }[] = [
   { section: "models", labelKey: "Settings_ModelsSection", kw: "模型档案 model profile deepseek ollama anthropic key 密钥 用量" },
   { section: "safety", labelKey: "Settings_SafetyNet", kw: "安全网 secrets 拦截 block warn 提交扫描" },
   { section: "agent", labelKey: "Settings_AgentCheckpoint", kw: "agent checkpoint 托管 wip 提交" },
+  { section: "agent", labelKey: "Settings_AgentTaskWorktree", kw: "agent 任务 分支 worktree 当前分支 隔离 隔离执行 task branch" },
   { section: "agent", labelKey: "Settings_AgentOnExit", kw: "agent 退出 终止 保留 会话" },
   { section: "agent", labelKey: "Settings_AgentRules", kw: "agent 权限规则 allow deny 允许 拒绝 rules 前缀" },
   { section: "agent", labelKey: "Settings_AgentCompaction", kw: "agent 上下文压缩 compact compaction 摘要" },
@@ -773,6 +774,24 @@ export function SettingsPage() {
                 …
               </button>
             </div>
+            <div className="settings-row">
+              <label>{t("Settings_EditorAutoSave")}</label>
+              <input type="checkbox" checked={s.editorAutoSave !== false} onChange={(e) => void patch({ editorAutoSave: e.target.checked })} />
+              <span className="hint">{t("Settings_EditorAutoSaveHint")}</span>
+            </div>
+            <div className="settings-row">
+              <label>{t("Settings_LspTypescript")}</label>
+              <input type="checkbox" checked={s.lspTypescript === true} onChange={(e) => void patch({ lspTypescript: e.target.checked })} />
+              <input className="input" style={{ width: 280 }} placeholder="typescript-language-server --stdio" value={s.lspTypescriptCommand ?? ""} onChange={(e) => void patch({ lspTypescriptCommand: e.target.value })} />
+            </div>
+            <div className="settings-row">
+              <label>{t("Settings_LspPython")}</label>
+              <input type="checkbox" checked={s.lspPython === true} onChange={(e) => void patch({ lspPython: e.target.checked })} />
+              <input className="input" style={{ width: 280 }} placeholder="pyright-langserver --stdio" value={s.lspPythonCommand ?? ""} onChange={(e) => void patch({ lspPythonCommand: e.target.value })} />
+            </div>
+            <div className="settings-row">
+              <span className="hint">{t("Settings_LspHint")}</span>
+            </div>
           </div>
         );
       case "ai":
@@ -1002,6 +1021,11 @@ export function SettingsPage() {
               <label>{t("Settings_AgentCheckpoint")}</label>
               <input type="checkbox" checked={s.agentsCheckpoint} onChange={(e) => void patch({ agentsCheckpoint: e.target.checked })} />
               <span className="hint">{t("Settings_AgentCheckpointHint")}</span>
+            </div>
+            <div className="settings-row">
+              <label>{t("Settings_AgentTaskWorktree")}</label>
+              <input type="checkbox" checked={s.agentsTaskWorktree ?? false} onChange={(e) => void patch({ agentsTaskWorktree: e.target.checked })} />
+              <span className="hint">{t("Settings_AgentTaskWorktreeHint")}</span>
             </div>
             <div className="settings-row">
               <label>{t("Settings_AgentOnExit")}</label>

@@ -123,8 +123,8 @@ function useShortcuts(openPalette: (prefill?: string) => void) {
 
     const onKey = (e: KeyboardEvent) => {
       const ctrl = e.ctrlKey && !e.altKey;
+      // 命令面板仅 Ctrl+Shift+P（Ctrl+P 让给文件页「转到文件」，files-editor-redesign-mockup.html §三）
       if (ctrl && e.shiftKey && (e.key === "P" || e.key === "p")) { e.preventDefault(); openPalette(); return; }
-      if (ctrl && !e.shiftKey && (e.key === "P" || e.key === "p")) { e.preventDefault(); openPalette(">"); return; }
       if (ctrl && e.key >= "1" && e.key <= "9") {
         const order = uiPages().filter((x) => x.id !== "settings");
         const idx = parseInt(e.key, 10) - 1;

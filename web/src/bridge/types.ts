@@ -195,6 +195,13 @@ export interface SettingsDTO {
   projects: ProjectDTO[];
   currentProjectPath: string | null;
   externalEditor: string | null;
+  /** 内建编辑器（files 页）：改动后 300ms 防抖自动保存；关闭则仅 Ctrl+S 显式保存 */
+  editorAutoSave: boolean;
+  /** 外部语言服务器（inline-editor-plan.md §4.5，P3）：Monaco 内置服务之外，按需启停 */
+  lspTypescript: boolean;
+  lspTypescriptCommand: string;
+  lspPython: boolean;
+  lspPythonCommand: string;
   diffMode: "sideBySide" | "inline";
   sidebarCollapsed: boolean;
   bashPath: string | null;
@@ -240,6 +247,8 @@ export interface SettingsDTO {
   agentsMaxSubagents: number;
   /** MCP 工具入 agent 循环（F12.4 信任门，默认关） */
   agentsExternalMcpTools: boolean;
+  /** 任务执行位置：false（默认）=直接在当前分支修改；true=每任务独立 worktree + task/* 分支 */
+  agentsTaskWorktree: boolean;
   /** 模型档案（task-model-modules.md §二） */
   models: UserModelProfileDTO[];
   defaultModelId: string | null;
@@ -464,7 +473,7 @@ export type AgentEventDTO = {
   phase?: string;
   summary?: string;
   text?: string;
-  stream?: "terminal" | "assistant" | "tool";
+  stream?: "terminal" | "assistant" | "tool" | "thinking";
   commitSha?: string;
   title?: string;
   detail?: string;

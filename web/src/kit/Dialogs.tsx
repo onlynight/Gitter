@@ -59,9 +59,15 @@ export function Modal(props: {
 }
 
 export interface CtxMenuItem {
-  label: string;
-  action: () => void;
+  /** sep 项可省略 */
+  label?: string;
+  action?: () => void;
   sep?: boolean;
+  /** 左侧图标（可选，16px 线性 SVG） */
+  icon?: ReactNode;
+  /** 右侧键位提示（可选，等宽小字） */
+  hint?: string;
+  disabled?: boolean;
 }
 
 /** 轻量右键菜单：showMenu(e, items)。点击外部/Esc 关闭。 */
@@ -90,7 +96,20 @@ export function useContextMenu() {
     <div className="ctxmenu" ref={ref} style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
       {menu.items.map((it, i) =>
         it.sep ? <div className="sep" key={i} /> : (
-          <button key={i} onClick={() => { setMenu(null); it.action(); }}>{it.label}</button>
+          <button
+            key={i}
+            className={it.disabled ? "dis" : undefined}
+            disabled={it.disabled}
+            onClick={() => {
+              if (it.disabled) return;
+              setMenu(null);
+              it.action?.();
+            }}
+          >
+            {it.icon ? <span className="ico">{it.icon}</span> : null}
+            <span className="lb">{it.label}</span>
+            {it.hint ? <span className="hint">{it.hint}</span> : null}
+          </button>
         ),
       )}
     </div>

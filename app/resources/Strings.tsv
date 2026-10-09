@@ -508,6 +508,7 @@ Nav_Changes	Changes	更改
 Nav_Branches	Branches	分支
 Nav_Tasks	Tasks	任务
 Nav_Terminal	Terminal	终端
+Nav_Files	Files	文件
 Nav_Settings	Settings	设置
 Nav_Dashboard	Dashboard	仪表盘
 Common_Branch	Branch	分支
@@ -745,6 +746,11 @@ Settings_AutoFetch	Background fetch	后台 fetch
 Settings_AutoFetchHint	Periodically fetch remotes	定期抓取远程
 Settings_EditorSection	Editor	编辑器
 Settings_ExternalEditor	External editor	外部编辑器
+Settings_EditorAutoSave	Auto save	自动保存
+Settings_EditorAutoSaveHint	Save changes automatically 300 ms after typing stops (Files page editor)	输入停顿 300ms 后自动保存（文件页编辑器）
+Settings_LspTypescript	TypeScript language server	TypeScript 语言服务器
+Settings_LspPython	Python language server (pyright)	Python 语言服务器（pyright）
+Settings_LspHint	External language servers need the CLI installed locally; enable per project. TS/JS/JSON/CSS/HTML completions work without it via the built-in service.	外部语言服务器需本机已安装对应 CLI，按需开启；TS/JS/JSON/CSS/HTML 补全无需它（内置语言服务）。
 Settings_PickEditor	Pick editor executable	选择编辑器可执行文件
 Settings_AiSection	AI	AI
 Settings_AiProvider	Provider	提供方
@@ -873,6 +879,8 @@ Settings_AgentCheckpointHint	Auto WIP commit at turn boundaries in task worktree
 Settings_AgentOnExit	On exit	agent 退出时
 Settings_AgentOnExitTerminate	Terminate	终止会话
 Settings_AgentOnExitKeep	Keep running	保留运行
+Settings_AgentTaskWorktree	Task isolation	任务在独立 worktree 执行
+Settings_AgentTaskWorktreeHint	Off (default): tasks edit directly on the current branch. On: each task gets its own worktree + task/* branch	默认关：任务直接在当前分支上修改；开启后每个任务在独立 worktree + task/* 分支中执行（当前分支模式下不产生 checkpoint 托管提交）
 Settings_AiProviderHint	openai-compatible covers DeepSeek / Ollama / any endpoint	openai-compatible 覆盖 DeepSeek / Ollama / 任意兼容端点
 
 # 模型档案与任务型（task-model-modules.md）
@@ -968,3 +976,71 @@ Common_OpenDetails	Open	点击打开
 Changes_JumpToFinding	Jump to line	跳转到问题行
 Settings_AgentRules	Agent permission rules	Agent 权限规则
 Settings_AgentCompaction	Context compaction	上下文压缩
+Files_Title	Files	项目文件
+Files_Empty	No files. Open a repository first.	无文件——请先打开一个仓库
+Files_SearchPlaceholder	Search files…	搜索文件…
+Files_FilterGit	Git changes	按 git 状态
+Files_FilterAgent	Agent turn	按 agent 回合
+Files_FilterAll	All files	全部文件
+Files_TreeHint	Click a file to edit	点击文件开始编辑
+Files_StatusM	Modified	已修改
+Files_StatusA	Added	已添加
+Files_StatusD	Deleted	已删除
+Files_StatusU	Conflict	冲突
+Files_StatusU	Untracked	未跟踪
+Files_OpenInEditor	Open in external editor	在外部编辑器打开
+Files_RevealInExplorer	Reveal in file explorer	在文件管理器中显示
+Files_ShowDiff	Show diff	查看差异
+Editor_Saved	Saved	已保存
+Editor_Saving	Saving…	保存中…
+Editor_SaveFailed	Save failed	保存失败
+Editor_ErrorSize	File exceeds 2 MB limit	文件超过 2MB 限制
+Editor_ErrorBinary	Cannot edit binary file	无法编辑二进制文件
+Editor_ErrorConflict	File was modified externally. Reload or overwrite?	文件被外部修改，重新加载还是覆盖？
+Editor_Reload	Reload	重新加载
+Editor_Overwrite	Overwrite	覆盖
+Editor_Unsaved	Unsaved changes	有未保存的更改
+Editor_CloseConfirm	Close unsaved changes?	关闭未保存的更改？
+Editor_TabClose	Close tab	关闭标签
+Editor_TabCloseOthers	Close others	关闭其他
+Editor_TabCloseRight	Close to the right	关闭右侧标签
+Editor_TabCloseAll	Close all	关闭所有
+Editor_KeptDirty	{0} unsaved tab(s) kept open	{0} 个未保存标签已保留
+Editor_TabSwitch	Switch tab	切换标签
+Editor_AutoSave	Auto-save	自动保存
+Editor_AutoSaveHint	Save changes automatically after 300ms	改动后 300ms 自动保存
+Editor_UnsavedTitle	Unsaved changes	未保存的更改
+Editor_UnsavedBody	Save changes to “{0}” before closing?	是否要在关闭前保存对「{0}」的更改？
+Editor_DontSave	Don't save	不保存
+Editor_Save	Save	保存
+Editor_ConflictTitle	File conflict detected	检测到文件冲突
+Editor_ConflictBody	“{0}” was modified on disk (possibly by an agent or another tool). Overwriting will lose the latest content on disk.	「{0}」在磁盘上已被外部修改（可能由 agent 或其它工具写入）。覆盖保存将丢失磁盘上的最新内容。
+Editor_ErrorTruncated	File is too large, showing partial content	文件过大，仅显示部分内容
+Editor_Problems	{0} errors {1} warnings	{0} 错误 {1} 警告
+Editor_ProblemsTitle	Problems	问题
+Editor_Indent	Indentation	缩进
+Editor_Spaces	Spaces: {0}	空格: {0}
+Editor_Split	Split editor（coming soon）	分屏编辑（即将推出）
+Editor_WelcomeTitle	Start	开始
+Editor_WelcomeOpen	Open file	打开文件
+Editor_WelcomeTree	File tree	文件树
+Editor_WelcomeChanges	View Git changes	查看 Git 变更
+Editor_WelcomeExternal	Open project in external editor	在外部编辑器中打开项目
+Files_ModeChanges	Changes	变更
+Files_ModeAgent	Agent turn	回合
+Files_ModeAll	All	全部
+Files_FilterToggle	Filter	筛选
+Files_FilterMatches	{0} matches	{0} 个匹配
+Files_Refresh	Refresh	刷新
+Files_CollapseAll	Collapse all	全部折叠
+Files_QuickOpen	Go to file…	转到文件…
+Files_TreeOpen	Open	打开
+Files_CopyPath	Copy path	复制路径
+Files_CopyRelPath	Copy relative path	复制相对路径
+Files_AgentTouched	Touched by agent this turn	本回合 agent 改动
+Files_NoMatch	No matching files	无匹配文件
+Files_Missing	File does not exist or cannot be read	文件不存在或无法读取
+Files_StatusTitle	Git status	Git 状态
+Files_GutterHint	Drag to resize (double-click to reset)	拖拽调整宽度（双击复位）
+Common_Choose	Select	选择
+Common_More	More actions…	更多操作…
