@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
  * 浮动滚动区（Win11 覆盖式滚动条）：隐藏原生滚动条（其 gutter 会裁剪行背景、
  * 磨砂材质下形成右缘白板），渲染一条悬浮半透明滚动条——滚动/hover 时显现、
  * 800ms 无操作自动隐藏，支持拖拽直连。视觉随主题（--c-text3 半透明）。
+ * 结构约束：滚动条必须是滚动元素（.scroll-area-view）的兄弟而非子节点——
+ * 绝对定位子元素会跟随内容滚走（视觉位置 = top - scrollTop），指示条一滚就漂出可视区。
  */
 export function ScrollArea(props: {
   children: ReactNode;
@@ -73,11 +75,12 @@ export function ScrollArea(props: {
 
   return (
     <div
-      ref={setRefs}
       className={"scroll-area" + (scrolling ? " scrolling" : "") + (props.className ? " " + props.className : "")}
       style={props.style}
     >
-      {props.children}
+      <div ref={setRefs} className="scroll-area-view">
+        {props.children}
+      </div>
       {bar && (
         <div
           className="scroll-area-bar"
