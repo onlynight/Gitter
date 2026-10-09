@@ -184,7 +184,11 @@ class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { er
   context: () => ({ selectedFile: null, selectedCommitSha: null }), setContext: () => {},
   focusTask: () => {}, clearTaskFocus: () => {},
   runCommand: () => {}, extTree: () => ({ pages: [], agentUIReg: [] }),
-  registerDoc: (def: { id: string; title: any; source: () => any }) => (window as any).__registerDoc(def),
+  registerDoc: (def: { id: string; title: any; source: () => any }) => {
+    const src = def.source;
+    def.source = () => { (window as any).__srcCalls = ((window as any).__srcCalls ?? 0) + 1; return src(); };
+    return (window as any).__registerDoc(def);
+  },
   unregisterDoc: (id: string) => { docRegs.delete(id); docNotify(); },
   docs: () => (window as any).__docs(),
   docTitle: (doc: { title: any }) => (window as any).__docTitle(doc),
@@ -196,7 +200,14 @@ class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { er
     return () => s.delete(cb);
   },
   // Snapshot must be referentially stable: returning a fresh object per call makes useSyncExternalStore re-render infinitely (React #185)
-  getState: () => ((window as any).__state ??= { repo: null, refreshTick: 0, focusTaskId: null }),
+  getState: () => ((window as any).__state ??= { repo: null, refreshTick: 0, focusTaskId: null, i18n: { lang: "en", strings: {} } }),
+  // 语言翻转（验证文档源按语言重载）：改 i18n.lang 并通知订阅者
+  __setLang: (l: string) => {
+    const st = (window as any).__state ??= { repo: null, refreshTick: 0, focusTaskId: null, i18n: { lang: "en", strings: {} } };
+    // 快照必须整体替换：原地改属性不会触发 useSyncExternalStore 重渲染
+    (window as any).__state = { ...st, i18n: { lang: l, strings: {} } };
+    for (const cb of (window as any).__stateSubs ?? []) cb();
+  },
   registerPage: (_meta: unknown, mount: (c: HTMLElement) => () => void) => { (window as any).__mountPage = mount; },
   registerAgentUI: () => {},
   resolveTimelineRenderer: () => null,

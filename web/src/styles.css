@@ -200,7 +200,9 @@ html[data-window-material="acrylic"] .comp-pop,
 html[data-window-material="mica"] .toast-stack .banner,
 html[data-window-material="acrylic"] .toast-stack .banner,
 html[data-window-material="mica"] .select-pop,
-html[data-window-material="acrylic"] .select-pop {
+html[data-window-material="acrylic"] .select-pop,
+html[data-window-material="mica"] .git-doc-toc,
+html[data-window-material="acrylic"] .git-doc-toc {
   /* 三重 Base + panel2 提亮 ≈98% 不透明：弹出小浮面必须实底，
    * 一层 Base（60/55%）在暖亮壁纸上仍然明显透底（用户实测） */
   background-color: var(--c-base);
@@ -1115,9 +1117,12 @@ select.input {
   display: flex; flex-direction: column;
   background: var(--c-panel2, var(--c-panel)); border-right: 1px solid var(--c-border-strong);
   box-shadow: 8px 0 24px color-mix(in srgb, #000 25%, transparent);
-  transform: translateX(-102%); transition: transform var(--dur-base) var(--ease-std);
+  transform: translateX(-102%); transition: transform var(--dur-base) var(--ease-std), visibility 0s var(--dur-base);
+  visibility: hidden; /* 收起后连阴影一起零绘制（visibility 随 transform 过渡结束翻转） */
+html[data-base="light"] .git-doc-toc { box-shadow: 8px 0 24px color-mix(in srgb, #000 10%, transparent); }
+html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%, transparent); }
 }
-.git-doc-toc.open { transform: none; }
+.git-doc-toc.open { transform: none; visibility: visible; transition: transform var(--dur-base) var(--ease-std); }
 .git-doc-toc-head {
   display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; flex: none;
   font-size: 12px; font-weight: 600; color: var(--c-text);
