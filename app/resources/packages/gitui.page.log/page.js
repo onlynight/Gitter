@@ -1567,7 +1567,7 @@
     },
     t: (key, ...args) => U().t(key, ...args),
     navigate: (page) => U().navigate(page),
-    refresh: () => U().refresh(),
+    notifyRepoChanged: () => U().notifyRepoChanged(),
     setContext: (...a) => U().setContext(...a),
     focusTask: (taskId) => U().focusTask(taskId)
   };
@@ -1652,7 +1652,7 @@
 
 Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shortSha}..${tip.shortSha}).`;
   }
-  const { call, t, navigate, refresh: refreshCurrent, setContext: setSharedContext, focusTask } = pageSdk;
+  const { call, t, navigate, notifyRepoChanged, setContext: setSharedContext, focusTask } = pageSdk;
   const useApp = useAppState;
   function dayTitle(day) {
     const today = /* @__PURE__ */ new Date();
@@ -1698,6 +1698,9 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     const [tagTarget, setTagTarget] = React$1.useState(null);
     const [tagName, setTagName] = React$1.useState("");
     const [tagMessage, setTagMessage] = React$1.useState("");
+    const [branchTarget, setBranchTarget] = React$1.useState(null);
+    const [branchName, setBranchName] = React$1.useState("");
+    const [branchCheckout, setBranchCheckout] = React$1.useState(true);
     const { showMenu, menuElement } = useContextMenu();
     const listRef = React$1.useRef(null);
     const loadPage = React$1.useCallback(
@@ -1744,10 +1747,21 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
       setCompareBase(null);
     }, [repo, app.refreshTick]);
     React$1.useEffect(() => {
+      setBranch("");
+      setQuery("");
+      setCommits([]);
+      setHasMore(false);
+      setError(null);
+    }, [repo]);
+    React$1.useEffect(() => {
+      if (!repo) return;
+      void loadBranches();
+    }, [repo, app.repoChangedTick]);
+    React$1.useEffect(() => {
       if (!repo) return;
       const timer = setTimeout(() => void loadPage(0, true), 200);
       return () => clearTimeout(timer);
-    }, [repo, branch, query, app.refreshTick]);
+    }, [repo, branch, query, app.refreshTick, app.repoChangedTick]);
     React$1.useEffect(() => {
       if (!repo || !selectedSha) {
         setDetail(null);
@@ -1778,17 +1792,18 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
       let curDay = "";
       let dayCollapsed = false;
       let count = 0;
+      let curGroup = null;
       for (const c of commits) {
         const day = new Date(c.committerDate * 1e3).toISOString().slice(0, 10);
         if (day !== curDay) {
           curDay = day;
           dayCollapsed = collapsedDays.has(day);
           count = 0;
-          out.push({ kind: "group", key: curDay, title: dayTitle(new Date(curDay)), count: 0, collapsed: dayCollapsed });
+          curGroup = { kind: "group", key: curDay, title: dayTitle(new Date(curDay)), count: 0, collapsed: dayCollapsed };
+          out.push(curGroup);
         }
         count++;
-        const last = out[out.length - 1];
-        if (last.kind === "group") last.count = count;
+        curGroup.count = count;
         if (dayCollapsed) continue;
         const session = sessionOfSha.get(c.sha);
         if (session) {
@@ -1840,7 +1855,9 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
           message: squashMessage(s)
         });
         setError(null);
-        refreshCurrent();
+        setSelectedSha(null);
+        setCompareBase(null);
+        notifyRepoChanged();
       } catch (e) {
         setError(e.message);
       }
@@ -1851,7 +1868,9 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
         await call("log.reset", { sha: resetTarget.sha, mode: resetMode, branch: branch || branches.current || void 0 });
         setError(null);
         setResetTarget(null);
-        refreshCurrent();
+        setSelectedSha(null);
+        setCompareBase(null);
+        notifyRepoChanged();
       } catch (e) {
         setError(e.message);
       }
@@ -1864,7 +1883,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
         setTagTarget(null);
         setTagName("");
         setTagMessage("");
-        refreshCurrent();
+        notifyRepoChanged();
       } catch (e) {
         setError(e.message);
       }
@@ -1908,6 +1927,10 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
         }
       ),
       /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "8px 12px 12px" }, children: /* @__PURE__ */ jsxRuntime.jsx(SplitPane, { settingKey: "logSplitterFraction", initial: 0.42, a: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane", ref: listRef, children: [
+        rows.length === 0 && !loading && !error && branches.names.length === 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "big", children: "⏱" }),
+          t("Log_EmptyRepo")
+        ] }),
         /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: virtualizer.getTotalSize(), position: "relative" }, children: virtualizer.getVirtualItems().map((vi) => {
           const row = rows[vi.index];
           if (row.kind === "group") {
@@ -1990,6 +2013,11 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
                       setTagName("");
                       setTagMessage("");
                       setTagTarget(c);
+                    } },
+                    { label: t("Log_CreateBranch"), action: () => {
+                      setBranchName("");
+                      setBranchCheckout(true);
+                      setBranchTarget(c);
                     } },
                     { label: t("Log_ViewReflog"), action: () => setReflogBranch(branch || branches.current || "HEAD") },
                     {
@@ -2133,13 +2161,61 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
           ]
         }
       ),
+      branchTarget && /* @__PURE__ */ jsxRuntime.jsxs(
+        Modal,
+        {
+          title: t("Branches_CreateTitle"),
+          confirmText: t("Common_Create"),
+          confirmDisabled: !branchName.trim(),
+          onClose: () => setBranchTarget(null),
+          onConfirm: () => {
+            const name = branchName.trim();
+            const sha = branchTarget.sha;
+            setBranchTarget(null);
+            void (async () => {
+              try {
+                await call("branches.create", { name, fromSha: sha, checkout: branchCheckout });
+                notifyRepoChanged();
+              } catch (e) {
+                setError(e.message);
+              }
+            })();
+          },
+          children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { userSelect: "text", marginBottom: 8 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: branchTarget.shortSha }),
+              " ",
+              branchTarget.subject
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                autoFocus: true,
+                className: "input",
+                style: { width: "100%" },
+                placeholder: t("Branches_NamePlaceholder"),
+                value: branchName,
+                onChange: (e) => setBranchName(e.target.value)
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsxs("label", { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 8 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: branchCheckout, onChange: (e) => setBranchCheckout(e.target.checked) }),
+              t("Branches_CheckoutAfter")
+            ] })
+          ]
+        }
+      ),
       reflogBranch && /* @__PURE__ */ jsxRuntime.jsx(
         ReflogDialog,
         {
           refName: reflogBranch,
           title: t("Reflog_Title", reflogBranch),
           currentBranch: branches.current,
-          onChanged: () => refreshCurrent(),
+          onChanged: () => {
+            setSelectedSha(null);
+            setCompareBase(null);
+            notifyRepoChanged();
+          },
           onClose: () => setReflogBranch(null)
         }
       ),
