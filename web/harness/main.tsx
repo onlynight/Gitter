@@ -206,7 +206,7 @@ const listeners: Record<string, ((p: unknown) => void)[]> = {};
     args.forEach((a, i) => { s = s.replace(`{${i}}`, String(a)); });
     return s;
   },
-  navigate: () => {}, openSettings: () => {}, toast: () => {}, refresh: () => {},
+  navigate: () => {}, openSettings: () => {}, toast: () => {}, refresh: () => {}, notifyRepoChanged: () => {},
   repo: () => "D:\\Code\\Gitter", settings: () => ({}), theme: () => null,
   openRepo: () => {}, closeRepo: () => {}, updateSettings: () => {}, applySettings: () => {},
   reloadTheme: () => {}, clearSettingsFocus: () => {},

@@ -169,7 +169,7 @@ class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { er
     args.forEach((a, i) => { s = s.replace(`{${i}}`, String(a)); });
     return s;
   },
-  navigate: () => {}, openSettings: () => {}, toast: () => {}, refresh: () => {},
+  navigate: () => {}, openSettings: () => {}, toast: () => {}, refresh: () => {}, notifyRepoChanged: () => {},
   repo: () => null,
   settings: () => SETTINGS,
   theme: () => null,

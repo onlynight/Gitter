@@ -13,7 +13,7 @@ import { TlIcon, toolIconName, type TlIconName } from "./taskIcons";
 // 任务页 v3（docs/task-page-v2-design.md）：Codex 信息架构（任务卡列表 + 对话/改动/检查点三独立页）
 // × ZCode 交互（⏺ 工具卡折叠/⎿ 结果、编号授权选项、todo 清单、Esc/Esc×2、Shift+Tab 模式循环、
 // 上下文条、发送/停止合一图标按钮）。页签为全局导航，改动/检查点为完全独立页（无对话元素）。
-const { call, on: onEvent, t, openSettings } = pageSdk;
+const { call, on: onEvent, t, openSettings, notifyRepoChanged } = pageSdk;
 
 const LIVE_STATES = new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
 const BUSY_STATES = new Set(["starting", "working", "awaiting-permission"]);
@@ -748,7 +748,9 @@ const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function Compose
       {/* 统计栏（DeepSeek 式）：上下文容量 / token 用量 / 速度 / 缓存命中率，点击展开明细。
           新任务页与空会话（无消息、无用量记录）不显示整栏——避免一排「—」和多余分割线。 */}
       {s && (s.estTokens > 0 || s.totalInput != null) && (
-      <span style={{ position: "relative", display: "block" }}>
+      <span className="comp-stats-row">
+        {/* 内层 shrink-wrap 作为弹层定位锚：弹层右缘对齐箭头右缘，箭头跟在内容后 */}
+        <span style={{ position: "relative", display: "inline-flex" }}>
         <button type="button" className="comp-stats" title="用量明细" aria-haspopup="menu" aria-expanded={open === "stats"} onClick={() => toggle("stats")}>
           <span className="comp-stats-bar"><i style={{ width: `${Math.min(100, pct)}%`, background: pctColor }} /></span>
           <span className="comp-stats-item">上下文 <b>{s ? `${fmtK(s.estTokens)} / ${fmtK(s.contextWindow)}` : "—"}</b>{s ? ` · ${pct}%` : ""}</span>
@@ -786,6 +788,7 @@ const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function Compose
             </div>
           )}
         </CompPopover>
+        </span>
       </span>
       )}
     </div>
@@ -1596,7 +1599,7 @@ export function TasksPage() {
           }
           if (name === "compact") await call("agent.task.compact", { taskId: selected.taskId });
           else if (name === "clear") await call("agent.task.clear", { taskId: selected.taskId });
-          else if (name === "cp") await call("agent.task.checkpoint", { taskId: selected.taskId, summary: arg || "手动检查点（/cp）" });
+          else if (name === "cp") { await call("agent.task.checkpoint", { taskId: selected.taskId, summary: arg || "手动检查点（/cp）" }); notifyRepoChanged(); }
           else if (name === "diff") { setTab("diff"); setInputText(""); return; }
           else if (name === "attach") { imageInputRef.current?.click(); setInputText(""); return; }
           else if (name === "plan" || name === "default" || name === "yolo" || name === "approvals") {
@@ -2244,7 +2247,7 @@ function ChangesTab(props: {
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
               <button className="tool-btn" disabled={!sel} onClick={async () => {
                 if (!sel || !window.confirm(`还原 ${sel} 到会话基线（${baselineSha.slice(0, 8)}）？该文件在本会话的改动将被丢弃。`)) return;
-                try { await call("agent.task.restore", { taskId, sha: baselineSha, path: sel }); await props.onReloadAgents(); } catch (e) { props.setError((e as Error).message); }
+                try { await call("agent.task.restore", { taskId, sha: baselineSha, path: sel }); await props.onReloadAgents(); notifyRepoChanged(); } catch (e) { props.setError((e as Error).message); }
               }}>还原此文件</button>
               <button className="tool-btn">复制</button>
             </div>
@@ -2322,7 +2325,7 @@ function CheckpointsTab(props: {
             <button className="tool-btn" onClick={() => setViewSha(viewSha === cp.sha ? null : cp.sha)}>{viewSha === cp.sha ? "收起该轮 diff" : "查看该轮 diff"}</button>
             <button className="tool-btn" onClick={async () => {
               if (!window.confirm(`回滚 worktree 到 ${cp.sha.slice(0, 8)}？该 checkpoint 之后的所有改动将被丢弃（reset --hard）。`)) return;
-              try { await call("agent.task.restore", { taskId, sha: cp.sha }); props.onViewDiff(); } catch (e) { props.setError((e as Error).message); }
+              try { await call("agent.task.restore", { taskId, sha: cp.sha }); props.onViewDiff(); notifyRepoChanged(); } catch (e) { props.setError((e as Error).message); }
             }}>回滚到此处</button>
           </div>
         ))}

@@ -5,7 +5,7 @@ import { Banner, DiffView, Modal, ScrollArea, Select, SplitPane, SyncBar, useSyn
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
-const { call, t, navigate, refresh: refreshCurrent, openSettings, setContext: setSharedContext } = pageSdk;
+const { call, t, navigate, notifyRepoChanged, openSettings, setContext: setSharedContext } = pageSdk;
 const useApp = useAppState;
 
 const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
@@ -142,9 +142,15 @@ export function ChangesPage() {
     }
   }, [repo]);
 
+  // 数据加载：仓库切换 / F5 / 任何改仓操作（本页或其它页/任务广播）→ 重拉
   useEffect(() => {
     if (!repo) { setStateDto(null); return; }
     void reload();
+  }, [repo, app.refreshTick, app.repoChangedTick]);
+
+  // F5 / 仓库切换语义：额外重置本地 UI 态（数据级广播不清空正在输入的内容与选中）
+  useEffect(() => {
+    if (!repo) return;
     setSelected(null);
     setDiff(null);
     setMessage("");
@@ -161,7 +167,7 @@ export function ChangesPage() {
     try {
       const msg = await fn();
       if (typeof msg === "string") showTransient(msg);
-      await reload();
+      notifyRepoChanged(); // 本页与其它 git 页（Log/Branches）一并数据重拉
       if (selected) await loadDiff(selected);
     } catch (e) {
       setError((e as Error).message);
@@ -242,7 +248,7 @@ export function ChangesPage() {
       } else {
         showTransient(push ? t("Changes_CommittedAndPushed") : t("Changes_Committed"));
       }
-      await reload();
+      notifyRepoChanged();
     } catch (e) {
       const err = e as Error & { detail?: string };
       setError(err.message);
@@ -293,7 +299,7 @@ export function ChangesPage() {
       } else {
         setPushErrorKind(null);
         showTransient(t("Changes_Pushed"));
-        await reload();
+        notifyRepoChanged();
       }
     } catch (e) {
       setError((e as Error).message);
@@ -314,7 +320,7 @@ export function ChangesPage() {
         setError(null);
         setErrorDetail(null);
         showTransient(t("Changes_UpstreamPushed", r.remote, r.branch));
-        await reload();
+        notifyRepoChanged();
       } else {
         setPushErrorKind(r.errorKind);
         setError(t("Changes_PushFailed", r.errorKind ?? "other"));
@@ -720,7 +726,6 @@ export function ChangesPage() {
           onConfirm={async () => {
             await run(async () => { await call("branches.create", { name: createBranch.trim() }); return t("Branches_Created"); });
             setCreateBranch(null);
-            refreshCurrent();
           }}
         >
           <input

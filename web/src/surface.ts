@@ -8,7 +8,7 @@
 import { call, onEvent } from "./bridge/client";
 import type { SettingsDTO, ThemeStateDTO } from "./bridge/types";
 import {
-  getState, navigate, onContextChanged, openSettings, pushToast, refreshCurrent,
+  getState, navigate, notifyRepoChanged, onContextChanged, openSettings, pushToast, refreshCurrent,
   reapplyTheme, setSharedContext, setState, t, updateSettings, type PageKey,
 } from "./state/store";
 import { runCommand, type RunContext } from "./commands";
@@ -66,6 +66,8 @@ export interface PageSurface {
   toast(title: string, body?: string): void;
   /** 触发全局刷新（F5 语义） */
   refresh(): void;
+  /** 仓库数据变更广播（改仓操作成功后调用）：各 git 页仅重拉数据，UI 态保留 */
+  notifyRepoChanged(): void;
   /** 当前仓库 */
   repo(): { workDir: string; name: string } | null;
   /** 当前设置快照 */
@@ -121,6 +123,7 @@ export function hostSurface(callFn: PageSurface["call"], onFn: PageSurface["on"]
     openSettings,
     toast: (title, body) => pushToast(title, body ?? ""),
     refresh: refreshCurrent,
+    notifyRepoChanged,
     repo: () => getState().repo,
     settings: () => getState().settings,
     theme: () => getState().theme,

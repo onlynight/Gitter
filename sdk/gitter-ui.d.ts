@@ -517,6 +517,8 @@ interface GITTER_UI_API {
   toast(title: string, body?: string): void;
   /** 触发全局刷新（F5 语义） */
   refresh(): void;
+  /** 仓库数据变更广播（改仓操作成功后调用）：各 git 页仅重拉数据，UI 态保留 */
+  notifyRepoChanged(): void;
   /** 当前仓库 */
   repo(): { workDir: string; name: string } | null;
   /** 当前设置快照 */
@@ -591,6 +593,7 @@ interface AppStateSnapshot {
   theme: ThemeStateDTO | null;
   i18n: { lang: string; strings: Record<string, string> } | null;
   refreshTick: number;
+  repoChangedTick: number;
   context: {
     selectedFile: { path: string; staged: boolean; isNew: boolean; isConflict: boolean } | null;
     selectedCommitSha: string | null;
