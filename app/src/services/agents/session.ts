@@ -104,6 +104,8 @@ interface LiveSession {
   degradedOnce?: boolean;
   /** D8 降级链：强制使用的备用模型档案 */
   forceModelRef?: string | null;
+  /** 当前分支模式提示只发一次（自动 checkpoint 跳过说明） */
+  checkpointNoted?: boolean;
   /** 本轮开始时刻（§20.3.6 turn.completed durationMs） */
   turnStartTs: number;
 }
@@ -268,18 +270,30 @@ export class AgentSessionManager {
     if (!rr.ok) throw new Error(rr.error);
 
     const title = args.prompt.trim().split(/\r?\n/)[0]?.slice(0, 60) || name;
-    let slug = args.name?.trim() || deriveSlug(title);
-    const existing = new Set((await listWorktrees(repo)).map((w) => w.branch));
-    slug = dedupeSlug(slug, existing);
 
-    const wt = await createTaskWorktree(repo, slug);
-    const baseline = (await headSha(wt.path)) ?? "";
+    // 执行位置（settings.agentsTaskWorktree）：默认直接在当前分支（主 worktree）修改；
+    // 开启后每任务独立 worktree + task/* 分支（互不干扰，可整体合并/丢弃）。
+    let wtPath: string;
+    let branch: string;
+    if (this.deps.settings.current.agentsTaskWorktree === true) {
+      let slug = args.name?.trim() || deriveSlug(title);
+      const existing = new Set((await listWorktrees(repo)).map((w) => w.branch));
+      slug = dedupeSlug(slug, existing);
+      const wt = await createTaskWorktree(repo, slug);
+      wtPath = wt.path;
+      branch = wt.branch;
+    } else {
+      wtPath = repo;
+      const r = await tryGit(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+      branch = r.code === 0 && r.stdout.trim() ? r.stdout.trim() : "HEAD";
+    }
+    const baseline = (await headSha(wtPath)) ?? "";
     const record: AgentTaskRecord = {
       taskId: randomUUID(),
       title,
       harnessFullId: BUILTIN_HARNESS_ID,
-      worktreePath: wt.path,
-      branch: wt.branch,
+      worktreePath: wtPath,
+      branch,
       externalSessionId: null,
       baselineSha: baseline,
       state: "starting",
@@ -305,7 +319,7 @@ export class AgentSessionManager {
     const initial: ModelMessage[] = [imgs.parts.length > 0
       ? { role: "user", content: [textPart, ...imgs.parts] }
       : { role: "user", content: input }];
-    this.ensureLive(record, tt.spec, wt.path, initial);
+    this.ensureLive(record, tt.spec, wtPath, initial);
     for (const rel of imgs.rels) this.emit(record, { type: "file-change", path: rel, kind: "read-image" });
     void this.startTurn(record, `任务下发：${title}`);
     return record;
@@ -582,6 +596,19 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     return out;
   }
 
+  /**
+   * 编辑器保存后刷新 readLog（editor-design.md §3.1）：
+   * 让 agent 的 file_patch 能通过 mtime 校验，避免"被外部修改过"误拒。
+   * 遍历所有活跃会话的 readLog（一个文件可能被多个任务读到），逐个刷新。
+   */
+  refreshReadLogFor(rel: string, mtimeMs: number, size: number): void {
+    for (const live of this.live.values()) {
+      live.readLog.set(rel, { mtimeMs, size });
+      // 同时记录 UI 写入时间戳，供 file_patch 降级重读判定
+      (live as { lastUiWrite?: { rel: string; ts: number } }).lastUiWrite = { rel, ts: Date.now() };
+    }
+  }
+
   async taskDiff(args: { taskId: string; path?: string; since?: string }): Promise<import("../../shared/types").DiffDTO[]> {
     const text = await this.taskDiffText(args);
     return parseUnifiedDiff(text);
@@ -788,6 +815,11 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
   /** 手动检查点（/cp）：立即对当前工作区打一次 checkpoint 提交。 */
   async createCheckpoint(args: { taskId: string; summary?: string }): Promise<{ sha: string | null; skipped: boolean }> {
     const record = this.recordOf(args.taskId);
+    // 当前分支模式：托管提交会落到用户当前分支，拒绝并说明
+    if (this.isMainWorktree(record.worktreePath)) {
+      this.emit(record, { type: "log", level: "warn", text: "当前分支模式不支持检查点（避免在当前分支产生托管提交）——需要回滚能力请开 设置 → 任务在独立 worktree 执行" });
+      return { sha: null, skipped: true };
+    }
     const summary = (args.summary ?? "手动检查点").replace(/\r?\n/g, " ").slice(0, 72);
     const cp = await commitCheckpoint(record.worktreePath, {
       summary,
@@ -1140,15 +1172,23 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         record.state = "awaiting-input";
         if (result.lastMessage) record.lastMessage = result.lastMessage;
         if (this.deps.settings.current.agentsCheckpoint !== false) {
-          try {
-            const cp = await commitCheckpoint(record.worktreePath, {
-              summary: result.lastMessage ?? "轮次结束",
-              assistedBy: "gitter-agent",
-              sessionId: record.taskId,
-            });
-            if (cp.sha) this.emit(record, { type: "checkpoint", commitSha: cp.sha, summary: result.lastMessage ?? "" });
-          } catch (e) {
-            this.emit(record, { type: "log", level: "warn", text: `checkpoint 失败：${(e as Error).message}` });
+          // 当前分支模式（主 worktree）不做托管提交——checkpoint 会把改动直接 commit 到用户分支
+          if (this.isMainWorktree(record.worktreePath)) {
+            if (!live.checkpointNoted) {
+              live.checkpointNoted = true;
+              this.emit(record, { type: "log", level: "info", text: "当前分支模式：跳过自动 checkpoint（避免在当前分支产生托管提交）；改动请在改动页查看" });
+            }
+          } else {
+            try {
+              const cp = await commitCheckpoint(record.worktreePath, {
+                summary: result.lastMessage ?? "轮次结束",
+                assistedBy: "gitter-agent",
+                sessionId: record.taskId,
+              });
+              if (cp.sha) this.emit(record, { type: "checkpoint", commitSha: cp.sha, summary: result.lastMessage ?? "" });
+            } catch (e) {
+              this.emit(record, { type: "log", level: "warn", text: `checkpoint 失败：${(e as Error).message}` });
+            }
           }
         }
       } else {
@@ -1529,6 +1569,14 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
 
   private repoOrNull(): string | null {
     return this.deps.repoOf();
+  }
+
+  /** 任务 worktree 是否即主 worktree（当前分支模式：createTask 未建独立 worktree）。 */
+  private isMainWorktree(worktreePath: string): boolean {
+    const repo = this.repoOrNull();
+    if (!repo) return false;
+    const norm = (p: string) => path.resolve(p).replace(/[\\/]+$/, "").toLowerCase();
+    return norm(worktreePath) === norm(repo);
   }
 
   private needRepo(): string {

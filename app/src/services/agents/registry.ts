@@ -101,7 +101,7 @@ export interface AgentToolDef {
   readonly?: boolean;
   /** plan 模式恒可用（交互/规划工具） */
   planAlways?: boolean;
-  /** 动态风险：terminal 命令分级——yolo 下 high 仍 each-time */
+  /** 动态风险：terminal 命令分级——default 下 high 逐次确认（yolo 完全访问下放行） */
   dynamicRisk?: (args: Record<string, unknown>) => "high" | "medium" | null;
   /** 授权卡定制文案（缺省由 buildPayload 生成） */
   permissionRequest?: (args: Record<string, unknown>) => PermissionRequest;
@@ -218,11 +218,13 @@ export function buildToolset(env: ToolEnv, opts: BuildToolsetOptions): ToolSet {
         if (evaluateRules(opts.rules, def.name, args, opts.repoPath) === "deny") {
           return `错误：该操作被权限规则拒绝（${def.name}）。请调整方案，不要原样重试。`;
         }
-        // 2) 分级（含 yolo/动态风险）
+        // 2) 分级（含模式放行/动态风险）：
+        //    yolo=完全访问 → 全部放行（含推送/高危）；default → 自动执行，仅高危命令保留逐次确认
         let cls = effectivePermissionClass(def.name, opts.policy);
         const risk = def.dynamicRisk?.(args) ?? null;
-        if (env.mode === "yolo" && risk !== "high") cls = "auto";
-        if (risk === "high") cls = "each-time";
+        if (env.mode === "yolo") cls = "auto";
+        else if (env.mode === "default" && risk !== "high") cls = "auto";
+        if (risk === "high" && env.mode !== "yolo") cls = "each-time";
         if (cls !== "auto") {
           const allow = await env.requestPermission(def.name, def.permissionRequest?.(args) ?? {
             title: def.name,

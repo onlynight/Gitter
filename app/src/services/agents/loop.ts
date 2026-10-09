@@ -123,6 +123,9 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
   let finalText = "";
   let pending = "";
   let lastFlush = 0;
+  // 思考流（reasoning-delta）：独立于正文缓冲，节流转发为 stream:"thinking" 事件（时间线思考卡数据源）
+  let thinkPending = "";
+  let lastThinkFlush = 0;
   let usage: { input?: number; output?: number; cacheRead?: number; elapsedMs?: number } | null = null;
   let errorText: string | undefined;
   // toolCallId → start 信息（工具卡配对）
@@ -135,6 +138,15 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
     o.onEvent({ type: "output", text: pending, stream: "assistant" });
     pending = "";
     lastFlush = now;
+  };
+
+  const flushThinking = (force = false) => {
+    const now = Date.now();
+    if (!thinkPending) return;
+    if (!force && now - lastThinkFlush < 120) return;
+    o.onEvent({ type: "output", text: thinkPending, stream: "thinking" });
+    thinkPending = "";
+    lastThinkFlush = now;
   };
 
   const toolSourceOf = (name: string): string | null => {
@@ -162,6 +174,17 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
       });
       for await (const part of result.fullStream) {
         switch (part.type) {
+          case "reasoning-start":
+            // 新一段思考开始：冲掉上一段残余，让前端开新思考卡
+            flushThinking(true);
+            break;
+          case "reasoning-delta":
+            thinkPending += part.text;
+            flushThinking();
+            break;
+          case "reasoning-end":
+            flushThinking(true);
+            break;
           case "text-delta":
             finalText += part.text;
             pending += part.text;
@@ -169,6 +192,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
             break;
           case "tool-call": {
             flush(true);
+            flushThinking(true);
             const callId = String((part as { toolCallId?: string }).toolCallId ?? `c${openCalls.size}`);
             const source = toolSourceOf(part.toolName);
             openCalls.set(callId, { name: part.toolName, args: part.input, start: Date.now(), source });
@@ -238,6 +262,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
         }
       }
       flush(true);
+      flushThinking(true);
       // 回写与 usage 读取各自独立成 try：失败轮 usage 恒 reject，异常上抛会跳过回写（限流场景上下文全丢）
       await writebackMessages(o.messages, result);
       try {
@@ -275,6 +300,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
       };
     } catch (e) {
       flush(true);
+      flushThinking(true);
       const err = e as Error;
       if (err.name === "AbortError" || o.signal.aborted) {
         await writebackMessages(o.messages, result);

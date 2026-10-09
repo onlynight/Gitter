@@ -11,7 +11,7 @@ export type TlIconName =
   | "check-circle" | "circle" | "circle-dot" | "dot" | "dot-hollow"
   | "sparkle" | "shield" | "bot" | "usage" | "list" | "chat" | "plan"
   | "fork" | "archive" | "external" | "chevron-up" | "chevron-down" | "chevron-right"
-  | "plus" | "bolt" | "gear" | "x" | "trash" | "check";
+  | "plus" | "bolt" | "gear" | "x" | "trash" | "check" | "copy";
 
 const PATHS: Record<TlIconName, string> = {
   // 纸飞机（Octicons paper-airplane-16 改绘）
@@ -87,6 +87,8 @@ const PATHS: Record<TlIconName, string> = {
   "trash": "M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.748 1.748 0 0 1 10.595 15h-5.19a1.748 1.748 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z",
   // 对勾（Octicons check-16）
   "check": "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z",
+  // 复制（Octicons copy-16：双叠方块）
+  "copy": "M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z",
 };
 
 export function TlIcon(props: { name: TlIconName; size?: number; color?: string; className?: string; style?: CSSProperties }) {

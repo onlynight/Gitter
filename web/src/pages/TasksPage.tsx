@@ -19,9 +19,9 @@ const LIVE_STATES = new Set(["starting", "working", "awaiting-input", "awaiting-
 const BUSY_STATES = new Set(["starting", "working", "awaiting-permission"]);
 const MODE_ORDER: ("plan" | "default" | "yolo")[] = ["plan", "default", "yolo"];
 const MODE_META: Record<string, { label: string; color: string }> = {
-  plan: { label: "◇ 规划", color: "var(--c-chip-purple-fg, #b490ff)" },
+  plan: { label: "◇ 计划", color: "var(--c-chip-purple-fg, #b490ff)" },
   default: { label: "● 默认", color: "var(--c-text3)" },
-  yolo: { label: "⚡ Yolo", color: "var(--c-red)" },
+  yolo: { label: "⚡ 完全访问", color: "var(--c-red)" },
 };
 const THINKING_META: Record<"off" | "low" | "medium" | "high", { label: string; hint: string }> = {
   off: { label: "思考·关", hint: "跳过推理，响应最快" },
@@ -44,9 +44,9 @@ const TOOL_LABELS: Record<string, string> = {
 const BUILTIN_SLASH: { name: string; arg?: string; hint: string; template?: string }[] = [
   { name: "compact", hint: "立即压缩上下文" },
   { name: "clear", hint: "重置会话（保留 worktree/checkpoint）" },
-  { name: "plan", hint: "切规划模式" },
+  { name: "plan", hint: "切计划模式" },
   { name: "default", hint: "切默认模式" },
-  { name: "yolo", hint: "切 yolo 模式" },
+  { name: "yolo", hint: "切完全访问模式" },
   { name: "approvals", hint: "切换审批模式（同 Shift+Tab）" },
   { name: "stop", hint: "中断当前轮" },
   { name: "model", arg: "<id>", hint: "切换模型档案" },
@@ -71,6 +71,7 @@ type Todo = { content: string; status: "pending" | "in_progress" | "completed" }
 type Block =
   | { kind: "human"; text: string }
   | { kind: "assistant"; text: string; merge: boolean }
+  | { kind: "thinking"; text: string; merge: boolean; closed?: boolean }
   | { kind: "status"; text: string; phase?: string }
   | { kind: "tool"; callId: string; name: string; args?: unknown; state: "running" | "ok" | "error"; result?: string; durationMs?: number; source?: string | null; tail?: string; startTs: number }
   | { kind: "permission"; requestId: string; toolName: string; title: string; command?: string | null; payload?: AgentEventDTO["payload"]; rememberable?: boolean }
@@ -86,7 +87,18 @@ type Block =
 const MAX_BLOCKS = 400;
 
 function pushCap(arr: Block[], b: Block): Block[] {
-  const next = [...arr, b];
+  let next = [...arr, b];
+  // 非思考块入场 = 思考已结束：把尾部思考块标记收起（用户之后仍可手动展开）
+  if (b.kind !== "thinking") {
+    for (let i = next.length - 2; i >= 0; i--) {
+      const x = next[i];
+      if (x.kind !== "thinking") break;
+      if (!x.closed) {
+        next = [...next];
+        next[i] = { ...x, closed: true };
+      }
+    }
+  }
   return next.length > MAX_BLOCKS ? next.slice(next.length - MAX_BLOCKS) : next;
 }
 
@@ -122,6 +134,16 @@ function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
     case "status":
       return pushCap(blocks, { kind: "status", text: `${ev.phase ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.phase });
     case "output":
+      if (ev.stream === "thinking") {
+        // 思考流：与正文同款合并策略（连续 thinking 增量并入最后一张思考卡）
+        const last = blocks[blocks.length - 1];
+        if (last && last.kind === "thinking" && last.merge && !last.closed) {
+          const next = [...blocks];
+          next[next.length - 1] = { ...last, text: last.text + (ev.text ?? "") };
+          return next;
+        }
+        return pushCap(blocks, { kind: "thinking", text: ev.text ?? "", merge: true });
+      }
       if (ev.stream === "assistant") {
         const last = blocks[blocks.length - 1];
         if (last && last.kind === "assistant" && last.merge) {
@@ -163,7 +185,7 @@ function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
     case "plan":
       return pushCap(blocks, { kind: "plan", requestId: ev.requestId ?? "", plan: ev.plan ?? "" });
     case "todo":
-      return [...blocks.filter((b) => b.kind !== "todo"), { kind: "todo", todos: ev.todos ?? [] }];
+      return pushCap(blocks.filter((b) => b.kind !== "todo"), { kind: "todo", todos: ev.todos ?? [] });
     case "checkpoint":
       return pushCap(blocks, { kind: "checkpoint", sha: ev.commitSha ?? "", summary: ev.summary ?? "" });
     case "file-change":
@@ -199,14 +221,14 @@ function stateChip(s: AgentTaskDTO["state"]): { label: string; color: string } {
 type PermOption = { label: string; reply: { ok: boolean; remember?: boolean; rulePrefix?: string | null; fullAccess?: boolean } };
 
 /** 授权卡编号选项生成（§四 + Codex 式升级）：一次 / 本会话 / 总是允许前缀 / 完全访问（切 yolo）/ 否。
- * fullAccess = 批准当前请求并把任务切到 yolo 模式（后续免询问；推送/高危命令由安全内核恒拦，不可放宽）。 */
+ * fullAccess = 批准当前请求并把任务切到完全访问模式（后续免询问，仅不确定的选项仍会提问）。 */
 function permOptions(b: Extract<Block, { kind: "permission" }>, showFullAccess = false): PermOption[] {
   const sig = b.command ?? b.title;
   const prefix = sig ? sig.slice(0, 24) : null;
   const opts: PermOption[] = [{ label: "1. 是，执行一次", reply: { ok: true } }];
   if (b.rememberable !== false) opts.push({ label: "2. 是，本会话不再询问", reply: { ok: true, remember: true } });
   if (prefix) opts.push({ label: `3. 是，总是允许前缀 “${prefix}”`, reply: { ok: true, remember: true, rulePrefix: prefix } });
-  if (showFullAccess) opts.push({ label: `${opts.length + 1}. 完全访问：批准并切换（后续免询问，推送/高危除外）`, reply: { ok: true, remember: true, fullAccess: true } });
+  if (showFullAccess) opts.push({ label: `${opts.length + 1}. 完全访问：批准并切换（后续不再询问，仅不确定时提问）`, reply: { ok: true, remember: true, fullAccess: true } });
   opts.push({ label: `${opts.length + 1}. 否，告诉 agent 改用其他方式`, reply: { ok: false } });
   return opts;
 }
@@ -361,6 +383,35 @@ function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
           </>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/** 思考卡（⏺ 思考过程）：流式期间自动展开，后续块入场（closed）自动折叠；全程可手动开合。
+ * 斜体弱化呈现——思考是过程信息，视觉层级低于正文与工具卡。 */
+function ThinkingCard({ b }: { b: Extract<Block, { kind: "thinking" }> }) {
+  const [open, setOpen] = useState(() => !b.closed);
+  // 用户手动开合后，不再被 closed 翻转强制收起
+  const userTouched = useRef(false);
+  useEffect(() => {
+    if (b.closed && !userTouched.current) setOpen(false);
+  }, [b.closed]);
+  const streaming = open && !b.closed;
+  return (
+    <div className="tl-think" style={{ borderLeft: "2px solid var(--c-border)", paddingLeft: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: "var(--c-text3)", padding: "2px 0", userSelect: "none" }}
+        onClick={() => { userTouched.current = true; setOpen((v) => !v); }}
+        role="button" tabIndex={0} aria-expanded={open}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); userTouched.current = true; setOpen((v) => !v); } }}>
+        <TlIcon name="sparkle" size={12} color={streaming ? "var(--c-amber)" : "var(--c-text3)"} className={streaming ? "tl-pulse" : undefined} />
+        <span style={{ fontStyle: "italic", fontWeight: streaming ? 600 : 400 }}>{streaming ? "思考中…" : "思考过程"}</span>
+        <TlIcon name="chevron-right" size={10} className={"tl-chev" + (open ? " open" : "")} />
+      </div>
+      {open && (
+        <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--c-text3)", fontStyle: "italic", fontSize: 12.5, lineHeight: 1.6, padding: "2px 0 4px", userSelect: "text" }}>
+          {b.text.trim() || "…"}
+        </div>
+      )}
     </div>
   );
 }
@@ -636,7 +687,7 @@ const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function Compose
           </CompPopover>
         </span>
 
-        {/* 访问控制：审批模式（规划 / 默认 / Yolo） */}
+        {/* 访问控制：权限模式（计划 / 默认 / 完全访问） */}
         <span style={{ position: "relative", display: "inline-flex" }}>
           <button className="comp-item" title="访问控制（Shift+Tab 循环）" aria-haspopup="menu" aria-expanded={open === "mode"}
             onClick={() => toggle("mode")} disabled={props.modeDisabled}>
@@ -653,7 +704,7 @@ const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function Compose
                 icon={m === "yolo" ? "bolt" : m === "plan" ? "plan" : "shield"}
                 color={MODE_META[m].color}
                 name={MODE_META[m].label.replace(/^[●◆◇⚡]\s*/, "")}
-                sub={m === "plan" ? "只读调研，出计划待批准" : m === "yolo" ? "全部放行，高危除外" : "写操作逐条授权"} />
+                sub={m === "plan" ? "只读调研，出计划待批准" : m === "yolo" ? "全部放行不再询问，仅不确定时提问" : "自动执行，仅高危命令需确认"} />
             ))}
           </CompPopover>
         </span>
@@ -965,19 +1016,83 @@ function groupLogs(blocks: Block[]): ({ kind: "block"; block: Block } | { kind: 
   return out;
 }
 
+// ---- 轮次分组（ZCode 式折叠）----
+// 以 turn（轮完成）标记切组：一组 = 一条用户消息（或有/无）之后到下一个 turn 之间的全部过程块。
+// 已结束的组把最后一段正文（其后无工具/子代理）抽为 conclusion 常驻可见，process 默认折叠；
+// 最后一组若还没有 turn 标记 = 进行中，保持实时展开不折叠。
+
+interface TurnGroup {
+  /** 折叠状态记忆锚（human / turn / 首个过程块的稳定引用） */
+  anchor: unknown;
+  human: Block | null;
+  process: Block[];
+  conclusion: Block | null;
+  turn: Block | null;
+  /** true = 最后一组且尚未收到 turn 标记（本轮仍在流式） */
+  active: boolean;
+}
+
+function groupTurns(blocks: Block[]): TurnGroup[] {
+  const groups: TurnGroup[] = [];
+  let cur: TurnGroup | null = null;
+  const newGroup = (human: Block | null): TurnGroup =>
+    ({ anchor: null, human, process: [], conclusion: null, turn: null, active: false });
+  const flush = () => { if (cur) groups.push(cur); cur = null; };
+  for (const b of blocks) {
+    if (b.kind === "human") { flush(); cur = newGroup(b); continue; }
+    if (!cur) cur = newGroup(null);
+    if (b.kind === "turn") { cur.turn = b; flush(); continue; }
+    cur.process.push(b);
+  }
+  flush();
+  for (const g of groups) {
+    g.anchor = g.human ?? g.turn ?? g.process[0] ?? {};
+    if (!g.turn) { g.active = true; continue; }
+    // 结论抽取：从组尾向前找最后一段正文；中途遇工具/子代理 = 轮以动作收尾（max-steps 等），不抽取
+    for (let j = g.process.length - 1; j >= 0; j--) {
+      const b = g.process[j];
+      if (b.kind === "tool" || b.kind === "subtask") break;
+      if (b.kind === "assistant") { g.conclusion = b; g.process.splice(j, 1); break; }
+    }
+  }
+  return groups;
+}
+
 // ---- 内置时间线渲染器自举（agent-harness-v4.md §20.3.7 第 2 期迁移）----
 // 十类展示块经 registerAgentUI 与插件包同接缝竞争（层级 builtin：用户包可替换，宿主缺省兜底）；
 // 交互卡（授权/提问/计划）是裁决面 UI，不开放替换（§20.9），仍硬接线在 renderBlock。
 // @文件 mention 同批迁移为内置 composer provider（插件可加新前缀，同 prefix 用户包覆盖）。
+
+/** 消息底部复制钮（图标态，固定显示）：点击复制纯文本，短暂切换为对勾反馈「已复制」。
+ * 只挂在本轮结论性回复上（中间过程片段经 ctx.showCopy=false 隐藏）。 */
+function CopyMessageButton({ text, align }: { text: string; align: "left" | "right" }) {
+  const [done, setDone] = useState(false);
+  const timer = useRef<number | null>(null);
+  useEffect(() => () => { if (timer.current !== null) window.clearTimeout(timer.current); }, []);
+  return (
+    <div style={{ display: "flex", justifyContent: align === "right" ? "flex-end" : "flex-start", marginTop: 4 }}>
+      <button type="button" className="icon-btn msg-copy" title={done ? "已复制" : "复制"} aria-label={done ? "已复制" : "复制"}
+        onClick={(e) => {
+          e.stopPropagation();
+          void navigator.clipboard?.writeText(text);
+          setDone(true);
+          if (timer.current !== null) window.clearTimeout(timer.current);
+          timer.current = window.setTimeout(() => setDone(false), 1400);
+        }}>
+        <TlIcon name={done ? "check" : "copy"} size={13} color={done ? "var(--c-green)" : undefined} />
+      </button>
+    </div>
+  );
+}
 
 const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
   {
     blockKind: "human",
     render: ({ block }) => {
       const b = block as Extract<Block, { kind: "human" }>;
-      // 对话形式：用户消息靠右圆角气泡（ZCode 形态），上下留宽间距
+      // 对话形式：用户消息靠右圆角气泡（ZCode 形态），上下留宽间距（文本可选中，无复制钮）
       return (
-        <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }}>
+        <div className="msg-row" style={{ display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }}>
           <div style={{ maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }}>
             {b.text}
           </div>
@@ -987,10 +1102,20 @@ const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
   },
   {
     blockKind: "assistant",
-    render: ({ block }) => {
+    render: ({ block, ctx }) => {
       const b = block as Extract<Block, { kind: "assistant" }>;
-      return <div className="md-body" style={{ padding: "0 4px" }} dangerouslySetInnerHTML={{ __html: renderMarkdown(b.text) }} />;
+      // 复制钮只挂本轮结论（ctx.showCopy 由 renderBlock 前向扫描判定）
+      return (
+        <div className="msg-row" style={{ padding: "0 4px" }}>
+          <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(b.text) }} />
+          {ctx?.showCopy ? <CopyMessageButton text={b.text} align="left" /> : null}
+        </div>
+      );
     },
+  },
+  {
+    blockKind: "thinking",
+    render: ({ block }) => <ThinkingCard b={block as Extract<Block, { kind: "thinking" }>} />,
   },
   {
     blockKind: "status",
@@ -1193,6 +1318,11 @@ export function TasksPage() {
   const [mentionSel, setMentionSel] = useState(0);
   const [pkgCommands, setPkgCommands] = useState<{ name: string; template: string; packageId: string }[]>([]);
   const [permSel, setPermSel] = useState<Record<string, number>>({});
+  // 轮次折叠：已结束轮默认折叠；用户手动展开的组按组锚（块对象引用）记忆
+  const [expandedTurns, setExpandedTurns] = useState<Set<unknown>>(() => new Set());
+  const toggleTurn = (anchor: unknown) => {
+    setExpandedTurns((s) => { const n = new Set(s); if (n.has(anchor)) n.delete(anchor); else n.add(anchor); return n; });
+  };
   const [maxSubagents, setMaxSubagents] = useState(3);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -1339,7 +1469,8 @@ export function TasksPage() {
           void reloadAgents();
           setChangesTick((n) => n + 1);
         }
-        if (event.type === "file-change") setChangesTick((n) => n + 1);
+        // file-change / checkpoint 即时驱动改动·检查点徽标与对应页签数据刷新（不等轮次结束）
+        if (event.type === "file-change" || event.type === "checkpoint") setChangesTick((n) => n + 1);
       }),
     [reloadAgents],
   );
@@ -1347,6 +1478,20 @@ export function TasksPage() {
     () => onEvent("agent.tasks.changed", () => void reloadAgents()),
     [reloadAgents],
   );
+
+  // 顶部页签徽标数量：不依赖改动/检查点页签挂载——文件变更/检查点/轮次结束事件（tick）
+  // 驱动父级直接拉取，停留在对话页时徽标也实时更新；页签打开后组件内 onCount 上报同源数据自然一致
+  useEffect(() => {
+    if (!selectedTask) { setDiffCount(0); setCpCount(0); return; }
+    let cancelled = false;
+    void call<AgentTaskFileDTO[]>("agent.task.files", { taskId: selectedTask })
+      .then((fs) => { if (!cancelled) setDiffCount(fs.length); })
+      .catch(() => {});
+    void call<AgentCheckpointDTO[]>("agent.task.checkpoints", { taskId: selectedTask })
+      .then((x) => { if (!cancelled) setCpCount(x.length); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedTask, changesTick]);
 
   const selected = agentTasks?.find((x) => x.taskId === selectedTask) ?? null;
   const runningCount = (agentTasks ?? []).filter((x) => LIVE_STATES.has(x.state)).length;
@@ -1365,6 +1510,7 @@ export function TasksPage() {
 
   // 切任务即复位：避免上一个任务的用量残留到新任务（轮询数据到达前短暂空窗，正确优于误导）
   useEffect(() => { setStats(null); }, [selectedTask]);
+  useEffect(() => { setExpandedTurns(new Set()); }, [selectedTask]);
   useEffect(() => {
     if (!selectedTask) return;
     let cancelled = false;
@@ -1497,7 +1643,7 @@ export function TasksPage() {
     } catch (e) { setError((e as Error).message); }
   }, [selectedTask, evMap]);
 
-  // Codex 式升级：批准当前请求并把任务切到完全访问（yolo）——安全内核（推送/高危恒拦）不受影响
+  // Codex 式升级：批准当前请求并把任务切到完全访问（yolo）——后续免授权，仅 ask_user 提问照常
   const replyFullAccess = useCallback(async (requestId: string) => {
     if (!selected) return;
     setDecided((d) => ({ ...d, [requestId]: "ok" }));
@@ -1837,7 +1983,25 @@ export function TasksPage() {
 
   // 时间线块渲染（§20.3.7）：裁决面交互卡（授权/提问/计划）硬接线不开放替换；
   // 其余展示块经 agentUIRegistry 解析——用户包 > 内置包 > 宿主缺省，工具精确 > 前缀 > blockKind。
-  const renderBlock = (b: Block, key: string | number): ReactNode => {
+  // 复制钮只挂 agent 本轮结论（copyBlocks）：向前扫描——后面还有工具/子代理/思考/计划
+  // 或另一段正文 = 过程片段；遇到轮结束标记（turn/checkpoint/下一条用户消息）或时间线末尾
+  // （本轮仍在流式输出）= 结论。子代理子块一律视为过程。
+  const copyBlocks = (() => {
+    const out = new Set<Block>();
+    for (let i = 0; i < timeline.length; i++) {
+      const b = timeline[i];
+      if (b.kind !== "assistant") continue;
+      let conclusion = true;
+      for (let j = i + 1; j < timeline.length; j++) {
+        const k = timeline[j].kind;
+        if (k === "assistant" || k === "tool" || k === "subtask" || k === "thinking" || k === "plan") { conclusion = false; break; }
+        if (k === "turn" || k === "checkpoint" || k === "human") break;
+      }
+      if (conclusion) out.add(b);
+    }
+    return out;
+  })();
+  const renderBlock = (b: Block, key: string | number, process = false): ReactNode => {
     switch (b.kind) {
       case "permission":
         return <PermissionCard key={key} b={b} decided={decided[b.requestId]} sel={permSel[b.requestId] ?? 0} showFullAccess={showFullAccess} onSel={(id, i) => setPermSel((m) => ({ ...m, [id]: i }))} onReply={replyPerm} onFullAccess={(id) => void replyFullAccess(id)} />;
@@ -1858,10 +2022,25 @@ export function TasksPage() {
       viewFile: (path) => { setPendingFile(path); setTab("diff"); },
       previewFile,
       contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : undefined,
-      renderChildren: (children) => <Fragment>{(children as Block[]).map((c, i) => renderBlock(c, `${key}-${i}`))}</Fragment>,
+      showCopy: !process && copyBlocks.has(b),
+      renderChildren: (children) => <Fragment>{(children as Block[]).map((c, i) => renderBlock(c, `${key}-${i}`, true))}</Fragment>,
     };
     return <Fragment key={key}>{renderer.render({ block: b, taskId: ctx.taskId ?? "", ctx })}</Fragment>;
   };
+  // 过程块列表渲染（含连续日志折叠组）；轮折叠展开与进行中轮共用
+  const renderProcess = (prefix: string, list: Block[]): ReactNode =>
+    groupLogs(list).map((lg, li) =>
+      lg.kind === "logs" ? (
+        <details key={`${prefix}${li}`} style={{ fontSize: 11 }}>
+          <summary style={{ cursor: "pointer", color: "var(--c-text3)" }}>▸ 显示 {lg.items.length} 条日志</summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+            {lg.items.map((b, j) => renderBlock(b, `${prefix}${li}-${j}`))}
+          </div>
+        </details>
+      ) : (
+        renderBlock(lg.block, `${prefix}${li}`)
+      ),
+    );
 
   // 任务列表极简卡：状态点 + 标题一行；操作收敛为右侧 分叉/归档 图标按钮（运行中禁用）
   const agentCard = (task: AgentTaskDTO) => {
@@ -1888,6 +2067,17 @@ export function TasksPage() {
   };
 
   const busy = selected ? BUSY_STATES.has(selected.state) : false;
+  // 底部执行提示（DeepSeek 式流光）：优先展示正在跑的工具（秒数随 forceTick 每秒刷新），
+  // 其次启动/子代理/通用思考文案；等待授权时已有琥珀提示行，不重复显示
+  const busyHint = (() => {
+    if (runningTool) {
+      const label = TOOL_LABELS[runningTool.name] ?? runningTool.name;
+      return `${label}… ${((Date.now() - runningTool.startTs) / 1000).toFixed(1)}s`;
+    }
+    if (selected?.state === "starting") return "正在启动…";
+    if (runningSubs > 0) return `子代理执行中 ${runningSubs}/${maxSubagents}…`;
+    return "正在思考与执行…";
+  })();
   // D1 vision 门控：当前生效档案（任务绑定 → 默认★）按实际选中成员判定
   const activeProfile = resolveRefProfile(selected?.modelRef) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
   const visionOk = resolveRefVision(selected?.modelRef ?? activeProfile?.id);
@@ -1982,18 +2172,34 @@ export function TasksPage() {
                   <div style={{ textAlign: "center", color: "var(--c-text3)", fontSize: 11, opacity: .6 }}>↑ 上滚加载更早</div>
                 )}
                 {timeline.length === 0 && <div style={{ color: "var(--c-text3)", fontSize: 12 }}>{t("Agents_TimelineEmpty")}</div>}
-                {groupLogs(timeline).map((g, i) =>
-                  g.kind === "logs" ? (
-                    <details key={i} style={{ fontSize: 11 }}>
-                      <summary style={{ cursor: "pointer", color: "var(--c-text3)" }}>▸ 显示 {g.items.length} 条日志</summary>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                        {g.items.map((b, j) => renderBlock(b, `${i}-${j}`))}
-                      </div>
-                    </details>
-                  ) : (
-                    renderBlock(g.block, i)
-                  ),
-                )}
+                {groupTurns(timeline).map((g, gi) => {
+                  const ended = !!g.turn;
+                  const expanded = !ended || expandedTurns.has(g.anchor);
+                  const tools = g.process.filter((b) => b.kind === "tool").length;
+                  const subs = g.process.filter((b) => b.kind === "subtask").length;
+                  return (
+                    <Fragment key={gi}>
+                      {g.human ? renderBlock(g.human, `g${gi}-h`) : null}
+                      {ended && g.process.length > 0 ? (
+                        <>
+                          <div className="tl-turn" onClick={() => toggleTurn(g.anchor)} role="button" tabIndex={0} aria-expanded={expanded}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleTurn(g.anchor); } }}>
+                            <TlIcon name="chevron-right" size={11} className={"tl-chev" + (expanded ? " open" : "")} />
+                            <span style={{ fontWeight: 600 }}>执行过程</span>
+                            {tools > 0 ? <span>工具 {tools}</span> : null}
+                            {subs > 0 ? <span>子代理 {subs}</span> : null}
+                            {tools === 0 && subs === 0 ? <span>{g.process.length} 条</span> : null}
+                          </div>
+                          {expanded && renderProcess(`g${gi}-p`, g.process)}
+                        </>
+                      ) : (
+                        renderProcess(`g${gi}-p`, g.process)
+                      )}
+                      {g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null}
+                      {g.turn ? renderBlock(g.turn, `g${gi}-t`) : null}
+                    </Fragment>
+                  );
+                })}
               </div>
               </div>
               {/* 悬浮任务清单：从时间线提取最新 todo 块，固定右上，实时刷新状态 */}
@@ -2033,6 +2239,13 @@ export function TasksPage() {
             </div>
             <div style={{ borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px" }}>
               <div style={{ maxWidth: 880, margin: "0 auto", position: "relative" }}>
+                {/* DeepSeek 式执行中提示：脉冲星光 + 流光文字（运行工具名/秒数实时刷新） */}
+                {busy && !pendingPerm && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "0 2px 7px", fontSize: 12 }}>
+                    <TlIcon name="sparkle" size={12} color="var(--c-amber)" className="tl-pulse" />
+                    <span className="shimmer-text">{busyHint}</span>
+                  </div>
+                )}
                 {pendingPerm && (
                   <div style={{ marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)", display: "flex", alignItems: "center", gap: 6 }}>
                     <TlIcon name="shield" size={12} className="tl-pulse" />
@@ -2115,7 +2328,7 @@ export function TasksPage() {
                 maxH={208}
                 minH={42}
                 autoFocus
-                placeholder={`${t("Agents_ComposePlaceholder")}\n支持 @文件 提及；规划类任务先切「◇ 规划」模式（Shift+Tab）`}
+                placeholder={`${t("Agents_ComposePlaceholder")}\n支持 @文件 提及；调研类任务先切「◇ 计划」模式（Shift+Tab）`}
                 busy={false}
                 sending={sending}
                 canSend={!!composeText.trim()}
@@ -2143,7 +2356,7 @@ export function TasksPage() {
                 </>}
               />
               <div style={{ color: "var(--c-text3)", fontSize: 11, marginTop: 6 }}>
-                Enter 发送 · Shift+Enter 换行 · {t("Agents_TargetHint")} · 规划模式：先调研出计划，批准后自动执行
+                Enter 发送 · Shift+Enter 换行 · {t("Agents_TargetHint")} · 计划模式：先调研出计划，批准后自动执行
               </div>
             </div>
           </div>
@@ -2153,12 +2366,12 @@ export function TasksPage() {
         {/* ═══ 改动页（完全独立页 · Codex Diff Review）═══ */}
         {tab === "diff" && selected && (
           <ChangesTab taskId={selected.taskId} worktreePath={selected.worktreePath} baselineSha={selected.baselineSha} initialFile={pendingFile} branch={selected.branch}
-            onCount={setDiffCount} tick={changesTick} onReloadAgents={reloadAgents} setError={setError} />
+            onCount={setDiffCount} tick={changesTick} onReloadAgents={reloadAgents} setError={setError} onMutate={() => setChangesTick((n) => n + 1)} />
         )}
 
         {/* ═══ 检查点页（完全独立页 · ZCode rewind）═══ */}
         {tab === "cp" && selected && (
-          <CheckpointsTab taskId={selected.taskId} branch={selected.branch} tick={changesTick} setError={setError} onCount={setCpCount} onViewDiff={() => setTab("diff")} />
+          <CheckpointsTab taskId={selected.taskId} branch={selected.branch} tick={changesTick} setError={setError} onCount={setCpCount} onViewDiff={() => setTab("diff")} onMutate={() => setChangesTick((n) => n + 1)} />
         )}
       </div>
     </div>
@@ -2179,6 +2392,8 @@ function ChangesTab(props: {
   onReloadAgents: () => Promise<void>;
   setError: (e: string) => void;
   onCount: (n: number) => void;
+  /** 本页发起的变更（还原文件）完成后通知父级 bump tick：文件列表与顶部徽标同步刷新 */
+  onMutate?: () => void;
 }) {
   const { taskId, worktreePath, baselineSha, initialFile, tick } = props;
   const [files, setFiles] = useState<AgentTaskFileDTO[]>([]);
@@ -2247,7 +2462,7 @@ function ChangesTab(props: {
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
               <button className="tool-btn" disabled={!sel} onClick={async () => {
                 if (!sel || !window.confirm(`还原 ${sel} 到会话基线（${baselineSha.slice(0, 8)}）？该文件在本会话的改动将被丢弃。`)) return;
-                try { await call("agent.task.restore", { taskId, sha: baselineSha, path: sel }); await props.onReloadAgents(); notifyRepoChanged(); } catch (e) { props.setError((e as Error).message); }
+                try { await call("agent.task.restore", { taskId, sha: baselineSha, path: sel }); await props.onReloadAgents(); notifyRepoChanged(); props.onMutate?.(); } catch (e) { props.setError((e as Error).message); }
               }}>还原此文件</button>
               <button className="tool-btn">复制</button>
             </div>
@@ -2276,6 +2491,8 @@ function CheckpointsTab(props: {
   setError: (e: string) => void;
   onCount: (n: number) => void;
   onViewDiff: () => void;
+  /** 回滚完成后通知父级 bump tick：改动页文件列表与顶部徽标同步刷新 */
+  onMutate?: () => void;
 }) {
   const { taskId, tick } = props;
   const [cps, setCps] = useState<AgentCheckpointDTO[]>([]);
@@ -2325,7 +2542,7 @@ function CheckpointsTab(props: {
             <button className="tool-btn" onClick={() => setViewSha(viewSha === cp.sha ? null : cp.sha)}>{viewSha === cp.sha ? "收起该轮 diff" : "查看该轮 diff"}</button>
             <button className="tool-btn" onClick={async () => {
               if (!window.confirm(`回滚 worktree 到 ${cp.sha.slice(0, 8)}？该 checkpoint 之后的所有改动将被丢弃（reset --hard）。`)) return;
-              try { await call("agent.task.restore", { taskId, sha: cp.sha }); props.onViewDiff(); notifyRepoChanged(); } catch (e) { props.setError((e as Error).message); }
+              try { await call("agent.task.restore", { taskId, sha: cp.sha }); props.onViewDiff(); notifyRepoChanged(); props.onMutate?.(); } catch (e) { props.setError((e as Error).message); }
             }}>回滚到此处</button>
           </div>
         ))}

@@ -23,6 +23,8 @@ export interface TimelineCardCtx {
   previewFile?: (path: string) => void;
   /** turn 块上下文用量文案（宿主轮询 stats） */
   contextPct?: string;
+  /** 本块是否本轮结论性回复（仅结论挂复制钮；中间过程片段/子代理子块为 false） */
+  showCopy?: boolean;
   /** subtask 子块渲染（递归走同一解析管线，含交互卡） */
   renderChildren?: (children: unknown[]) => ReactNode;
 }
