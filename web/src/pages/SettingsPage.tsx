@@ -211,6 +211,12 @@ export function SettingsPage() {
           mountees.push({ pkg: p2, note: `挂载：会话命令 ×${names.length}（${names.map((n) => `/${n}`).join(" ")}）` });
         }
       }
+      // 文档贡献（终端页文档面板消费）：归属贡献包的页面节点展示
+      const myDocs = (extTreeData?.docs ?? []).filter((d) => d.packageId === pg.packageId);
+      if (myDocs.length > 0 && provider) {
+        const tier = myDocs[0]?.tier ?? "host";
+        mountees.push({ pkg: provider, note: `贡献：文档 ×${myDocs.length}（${myDocs.map((d) => d.title).join("、")} · ${tierLabel(tier)}层）` });
+      }
       const providerReg = agentUI.find((r) => r.packageId === pg.packageId) ?? null;
       return { pg, provider, providerReg, mountees };
     });

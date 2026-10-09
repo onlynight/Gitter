@@ -15,7 +15,7 @@ import { runCommand, type RunContext } from "./commands";
 import { uiPages, uiPageProvidersFor } from "./uiRegistry";
 import { agentUIRegistrations } from "./agentUIRegistry";
 import {
-  docTitle, docs as registryDocs, docsVersion as registryDocsVersion,
+  docTitle, docTitleI18n, docs as registryDocs, docsVersion as registryDocsVersion,
   onDocsChanged as registryOnDocsChanged, registerDoc as registryRegisterDoc,
   type DocDescriptor, type DocEntry,
 } from "./docRegistry";
@@ -45,10 +45,19 @@ export interface ExtTreeAgentUIReg {
   renderers: number;
   providers: number;
 }
+/** 文档贡献（终端页文档面板消费；设置页"插件挂载树"按贡献包展示） */
+export interface ExtTreeDocReg {
+  id: string;
+  /** 按宿主当前语言解析后的标题 */
+  title: string;
+  packageId: string;
+  tier: "host" | "builtin" | "user";
+}
 
 export interface ExtTreeSnapshot {
   pages: ExtTreeNodePage[];
   agentUI: ExtTreeAgentUIReg[];
+  docs: ExtTreeDocReg[];
 }
 
 export interface PageSurface {
@@ -161,6 +170,12 @@ export function hostSurface(callFn: PageSurface["call"], onFn: PageSurface["on"]
           .map((x) => ({ packageId: x.packageId!, isBuiltIn: !!x.isBuiltInPackage })),
       })),
       agentUI: agentUIRegistrations(),
+      docs: registryDocs().map((e) => ({
+        id: e.doc.id,
+        title: docTitleI18n(e.packageId, getState().i18n?.lang ?? "en", e.doc),
+        packageId: e.packageId,
+        tier: e.tier,
+      })),
     }),
     // 文档注册表：宿主直呼 = 宿主缺省层；sdk.ts 的 window 面按注入窗口归因 builtin/user
     registerDoc: (def) => registryRegisterDoc({ doc: def, packageId: "host", tier: "host" }),
