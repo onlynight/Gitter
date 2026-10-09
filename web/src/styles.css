@@ -538,9 +538,16 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .split { display: grid; min-height: 0; min-width: 0; flex: 1; }
 .split-v { grid-template-columns: var(--split-a, 1fr) 4px var(--split-b, 1fr); }
 .split-h { grid-template-rows: var(--split-a, 1fr) 4px var(--split-b, 1fr); }
-.splitter { background: transparent; cursor: col-resize; touch-action: none; transition: background var(--dur-fast) var(--ease-std); }
+.splitter { position: relative; background: transparent; cursor: col-resize; touch-action: none; transition: background var(--dur-fast) var(--ease-std); }
 .split-h > .splitter { cursor: row-resize; }
-.splitter:hover, .splitter.dragging { background: var(--c-border-strong); }
+.splitter::after {
+  content: ""; position: absolute; background: transparent;
+  transition: background var(--dur-fast) var(--ease-std);
+}
+.split-v > .splitter::after { left: 1px; width: 2px; top: 0; bottom: 0; }
+.split-h > .splitter::after { top: 1px; height: 2px; left: 0; right: 0; }
+.splitter:hover::after, .splitter.dragging::after { background: var(--c-border-strong); }
+.splitter.dragging::after { background: var(--c-link); }
 .split-pane { overflow: auto; min-width: 0; min-height: 0; background: var(--c-panel); border: 1px solid var(--c-border); border-radius: 10px; }
 
 /* ---- 列表 ---- */
