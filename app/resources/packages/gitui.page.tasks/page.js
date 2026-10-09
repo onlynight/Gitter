@@ -172,7 +172,9 @@
     // 删除（Octicons trash-16）
     "trash": "M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.748 1.748 0 0 1 10.595 15h-5.19a1.748 1.748 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z",
     // 对勾（Octicons check-16）
-    "check": "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"
+    "check": "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z",
+    // 复制（Octicons copy-16：双叠方块）
+    "copy": "M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"
   };
   function TlIcon(props) {
     const d = PATHS[props.name];
@@ -237,9 +239,9 @@
   const BUSY_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-permission"]);
   const MODE_ORDER = ["plan", "default", "yolo"];
   const MODE_META = {
-    plan: { label: "◇ 规划", color: "var(--c-chip-purple-fg, #b490ff)" },
+    plan: { label: "◇ 计划", color: "var(--c-chip-purple-fg, #b490ff)" },
     default: { label: "● 默认", color: "var(--c-text3)" },
-    yolo: { label: "⚡ Yolo", color: "var(--c-red)" }
+    yolo: { label: "⚡ 完全访问", color: "var(--c-red)" }
   };
   const THINKING_META = {
     off: { label: "思考·关", hint: "跳过推理，响应最快" },
@@ -273,9 +275,9 @@
   const BUILTIN_SLASH = [
     { name: "compact", hint: "立即压缩上下文" },
     { name: "clear", hint: "重置会话（保留 worktree/checkpoint）" },
-    { name: "plan", hint: "切规划模式" },
+    { name: "plan", hint: "切计划模式" },
     { name: "default", hint: "切默认模式" },
-    { name: "yolo", hint: "切 yolo 模式" },
+    { name: "yolo", hint: "切完全访问模式" },
     { name: "approvals", hint: "切换审批模式（同 Shift+Tab）" },
     { name: "stop", hint: "中断当前轮" },
     { name: "model", arg: "<id>", hint: "切换模型档案" },
@@ -300,7 +302,17 @@
   ];
   const MAX_BLOCKS = 400;
   function pushCap(arr, b) {
-    const next = [...arr, b];
+    let next = [...arr, b];
+    if (b.kind !== "thinking") {
+      for (let i = next.length - 2; i >= 0; i--) {
+        const x = next[i];
+        if (x.kind !== "thinking") break;
+        if (!x.closed) {
+          next = [...next];
+          next[i] = { ...x, closed: true };
+        }
+      }
+    }
     return next.length > MAX_BLOCKS ? next.slice(next.length - MAX_BLOCKS) : next;
   }
   function reduceBlocks(blocks, ev) {
@@ -333,6 +345,15 @@
       case "status":
         return pushCap(blocks, { kind: "status", text: `${ev.phase ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.phase });
       case "output":
+        if (ev.stream === "thinking") {
+          const last = blocks[blocks.length - 1];
+          if (last && last.kind === "thinking" && last.merge && !last.closed) {
+            const next = [...blocks];
+            next[next.length - 1] = { ...last, text: last.text + (ev.text ?? "") };
+            return next;
+          }
+          return pushCap(blocks, { kind: "thinking", text: ev.text ?? "", merge: true });
+        }
         if (ev.stream === "assistant") {
           const last = blocks[blocks.length - 1];
           if (last && last.kind === "assistant" && last.merge) {
@@ -374,7 +395,7 @@
       case "plan":
         return pushCap(blocks, { kind: "plan", requestId: ev.requestId ?? "", plan: ev.plan ?? "" });
       case "todo":
-        return [...blocks.filter((b) => b.kind !== "todo"), { kind: "todo", todos: ev.todos ?? [] }];
+        return pushCap(blocks.filter((b) => b.kind !== "todo"), { kind: "todo", todos: ev.todos ?? [] });
       case "checkpoint":
         return pushCap(blocks, { kind: "checkpoint", sha: ev.commitSha ?? "", summary: ev.summary ?? "" });
       case "file-change":
@@ -417,7 +438,7 @@
     const opts = [{ label: "1. 是，执行一次", reply: { ok: true } }];
     if (b.rememberable !== false) opts.push({ label: "2. 是，本会话不再询问", reply: { ok: true, remember: true } });
     if (prefix) opts.push({ label: `3. 是，总是允许前缀 “${prefix}”`, reply: { ok: true, remember: true, rulePrefix: prefix } });
-    if (showFullAccess) opts.push({ label: `${opts.length + 1}. 完全访问：批准并切换（后续免询问，推送/高危除外）`, reply: { ok: true, remember: true, fullAccess: true } });
+    if (showFullAccess) opts.push({ label: `${opts.length + 1}. 完全访问：批准并切换（后续不再询问，仅不确定时提问）`, reply: { ok: true, remember: true, fullAccess: true } });
     opts.push({ label: `${opts.length + 1}. 否，告诉 agent 改用其他方式`, reply: { ok: false } });
     return opts;
   }
@@ -579,6 +600,42 @@
           return void ((_a2 = navigator.clipboard) == null ? void 0 : _a2.writeText(b.result ?? ""));
         }, children: "复制结果" })
       ] }) : null })
+    ] });
+  }
+  function ThinkingCard({ b }) {
+    const [open, setOpen] = react.useState(() => !b.closed);
+    const userTouched = react.useRef(false);
+    react.useEffect(() => {
+      if (b.closed && !userTouched.current) setOpen(false);
+    }, [b.closed]);
+    const streaming = open && !b.closed;
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-think", style: { borderLeft: "2px solid var(--c-border)", paddingLeft: 10 }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs(
+        "div",
+        {
+          style: { display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: "var(--c-text3)", padding: "2px 0", userSelect: "none" },
+          onClick: () => {
+            userTouched.current = true;
+            setOpen((v) => !v);
+          },
+          role: "button",
+          tabIndex: 0,
+          "aria-expanded": open,
+          onKeyDown: (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              userTouched.current = true;
+              setOpen((v) => !v);
+            }
+          },
+          children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 12, color: streaming ? "var(--c-amber)" : "var(--c-text3)", className: streaming ? "tl-pulse" : void 0 }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontStyle: "italic", fontWeight: streaming ? 600 : 400 }, children: streaming ? "思考中…" : "思考过程" }),
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 10, className: "tl-chev" + (open ? " open" : "") })
+          ]
+        }
+      ),
+      open && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--c-text3)", fontStyle: "italic", fontSize: 12.5, lineHeight: 1.6, padding: "2px 0 4px", userSelect: "text" }, children: b.text.trim() || "…" })
     ] });
   }
   function TodoList({ todos }) {
@@ -854,7 +911,7 @@
                 icon: m === "yolo" ? "bolt" : m === "plan" ? "plan" : "shield",
                 color: MODE_META[m].color,
                 name: MODE_META[m].label.replace(/^[●◆◇⚡]\s*/, ""),
-                sub: m === "plan" ? "只读调研，出计划待批准" : m === "yolo" ? "全部放行，高危除外" : "写操作逐条授权"
+                sub: m === "plan" ? "只读调研，出计划待批准" : m === "yolo" ? "全部放行不再询问，仅不确定时提问" : "自动执行，仅高危命令需确认"
               },
               m
             ))
@@ -1243,20 +1300,93 @@
     flush();
     return out;
   }
+  function groupTurns(blocks) {
+    const groups = [];
+    let cur = null;
+    const newGroup = (human) => ({ anchor: null, human, process: [], conclusion: null, turn: null, active: false });
+    const flush = () => {
+      if (cur) groups.push(cur);
+      cur = null;
+    };
+    for (const b of blocks) {
+      if (b.kind === "human") {
+        flush();
+        cur = newGroup(b);
+        continue;
+      }
+      if (!cur) cur = newGroup(null);
+      if (b.kind === "turn") {
+        cur.turn = b;
+        flush();
+        continue;
+      }
+      cur.process.push(b);
+    }
+    flush();
+    for (const g of groups) {
+      g.anchor = g.human ?? g.turn ?? g.process[0] ?? {};
+      if (!g.turn) {
+        g.active = true;
+        continue;
+      }
+      for (let j = g.process.length - 1; j >= 0; j--) {
+        const b = g.process[j];
+        if (b.kind === "tool" || b.kind === "subtask") break;
+        if (b.kind === "assistant") {
+          g.conclusion = b;
+          g.process.splice(j, 1);
+          break;
+        }
+      }
+    }
+    return groups;
+  }
+  function CopyMessageButton({ text, align }) {
+    const [done, setDone] = react.useState(false);
+    const timer = react.useRef(null);
+    react.useEffect(() => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    }, []);
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", justifyContent: align === "right" ? "flex-end" : "flex-start", marginTop: 4 }, children: /* @__PURE__ */ jsxRuntime.jsx(
+      "button",
+      {
+        type: "button",
+        className: "icon-btn msg-copy",
+        title: done ? "已复制" : "复制",
+        "aria-label": done ? "已复制" : "复制",
+        onClick: (e) => {
+          var _a2;
+          e.stopPropagation();
+          void ((_a2 = navigator.clipboard) == null ? void 0 : _a2.writeText(text));
+          setDone(true);
+          if (timer.current !== null) window.clearTimeout(timer.current);
+          timer.current = window.setTimeout(() => setDone(false), 1400);
+        },
+        children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: done ? "check" : "copy", size: 13, color: done ? "var(--c-green)" : void 0 })
+      }
+    ) });
+  }
   const BUILTIN_TIMELINE_RENDERERS = [
     {
       blockKind: "human",
       render: ({ block }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }, children: b.text }) });
+        return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "msg-row", style: { display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }, children: b.text }) });
       }
     },
     {
       blockKind: "assistant",
-      render: ({ block }) => {
+      render: ({ block, ctx }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "md-body", style: { padding: "0 4px" }, dangerouslySetInnerHTML: { __html: renderMarkdown(b.text) } });
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "msg-row", style: { padding: "0 4px" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "md-body", dangerouslySetInnerHTML: { __html: renderMarkdown(b.text) } }),
+          (ctx == null ? void 0 : ctx.showCopy) ? /* @__PURE__ */ jsxRuntime.jsx(CopyMessageButton, { text: b.text, align: "left" }) : null
+        ] });
       }
+    },
+    {
+      blockKind: "thinking",
+      render: ({ block }) => /* @__PURE__ */ jsxRuntime.jsx(ThinkingCard, { b: block })
     },
     {
       blockKind: "status",
@@ -1457,6 +1587,15 @@
     const [mentionSel, setMentionSel] = react.useState(0);
     const [pkgCommands, setPkgCommands] = react.useState([]);
     const [permSel, setPermSel] = react.useState({});
+    const [expandedTurns, setExpandedTurns] = react.useState(() => /* @__PURE__ */ new Set());
+    const toggleTurn = (anchor) => {
+      setExpandedTurns((s) => {
+        const n = new Set(s);
+        if (n.has(anchor)) n.delete(anchor);
+        else n.add(anchor);
+        return n;
+      });
+    };
     const [maxSubagents, setMaxSubagents] = react.useState(3);
     const [hasMoreHistory, setHasMoreHistory] = react.useState(false);
     const [loadingOlder, setLoadingOlder] = react.useState(false);
@@ -1589,7 +1728,7 @@
           void reloadAgents();
           setChangesTick((n) => n + 1);
         }
-        if (event.type === "file-change") setChangesTick((n) => n + 1);
+        if (event.type === "file-change" || event.type === "checkpoint") setChangesTick((n) => n + 1);
       }),
       [reloadAgents]
     );
@@ -1597,6 +1736,25 @@
       () => onEvent("agent.tasks.changed", () => void reloadAgents()),
       [reloadAgents]
     );
+    react.useEffect(() => {
+      if (!selectedTask) {
+        setDiffCount(0);
+        setCpCount(0);
+        return;
+      }
+      let cancelled = false;
+      void call("agent.task.files", { taskId: selectedTask }).then((fs) => {
+        if (!cancelled) setDiffCount(fs.length);
+      }).catch(() => {
+      });
+      void call("agent.task.checkpoints", { taskId: selectedTask }).then((x) => {
+        if (!cancelled) setCpCount(x.length);
+      }).catch(() => {
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [selectedTask, changesTick]);
     const selected = (agentTasks == null ? void 0 : agentTasks.find((x) => x.taskId === selectedTask)) ?? null;
     (agentTasks ?? []).filter((x) => LIVE_STATES.has(x.state)).length;
     const runningTool = (() => {
@@ -1611,6 +1769,9 @@
     const runningSubs = selectedTask ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length : 0;
     react.useEffect(() => {
       setStats(null);
+    }, [selectedTask]);
+    react.useEffect(() => {
+      setExpandedTurns(/* @__PURE__ */ new Set());
     }, [selectedTask]);
     react.useEffect(() => {
       if (!selectedTask) return;
@@ -2172,7 +2333,25 @@ ${target.instructions}
       for (const c of pkgCommands) list.push({ name: `/${c.name}`, hint: c.packageId, insert: `/${c.name}` });
       return list;
     })();
-    const renderBlock = (b, key) => {
+    const copyBlocks = (() => {
+      const out = /* @__PURE__ */ new Set();
+      for (let i = 0; i < timeline.length; i++) {
+        const b = timeline[i];
+        if (b.kind !== "assistant") continue;
+        let conclusion = true;
+        for (let j = i + 1; j < timeline.length; j++) {
+          const k = timeline[j].kind;
+          if (k === "assistant" || k === "tool" || k === "subtask" || k === "thinking" || k === "plan") {
+            conclusion = false;
+            break;
+          }
+          if (k === "turn" || k === "checkpoint" || k === "human") break;
+        }
+        if (conclusion) out.add(b);
+      }
+      return out;
+    })();
+    const renderBlock = (b, key, process = false) => {
       switch (b.kind) {
         case "permission":
           return /* @__PURE__ */ jsxRuntime.jsx(PermissionCard, { b, decided: decided[b.requestId], sel: permSel[b.requestId] ?? 0, showFullAccess, onSel: (id, i) => setPermSel((m) => ({ ...m, [id]: i })), onReply: replyPerm, onFullAccess: (id) => void replyFullAccess(id) }, key);
@@ -2193,10 +2372,21 @@ ${target.instructions}
         },
         previewFile,
         contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : void 0,
-        renderChildren: (children) => /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: children.map((c, i) => renderBlock(c, `${key}-${i}`)) })
+        showCopy: !process && copyBlocks.has(b),
+        renderChildren: (children) => /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: children.map((c, i) => renderBlock(c, `${key}-${i}`, true)) })
       };
       return /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: renderer.render({ block: b, taskId: ctx.taskId ?? "", ctx }) }, key);
     };
+    const renderProcess = (prefix, list) => groupLogs(list).map(
+      (lg, li) => lg.kind === "logs" ? /* @__PURE__ */ jsxRuntime.jsxs("details", { style: { fontSize: 11 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("summary", { style: { cursor: "pointer", color: "var(--c-text3)" }, children: [
+          "▸ 显示 ",
+          lg.items.length,
+          " 条日志"
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }, children: lg.items.map((b, j) => renderBlock(b, `${prefix}${li}-${j}`)) })
+      ] }, `${prefix}${li}`) : renderBlock(lg.block, `${prefix}${li}`)
+    );
     const agentCard = (task) => {
       const live = LIVE_STATES.has(task.state);
       const selectedNow = selectedTask === task.taskId;
@@ -2249,6 +2439,15 @@ ${stateChip(task.state).label} · ${task.branch}`,
       );
     };
     const busy = selected ? BUSY_STATES.has(selected.state) : false;
+    const busyHint = (() => {
+      if (runningTool) {
+        const label = TOOL_LABELS[runningTool.name] ?? runningTool.name;
+        return `${label}… ${((Date.now() - runningTool.startTs) / 1e3).toFixed(1)}s`;
+      }
+      if ((selected == null ? void 0 : selected.state) === "starting") return "正在启动…";
+      if (runningSubs > 0) return `子代理执行中 ${runningSubs}/${maxSubagents}…`;
+      return "正在思考与执行…";
+    })();
     const activeProfile = resolveRefProfile(selected == null ? void 0 : selected.modelRef) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
     const visionOk = resolveRefVision((selected == null ? void 0 : selected.modelRef) ?? (activeProfile == null ? void 0 : activeProfile.id));
     const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
@@ -2343,16 +2542,52 @@ ${stateChip(task.state).label} · ${task.branch}`,
                   loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11 }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-pulse", children: "加载中…" }) }),
                   hasMoreHistory && !loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11, opacity: 0.6 }, children: "↑ 上滚加载更早" }),
                   timeline.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12 }, children: t("Agents_TimelineEmpty") }),
-                  groupLogs(timeline).map(
-                    (g, i) => g.kind === "logs" ? /* @__PURE__ */ jsxRuntime.jsxs("details", { style: { fontSize: 11 }, children: [
-                      /* @__PURE__ */ jsxRuntime.jsxs("summary", { style: { cursor: "pointer", color: "var(--c-text3)" }, children: [
-                        "▸ 显示 ",
-                        g.items.length,
-                        " 条日志"
-                      ] }),
-                      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }, children: g.items.map((b, j) => renderBlock(b, `${i}-${j}`)) })
-                    ] }, i) : renderBlock(g.block, i)
-                  )
+                  groupTurns(timeline).map((g, gi) => {
+                    const ended = !!g.turn;
+                    const expanded = !ended || expandedTurns.has(g.anchor);
+                    const tools = g.process.filter((b) => b.kind === "tool").length;
+                    const subs = g.process.filter((b) => b.kind === "subtask").length;
+                    return /* @__PURE__ */ jsxRuntime.jsxs(react.Fragment, { children: [
+                      g.human ? renderBlock(g.human, `g${gi}-h`) : null,
+                      ended && g.process.length > 0 ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                        /* @__PURE__ */ jsxRuntime.jsxs(
+                          "div",
+                          {
+                            className: "tl-turn",
+                            onClick: () => toggleTurn(g.anchor),
+                            role: "button",
+                            tabIndex: 0,
+                            "aria-expanded": expanded,
+                            onKeyDown: (e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                toggleTurn(g.anchor);
+                              }
+                            },
+                            children: [
+                              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, className: "tl-chev" + (expanded ? " open" : "") }),
+                              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontWeight: 600 }, children: "执行过程" }),
+                              tools > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                                "工具 ",
+                                tools
+                              ] }) : null,
+                              subs > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                                "子代理 ",
+                                subs
+                              ] }) : null,
+                              tools === 0 && subs === 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                                g.process.length,
+                                " 条"
+                              ] }) : null
+                            ]
+                          }
+                        ),
+                        expanded && renderProcess(`g${gi}-p`, g.process)
+                      ] }) : renderProcess(`g${gi}-p`, g.process),
+                      g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null,
+                      g.turn ? renderBlock(g.turn, `g${gi}-t`) : null
+                    ] }, gi);
+                  })
                 ] })
               }
             ),
@@ -2408,6 +2643,10 @@ ${stateChip(task.state).label} · ${task.branch}`,
             )
           ] }),
           /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
+            busy && !pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 7, padding: "0 2px 7px", fontSize: 12 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 12, color: "var(--c-amber)", className: "tl-pulse" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "shimmer-text", children: busyHint })
+            ] }),
             pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)", display: "flex", alignItems: "center", gap: 6 }, children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 12, className: "tl-pulse" }),
               /* @__PURE__ */ jsxRuntime.jsx("span", { children: "等待授权（↑↓+Enter 或数字直选上方卡片选项）" })
@@ -2512,7 +2751,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
                 minH: 42,
                 autoFocus: true,
                 placeholder: `${t("Agents_ComposePlaceholder")}
-支持 @文件 提及；规划类任务先切「◇ 规划」模式（Shift+Tab）`,
+支持 @文件 提及；调研类任务先切「◇ 计划」模式（Shift+Tab）`,
                 busy: false,
                 sending,
                 canSend: !!composeText.trim(),
@@ -2553,7 +2792,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
             /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 6 }, children: [
               "Enter 发送 · Shift+Enter 换行 · ",
               t("Agents_TargetHint"),
-              " · 规划模式：先调研出计划，批准后自动执行"
+              " · 计划模式：先调研出计划，批准后自动执行"
             ] })
           ] })
         ] }),
@@ -2568,10 +2807,11 @@ ${stateChip(task.state).label} · ${task.branch}`,
             onCount: setDiffCount,
             tick: changesTick,
             onReloadAgents: reloadAgents,
-            setError
+            setError,
+            onMutate: () => setChangesTick((n) => n + 1)
           }
         ),
-        tab === "cp" && selected && /* @__PURE__ */ jsxRuntime.jsx(CheckpointsTab, { taskId: selected.taskId, branch: selected.branch, tick: changesTick, setError, onCount: setCpCount, onViewDiff: () => setTab("diff") })
+        tab === "cp" && selected && /* @__PURE__ */ jsxRuntime.jsx(CheckpointsTab, { taskId: selected.taskId, branch: selected.branch, tick: changesTick, setError, onCount: setCpCount, onViewDiff: () => setTab("diff"), onMutate: () => setChangesTick((n) => n + 1) })
       ] })
     ] });
   }
@@ -2669,11 +2909,13 @@ ${stateChip(task.state).label} · ${task.branch}`,
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", fontSize: 12.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: sel ?? "（选择文件）" }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginLeft: "auto", display: "flex", gap: 6 }, children: [
               /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: !sel, onClick: async () => {
+                var _a2;
                 if (!sel || !window.confirm(`还原 ${sel} 到会话基线（${baselineSha.slice(0, 8)}）？该文件在本会话的改动将被丢弃。`)) return;
                 try {
                   await call("agent.task.restore", { taskId, sha: baselineSha, path: sel });
                   await props.onReloadAgents();
                   notifyRepoChanged();
+                  (_a2 = props.onMutate) == null ? void 0 : _a2.call(props);
                 } catch (e) {
                   props.setError(e.message);
                 }
@@ -2746,11 +2988,13 @@ ${stateChip(task.state).label} · ${task.branch}`,
           /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: cp.date.slice(5, 16).replace("T", " ") }),
           /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setViewSha(viewSha === cp.sha ? null : cp.sha), children: viewSha === cp.sha ? "收起该轮 diff" : "查看该轮 diff" }),
           /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: async () => {
+            var _a2;
             if (!window.confirm(`回滚 worktree 到 ${cp.sha.slice(0, 8)}？该 checkpoint 之后的所有改动将被丢弃（reset --hard）。`)) return;
             try {
               await call("agent.task.restore", { taskId, sha: cp.sha });
               props.onViewDiff();
               notifyRepoChanged();
+              (_a2 = props.onMutate) == null ? void 0 : _a2.call(props);
             } catch (e) {
               props.setError(e.message);
             }

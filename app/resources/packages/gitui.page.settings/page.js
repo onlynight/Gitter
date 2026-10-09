@@ -149,7 +149,9 @@
     // 删除（Octicons trash-16）
     "trash": "M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.748 1.748 0 0 1 10.595 15h-5.19a1.748 1.748 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z",
     // 对勾（Octicons check-16）
-    "check": "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"
+    "check": "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z",
+    // 复制（Octicons copy-16：双叠方块）
+    "copy": "M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"
   };
   function TlIcon(props) {
     const d = PATHS[props.name];
@@ -221,7 +223,7 @@
     { section: "git", labelKey: "Settings_GitAutocrlf", kw: "autocrlf 换行" },
     { section: "git", labelKey: "Settings_GitRemotes", kw: "remote 远程 origin" },
     { section: "monitor", labelKey: "Settings_AutoFetch", kw: "fetch 自动拉取 后台 轮询" },
-    { section: "editor", labelKey: "Settings_ExternalEditor", kw: "编辑器 vscode 外部" },
+    { section: "editor", labelKey: "Settings_ExternalEditor", kw: "编辑器 vscode 外部 自动保存" },
     { section: "ai", labelKey: "Settings_AiProvider", kw: "provider openai anthropic ollama deepseek 模型端点" },
     { section: "ai", labelKey: "Settings_AiEndpoint", kw: "endpoint model 端点 模型名" },
     { section: "ai", labelKey: "Settings_AiApiKey", kw: "api key 密钥 safeStorage" },
@@ -230,6 +232,7 @@
     { section: "models", labelKey: "Settings_ModelsSection", kw: "模型档案 model profile deepseek ollama anthropic key 密钥 用量" },
     { section: "safety", labelKey: "Settings_SafetyNet", kw: "安全网 secrets 拦截 block warn 提交扫描" },
     { section: "agent", labelKey: "Settings_AgentCheckpoint", kw: "agent checkpoint 托管 wip 提交" },
+    { section: "agent", labelKey: "Settings_AgentTaskWorktree", kw: "agent 任务 分支 worktree 当前分支 隔离 隔离执行 task branch" },
     { section: "agent", labelKey: "Settings_AgentOnExit", kw: "agent 退出 终止 保留 会话" },
     { section: "agent", labelKey: "Settings_AgentRules", kw: "agent 权限规则 allow deny 允许 拒绝 rules 前缀" },
     { section: "agent", labelKey: "Settings_AgentCompaction", kw: "agent 上下文压缩 compact compaction 摘要" },
@@ -319,6 +322,7 @@
       const tierLabel = (x) => x === "user" ? "用户包" : x === "builtin" ? "内置包" : "宿主";
       const agentUI = (extTreeData == null ? void 0 : extTreeData.agentUI) ?? [];
       const pageNodes = ((extTreeData == null ? void 0 : extTreeData.pages) ?? []).map((pg) => {
+        var _a3;
         const provider = pg.packageId ? pkgById.get(pg.packageId) ?? null : null;
         if (provider) consumed.add(provider.id);
         const mountees = [];
@@ -344,6 +348,11 @@
             consumed.add(pid);
             mountees.push({ pkg: p2, note: `挂载：会话命令 ×${names.length}（${names.map((n) => `/${n}`).join(" ")}）` });
           }
+        }
+        const myDocs = ((extTreeData == null ? void 0 : extTreeData.docs) ?? []).filter((d) => d.packageId === pg.packageId);
+        if (myDocs.length > 0 && provider) {
+          const tier = ((_a3 = myDocs[0]) == null ? void 0 : _a3.tier) ?? "host";
+          mountees.push({ pkg: provider, note: `贡献：文档 ×${myDocs.length}（${myDocs.map((d) => d.title).join("、")} · ${tierLabel(tier)}层）` });
         }
         const providerReg = agentUI.find((r) => r.packageId === pg.packageId) ?? null;
         return { pg, provider, providerReg, mountees };
@@ -887,7 +896,23 @@
                   children: "…"
                 }
               )
-            ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_EditorAutoSave") }),
+              /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: s.editorAutoSave !== false, onChange: (e) => void patch({ editorAutoSave: e.target.checked }) }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Settings_EditorAutoSaveHint") })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_LspTypescript") }),
+              /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: s.lspTypescript === true, onChange: (e) => void patch({ lspTypescript: e.target.checked }) }),
+              /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { width: 280 }, placeholder: "typescript-language-server --stdio", value: s.lspTypescriptCommand ?? "", onChange: (e) => void patch({ lspTypescriptCommand: e.target.value }) })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_LspPython") }),
+              /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: s.lspPython === true, onChange: (e) => void patch({ lspPython: e.target.checked }) }),
+              /* @__PURE__ */ jsxRuntime.jsx("input", { className: "input", style: { width: 280 }, placeholder: "pyright-langserver --stdio", value: s.lspPythonCommand ?? "", onChange: (e) => void patch({ lspPythonCommand: e.target.value }) })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "settings-row", children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Settings_LspHint") }) })
           ] }, id);
         case "ai":
           return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
@@ -1149,6 +1174,11 @@
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_AgentCheckpoint") }),
               /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: s.agentsCheckpoint, onChange: (e) => void patch({ agentsCheckpoint: e.target.checked }) }),
               /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Settings_AgentCheckpointHint") })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_AgentTaskWorktree") }),
+              /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: s.agentsTaskWorktree ?? false, onChange: (e) => void patch({ agentsTaskWorktree: e.target.checked }) }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Settings_AgentTaskWorktreeHint") })
             ] }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: t("Settings_AgentOnExit") }),
