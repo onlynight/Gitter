@@ -48,7 +48,8 @@ function markLabel(text: string, kw: string) {
 }
 
 export function GitDocPanel({ onClose }: { onClose: () => void }) {
-  useAppState(); // 订阅宿主 store：语言/主题切换时随渲染更新
+  const app = useAppState(); // 订阅宿主 store：语言/主题切换时随渲染更新
+  const lang = app.i18n?.lang ?? "en";
   const docs = useDocs();
   const bodyRef = useRef<HTMLDivElement>(null);
   const tocSearchRef = useRef<HTMLInputElement>(null);
@@ -79,7 +80,7 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
     setSpyId(null);
     bodyRef.current?.scrollTo({ top: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
+  }, [activeId, lang]); // 语言切换同样重取文档源（docSource 按语言选译）
 
   // 加载当前文档源（source 可同步可 Promise——包资源/远程文档均可）
   useEffect(() => {
@@ -100,7 +101,7 @@ export function GitDocPanel({ onClose }: { onClose: () => void }) {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
+  }, [activeId, lang]);
 
   const html = useMemo(() => renderMarkdown(content ?? ""), [content]);
 

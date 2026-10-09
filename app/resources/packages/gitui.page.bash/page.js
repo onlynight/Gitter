@@ -6287,7 +6287,9 @@ WARNING: This link could potentially be dangerous`)) {
     ] });
   }
   function GitDocPanel({ onClose }) {
-    useAppState();
+    var _a2;
+    const app = useAppState();
+    const lang = ((_a2 = app.i18n) == null ? void 0 : _a2.lang) ?? "en";
     const docs = useDocs();
     const bodyRef = react.useRef(null);
     const tocSearchRef = react.useRef(null);
@@ -6306,15 +6308,15 @@ WARNING: This link could potentially be dangerous`)) {
     const [findKw, setFindKw] = react.useState("");
     const [findState, setFindState] = react.useState(null);
     react.useEffect(() => {
-      var _a2;
+      var _a3;
       clearMarks();
       setFindOpen(false);
       setFindKw("");
       setFindState(null);
       setTocKw("");
       setSpyId(null);
-      (_a2 = bodyRef.current) == null ? void 0 : _a2.scrollTo({ top: 0 });
-    }, [activeId]);
+      (_a3 = bodyRef.current) == null ? void 0 : _a3.scrollTo({ top: 0 });
+    }, [activeId, lang]);
     react.useEffect(() => {
       let alive = true;
       if (!activeDoc) {
@@ -6332,7 +6334,7 @@ WARNING: This link could potentially be dangerous`)) {
       return () => {
         alive = false;
       };
-    }, [activeId]);
+    }, [activeId, lang]);
     const html = react.useMemo(() => renderMarkdown(content ?? ""), [content]);
     react.useEffect(() => {
       const root = bodyRef.current;
@@ -6371,14 +6373,14 @@ WARNING: This link could potentially be dangerous`)) {
       curRef.current = -1;
     }
     const paintCur = (cur) => {
-      var _a2;
+      var _a3;
       const hits = hitsRef.current;
       hits.forEach((m, i) => m.classList.toggle("cur", i === cur));
       if (cur >= 0) hits[cur].scrollIntoView({ block: "center" });
-      else if (hits.length === 0 && findKw) (_a2 = bodyRef.current) == null ? void 0 : _a2.scrollTo({ top: 0 });
+      else if (hits.length === 0 && findKw) (_a3 = bodyRef.current) == null ? void 0 : _a3.scrollTo({ top: 0 });
     };
     function runFind(kw) {
-      var _a2;
+      var _a3;
       const root = bodyRef.current;
       if (!root) return;
       clearMarks();
@@ -6388,8 +6390,8 @@ WARNING: This link could potentially be dangerous`)) {
       }
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
         acceptNode: (n) => {
-          var _a3;
-          return ((_a3 = n.parentElement) == null ? void 0 : _a3.closest("mark.hit")) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          var _a4;
+          return ((_a4 = n.parentElement) == null ? void 0 : _a4.closest("mark.hit")) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
         }
       });
       const nodes = [];
@@ -6414,7 +6416,7 @@ WARNING: This link could potentially be dangerous`)) {
           idx = low.indexOf(kwL2, pos);
         }
         frag.appendChild(document.createTextNode(text.slice(pos)));
-        (_a2 = node.parentNode) == null ? void 0 : _a2.replaceChild(frag, node);
+        (_a3 = node.parentNode) == null ? void 0 : _a3.replaceChild(frag, node);
       }
       hitsRef.current = hits;
       const cur = hits.length ? 0 : -1;
@@ -6433,8 +6435,8 @@ WARNING: This link could potentially be dangerous`)) {
     const openFind = () => {
       setFindOpen(true);
       setTimeout(() => {
-        var _a2;
-        return (_a2 = findInputRef.current) == null ? void 0 : _a2.focus();
+        var _a3;
+        return (_a3 = findInputRef.current) == null ? void 0 : _a3.focus();
       }, 150);
     };
     const closeFind = () => {
@@ -6447,16 +6449,16 @@ WARNING: This link could potentially be dangerous`)) {
       setTocOpen(true);
       syncActive();
       setTimeout(() => {
-        var _a2;
-        return (_a2 = tocSearchRef.current) == null ? void 0 : _a2.focus();
+        var _a3;
+        return (_a3 = tocSearchRef.current) == null ? void 0 : _a3.focus();
       }, 150);
     };
     function syncActive() {
-      var _a2;
+      var _a3;
       const root = bodyRef.current;
       if (!root || !toc.length) return;
       const top = root.scrollTop;
-      let cur = ((_a2 = toc[0]) == null ? void 0 : _a2.id) ?? null;
+      let cur = ((_a3 = toc[0]) == null ? void 0 : _a3.id) ?? null;
       for (const it of toc) {
         const el = document.getElementById(it.id);
         if (el && el.offsetTop <= top + 24) cur = it.id;
@@ -6465,9 +6467,9 @@ WARNING: This link could potentially be dangerous`)) {
       setSpyId(cur);
     }
     const jumpTo = (id) => {
-      var _a2;
+      var _a3;
       const el = document.getElementById(id);
-      if (el) (_a2 = bodyRef.current) == null ? void 0 : _a2.scrollTo({ top: Math.max(0, el.offsetTop - 8), behavior: "smooth" });
+      if (el) (_a3 = bodyRef.current) == null ? void 0 : _a3.scrollTo({ top: Math.max(0, el.offsetTop - 8), behavior: "smooth" });
       setTocOpen(false);
     };
     const onKeyDown = (e) => {
