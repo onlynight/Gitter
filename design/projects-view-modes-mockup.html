@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>设计稿：项目页·查看方式（卡片 / 平铺 / 列表 / 详细信息）</title>
+<style>
+  /* ---- 应用主题 token（theme.gitui.solid dark / light 实测值，右上角按钮切换） ---- */
+  :root {
+    --c-base: #0D0D0D; --c-panel: #171717; --c-panel2: #202020;
+    --c-hover: #272727; --c-selected: #333333;
+    --c-border: #2B2B2B; --c-border-strong: #3E3E3E;
+    --c-text: #EAEAEA; --c-text2: #A0A0A0; --c-text3: #6E6E6E;
+    --c-accent: #EAEAEA; --c-on-accent: #0D0D0D;
+    --c-link: #6BABF5; --c-green: #3FB950; --c-red: #F0655A;
+    --c-chip-blue-bg: #1D2733; --c-chip-blue-fg: #8DB8F5;
+    --c-chip-purple-bg: #241F33; --c-chip-purple-fg: #B9A3EC;
+    --radius: 5px; --radius-md: 8px; --radius-lg: 10px;
+    --mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  }
+  /* 亮色（theme.gitui.solid light）：只覆写令牌，结构样式零复制 */
+  .theme-light {
+    --c-base: #FFFFFF; --c-panel: #F7F7F8; --c-panel2: #EFEFF1;
+    --c-hover: #EBEBEC; --c-selected: #E0E1E3;
+    --c-border: #E5E5E5; --c-border-strong: #D0D0D0;
+    --c-text: #1B1B1B; --c-text2: #5C5C5C; --c-text3: #8F8F8F;
+    --c-accent: #1B1B1B; --c-on-accent: #FFFFFF;
+    --c-link: #0B6BCB; --c-green: #1A7F37; --c-red: #CF222E;
+    --c-chip-blue-bg: #DDF4FF; --c-chip-blue-fg: #0B6BCB;
+    --c-chip-purple-bg: #FBEFFF; --c-chip-purple-fg: #8250DF;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: #0D0D0D; color: #EAEAEA;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+    padding: 24px;
+  }
+  .page-title { color: #6E6E6E; font-size: 12px; letter-spacing: .5px; }
+  .theme-toggle {
+    position: fixed; top: 14px; right: 16px; height: 26px; padding: 0 12px; font: inherit; font-size: 12px;
+    color: #A0A0A0; background: #171717; border: 1px solid #3E3E3E; border-radius: 5px; cursor: pointer; z-index: 50;
+  }
+  .theme-toggle:hover { background: #272727; color: #EAEAEA; }
+  body.theme-light-body .theme-toggle { background: #F7F7F8; border-color: #D0D0D0; color: #5C5C5C; }
+  body.theme-light-body .theme-toggle:hover { background: #EBEBEC; color: #1B1B1B; }
+  body.theme-light-body { background: #FFFFFF; color: #1B1B1B; }
+  body.theme-light-body .page-title { color: #8F8F8F; }
+
+  /* ---- 下方全部组件样式即应用样式草案（落地照抄进 styles.css 即可） ---- */
+  .stage { width: 100%; max-width: 1020px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* 预览窗框：模拟应用内容区（Base 底） */
+  .win {
+    background: var(--c-base); border: 1px solid var(--c-border-strong); border-radius: var(--radius-lg);
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .win .win-body { height: 400px; overflow: auto; }
+
+  /* 工具栏（对齐应用 .toolbar：40px、左加号右侧留白 → 视图切换器放右端） */
+  .toolbar {
+    display: flex; align-items: center; gap: 8px; flex: none;
+    height: 40px; padding: 0 12px;
+  }
+  .toolbar .grow { flex: 1; }
+  .tool-btn.icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; padding: 0; font: inherit; cursor: pointer;
+    background: transparent; border: 1px solid transparent; border-radius: var(--radius);
+    color: var(--c-text2);
+  }
+  .tool-btn.icon:hover { background: var(--c-hover); color: var(--c-text); }
+
+  /* 视图切换器：工具栏右端分段控件（单选，当前项 Selected 底） */
+  .seg {
+    display: flex; align-items: stretch; height: 28px;
+    border: 1px solid var(--c-border-strong); border-radius: var(--radius); overflow: hidden;
+  }
+  .seg button {
+    width: 34px; display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none; border-left: 1px solid var(--c-border);
+    color: var(--c-text3); cursor: pointer; padding: 0;
+  }
+  .seg button:first-child { border-left: none; }
+  .seg button:hover { background: var(--c-hover); color: var(--c-text); }
+  .seg button.on { background: var(--c-selected); color: var(--c-text); }
+  .seg button:focus-visible { outline: 2px solid color-mix(in srgb, var(--c-link) 60%, transparent); outline-offset: -2px; }
+  .view-label { font-size: 11px; color: var(--c-text3); }
+
+  /* ---- ① 卡片（现状默认，样式与现网 .card-grid/.card 一致） ---- */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; padding: 16px; align-content: start; }
+  .card {
+    background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--radius-md);
+    padding: 13px; display: flex; flex-direction: column; gap: 8px; cursor: pointer;
+  }
+  .card:hover { border-color: var(--c-border-strong); background: var(--c-hover); }
+  .card .card-title { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .card .card-path { font-family: var(--mono); font-size: 10.5px; color: var(--c-text3); word-break: break-all; user-select: text; }
+  .card .row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+  .chip { font-size: 10px; padding: 1px 8px; border-radius: 999px; flex: none; background: var(--c-chip-blue-bg); color: var(--c-chip-blue-fg); font-weight: 600; }
+
+  /* ---- ② 平铺（Tile）：无边框、双行、悬停浮起；操作常显但收紧 ---- */
+  .tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; padding: 10px; align-content: start; }
+  .tile {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer;
+    background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--radius-md);
+  }
+  .tile:hover { border-color: var(--c-border-strong); background: var(--c-hover); }
+  .tile .ico { font-size: 18px; flex: none; line-height: 1; }
+  .tile .t-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .tile .t-name { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .tile .t-name .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .t-path { font-family: var(--mono); font-size: 10.5px; color: var(--c-text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+
+  /* ---- ③ 列表（List）：单列一行，路径同行右延，操作悬停显 ---- */
+  .list { display: flex; flex-direction: column; padding: 8px 10px; gap: 1px; }
+  .lrow {
+    display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px;
+    border-radius: var(--radius); cursor: pointer;
+  }
+  .lrow:hover { background: var(--c-hover); }
+  .lrow .ico { font-size: 14px; flex: none; }
+  .lrow .nm { font-weight: 600; font-size: 13px; flex: none; width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lrow .pth { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11px; color: var(--c-text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+
+  /* ---- ④ 详细信息（Details）：列头 + 对齐列 + 细分隔线，列头可排序 ---- */
+  .details { display: flex; flex-direction: column; padding: 0 10px 8px; }
+  .dhead, .drow { display: grid; grid-template-columns: 240px 1fr 92px; gap: 12px; align-items: center; padding: 0 10px; }
+  .dhead { height: 30px; flex: none; position: sticky; top: 0; background: var(--c-base); border-bottom: 1px solid var(--c-border); }
+  .dhead .dh { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--c-text3);
+    background: none; border: none; padding: 0; font-family: inherit; cursor: pointer; text-align: left; }
+  .dhead .dh:hover { color: var(--c-text2); }
+  .dhead .dh .arr { font-size: 8px; color: var(--c-text2); }
+  .drow { height: 32px; border-bottom: 1px solid var(--c-border); cursor: pointer; }
+  .drow:hover { background: var(--c-hover); }
+  .drow .ico { font-size: 14px; }
+  .drow .nm { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .drow .nm .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drow .pth { font-family: var(--mono); font-size: 11px; color: var(--c-text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+
+  /* 行内操作钮（三枚）：卡片/平铺常显；列表/详细信息悬停与 focus-within 显 */
+  .row-actions { display: flex; gap: 4px; justify-content: flex-end; opacity: 1; transition: opacity 90ms linear; }
+  .lrow .row-actions, .drow .row-actions { opacity: 0; }
+  .lrow:hover .row-actions, .lrow:focus-within .row-actions,
+  .drow:hover .row-actions, .drow:focus-within .row-actions { opacity: 1; }
+  .act {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; padding: 0; cursor: pointer;
+    background: transparent; border: 1px solid transparent; border-radius: var(--radius);
+    color: var(--c-text3);
+  }
+  .act:hover { background: var(--c-panel2); color: var(--c-text); }
+  .act.danger { color: var(--c-red); }
+  .act.danger:hover { background: color-mix(in srgb, var(--c-red) 14%, transparent); }
+
+  /* ---- 四模式一览（静态缩略对比） ---- */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .cmp-item { display: flex; flex-direction: column; gap: 6px; }
+  .cmp-cap { font-size: 11px; color: var(--c-text3); letter-spacing: .4px; }
+  .cmp-cap b { color: var(--c-text2); }
+  .cmp-frame { height: 180px; overflow: hidden; border: 1px solid var(--c-border-strong); border-radius: var(--radius-lg); background: var(--c-base); }
+
+  /* ---- 设计说明 ---- */
+  .notes { max-width: 1020px; color: var(--c-text2); font-size: 12px; line-height: 1.8; }
+  .notes b { color: var(--c-text); }
+  .notes .t { color: var(--c-text3); font-size: 11px; letter-spacing: .5px; margin-bottom: 4px; }
+  .notes li { margin: 2px 0; }
+  code { font-family: var(--mono); font-size: 11px; background: var(--c-panel2); border: 1px solid var(--c-border); border-radius: 3px; padding: 0 4px; }
+</style>
+</head>
+<body>
+  <button class="theme-toggle" id="themeToggle">切到亮色</button>
+  <div class="page-title">设计稿 · 项目页 — 查看方式：卡片 / 平铺 / 列表 / 详细信息（可交互原型，仿 Windows 资源管理器视图）</div>
+
+  <!-- ① 可交互预览：工具栏右端分段切换器，四种视图即点即换 -->
+  <div class="stage theme-root" id="stage">
+    <div class="win">
+      <div class="toolbar">
+        <button class="tool-btn icon" title="添加项目" id="btnAdd"></button>
+        <span class="grow"></span>
+        <span class="view-label" id="viewLabel">卡片</span>
+        <div class="seg" id="seg" role="radiogroup" aria-label="查看方式"></div>
+      </div>
+      <div class="win-body" id="body"></div>
+    </div>
+
+    <!-- ② 四模式一览：同一组数据的四种形态并排对照 -->
+    <div class="compare" id="compare"></div>
+  </div>
+
+  <div class="notes theme-root">
+    <div class="t">设计要点</div>
+    <ul>
+      <li><b>四种查看方式</b>（信息密度递增，数据同源 <code>projects.list</code>，纯视图映射）：<b>卡片</b>=现状默认不动（有边框卡、路径可换行、操作常显）；<b>平铺</b>=卡片质感双行（panel 底 + 描边，图标 18px + 名称/chip + 路径单行截断），悬停浮起，一格更窄更密；<b>列表</b>=单列一行 32px（名称定宽 180px + 路径同行延伸截断）；<b>详细信息</b>=列头 + 对齐列 + 细分隔线，Windows 资源管理器形态。</li>
+      <li><b>切换器</b>=工具栏右端分段控件（仅图标 + tooltip），不动左侧「添加项目」；当前项 Selected 底。键盘：Tab 进入后 ←→ 切换；空项目时切换器照常显示但无意义项不隐藏（视图本身与数据无关）。</li>
+      <li><b>操作钮可见性</b>：卡片/平铺常显（保持现状可达性）；列表/详细信息行高紧凑，改为<b>悬停或键盘聚焦时显现</b>（<code>:hover / :focus-within</code>），腾出空间给路径列。整行点击=打开项目（与现状一致），操作钮 <code>stopPropagation</code>。</li>
+      <li><b>当前项目标记</b>：三种新视图一律保留 <code>Projects_Current</code> chip（蓝 chip），位置随行内布局内联。</li>
+      <li><b>详细信息排序 = 可选增强</b>：列头「名称/路径」点击循环 升/降/恢复默认（默认=添加顺序，即后端返回序）；排序纯前端，不回写后端。首版可不做。</li>
+      <li><b>持久化</b>：视图选择记 <code>localStorage("gitter.projects.view")</code>，仅前端、零后端改动（<code>projects.list</code> / DTO 均不动）。</li>
+      <li><b>i18n 新键</b>（Strings.tsv）：Projects_View（视图）、Projects_ViewCard（卡片）、Projects_ViewTiles（平铺）、Projects_ViewList（列表）、Projects_ViewDetails（详细信息）。</li>
+      <li><b>实现落点</b>：仅 <code>ProjectsPage.tsx</code>（viewMode state + 按模式渲染分支，卡片分支保持现状）与 <code>styles.css</code>（新增 .tile-grid / .list / .details 三组选择器，本页组件样式即草案）；SDK/bridge/后端零改动。空态与错误横幅不随视图变化。</li>
+      <li><b>主题</b>：右上角按钮切亮/暗（theme.gitui.solid 实测值），四种视图两套主题下均验证对比度。</li>
+    </ul>
+  </div>
+
+<script>
+// ---- 模拟数据（projects.list 形状：ProjectDTO{name,path} + currentPath）----
+const PROJECTS = [
+  { name: "gitter", path: "D:\\Code\\Gitter", current: true },
+  { name: "dotfiles", path: "D:\\DevTools\\dotfiles" },
+  { name: "zcode-plugins", path: "D:\\Code\\zcode-plugins" },
+  { name: "blog", path: "C:\\Users\\zhang\\Documents\\blog" },
+  { name: "infra-terraform", path: "E:\\infra\\infra-terraform" },
+  { name: "ml-playground", path: "D:\\Code\\ml-playground" },
+  { name: "docs-site", path: "D:\\Work\\docs-site" },
+  { name: "legacy-api", path: "F:\\archive\\legacy-api" },
+];
+
+// ---- 内联 SVG 图标（原型自包含；落地时换应用现有 Segoe Fluent 字形） ----
+const I = {
+  add: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  open: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6.5 3.5H4A1.5 1.5 0 0 0 2.5 5v7A1.5 1.5 0 0 0 4 13.5h7a1.5 1.5 0 0 0 1.5-1.5V9.5M9 2.5h4.5V7M13 3 7.5 8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  newwin: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5.5" y="2.5" width="8" height="8" rx="1.2" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 13.5H4A1.5 1.5 0 0 1 2.5 12V5.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  remove: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  card: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>',
+  tile: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="2" width="7" height="12" rx="1"/><rect x="11" y="2" width="3" height="5" rx="0.8"/><rect x="11" y="9" width="3" height="5" rx="0.8"/></svg>',
+  list: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M5.5 3.5H14M5.5 8H14M5.5 12.5H14"/><path d="M2.5 3.5h.01M2.5 8h.01M2.5 12.5h.01" stroke-width="2"/></svg>',
+  details: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M6 4h8M6 8h8M6 12h8"/><rect x="2.5" y="3" width="2" height="2" rx="0.4"/><rect x="2.5" y="7" width="2" height="2" rx="0.4"/><rect x="2.5" y="11" width="2" height="2" rx="0.4"/></svg>',
+};
+
+const VIEWS = [
+  { id: "card",    label: "卡片",     icon: I.card },
+  { id: "tile",    label: "平铺",     icon: I.tile },
+  { id: "list",    label: "列表",     icon: I.list },
+  { id: "details", label: "详细信息", icon: I.details },
+];
+
+// ---- 渲染构件（交互预览与下方静态缩略共用） ----
+const chip = (p) => p.current ? '<span class="chip">当前</span>' : "";
+const actions = () =>
+  `<div class="row-actions">
+     <button class="act" title="打开" onclick="event.stopPropagation()">${I.open}</button>
+     <button class="act" title="新窗口" onclick="event.stopPropagation()">${I.newwin}</button>
+     <button class="act danger" title="移除" onclick="event.stopPropagation()">${I.remove}</button>
+   </div>`;
+
+function renderCard(ps) {
+  return `<div class="card-grid">${ps.map((p) => `
+    <div class="card">
+      <div class="card-title">📁 ${p.name}${chip(p)}</div>
+      <div class="card-path">${p.path}</div>
+      ${actions()}
+    </div>`).join("")}</div>`;
+}
+function renderTile(ps) {
+  return `<div class="tile-grid">${ps.map((p) => `
+    <div class="tile">
+      <span class="ico">📁</span>
+      <div class="t-main">
+        <div class="t-name"><span class="nm">${p.name}</span>${chip(p)}</div>
+        <div class="t-path">${p.path}</div>
+      </div>
+      ${actions()}
+    </div>`).join("")}</div>`;
+}
+function renderList(ps) {
+  return `<div class="list">${ps.map((p) => `
+    <div class="lrow">
+      <span class="ico">📁</span>
+      <span class="nm">${p.name}</span>
+      ${chip(p)}
+      <span class="pth">${p.path}</span>
+      ${actions()}
+    </div>`).join("")}</div>`;
+}
+function renderDetails(ps, sort, opts = {}) {
+  const arr = (k) => !sort || sort.key !== k ? "" : `<span class="arr">${sort.dir === 1 ? "▲" : "▼"}</span>`;
+  const head = opts.noSort
+    ? `<div class="dhead"><span class="dh">名称</span><span class="dh">路径</span><span class="dh" style="text-align:right">操作</span></div>`
+    : `<div class="dhead">
+         <button class="dh" data-sort="name">名称 ${arr("name")}</button>
+         <button class="dh" data-sort="path">路径 ${arr("path")}</button>
+         <span class="dh" style="text-align:right">操作</span>
+       </div>`;
+  return `<div class="details">${head}${ps.map((p) => `
+    <div class="drow">
+      <span class="nm"><span class="ico">📁</span><span class="t">${p.name}</span>${chip(p)}</span>
+      <span class="pth">${p.path}</span>
+      ${actions()}
+    </div>`).join("")}</div>`;
+}
+
+// ---- 交互预览 ----
+let view = "card";
+let sort = null; // { key, dir } 仅详细信息用
+
+function sorted() {
+  if (!sort) return PROJECTS;
+  const s = [...PROJECTS].sort((a, b) => a[sort.key].localeCompare(b[sort.key], "zh-Hans"));
+  return sort.dir === 1 ? s : s.reverse();
+}
+
+const RENDER = { card: renderCard, tile: renderTile, list: renderList, details: renderDetails };
+
+function drawBody() {
+  document.getElementById("body").innerHTML = view === "details" ? renderDetails(sorted(), sort) : RENDER[view](PROJECTS);
+  document.getElementById("viewLabel").textContent = VIEWS.find((v) => v.id === view).label;
+}
+
+// 分段切换器：点击单选 + ←→ 键盘
+const seg = document.getElementById("seg");
+seg.innerHTML = VIEWS.map((v) =>
+  `<button role="radio" aria-checked="false" data-view="${v.id}" title="查看方式：${v.label}">${v.icon}</button>`).join("");
+function syncSeg() {
+  seg.querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.view === view);
+    b.setAttribute("aria-checked", b.dataset.view === view);
+  });
+}
+seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  view = b.dataset.view;
+  sort = null;
+  syncSeg();
+  drawBody();
+});
+seg.addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  e.preventDefault();
+  const i = VIEWS.findIndex((v) => v.id === view);
+  const next = (i + (e.key === "ArrowRight" ? 1 : -1) + VIEWS.length) % VIEWS.length;
+  view = VIEWS[next].id;
+  sort = null;
+  syncSeg();
+  drawBody();
+  seg.querySelector(`[data-view="${view}"]`).focus();
+});
+
+// 详细信息列头排序：升 → 降 → 恢复默认（默认=添加顺序）
+document.getElementById("body").addEventListener("click", (e) => {
+  const b = e.target.closest(".dh[data-sort]");
+  if (!b) return;
+  const key = b.dataset.sort;
+  if (!sort || sort.key !== key) sort = { key, dir: 1 };
+  else if (sort.dir === 1) sort = { key, dir: -1 };
+  else sort = null;
+  drawBody();
+});
+
+document.getElementById("btnAdd").innerHTML = I.add;
+syncSeg();
+drawBody();
+
+// ---- 四模式一览（静态缩略：3 项、无排序） ----
+const mini = PROJECTS.slice(0, 4);
+const cmp = [
+  { cap: "① 卡片（现状默认）", html: renderCard(mini) },
+  { cap: "② 平铺 · Tile", html: renderTile(mini) },
+  { cap: "③ 列表 · List", html: renderList(mini) },
+  { cap: "④ 详细信息 · Details（列头可排序）", html: renderDetails(mini, null, { noSort: true }) },
+];
+document.getElementById("compare").innerHTML = cmp.map((c) =>
+  `<div class="cmp-item"><div class="cmp-cap"><b>${c.cap}</b></div><div class="cmp-frame">${c.html}</div></div>`).join("");
+
+// ---- 亮暗主题切换（token 整组覆写，结构样式零复制） ----
+const themeBtn = document.getElementById("themeToggle");
+themeBtn.addEventListener("click", () => {
+  const light = !document.body.classList.contains("theme-light-body");
+  document.body.classList.toggle("theme-light-body", light);
+  document.querySelectorAll(".theme-root").forEach((el) => el.classList.toggle("theme-light", light));
+  themeBtn.textContent = light ? "切到深色" : "切到亮色";
+});
+</script>
+</body>
+</html>
