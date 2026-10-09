@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>设计稿：分支页 · 三等分栏（分支图 | 分支 | 标签）</title>
+<style>
+  :root {
+    --c-base: #0D0D0D; --c-panel: #171717; --c-panel2: #202020;
+    --c-hover: #272727; --c-selected: #333333;
+    --c-border: #2B2B2B; --c-border-strong: #3E3E3E;
+    --c-text: #EAEAEA; --c-text2: #A0A0A0; --c-text3: #6E6E6E;
+    --c-accent: #EAEAEA; --c-on-accent: #0D0D0D;
+    --c-link: #6BABF5; --c-green: #3FB950; --c-red: #F0655A; --c-amber: #E3B341;
+    --c-chip-blue-bg: #1D2733; --c-chip-blue-fg: #8DB8F5;
+    --c-chip-purple-bg: #241F33; --c-chip-purple-fg: #B9A3EC;
+    --c-chip-green-bg: #16241B; --c-chip-green-fg: #56D364;
+    --radius: 4px; --radius-md: 6px; --radius-lg: 10px;
+    --mono: Consolas, "Cascadia Mono", monospace;
+    --lane0: #6BABF5; --lane1: #B9A3EC; --lane2: #3FB950; --lane3: #E3B341;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--c-base); color: var(--c-text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; font-size: 13px;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; flex: none; }
+  .tool-btn {
+    height: 26px; padding: 0 10px; font: inherit; font-size: 12px; color: var(--c-text); cursor: pointer;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  }
+  .tool-btn:hover { background: var(--c-hover); }
+  .grow { flex: 1; }
+
+  /* ---- 三等分栏：分支图(左) / 本地分支(中) / 标签(右) ---- */
+  .content { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 0 12px 10px; }
+  .pane-card { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
+    background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--radius-lg); overflow: hidden; }
+  .pane-head {
+    display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; flex: none;
+    font-size: 11px; font-weight: 600; letter-spacing: .6px; color: var(--c-text3);
+    background: var(--c-panel2, var(--c-panel)); border-bottom: 1px solid var(--c-border-strong);
+  }
+  .pane-head .cnt { font-weight: 400; }
+  .pane-head .fold { margin-left: auto; background: none; border: none; color: var(--c-text3); cursor: pointer; font-size: 11px; }
+  .pane-head .fold:hover { color: var(--c-text); }
+  .pane-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
+
+  /* ---- 分支图列 ---- */
+  .graph-inner { position: relative; }
+  .lane-svg { position: absolute; left: 0; top: 0; }
+  .grow-row { position: absolute; left: 0; right: 0; height: 28px; display: flex; align-items: center; cursor: default; }
+  .grow-row:hover { background: var(--c-hover); }
+  .grow-row.sel { background: var(--c-selected); }
+  .grow-row .txt { position: absolute; left: 122px; right: 6px; display: flex; align-items: center; gap: 6px; }
+  .grow-row .sha { font-family: var(--mono); font-size: 11px; color: var(--c-text3); flex: none; width: 52px; }
+  .grow-row .subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0; }
+  .badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; flex: none;
+    background: var(--c-chip-blue-bg); color: var(--c-chip-blue-fg); max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+  .badge.head { outline: 1px solid var(--c-chip-blue-fg); font-weight: 600; }
+  .badge.tag { background: var(--c-chip-purple-bg); color: var(--c-chip-purple-fg); }
+
+  /* ---- 分支/标签列 ---- */
+  .list-row { display: flex; align-items: center; gap: 6px; padding: 4px 10px; min-height: 30px; cursor: default; }
+  .list-row:hover { background: var(--c-hover); }
+  .list-row .mono { font-family: var(--mono); font-size: 11px; color: var(--c-text2); flex: none; }
+  .list-row .trim { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip { flex: none; font-size: 10px; padding: 0 6px; line-height: 15px; border-radius: 999px; }
+  .chip.ahead { background: var(--c-chip-green-bg); color: var(--c-chip-green-fg); }
+  .chip.behind { background: rgba(240,101,90,.15); color: var(--c-red); }
+
+  /* ---- 设计说明（可关闭浮层） ---- */
+  .notes-fixed { position: fixed; right: 14px; bottom: 14px; width: 290px; max-height: 46vh; overflow: auto;
+    background: color-mix(in srgb, var(--c-panel) 94%, transparent); border: 1px solid var(--c-border-strong); border-radius: var(--radius-lg);
+    padding: 10px 12px; color: var(--c-text2); font-size: 11.5px; line-height: 1.7; z-index: 50;
+    box-shadow: 0 8px 20px color-mix(in srgb, #000 30%, transparent); }
+  .notes-fixed .x { float: right; background: none; border: none; color: var(--c-text3); cursor: pointer; }
+  .notes-fixed .t { color: var(--c-text3); font-size: 10.5px; letter-spacing: .5px; margin-bottom: 4px; }
+  .notes-fixed b { color: var(--c-text); }
+  .notes-fixed li { margin: 3px 0; }
+  code { font-family: var(--mono); font-size: 10.5px; background: var(--c-panel2); border: 1px solid var(--c-border); border-radius: 3px; padding: 0 4px; }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <button class="tool-btn">＋ 创建分支</button>
+    <span class="grow"></span>
+    <button class="tool-btn">⇩ 拉取</button>
+    <button class="tool-btn">⇅ 拉取(变基)</button>
+    <button class="tool-btn">⇧ 推送</button>
+  </div>
+
+  <div class="content">
+    <div class="pane-card" id="graphPane">
+      <div class="pane-head">
+        <span>分支图</span><span class="cnt">· 10 · 3 分支</span>
+      </div>
+      <div class="pane-body" id="graphScroll">
+        <div class="graph-inner" id="graphInner"></div>
+      </div>
+    </div>
+
+    <div class="pane-card">
+      <div class="pane-head"><span>本地分支</span><span class="cnt">· 4</span></div>
+      <div class="pane-body">
+        <div class="list-row"><span class="mono">a1b2c3d</span><span class="trim" style="flex:1">main <span class="badge head" style="margin-left:6px">HEAD</span></span><span class="chip ahead">↑2</span></div>
+        <div class="list-row"><span class="mono">c8d9e0f</span><span class="trim" style="flex:1">dev</span><span class="chip ahead">↑2</span><span class="chip behind">↓1</span></div>
+        <div class="list-row"><span class="mono">e7f8a9b</span><span class="trim" style="flex:1">feature/merge-ui</span><span class="chip ahead">↑1</span></div>
+        <div class="list-row"><span class="mono">897a6b5</span><span class="trim" style="flex:1">main@backup</span></div>
+      </div>
+    </div>
+
+    <div class="pane-card">
+      <div class="pane-head"><span>标签</span><span class="cnt">· 1</span></div>
+      <div class="pane-body">
+        <div class="list-row"><span class="mono">f0e1d2c</span><span class="trim" style="flex:1">v1.0.0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes-fixed">
+    <div class="t">设计要点 · 三等分栏（图 | 分支 | 标签） <button class="x" onclick="this.closest('.notes-fixed').style.display='none'">✕</button></div>
+    <ul>
+      <li><b>位置</b>：页面三等分栏，分支图占<b>最左 1/3 全高</b>——竖向空间完整，泳道纵向滚动浏览全部拓扑；中栏本地分支、右栏标签。</li>
+      <li><b>泳道</b>：每条分支一条彩色泳道（颜色按分支稳定分配）；分叉 / 合并用曲线衔接；当前分支固定最左主泳道。</li>
+      <li><b>节点</b>：提交 = 圆点；分支 tip = 圆点 + 分支徽章；tag = 紫徽章；HEAD = 描边徽章。</li>
+      <li><b>窄列适配</b>：提交行只显示 sha + 徽章 + 主题（截断），作者/时间移入悬停 tooltip；徽章超宽自动截断。</li>
+      <li><b>关系数字</b>：分支行新增 <code>↑n</code> 领先 / <code>↓n</code> 落后徽章（相对 upstream，无则相对当前分支）。</li>
+      <li><b>交互</b>：行悬停高亮、点击选中；图与列表联动（徽章悬停同步高亮对应分支行）。</li>
+      <li><b>数据/实现</b>：新增 RPC <code>branch.graph</code>——<code>git log --all --graph --date-order</code> 解析泳道结构（cap 300 + 加载更多），前端虚拟化 + SVG 泳道；后端零新依赖。</li>
+    </ul>
+  </div>
+
+<script>
+// ---- 泳道几何（模拟数据，手工布局）----
+const H = 28;               // 行高
+const X = [22, 48, 74];     // 三条泳道的 x 坐标
+const COLORS = ["var(--lane0)", "var(--lane1)", "var(--lane2)"];
+
+const ROWS = [
+  { lanes: [0], dot: 0, subject: "feat: 分支页左右双栏", sha: "a1b2c3d", meta: "wyndam · 1 小时前", labels: [{ text: "HEAD", cls: "head" }, { text: "main", cls: "" }] },
+  { lanes: [0, 1], dot: 1, subject: "fix: dev 提交", sha: "c8d9e0f", meta: "wyndam · 3 小时前", labels: [{ text: "dev", cls: "" }] },
+  { lanes: [0], curve: { from: 1, to: 0 }, subject: "", sha: "", meta: "" },
+  { lanes: [0], dot: 0, subject: "feat: 起点 tab 选择器", sha: "b0a1b2c", meta: "wyndam · 昨天" },
+  { lanes: [0], curve: { from: 0, to: 1 }, subject: "", sha: "", meta: "" },
+  { lanes: [0, 1], dot: 1, subject: "wip: 合并对话框", sha: "e7f8a9b", meta: "wyndam · 昨天", labels: [{ text: "feature/merge-ui", cls: "" }] },
+  { lanes: [0], curve: { from: 1, to: 0 }, subject: "", sha: "", meta: "" },
+  { lanes: [0], dot: 0, subject: "release 1.0.0", sha: "f0e1d2c", meta: "wyndam · 3 天前", labels: [{ text: "v1.0.0", cls: "tag" }] },
+  { lanes: [0], dot: 0, subject: "feat: 任务页渲染层插件化", sha: "c3d4e5f", meta: "wyndam · 3 天前" },
+  { lanes: [0], dot: 0, subject: "fix: release 包白屏", sha: "897a6b5", meta: "wyndam · 5 天前", labels: [{ text: "origin/main", cls: "" }] },
+];
+
+function build() {
+  const inner = document.getElementById("graphInner");
+  const totalH = ROWS.length * H;
+  inner.style.height = totalH + "px";
+  inner.style.minWidth = "240px";
+
+  // ---- SVG 泳道 ----
+  let svg = `<svg class="lane-svg" width="110" height="${totalH}">`;
+  const seg = (x1, y1, x2, y2, color) =>
+    `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2" />`;
+  const curve = (x1, y1, x2, y2, color) =>
+    `<path d="M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}" stroke="${color}" stroke-width="2" fill="none" />`;
+
+  ROWS.forEach((r, i) => {
+    const top = i * H, bottom = top + H, mid = top + H / 2;
+    for (const li of r.lanes) svg += seg(X[li], top, X[li], bottom, COLORS[li]);
+    if (r.curve) svg += curve(X[r.curve.from], top, X[r.curve.to], bottom, COLORS[r.curve.to]);
+    if (r.dot != null) {
+      const isHead = (r.labels ?? []).some((l) => l.cls === "head");
+      svg += `<circle cx="${X[r.dot]}" cy="${mid}" r="${isHead ? 6 : 4.5}" fill="${COLORS[r.dot]}" stroke="var(--c-base)" stroke-width="${isHead ? 2 : 1.5}" />`;
+      if (isHead) svg += `<circle cx="${X[r.dot]}" cy="${mid}" r="9" fill="none" stroke="${COLORS[r.dot]}" stroke-width="1" opacity=".55" />`;
+    }
+  });
+  svg += "</svg>";
+
+  // ---- 行（文本层）----
+  let rows = "";
+  ROWS.forEach((r, i) => {
+    const top = i * H;
+    const labels = (r.labels ?? []).map((l) => `<span class="badge ${l.cls}">${l.text}</span>`).join("");
+    rows += `<div class="grow-row" style="top:${top}px" data-i="${i}">
+      <div class="txt" title="${r.sha} ${r.subject} —— ${r.meta}">
+        <span class="sha">${r.sha}</span>${labels}
+        <span class="subject">${r.subject}</span>
+      </div>
+    </div>`;
+  });
+
+  inner.innerHTML = svg + rows;
+
+  inner.addEventListener("click", (e) => {
+    const row = e.target.closest(".grow-row");
+    if (!row) return;
+    inner.querySelectorAll(".grow-row").forEach((r2) => r2.classList.toggle("sel", r2 === row));
+  });
+}
+build();
+</script>
+</body>
+</html>
