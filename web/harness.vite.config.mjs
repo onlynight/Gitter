@@ -22,6 +22,7 @@ export default defineConfig({
       input: {
         main: path.resolve(here, "harness", "index.html"),
         terminal: path.resolve(here, "harness", "terminal.html"),
+        files: path.resolve(here, "harness", "files.html"),
       },
     },
   },
