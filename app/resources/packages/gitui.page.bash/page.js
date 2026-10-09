@@ -6215,6 +6215,7 @@ WARNING: This link could potentially be dangerous`)) {
     openSettings: (section) => U().openSettings(section),
     toast: (title, body) => U().toast(title, body),
     refresh: () => U().refresh(),
+    notifyRepoChanged: () => U().notifyRepoChanged(),
     repo: () => U().repo(),
     settings: () => U().settings(),
     theme: () => U().theme(),

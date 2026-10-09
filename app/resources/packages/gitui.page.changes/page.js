@@ -23,7 +23,7 @@
     t: (key, ...args) => U().t(key, ...args),
     navigate: (page) => U().navigate(page),
     openSettings: (section) => U().openSettings(section),
-    refresh: () => U().refresh(),
+    notifyRepoChanged: () => U().notifyRepoChanged(),
     setContext: (...a) => U().setContext(...a)
   };
   function useAppState() {
@@ -66,7 +66,7 @@
   K().Select;
   K().ReflogDialog;
   const ScrollArea = K().ScrollArea;
-  const { call, t, navigate, refresh: refreshCurrent, openSettings, setContext: setSharedContext } = pageSdk;
+  const { call, t, navigate, notifyRepoChanged, openSettings, setContext: setSharedContext } = pageSdk;
   const useApp = useAppState;
   const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
   const PREVIEW_EXTS = /* @__PURE__ */ new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".ico", ".svg"]);
@@ -175,6 +175,9 @@
         return;
       }
       void reload();
+    }, [repo, app.refreshTick, app.repoChangedTick]);
+    react.useEffect(() => {
+      if (!repo) return;
       setSelected(null);
       setDiff(null);
       setMessage("");
@@ -189,7 +192,7 @@
       try {
         const msg = await fn();
         if (typeof msg === "string") showTransient(msg);
-        await reload();
+        notifyRepoChanged();
         if (selected) await loadDiff(selected);
       } catch (e) {
         setError(e.message);
@@ -261,7 +264,7 @@
         } else {
           showTransient(push ? t("Changes_CommittedAndPushed") : t("Changes_Committed"));
         }
-        await reload();
+        notifyRepoChanged();
       } catch (e) {
         const err = e;
         setError(err.message);
@@ -306,7 +309,7 @@
         } else {
           setPushErrorKind(null);
           showTransient(t("Changes_Pushed"));
-          await reload();
+          notifyRepoChanged();
         }
       } catch (e) {
         setError(e.message);
@@ -325,7 +328,7 @@
           setError(null);
           setErrorDetail(null);
           showTransient(t("Changes_UpstreamPushed", r.remote, r.branch));
-          await reload();
+          notifyRepoChanged();
         } else {
           setPushErrorKind(r.errorKind);
           setError(t("Changes_PushFailed", r.errorKind ?? "other"));
@@ -736,7 +739,6 @@
               return t("Branches_Created");
             });
             setCreateBranch(null);
-            refreshCurrent();
           },
           children: /* @__PURE__ */ jsxRuntime.jsx(
             "input",

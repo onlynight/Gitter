@@ -51,6 +51,7 @@
     openSettings: (section) => U$1().openSettings(section),
     toast: (title, body) => U$1().toast(title, body),
     refresh: () => U$1().refresh(),
+    notifyRepoChanged: () => U$1().notifyRepoChanged(),
     repo: () => U$1().repo(),
     settings: () => U$1().settings(),
     theme: () => U$1().theme(),
@@ -231,7 +232,7 @@
         return "dot";
     }
   }
-  const { call, on: onEvent, t, openSettings } = pageSdk;
+  const { call, on: onEvent, t, openSettings, notifyRepoChanged } = pageSdk;
   const LIVE_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
   const BUSY_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-permission"]);
   const MODE_ORDER = ["plan", "default", "yolo"];
@@ -991,7 +992,7 @@
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "comp-send", title: props.sendTitle, disabled: !props.canSend && !props.busy, onClick: () => props.busy ? props.onStop() : props.onSend(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: props.busy ? "stop" : "send", size: 13 }) })
       ] }),
-      s && (s.estTokens > 0 || s.totalInput != null) && /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "block" }, children: [
+      s && (s.estTokens > 0 || s.totalInput != null) && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-row", children: /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
         /* @__PURE__ */ jsxRuntime.jsxs("button", { type: "button", className: "comp-stats", title: "用量明细", "aria-haspopup": "menu", "aria-expanded": open === "stats", onClick: () => toggle("stats"), children: [
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-bar", children: /* @__PURE__ */ jsxRuntime.jsx("i", { style: { width: `${Math.min(100, pct)}%`, background: pctColor } }) }),
           /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
@@ -1082,7 +1083,7 @@
             pct > 80 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "2px 9px 6px", fontSize: 11, color: "var(--c-amber)" }, children: "已接近上限，建议 /compact 压缩历史" })
           ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "2px 9px 8px", fontSize: 11, color: "var(--c-text3)" }, children: "发送首条消息后开始统计" })
         ] })
-      ] })
+      ] }) })
     ] });
   });
   function PermissionCard(props) {
@@ -1865,8 +1866,10 @@
             }
             if (name === "compact") await call("agent.task.compact", { taskId: selected.taskId });
             else if (name === "clear") await call("agent.task.clear", { taskId: selected.taskId });
-            else if (name === "cp") await call("agent.task.checkpoint", { taskId: selected.taskId, summary: arg || "手动检查点（/cp）" });
-            else if (name === "diff") {
+            else if (name === "cp") {
+              await call("agent.task.checkpoint", { taskId: selected.taskId, summary: arg || "手动检查点（/cp）" });
+              notifyRepoChanged();
+            } else if (name === "diff") {
               setTab("diff");
               setInputText("");
               return;
@@ -2670,6 +2673,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
                 try {
                   await call("agent.task.restore", { taskId, sha: baselineSha, path: sel });
                   await props.onReloadAgents();
+                  notifyRepoChanged();
                 } catch (e) {
                   props.setError(e.message);
                 }
@@ -2746,6 +2750,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
             try {
               await call("agent.task.restore", { taskId, sha: cp.sha });
               props.onViewDiff();
+              notifyRepoChanged();
             } catch (e) {
               props.setError(e.message);
             }

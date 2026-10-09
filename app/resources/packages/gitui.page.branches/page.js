@@ -21,7 +21,8 @@
       return BOOT ? g.callWith(BOOT, method, params) : g.call(method, params);
     },
     t: (key, ...args) => U().t(key, ...args),
-    openSettings: (section) => U().openSettings(section)
+    openSettings: (section) => U().openSettings(section),
+    notifyRepoChanged: () => U().notifyRepoChanged()
   };
   function useAppState() {
     const g = U();
@@ -63,12 +64,13 @@
   const Select = K().Select;
   const ReflogDialog = K().ReflogDialog;
   K().ScrollArea;
-  const { call, t, openSettings } = pageSdk;
+  const { call, t, notifyRepoChanged, openSettings } = pageSdk;
   const useApp = useAppState;
   function isNoUpstreamError(msg) {
     if (!msg) return false;
     return /push\.autoSetupRemote|set-upstream|no upstream|上游/i.test(msg);
   }
+  const COMMIT_ID_RE = /^[0-9a-f]{4,40}$/i;
   const GRAPH_LANE_W = 26;
   const GRAPH_ROW_H = 28;
   const GRAPH_PAD = 14;
@@ -112,6 +114,10 @@
             style: { top },
             title: `${r.shortSha} ${r.subject} · ${r.author}`,
             onClick: () => setSel(r.sha),
+            onContextMenu: (e) => {
+              var _a2;
+              return (_a2 = props.onRowContext) == null ? void 0 : _a2.call(props, e, r.sha);
+            },
             children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grow-txt", style: { left: GRAPH_PAD + slots.length * GRAPH_LANE_W + 10 }, children: [
               /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow-sha", children: r.shortSha }),
               r.refs.map((x) => /* @__PURE__ */ jsxRuntime.jsx("span", { className: "badge" + (x.isTag ? " tag" : "") + (x.isHead ? " head" : ""), children: x.name }, x.name)),
@@ -131,7 +137,7 @@
           {
             width: svgW,
             height: props.graph.rows.length * GRAPH_ROW_H + 8,
-            style: { position: "absolute", left: 0, top: 4 },
+            style: { position: "absolute", left: 0, top: 4, zIndex: 1, pointerEvents: "none" },
             dangerouslySetInnerHTML: { __html: segs.join("") }
           }
         ),
@@ -191,7 +197,7 @@
     react.useEffect(() => {
       void reload();
       void loadGraph();
-    }, [repo, app.refreshTick]);
+    }, [repo, app.refreshTick, app.repoChangedTick]);
     react.useEffect(() => {
       var _a3;
       if (((_a3 = app.routedCommand) == null ? void 0 : _a3.id) === "branches.create") {
@@ -208,7 +214,11 @@
         ...((state == null ? void 0 : state.tags) ?? []).map((tg) => ({ value: "refs/tags/" + tg.name, label: tg.name, group: t("Branches_TagGroup"), tab: "tag", badge: t("Branches_TagSuffix"), hint: tg.shortSha || void 0, triggerBadge: "tag" }))
       ];
     };
-    const startPointType = (v) => v.startsWith("refs/tags/") ? "tag" : "branch";
+    const startPointType = (v) => {
+      if (v.startsWith("refs/tags/")) return "tag";
+      if (v === "HEAD" || v.startsWith("refs/")) return "branch";
+      return "commit";
+    };
     const mergeSourceOptions = () => [
       ...((state == null ? void 0 : state.local) ?? []).map((b) => ({ value: "refs/heads/" + b.name, label: b.name })),
       ...((state == null ? void 0 : state.remote) ?? []).map((b) => ({ value: "refs/remotes/" + b.name, label: b.name }))
@@ -224,7 +234,7 @@
       setBusy(true);
       try {
         setTransient(await fn());
-        await reload();
+        notifyRepoChanged();
       } catch (e) {
         setError(e.message);
         setErrorDetail(e.detail ?? null);
@@ -376,7 +386,17 @@
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", gap: 10, margin: "8px 12px 10px" }, children: [
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "pane-card", style: { flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
           groupHeader(t("Branches_Graph"), (graph == null ? void 0 : graph.rows.length) ?? 0),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "branch-graph-scroll", children: graph ? graph.rows.length > 0 ? /* @__PURE__ */ jsxRuntime.jsx(BranchGraphPane, { graph, loading: graphLoading, onLoadMore: () => void loadMoreGraph() }) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "14px 12px", color: "var(--c-text3)", fontSize: 12 }, children: t("Branches_NoTags") }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: graphLoading ? t("Common_Loading") : t("Branches_NoTags") }) })
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "branch-graph-scroll", children: graph ? graph.rows.length > 0 ? /* @__PURE__ */ jsxRuntime.jsx(
+            BranchGraphPane,
+            {
+              graph,
+              loading: graphLoading,
+              onLoadMore: () => void loadMoreGraph(),
+              onRowContext: (e, sha) => showMenu(e, [
+                { label: t("Branches_CreateFromCommit"), action: () => setDialog({ kind: "create", name: "", startPoint: sha, startPointTab: "commit", checkout: true }) }
+              ])
+            }
+          ) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "14px 12px", color: "var(--c-text3)", fontSize: 12 }, children: t("Branches_NoTags") }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: graphLoading ? t("Common_Loading") : t("Branches_NoTags") }) })
         ] }),
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pane-card", style: { flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: state ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" }, children: [
           groupHeader(t("Branches_LocalGroup"), state.local.length),
@@ -395,7 +415,7 @@
         {
           title: t("Branches_CreateTitle"),
           confirmText: t("Common_Create"),
-          confirmDisabled: !dialog.name.trim() || !dialog.startPoint,
+          confirmDisabled: !dialog.name.trim() || !dialog.startPoint || startPointType(dialog.startPoint) === "commit" && !COMMIT_ID_RE.test(dialog.startPoint.trim()),
           onClose: () => setDialog(null),
           onConfirm: () => {
             const name = dialog.name.trim();
@@ -429,8 +449,13 @@
                   options: startPointOptions(),
                   onChange: (v) => setDialog({ ...dialog, startPoint: v }),
                   searchable: true,
-                  searchPlaceholder: t("Branches_SearchPlaceholder"),
-                  tabs: [{ key: "branch", label: t("Common_Branch") }, { key: "tag", label: t("Branches_TagGroup") }],
+                  searchPlaceholder: dialog.startPointTab === "commit" ? t("Branches_CommitIdPlaceholder") : t("Branches_SearchPlaceholder"),
+                  freeTextTab: "commit",
+                  tabs: [
+                    { key: "branch", label: t("Common_Branch") },
+                    { key: "tag", label: t("Branches_TagGroup") },
+                    { key: "commit", label: t("Branches_TabCommit") }
+                  ],
                   activeTab: dialog.startPointTab,
                   onTabChange: (key) => setDialog({
                     ...dialog,
@@ -516,7 +541,7 @@
           refName: dialog.name,
           title: t("Reflog_Title", dialog.name),
           currentBranch: (state == null ? void 0 : state.current) ?? null,
-          onChanged: () => void reload(),
+          onChanged: () => notifyRepoChanged(),
           onClose: () => setDialog(null)
         }
       ),
