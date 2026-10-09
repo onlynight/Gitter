@@ -10,6 +10,7 @@ import { SettingsStore } from "./services/settings";
 import { I18nService, resolveLanguage } from "./services/i18n";
 import { ThemeService } from "./services/themes";
 import { TerminalManager } from "./services/terminal";
+import { LspManager, DEFAULT_LSP_COMMANDS } from "./services/lsp";
 import { HighlightService } from "./services/highlight";
 import { McpPipeHost, pendingApprovals, requestHumanApproval } from "./services/mcp";
 import { runRegisteredLoop, registeredLoops } from "./services/extensions/agentLoop";
@@ -30,6 +31,7 @@ import { compileTaskTypes, BUILTIN_FREE_ID } from "./services/agents/taskTypes";
 import type { ModelProfileDTO, UserModelProfileDTO } from "./shared/types";
 import * as gitconfig from "./services/gitconfig";
 import * as preview from "./services/preview";
+import * as treex from "./services/treex";
 import * as aiSvc from "./services/ai";
 import * as safety from "./services/safety";
 import * as modelDiscovery from "./services/modelDiscovery";
@@ -83,6 +85,10 @@ export class Bridge {
   private mcpHost: McpPipeHost | null = null;
   /** Agent 宿主（窗口域，与终端同模式；事件经 evt 通道扇出渲染层） */
   private agents: AgentSessionManager;
+  /** LSP 语言服务器管理（inline-editor-plan.md §4.5，P3；通知经 evt 扇出） */
+  private readonly lsp = new LspManager((language, method, params) => {
+    if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method: "lsp.event", params: { language, method, params } });
+  });
   /** 当前仓库（渲染层 repo.open 驱动，对齐 RepositoryContext 单仓库语义）。 */
   repo: string | null = null;
 
@@ -198,6 +204,7 @@ export class Bridge {
 
   dispose() {
     this.terminals.disposeAll();
+    this.lsp.stopAll();
     this.mcpHost?.stop();
     this.agents.dispose();
   }
@@ -419,6 +426,58 @@ export class Bridge {
           .map((x) => x.l);
       }
       return lines.slice(0, 50);
+    });
+
+    // ---- 项目文件树 + 编辑器读写面（editor-design.md）----
+    // 文件树骨架：git ls-files 全量 + git 状态分类 + agent 回合改动索引
+    R("repo.tree", async (args: { prefix?: string; taskId?: string }) => {
+      const wd = this.needRepo();
+      // agent 回合改动集合（若指定 taskId）
+      const touched = new Set<string>();
+      if (args?.taskId) {
+        try {
+          const files = await this.agents.taskFiles({ taskId: args.taskId });
+          for (const f of files) touched.add(f.path);
+        } catch {
+          // 任务不存在或已清理：忽略，树仍可用
+        }
+      }
+      return treex.listTree(wd, args?.prefix ?? "", touched);
+    });
+    // 文件内容读取（编辑器打开）：8MB 上限，返回 mtime/eol 供冲突检测与行尾保留
+    R("file.content", async (args: { path: string; revision?: "worktree" | "index" | string; maxBytes?: number }) =>
+      treex.readFileContent(this.needRepo(), args.path, args.revision ?? "worktree", args.maxBytes));
+    // 文件写入（编辑器保存）：复用 fsx 路径锁与 2MB 护栏，不走 readLog 校验
+    R("file.write", async (args: { path: string; content: string; eol?: "crlf" | "lf" }) => {
+      const result = await treex.writeFileContent(this.needRepo(), args.path, args.content, args.eol);
+      // 写成功后刷新 readLog，让 agent 的 file_patch 能通过 mtime 校验
+      if (result.ok) {
+        const rel = args.path;
+        // 直接操作当前活跃会话的 readLog（若有）
+        this.agents.refreshReadLogFor(rel, result.mtime, result.size);
+      }
+      return result;
+    });
+
+    // ---- LSP 语言服务器（inline-editor-plan.md §4.5，P3）----
+    // 命令来自设置（settings.write 域持久化）；缺省命令由服务层兜底。
+    // 启停/request 走 "lsp" 域（进程级能力，与 terminal 同级），status 只读走 open。
+    R("lsp.status", () => this.lsp.status());
+    R("lsp.start", async (args: { language: string; command?: string }) => {
+      const wd = this.needRepo();
+      const command = (args.command ?? "").trim() || DEFAULT_LSP_COMMANDS[args.language];
+      if (!command) throw new BridgeError(`未配置语言服务器命令: ${args.language}`, "NO_LSP_COMMAND");
+      return this.lsp.start(args.language, command, wd);
+    });
+    R("lsp.stop", (args: { language: string }) => {
+      this.lsp.stop(args.language);
+      return { ok: true };
+    });
+    R("lsp.request", (args: { language: string; method: string; params?: unknown }) =>
+      this.lsp.request(args.language, args.method, args.params));
+    R("lsp.notify", (args: { language: string; method: string; params?: unknown }) => {
+      this.lsp.notify(args.language, args.method, args.params);
+      return { ok: true };
     });
 
     // ---- Agent 宿主（agent-harness-codex.md v2.0 §三/§八 + v4.0 F1/F5/F6/F7/F10）----
@@ -799,6 +858,11 @@ export class Bridge {
         { key: "autoFetch", type: "boolean", default: true, section: "monitor" },
         { key: "autoFetchIntervalMinutes", type: "number", default: 5, section: "monitor" },
         { key: "externalEditor", type: "string", default: null, section: "editor" },
+        { key: "editorAutoSave", type: "boolean", default: true, section: "editor" },
+        { key: "lspTypescript", type: "boolean", default: false, section: "editor" },
+        { key: "lspTypescriptCommand", type: "string", default: "typescript-language-server --stdio", section: "editor" },
+        { key: "lspPython", type: "boolean", default: false, section: "editor" },
+        { key: "lspPythonCommand", type: "string", default: "pyright-langserver --stdio", section: "editor" },
         { key: "aiProvider", type: "string", default: "off", section: "ai" },
         { key: "aiEndpoint", type: "string", default: null, section: "ai" },
         { key: "aiModel", type: "string", default: null, section: "ai" },

@@ -19,6 +19,7 @@ export type RpcScope =
   | "agent.config" // agent 授权回执/历史读取
   | "extensions.admin" // 扩展安装/卸载/启停等管理操作
   | "terminal" // pty 会话操作
+  | "lsp" // 语言服务器进程（spawn/停止/请求通道——与 terminal 同级的进程级能力）
   | "ai.invoke" // 消耗 AI 额度
   | "approval" // 人审回执（可替人类放行 MCP 写操作——高危）
   | "window"; // 窗口/壳层操作
@@ -26,7 +27,7 @@ export type RpcScope =
 export const SCOPE_NAMES: RpcScope[] = [
   "open", "git.read", "git.write", "settings.write",
   "agent.run", "agent.config", "extensions.admin",
-  "terminal", "ai.invoke", "approval", "window",
+  "terminal", "lsp", "ai.invoke", "approval", "window",
 ];
 
 export const RPC_SCOPES: Record<string, RpcScope> = {
@@ -54,6 +55,8 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "agent.task.export": "agent.config", "agent.task.previewFile": "git.read",
   "agent.previewImage": "git.read",
   "agent.task.checkpoint": "git.write",
+  // 项目文件树 + 编辑器读写面（editor-design.md）
+  "repo.tree": "git.read", "file.content": "git.read", "file.write": "git.write",
 
   // ---- git.read ----
   "log.query": "git.read", "log.branches": "git.read", "log.detail": "git.read", "log.fileDiff": "git.read",
@@ -103,6 +106,9 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
 
   // ---- terminal ----
   "terminal.ensure": "terminal", "terminal.write": "terminal", "terminal.resize": "terminal", "terminal.close": "terminal",
+
+  // ---- lsp（inline-editor-plan.md §4.5：语言服务器进程通道） ----
+  "lsp.status": "open", "lsp.start": "lsp", "lsp.stop": "lsp", "lsp.request": "lsp", "lsp.notify": "lsp",
 
   // ---- ai.invoke ----
   "ai.generateCommitMessage": "ai.invoke", "ai.explain": "ai.invoke",

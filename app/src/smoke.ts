@@ -11,6 +11,7 @@ import { queryLog, listBranches, getCommit, commitFilesWithCounts, parseUnifiedD
 import { getStatus, worktreeFileDiff } from "./services/gitstatus";
 import { getBranches } from "./services/gitbranches";
 import { listWorktrees } from "./services/worktrees";
+import * as treex from "./services/treex";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: string) {
@@ -234,6 +235,94 @@ async function main() {
   check("新增文件 diff：空文件零差异", nfEmpty.hunks.length === 0 && nfEmpty.addedLines === 0);
   fs.rmSync(nfDir, { recursive: true, force: true });
   fs.rmSync(cfgRepo, { recursive: true, force: true });
+
+  // ---- treex（files 页 RPC 服务层，inline-editor-plan.md §3）----
+  {
+    console.log("\n-- treex：文件树 + 编辑器读写 --");
+    const tree = await treex.listTree(repo, "", new Set());
+    check("repo.tree 非空", tree.entries.length > 0, `${tree.entries.length} 条`);
+    check("repo.tree 含目录节点", tree.entries.some((e) => e.isDir));
+    check("repo.tree 无分页截断", tree.hasMore === false);
+    const pc = await treex.readFileContent(repo, "README.md");
+    check("file.content 读取", !!pc && pc.content.length > 0 && pc.mtime > 0 && pc.binary === false && pc.truncated === false,
+      pc ? `eol=${pc.eol} size=${pc.size}` : "null");
+    check("file.content eol 合法", !!pc && (pc.eol === "crlf" || pc.eol === "lf"));
+    check("file.content 不存在 → null", (await treex.readFileContent(repo, "no-such-file-xyz.bin")) === null);
+    check("file.content 路径越界 → null", (await treex.readFileContent(repo, "..\\outside.txt")) === null);
+
+    const ed = fs.mkdtempSync(path.join(os.tmpdir(), "gitter-edit-"));
+    const w1 = await treex.writeFileContent(ed, "smoke-edit.txt", "hello\r\nworld\r\n", "crlf");
+    check("file.write 写入", w1.ok && w1.size > 0 && w1.mtime > 0, `size=${w1.size}`);
+    const back = await treex.readFileContent(ed, "smoke-edit.txt");
+    check("file.write 回读一致", !!back && back.content === "hello\r\nworld\r\n" && back.eol === "crlf");
+    const wBig = await treex.writeFileContent(ed, "big.txt", "a".repeat(2 * 1024 * 1024 + 1));
+    check("file.write 2MB 护栏", wBig.ok === false && wBig.error === "size_limit");
+    const wBin = await treex.writeFileContent(ed, "bin.txt", "a\0b");
+    check("file.write 二进制拒绝", wBin.ok === false && wBin.error === "binary");
+    const wEsc = await treex.writeFileContent(ed, "..\\esc.txt", "x");
+    check("file.write 路径越界拒绝", wEsc.ok === false && wEsc.error === "path_locked");
+    fs.rmSync(ed, { recursive: true, force: true });
+  }
+
+  // ---- LSP 语言服务器通道（inline-editor-plan.md §4.5，P3）----
+  {
+    console.log("\n-- LSP：帧协议 + 伪服务器生命周期 --");
+    const { FrameParser, buildMessage, LspManager } = await import("./services/lsp");
+
+    // a) 帧编解码：多字节正文 + 分块切割（头部中间断一次、正文中间断一次）
+    const msg = { jsonrpc: "2.0" as const, id: 1, result: { text: "中文内容 multibyte ✓" } };
+    const frame = buildMessage(msg);
+    const cut1 = 7;  // "Content" 中间
+    const cut2 = frame.length - 10; // 正文尾部前
+    const parser = new FrameParser();
+    parser.push(frame.subarray(0, cut1));
+    parser.push(frame.subarray(cut1, cut2));
+    parser.push(frame.subarray(cut2));
+    const drained = parser.drain();
+    check("帧解析：三块拼回一条", drained.messages.length === 1 && (drained.messages[0].result as { text: string }).text === (msg.result as { text: string }).text, `${drained.messages.length} 条`);
+    check("帧解析：缓冲清空", drained.rest.length === 0);
+
+    // b) 同 chunk 两条消息 + Content-Length 按字节数（中文正文）
+    parser.push(Buffer.concat([buildMessage({ jsonrpc: "2.0", id: 2, result: 7 }), buildMessage({ jsonrpc: "2.0", method: "t/n", params: { k: "值" } })]));
+    const d2 = parser.drain();
+    check("帧解析：同 chunk 两条", d2.messages.length === 2 && d2.messages[0].result === 7 && d2.messages[1].method === "t/n");
+
+    // c) 伪 LSP 服务器端到端：initialize 握手 → request 往返 → server→client 通知 → stop
+    const srvDir = fs.mkdtempSync(path.join(os.tmpdir(), "gitter-lsp-"));
+    const srvJs = path.join(srvDir, "fake-lsp.js");
+    fs.writeFileSync(srvJs, [
+      "let buf = Buffer.alloc(0);",
+      'function send(m) { const b = Buffer.from(JSON.stringify(m), "utf8"); process.stdout.write("Content-Length: " + b.length + "\\r\\n\\r\\n"); process.stdout.write(b); }',
+      'process.stdin.on("data", (d) => {',
+      "  buf = Buffer.concat([buf, d]);",
+      "  for (;;) {",
+      '    const i = buf.indexOf("\\r\\n\\r\\n"); if (i < 0) return;',
+      '    const len = Number(/Content-Length: (\\d+)/.exec(buf.slice(0, i).toString("ascii"))?.[1] ?? 0);',
+      "    const bs = i + 4; if (buf.length < bs + len) return;",
+      "    let msg; try { msg = JSON.parse(buf.slice(bs, bs + len).toString(\"utf8\")); } catch { buf = buf.slice(bs + len); continue; }",
+      "    buf = buf.slice(bs + len);",
+      '    if (msg.method === "initialize" && msg.id !== undefined) send({ jsonrpc: "2.0", id: msg.id, result: { capabilities: { textDocumentSync: 1 } } });',
+      '    else if (msg.method === "initialized") send({ jsonrpc: "2.0", method: "test/hello", params: { n: 42 } });',
+      '    else if (msg.method === "exit") process.exit(0);',
+      '    else if (msg.id !== undefined && msg.method) send({ jsonrpc: "2.0", id: msg.id, result: { echo: msg.method, params: msg.params } });',
+      "  }",
+      "});",
+    ].join("\n"));
+    const notifications: { method: string; params: unknown }[] = [];
+    const mgr = new LspManager((_lang, method, params) => notifications.push({ method, params }));
+    const st = await mgr.start("echo", `node "${srvJs}"`, srvDir);
+    check("lsp.start 握手 → running", st.status === "running", st.error ?? "");
+    const echo = await mgr.request("echo", "test/echo", { x: 42 }) as { echo: string; params: { x: number } };
+    check("lsp.request 往返", echo.echo === "test/echo" && echo.params.x === 42);
+    await new Promise((r) => setTimeout(r, 300));
+    check("server→client 通知扇出", notifications.some((n) => n.method === "test/hello" && (n.params as { n: number }).n === 42));
+    check("lsp.status 列出在跑服务器", mgr.status().some((s) => s.language === "echo" && s.status === "running"));
+    mgr.stop("echo");
+    await new Promise((r) => setTimeout(r, 500));
+    check("lsp.stop 后 status 停止", mgr.status().find((s) => s.language === "echo")?.status !== "running");
+    check("stop 未启动语言不抛错", (mgr.stop("never-started"), true));
+    fs.rmSync(srvDir, { recursive: true, force: true });
+  }
 
   console.log(failures === 0 ? "\n全部通过 ✅" : `\n${failures} 项失败 ❌`);
   process.exit(failures === 0 ? 0 : 1);
