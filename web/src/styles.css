@@ -290,9 +290,12 @@ html[data-window-material="acrylic"] .git-doc-toc {
 html[data-window-material="mica"] .split-pane,
 html[data-window-material="acrylic"] .split-pane { background: transparent; }
 /* 浮动滚动条（kit/ScrollArea）：列表容器隐藏原生滚动条（gutter 裁剪行背景、磨砂下成白板），
- * 渲染半透明悬浮条——滚动/hover 显现、800ms 隐藏、可拖拽；铺满右缘不再有白板 */
-.scroll-area { position: relative; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
-.scroll-area::-webkit-scrollbar { width: 0; height: 0; }
+ * 渲染半透明悬浮条——滚动/hover 显现、800ms 隐藏、可拖拽；铺满右缘不再有白板。
+ * .scroll-area 是裁剪壳（滚动条锚定它的可视区），真正的滚动元素是内层 .scroll-area-view——
+ * 滚动条与滚动元素必须是兄弟：绝对定位子节点会随内容滚走（视觉位置 = top - scrollTop） */
+.scroll-area { position: relative; overflow: hidden; }
+.scroll-area-view { height: 100%; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+.scroll-area-view::-webkit-scrollbar { width: 0; height: 0; }
 .scroll-area-bar {
   position: absolute; top: 2px; right: 3px; width: 6px; min-height: 40px;
   border-radius: 3px; background: var(--c-text3); opacity: 0; z-index: 6;
