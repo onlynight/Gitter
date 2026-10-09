@@ -58,7 +58,7 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   // ---- git.read ----
   "log.query": "git.read", "log.branches": "git.read", "log.detail": "git.read", "log.fileDiff": "git.read",
   "changes.state": "git.read", "changes.diffFile": "git.read", "changes.feedback": "git.read",
-  "changes.safetyScan": "git.read", "branches.state": "git.read", "tags.list": "git.read", "reflog.list": "git.read",
+  "changes.safetyScan": "git.read", "branches.state": "git.read", "tags.list": "git.read", "reflog.list": "git.read", "branch.graph": "git.read",
   "gitconfig.list": "git.read", "file.preview": "git.read",
 
   // ---- git.write（主进程侧人审门/安全网天然继续生效） ----
