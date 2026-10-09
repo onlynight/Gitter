@@ -40,7 +40,7 @@
   }
 
   /* ---- 页面区：终端 + 分隔条 + 文档面板（默认 3:2 = 终端 3/5 + 文档 2/5，可拖拽） ---- */
-  .page-area { flex: 1; min-height: 0; display: flex; gap: 4px; padding: 4px 12px 8px; }
+  .page-area { flex: 1; min-height: 0; display: flex; gap: 2px; padding: 4px 12px 8px; }
 
   /* ---- 终端（对齐应用 .term-wrap / .term-tabs / .term-host） ---- */
   .term-wrap {
@@ -107,7 +107,7 @@
     cursor: col-resize; touch-action: none; border-radius: 3px;
   }
   .doc-splitter::after {
-    content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px; background: var(--c-border);
+    content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px;
     background: transparent; transition: background var(--dur-fast) var(--ease-std);
   }
   .doc-splitter:hover::after { background: var(--c-border-strong); }

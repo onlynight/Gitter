@@ -1013,7 +1013,7 @@ select.input {
 /* ---- 终端页 Git 命令文档面板（design/terminal-git-docs-mockup.html）：
    文档钮开合 + 分隔条拖拽（默认 2/5，settings.terminalDocFraction 持久化）；
    .md-body 覆写仅限 .git-doc 内，不外溢 agent 时间线 ---- */
-.term-page-area { flex: 1; min-height: 0; display: flex; gap: 4px; }
+.term-page-area { flex: 1; min-height: 0; display: flex; gap: 2px; }
 /* 分栏态：抵消 .term-wrap 右外边距（12px），分割线两侧各留 4px 视觉等距 */
 .term-page-area > .term-wrap { margin-right: 0; min-width: 0; } /* min-width 0：xterm fit 后内部带固定像素宽，自动最小尺寸会顶住不收缩、把文档面板挤没 */
 .term-doc-splitter {
@@ -1021,7 +1021,7 @@ select.input {
   cursor: col-resize; touch-action: none; border-radius: 3px;
 }
 .term-doc-splitter::after {
-  content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px; background: var(--c-border); /* 常显：与两侧面板描边同色，收起态也标示分栏位置 */
+  content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px;
   transition: background var(--dur-fast) var(--ease-std);
 }
 .term-doc-splitter:hover::after, .term-doc-splitter.dragging::after { background: var(--c-border-strong); }
@@ -1032,7 +1032,7 @@ select.input {
   flex: 0 0 40%; min-width: 0; position: relative; display: flex; flex-direction: column;
   margin: 4px 12px 8px 0;
   border: 1px solid var(--c-border); border-radius: 10px;
-  background: var(--c-panel);
+  background: color-mix(in srgb, var(--c-base) 70%, transparent); /* 与 .term-wrap 同配方：材质/壁纸下与终端观感一致 */
   overflow: hidden;
   transition: flex-basis var(--dur-base) var(--ease-std), border-color var(--dur-base) var(--ease-std);
 }
