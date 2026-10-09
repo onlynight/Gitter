@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
 import { Modal, Select, ReflogDialog, useContextMenu, SyncBar, useSyncProgress, Banner, type CtxMenuItem, type SelectOption } from "../kit";
 import type { BranchGraphDTO, BranchGraphRowDTO, BranchesStateDTO, DeletePreviewDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
-const { call, t, refresh: refreshCurrent, openSettings } = pageSdk;
+const { call, t, notifyRepoChanged, openSettings } = pageSdk;
 const useApp = useAppState;
 
 /** 推送无上游类错误的识别（git 2.37+ 提示语 + 旧版提示语都覆盖）。 */
@@ -14,6 +14,9 @@ function isNoUpstreamError(msg: string | null): boolean {
   return /push\.autoSetupRemote|set-upstream|no upstream|上游/i.test(msg);
 }
 
+/** 提交 id 形态校验（git 可解析的最短 4 位十六进制；用于「提交」tab 的确认按钮门控）。 */
+const COMMIT_ID_RE = /^[0-9a-f]{4,40}$/i;
+
 // ---- 分支图（泳道重放绘制；lane/merges/spawns/slotAfter 由后端 walk 给出，id 跨行稳定）----
 
 const GRAPH_LANE_W = 26;
@@ -21,7 +24,7 @@ const GRAPH_ROW_H = 28;
 const GRAPH_PAD = 14;
 const GRAPH_COLORS = ["#6BABF5", "#B9A3EC", "#3FB950", "#E3B341", "#F0655A", "#56D364"];
 
-function BranchGraphPane(props: { graph: BranchGraphDTO; loading: boolean; onLoadMore: () => void }) {
+function BranchGraphPane(props: { graph: BranchGraphDTO; loading: boolean; onLoadMore: () => void; onRowContext?: (e: ReactMouseEvent, sha: string) => void }) {
   const [sel, setSel] = useState<string | null>(null);
   let slots: number[] = [];
   const colorOf = new Map<number, string>();
@@ -62,7 +65,8 @@ function BranchGraphPane(props: { graph: BranchGraphDTO; loading: boolean; onLoa
     const tip = r.refs.filter((x) => !x.isHead).map((x) => x.name);
     rowEls.push(
       <div key={r.sha + i} className={"grow-row" + (sel === r.sha ? " sel" : "")} style={{ top }} title={`${r.shortSha} ${r.subject} · ${r.author}`}
-        onClick={() => setSel(r.sha)}>
+        onClick={() => setSel(r.sha)}
+        onContextMenu={(e) => props.onRowContext?.(e, r.sha)}>
         <div className="grow-txt" style={{ left: GRAPH_PAD + slots.length * GRAPH_LANE_W + 10 }}>
           <span className="grow-sha">{r.shortSha}</span>
           {r.refs.map((x) => (
@@ -80,7 +84,10 @@ function BranchGraphPane(props: { graph: BranchGraphDTO; loading: boolean; onLoa
   return (
     <>
       <div style={{ height: props.graph.rows.length * GRAPH_ROW_H + 8, position: "relative", minWidth: svgW + 130 }}>
-        <svg width={svgW} height={props.graph.rows.length * GRAPH_ROW_H + 8} style={{ position: "absolute", left: 0, top: 4 }}
+        {/* 置顶层绘制（行 hover/选中背景在 DOM 顺序上更晚，会盖住图）；pointer-events:none
+         * 让 hover/点击/原生 tooltip 仍落在行上——图形只是浮在其背景之上 */}
+        <svg width={svgW} height={props.graph.rows.length * GRAPH_ROW_H + 8}
+          style={{ position: "absolute", left: 0, top: 4, zIndex: 1, pointerEvents: "none" }}
           dangerouslySetInnerHTML={{ __html: segs.join("") }} />
         {rowEls}
       </div>
@@ -105,7 +112,7 @@ export function BranchesPage() {
   const [graph, setGraph] = useState<BranchGraphDTO | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
   const [dialog, setDialog] = useState<
-    | { kind: "create"; name: string; startPoint: string; startPointTab: "branch" | "tag"; checkout: boolean }
+    | { kind: "create"; name: string; startPoint: string; startPointTab: "branch" | "tag" | "commit"; checkout: boolean }
     | { kind: "rename"; oldName: string; newName: string }
     | { kind: "deletePreview"; name: string; preview: DeletePreviewDTO | null }
     | { kind: "deleteRemote"; name: string }
@@ -153,10 +160,11 @@ export function BranchesPage() {
     }
   }, [graph, graphLoading]);
 
+  // 首次 / 仓库切换 / F5 / 任何改仓操作（本页或其它页/任务广播）→ 列表与分支图一并重拉
   useEffect(() => {
     void reload();
     void loadGraph();
-  }, [repo, app.refreshTick]);
+  }, [repo, app.refreshTick, app.repoChangedTick]);
 
   // 命令面板/菜单的 branches.create 路由到本页：打开创建对话框
   useEffect(() => {
@@ -177,8 +185,12 @@ export function BranchesPage() {
     ];
   };
 
-  /** 起点值的类型归属（HEAD/分支 → branch；refs/tags/ → tag） */
-  const startPointType = (v: string): "branch" | "tag" => (v.startsWith("refs/tags/") ? "tag" : "branch");
+  /** 起点值的类型归属（HEAD/refs → branch/tag；其余非 ref 值 = 自由输入的提交 id） */
+  const startPointType = (v: string): "branch" | "tag" | "commit" => {
+    if (v.startsWith("refs/tags/")) return "tag";
+    if (v === "HEAD" || v.startsWith("refs/")) return "branch";
+    return "commit";
+  };
 
   const mergeSourceOptions = (): SelectOption[] => [
     ...(state?.local ?? []).map((b) => ({ value: "refs/heads/" + b.name, label: b.name })),
@@ -198,7 +210,7 @@ export function BranchesPage() {
     setBusy(true);
     try {
       setTransient(await fn());
-      await reload();
+      notifyRepoChanged(); // 列表 + 分支图 + 其它 git 页（Log/Changes）一并数据重拉
     } catch (e) {
       setError((e as Error).message);
       setErrorDetail((e as { detail?: string }).detail ?? null);
@@ -328,7 +340,14 @@ export function BranchesPage() {
           <div className="branch-graph-scroll">
             {graph ? (
               graph.rows.length > 0 ? (
-                <BranchGraphPane graph={graph} loading={graphLoading} onLoadMore={() => void loadMoreGraph()} />
+                <BranchGraphPane
+                  graph={graph}
+                  loading={graphLoading}
+                  onLoadMore={() => void loadMoreGraph()}
+                  onRowContext={(e, sha) => showMenu(e, [
+                    { label: t("Branches_CreateFromCommit"), action: () => setDialog({ kind: "create", name: "", startPoint: sha, startPointTab: "commit", checkout: true }) },
+                  ])}
+                />
               ) : (
                 <div style={{ padding: "14px 12px", color: "var(--c-text3)", fontSize: 12 }}>{t("Branches_NoTags")}</div>
               )
@@ -370,7 +389,8 @@ export function BranchesPage() {
         <Modal
           title={t("Branches_CreateTitle")}
           confirmText={t("Common_Create")}
-          confirmDisabled={!dialog.name.trim() || !dialog.startPoint}
+          confirmDisabled={!dialog.name.trim() || !dialog.startPoint
+            || (startPointType(dialog.startPoint) === "commit" && !COMMIT_ID_RE.test(dialog.startPoint.trim()))}
           onClose={() => setDialog(null)}
           onConfirm={() => {
             const name = dialog.name.trim();
@@ -387,12 +407,18 @@ export function BranchesPage() {
               className="full" style={{ width: "100%" }}
               value={dialog.startPoint} options={startPointOptions()}
               onChange={(v) => setDialog({ ...dialog, startPoint: v })}
-              searchable searchPlaceholder={t("Branches_SearchPlaceholder")}
-              tabs={[{ key: "branch", label: t("Common_Branch") }, { key: "tag", label: t("Branches_TagGroup") }]}
+              searchable
+              searchPlaceholder={dialog.startPointTab === "commit" ? t("Branches_CommitIdPlaceholder") : t("Branches_SearchPlaceholder")}
+              freeTextTab="commit"
+              tabs={[
+                { key: "branch", label: t("Common_Branch") },
+                { key: "tag", label: t("Branches_TagGroup") },
+                { key: "commit", label: t("Branches_TabCommit") },
+              ]}
               activeTab={dialog.startPointTab}
               onTabChange={(key) => setDialog({
                 ...dialog,
-                startPointTab: key as "branch" | "tag",
+                startPointTab: key as "branch" | "tag" | "commit",
                 // 切到没有选中值的类型：清空选择（创建钮置灰），不静默代选
                 startPoint: startPointType(dialog.startPoint) === key ? dialog.startPoint : "",
               })}
@@ -458,7 +484,7 @@ export function BranchesPage() {
           refName={dialog.name}
           title={t("Reflog_Title", dialog.name)}
           currentBranch={state?.current ?? null}
-          onChanged={() => void reload()}
+          onChanged={() => notifyRepoChanged()}
           onClose={() => setDialog(null)}
         />
       )}

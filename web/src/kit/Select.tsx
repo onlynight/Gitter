@@ -15,6 +15,9 @@ import { t } from "../state/store";
  *   tab 标题实时显示各自命中数；打开弹层时自动定位到当前选中值所在 tab。
  * - option.group：同组连续渲染为粘性组头（空组不渲染）；option.pinned 项不进分组头。
  * - option.hint / option.badge：右侧短 SHA / 徽标；option.triggerBadge：触发器类型徽标。
+ * - freeTextTab：指定某 tab 支持自由文本（如提交 id——无法枚举只能输入）：该 tab 下
+ *   搜索框输入后回车/点击置顶的「使用：<kw>」项即采用输入值；值无对应选项时触发器
+ *   直接显示原始值。
  */
 export interface SelectOption<T extends string = string> {
   value: T;
@@ -54,6 +57,8 @@ export function Select<T extends string = string>(props: {
   emptyText?: string;
   /** value 无匹配选项时的触发器占位文案 */
   placeholder?: string;
+  /** 自由文本 tab：该 tab 下搜索框输入可经回车/置顶项直接采用（提交 id 等不可枚举值） */
+  freeTextTab?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(-1);
@@ -77,6 +82,9 @@ export function Select<T extends string = string>(props: {
   const visible = tabs
     ? tabItems(activeTab ?? "")
     : props.options.filter(matches);
+
+  // 自由文本态：当前 tab 支持且搜索框有输入 → 置顶「使用：<kw>」项 + 回车采用
+  const freeText = !!(props.searchable && props.freeTextTab && activeTab === props.freeTextTab && kw.trim());
 
   // ---- 高亮：首个大小写不敏感命中片段（HTML 转义后注入 mark）----
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -116,9 +124,12 @@ export function Select<T extends string = string>(props: {
     return n === 0 ? h : (((h ?? 0) + d) % n + n) % n;
   });
 
-  // ---- 弹层列表渲染：pinned 置顶（不进组头）+ 分组 ----
+  // ---- 弹层列表渲染：自由文本项置顶 + pinned 置顶（不进组头）+ 分组 ----
   const renderItems = () => {
     let html = "";
+    if (freeText) {
+      html += `<button type="button" data-v="${esc(kw.trim())}" role="option" class="select-opt free"><span class="select-opt-check">→</span><span class="select-opt-label">${esc(t("Select_UseValue", kw.trim()))}</span></button>`;
+    }
     for (const it of visible.filter((x) => x.pinned)) {
       const sel = it.value === props.value;
       html += itemHtml(it, sel);
@@ -136,7 +147,7 @@ export function Select<T extends string = string>(props: {
       for (const it of g.items) html += itemHtml(it, it.value === props.value);
     }
     if (visible.filter((x) => !x.pinned).length === 0 && visible.filter((x) => x.pinned).length === 0) {
-      html += `<div class="select-empty">${props.emptyText ?? t("Select_Empty")}</div>`;
+      if (!freeText) html += `<div class="select-empty">${props.emptyText ?? t("Select_Empty")}</div>`;
     } else if (visible.length === 0) {
       // 只剩 pinned 项（分支 tab 搜索无命中）也要给空态提示
       html += `<div class="select-empty">${props.emptyText ?? t("Select_Empty")}</div>`;
@@ -197,9 +208,11 @@ export function Select<T extends string = string>(props: {
         <span className="select-trigger-label">
           {current
             ? open ? highlight(current.label) : esc(current.label)
-            : props.placeholder
-              ? <span className="placeholder">{props.placeholder}</span>
-              : props.value}
+            : props.value
+              ? props.value
+              : props.placeholder
+                ? <span className="placeholder">{props.placeholder}</span>
+                : null}
         </span>
       </button>
       {open && (
@@ -214,7 +227,11 @@ export function Select<T extends string = string>(props: {
                 onKeyDown={(e) => {
                   if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
                   else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
-                  else if (e.key === "Enter" && hi >= 0 && visible[hi]) { e.preventDefault(); commit(visible[hi].value); }
+                  else if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (hi >= 0 && visible[hi]) commit(visible[hi].value);
+                    else if (freeText) commit(kw.trim() as T);
+                  }
                   else if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
                 }}
               />
