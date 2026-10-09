@@ -436,10 +436,12 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .comp-ctx-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 9px; font-size: 11px; color: var(--c-text3); }
 .comp-ctx-row b { color: var(--c-text2); font-weight: 600; font-variant-numeric: tabular-nums; }
 
-/* 统计栏（DeepSeek 式）：输入框底部单行——上下文条 / 输入输出 token / 速度 / 缓存命中率，点击展开明细 */
+/* 统计栏（DeepSeek 式）：输入框底部单行——上下文条 / 输入输出 token / 速度 / 缓存命中率，点击展开明细。
+   .comp-stats-row 只承担全宽分隔线；.comp-stats 按内容自适应宽度，箭头紧跟末项，弹层以内容右缘（箭头处）为锚 */
+.comp-stats-row { display: flex; margin-top: 6px; border-top: 1px solid var(--c-border); }
 .comp-stats {
-  display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 6px; padding: 6px 2px 0;
-  border: none; border-top: 1px solid var(--c-border); background: transparent;
+  display: flex; align-items: center; gap: 12px; padding: 6px 2px 0;
+  border: none; background: transparent;
   color: var(--c-text3); font-family: inherit; font-size: 10.5px; cursor: pointer; text-align: left;
   transition: color var(--dur-fast) var(--ease-std);
 }
@@ -449,7 +451,7 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .comp-stats-item { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .comp-stats-item b { color: inherit; font-weight: 600; }
 .comp-stats:hover .comp-stats-item b { color: var(--c-text); }
-.comp-stats .comp-chev { margin-left: auto; flex: none; }
+.comp-stats .comp-chev { flex: none; }
 
 /* 发送/停止：强调色方块，与工具条拉开层级 */
 .comp-send {
