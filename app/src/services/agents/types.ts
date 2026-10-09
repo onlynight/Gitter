@@ -47,7 +47,7 @@ export type AgentOutcome = "completed" | "failed" | "cancelled";
 
 export type FileChangeKind = "added" | "modified" | "deleted" | "renamed" | "read-image";
 
-/** 权限模式（agent-harness-v4.md F5.1）：plan 只读 / default 基线 / yolo 免卡（push 恒 each-time）。 */
+/** 权限模式（三档）：plan 只读出计划 / default 自动执行（高危命令逐次确认）/ yolo 完全访问免确认。 */
 export type PermissionMode = "plan" | "default" | "yolo";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
@@ -82,7 +82,7 @@ export type SubtaskState = "running" | "completed" | "failed" | "timeout" | "can
 /** 判别联合：结构化克隆安全，可跨 preload bridge。 */
 export type AgentSessionEvent =
   | { type: "status"; phase: AgentPhase; summary?: string }
-  | { type: "output"; text: string; stream: "terminal" | "assistant" | "tool"; subtaskId?: string }
+  | { type: "output"; text: string; stream: "terminal" | "assistant" | "tool" | "thinking"; subtaskId?: string }
   | { type: "checkpoint"; commitSha: string; summary: string }
   | {
       type: "permission";
@@ -159,7 +159,7 @@ export interface AgentTaskRecord {
   loopId: string | null;
   /** 思考深度 */
   thinking: ThinkingLevel;
-  /** 权限模式（v4 F5：plan/default/yolo；持久，resume 保持） */
+  /** 权限模式（plan/default/yolo：计划/默认/完全访问；持久，resume 保持） */
   permissionMode: PermissionMode;
   /** todo 清单最新状态（F8：重启回放） */
   todoState: TodoItem[] | null;
