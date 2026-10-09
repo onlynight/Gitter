@@ -425,7 +425,16 @@ registerAgentTool({
       return `错误：文件尚未在本会话读取过，请先 repo_read_file ${rel} 再编辑。`;
     }
     if (st.mtimeMs !== seen.mtimeMs) {
-      return `错误：${rel} 在读取后被外部修改过，请重新 repo_read_file 再编辑。`;
+      // UI 刚写过（最近 2 秒内）→ 降级为重新读一遍，不硬拒绝
+      // 编辑器保存会刷新 readLog，但若 agent 在写之前刚读过、UI 又写了一次，
+      // mtime 可能落后于 readLog 记录——此时刷新而非拒绝（editor-design.md §3.2）
+      const lastUiWrite = (env as { lastUiWrite?: { rel: string; ts: number } }).lastUiWrite;
+      if (lastUiWrite && lastUiWrite.rel === rel && Date.now() - lastUiWrite.ts < 2000) {
+        env.readLog.set(rel, { mtimeMs: st.mtimeMs, size: st.size });
+        // 不返回错误，继续执行；后续 readFileText 会读到最新内容
+      } else {
+        return `错误：${rel} 在读取后被外部修改过，请重新 repo_read_file 再编辑。`;
+      }
     }
 
     const text = await readFileText(abs);
@@ -545,7 +554,7 @@ registerAgentTool({
 
 registerAgentTool({
   name: "git_push",
-  description: "推送当前任务分支到远程——每次都需要人类批准（永不记忆）",
+  description: "推送当前任务分支到远程（外发操作）。默认/完全访问模式下自动执行并留痕；plan 模式不可用",
   parametersSchema: z.object({}),
   permissionClass: "each-time",
   source: "builtin",

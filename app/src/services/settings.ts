@@ -45,6 +45,11 @@ export class SettingsStore {
       projects: [],
       currentProjectPath: null,
       externalEditor: null,
+      editorAutoSave: true,
+      lspTypescript: false,
+      lspTypescriptCommand: "typescript-language-server --stdio",
+      lspPython: false,
+      lspPythonCommand: "pyright-langserver --stdio",
       diffMode: "sideBySide",
       sidebarCollapsed: false,
       bashPath: null,
@@ -81,6 +86,7 @@ export class SettingsStore {
       agentsNotify: true,
       agentsMaxSubagents: 3,
       agentsExternalMcpTools: false,
+      agentsTaskWorktree: false,
       models: [],
       defaultModelId: null,
       fastModelId: null,
@@ -123,14 +129,15 @@ export class SettingsStore {
   update(patch: Partial<SettingsDTO>): SettingsDTO {
     const allowed: (keyof SettingsDTO)[] = [
       "theme", "themePackageId", "language", "projects", "currentProjectPath",
-      "externalEditor", "diffMode", "sidebarCollapsed", "bashPath",
+      "externalEditor", "editorAutoSave", "diffMode", "sidebarCollapsed", "bashPath",
+      "lspTypescript", "lspTypescriptCommand", "lspPython", "lspPythonCommand",
       "terminalFontFamily", "terminalFontSize", "terminalFollowRepo", "terminalShell",
       "watchWorktree", "autoFetch", "autoFetchIntervalMinutes", "recentCommands",
       "aiProvider", "aiEndpoint", "aiModel", "aiCliCommand", "aiPrivacy", "aiAppendTrailer",
       "aiApiKeyProtected", "safetyNet", "mcpEnabled",
       "logSplitterFraction", "changesSplitterFraction", "terminalDocFraction", "packages", "confirmedCommands", "allowCodePlugins", "externalMcpEnabled",
       "agentsCheckpoint", "agentsOnExit", "agentRules", "agentsCompaction", "agentsCompactionPolicy",
-      "agentsPostTurnHooks", "agentsMaxSubagents", "agentsExternalMcpTools", "agentsNotify",
+      "agentsPostTurnHooks", "agentsMaxSubagents", "agentsExternalMcpTools", "agentsNotify", "agentsTaskWorktree",
       "models", "defaultModelId", "fastModelId", "modelUsage",
     ];
     for (const key of allowed) {

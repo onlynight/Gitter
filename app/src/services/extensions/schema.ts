@@ -72,7 +72,7 @@ export interface SkillContribution {
 export type RpcScopeName =
   | "open" | "git.read" | "git.write" | "settings.write"
   | "agent.run" | "agent.config" | "extensions.admin"
-  | "terminal" | "ai.invoke" | "approval" | "window";
+  | "terminal" | "lsp" | "ai.invoke" | "approval" | "window";
 
 export interface PageContribution {
   id: string;
@@ -395,7 +395,7 @@ const manifestV2 = z.object({
             permissions: z.array(z.enum([
               "open", "git.read", "git.write", "settings.write",
               "agent.run", "agent.config", "extensions.admin",
-              "terminal", "ai.invoke", "approval", "window",
+              "terminal", "lsp", "ai.invoke", "approval", "window",
             ])).nullish(),
             slot: z.string().min(1).nullish(),
             styles: z.array(z.string().min(1)).nullish(),

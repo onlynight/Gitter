@@ -332,6 +332,18 @@ app.whenReady().then(() => {
           } else {
             process.stdout.write("[e2e] WARN: 终端页内容不可识别 — " + text.slice(0, 120).replace(/\n/g, " ") + "\n");
           }
+          // files 槽探针（nav-item[6]，order 70 位于 bash 之后）：lsp/git.write 域放行 + 页面正常挂载。
+          // 无仓库时 files 页显示空态——断言目标是无 permission denied + 空态文案，而非终端 shell 名。
+          await win.webContents.executeJavaScript(
+            "document.querySelectorAll('.nav-top .nav-item')[6].click()"); // files
+          await new Promise((r) => setTimeout(r, 3000));
+          const ftext = await win.webContents.executeJavaScript(
+            "document.querySelector('.page')?.innerText?.slice(0, 2000) ?? ''");
+          if (ftext.includes("permission denied")) {
+            process.stdout.write("[e2e] FAIL: 文件页出现 permission denied — " + ftext.slice(0, 120).replace(/\n/g, " ") + "\n");
+          } else {
+            process.stdout.write("[e2e] PASS: 文件页正常挂载（无 permission denied）— " + ftext.slice(0, 60).replace(/\n/g, " ") + "\n");
+          }
         } catch (e) {
           process.stdout.write("[e2e] FAIL: 探针异常 " + (e as Error).message + "\n");
         }
@@ -353,7 +365,7 @@ app.whenReady().then(() => {
           const wmBlend = wm && wm !== "none" ? (cb.includes("rgba(") || cb.replace("#", "").length === 8) : true;
           return { navCount, rootRendered, gitterUi, kit, pageMounted, navLabels, wm, wmBlend };
         })()`);
-        const slots = ["projects", "log", "changes", "branches", "tasks", "bash", "settings"];
+        const slots = ["projects", "log", "changes", "branches", "tasks", "bash", "files", "settings"];
         const resolved: Record<string, { source: string; isBuiltInPackage: boolean } | null> = {};
         for (const s of slots) {
           resolved[s] = await win.webContents.executeJavaScript(
@@ -366,7 +378,7 @@ app.whenReady().then(() => {
         // dataset 已标 → 必须与主进程 resolve 结果一致，且非 none 时 --c-base 已混成 rgba（body 内联）
         const expectedMaterial = resolveWindowMaterial(activeThemeMaterial());
         const wmOk = !r.wm ? true : r.wm === expectedMaterial && (r.wm === "none" || r.wmBlend === true);
-        const ok = r.navCount >= 7 && r.rootRendered && r.gitterUi && r.kit && r.pageMounted && slotsOk && firstNavOk && wmOk;
+        const ok = r.navCount >= 8 && r.rootRendered && r.gitterUi && r.kit && r.pageMounted && slotsOk && firstNavOk && wmOk;
         process.stdout.write("[boot] UI 断言: " + JSON.stringify({ ...r, slots: Object.fromEntries(slots.map((s) => [s, resolved[s]?.isBuiltInPackage === true ? "builtin-package" : resolved[s]?.source ?? null])) }) + "\n");
         try {
           // 语言切换探测（永久回归门）：触发 reapplyLanguage + reloadExternalPages →
@@ -375,7 +387,7 @@ app.whenReady().then(() => {
             "window.__gitterDebugReload && void window.__gitterDebugReload('en')");
           await new Promise((r2) => setTimeout(r2, 2500));
           const after: Record<string, { source: string } | null> = {};
-          for (const s2 of ["projects", "log", "changes", "branches", "tasks", "bash", "settings"]) {
+          for (const s2 of ["projects", "log", "changes", "branches", "tasks", "bash", "files", "settings"]) {
             after[s2] = await win.webContents.executeJavaScript(
               `window.__gitterDebugResolve ? window.__gitterDebugResolve(${JSON.stringify(s2)}) : null`);
           }
