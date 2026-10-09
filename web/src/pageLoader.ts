@@ -2,7 +2,6 @@ import { call } from "./bridge/client";
 import { beginExternalPackage, endExternalPackage } from "./sdk";
 import { unregisterAgentUI } from "./agentUIRegistry";
 import { uiPage, unregisterUiPagesByPackage, upsertExternalPageMeta, type UIPageDef } from "./uiRegistry";
-
 /**
  * 外部页面装载器（ui-pluginization-plan.md U1c + ui-full-pluginization-plan.md R0-7）：
  * 从扩展包清单（contributes.pages）读取渲染层入口（经典 script，非 module）：
@@ -27,6 +26,8 @@ export interface ExternalPageInfo {
   isBuiltIn: boolean;
   icon: string | null; // Segoe Fluent 字形
   svg: string | null; // 16×16 SVG path（侧栏图标第二形态）
+  /** 文档多语言表（lang → markdown 绝对路径）；null = 该页未声明多语言文档 */
+  docs: Record<string, string> | null;
 }
 
 let metas: ExternalPageInfo[] = [];
@@ -104,7 +105,7 @@ async function doInjectPackage(m: ExternalPageInfo): Promise<void> {
   if (loadedPackages.has(m.packageId)) return;
   if (m.styles.length > 0) injectStyles(m.packageId, m.styles);
   try {
-    beginExternalPackage(m.packageId, m.permissions, m.isBuiltIn);
+    beginExternalPackage(m.packageId, m.permissions, m.isBuiltIn, { docs: m.docs });
     await injectScript(fileUrl(m.entryAbs));
     loadedPackages.add(m.packageId);
   } finally {

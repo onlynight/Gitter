@@ -15,14 +15,58 @@ function U(): NonNullable<Window["GITTER_UI"]> {
   return g;
 }
 
-/**
- * caller 身份捕获：本模块在入口脚本 eval 期被加载——此时 loader 的
- * beginExternalPackage 仍然生效（begin/end 之间），可取到本包的
- * packageId + manifest permissions。之后页面挂载/交互的全部 call 走
- * callWith(BOOT)：装载期模块变量早已重置，凭它调用会恒回退缺省权限
- * （terminal/extensions.admin/git.write 全被拒的事故根因，e2e-pages-check 金丝雀把关）。
- */
 const BOOT = window.GITTER_UI?.getActiveCaller?.() ?? null;
+
+/** 装载期窗口内可取：本包 manifest 声明的文档多语言表（lang → markdown 绝对路径）。 */
+export function pageDocs(): Record<string, string> | null {
+  return U().pageDocs?.() ?? null;
+}
+
+/** 当前语言（设置页切换即时生效；文档面板按它选译包内 markdown） */
+export function uiLang(): string {
+  return U().getState().i18n?.lang ?? "en";
+}
+
+/** 读一个包内 markdown（file:// URL）；缺篇/读失败静默返回 null，由调用方回退自身缺省 */
+export async function fetchDoc(absPath: string): Promise<string | null> {
+  const norm = absPath.replace(/\\/g, "/");
+  const url = norm.startsWith("file:") ? norm : `file:///${norm.replace(/^\/+/, "")}`;
+  try {
+    const text = await (await fetch(url)).text();
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 包贡献文档的多语言源（内置页与外部页同型实现，注册表单源在宿主 docRegistry）：
+ * paths = lang → markdown 绝对路径；fallback = 构建期打包的缺省源（en 篇兜底）。
+ * 每次求值按当前语言取 paths[lang] ?? paths.en，读失败回退 fallback()。
+ *
+ * 构造约束（勿改形态）：`_paths` 必须先经 `Set.add` 装箱再取出——不能在 async
+ * lambda 内直接判真形参。rollup iife+lib 路径在顶层 `docSource(null, ...)`
+ * 调用点（GitDocPanel 模块 eval 期注册）会把形参做常量折叠：任何直接引用
+ * `_paths` 的判真表达式（`_paths && ...`、`_paths ? ... : null`、
+ * `typeof _paths === "object"` 等）都会被折叠成 `null` 分支，产物退化为
+ * `const pick = null` → zh-Hans 恒回退 en 兜底。`Set` 装箱把 `_paths` 隔离在
+ * 静态分析的可见域之外（add 是副作用、解构 `[...s]` 无法静态判值），判真链
+ * 完整保留。改形态前请跑 `node .zcode/tmp/probe2.cjs` 复核两语言都取到对应篇
+ * （zh-Hans 应 fetch 到 docs/zh-Hans.md）。
+ */
+export function docSource(
+  _paths: Record<string, string> | null,
+  fallback: () => string,
+): () => Promise<string> {
+  const box = new Set<Record<string, string>>();
+  if (_paths) box.add(_paths);
+  return async () => {
+    const paths = [...box][0] || null;
+    const pick = paths ? (paths[uiLang()] || paths["en"]) : null;
+    const text = pick ? await fetchDoc(pick) : null;
+    return text || fallback();
+  };
+}
 
 export const pageSdk: PageSurface = {
   call: (method, params) => {

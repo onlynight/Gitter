@@ -1,8 +1,8 @@
 /**
- * 终端页视觉验收 harness（开发用，不随应用分发）：
- * stub window.GITTER_UI / window.GITTER_KIT（与宿主注入面同构）+ mock pty RPC，
- * 装载构建产物 gitui.page.bash/page.js，浏览器里验证 Git 文档面板
- * （开合/拖拽分栏/目录浮层/目录搜索/正文查找）与亮暗两档。
+ * Terminal page visual acceptance harness (dev only, not shipped with the app):
+ * stubs window.GITTER_UI / window.GITTER_KIT (isomorphic to the host injection surface) plus
+ * mock pty RPC, loads the built gitui.page.bash/page.js, and validates the Git docs panel
+ * (open/close, split dragging, TOC drawer, TOC search, in-document find) in both light and dark.
  */
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -10,7 +10,7 @@ import "@xterm/xterm/css/xterm.css";
 import "../src/styles.css";
 import { renderMarkdown, Select } from "../src/kit/index.ts";
 
-// ---------- 主题（tokens 抄 harness/main.tsx） ----------
+// ---------- theme (tokens copied from harness/main.tsx) ----------
 const TOKEN_VARS: Record<string, string> = {
   Base: "--c-base", Panel: "--c-panel", Panel2: "--c-panel2", Hover: "--c-hover", Selected: "--c-selected",
   Border: "--c-border", BorderStrong: "--c-border-strong", Accent: "--c-accent",
@@ -109,14 +109,14 @@ const listeners: Record<string, ((p: unknown) => void)[]> = {};
   for (const cb of listeners[method] ?? []) cb(payload);
 };
 
-// ---- 文档注册表桩（同 docRegistry 语义：同 id 用户包 > 内置包 > 宿主） ----
+// ---- doc registry stub (same semantics as docRegistry: same id -> user > builtin > host) ----
 type DocEntry = { doc: { id: string; title: any; source: () => any }; packageId: string; tier: "host" | "builtin" | "user" };
 const docRegs = new Map<string, DocEntry>();
 const docListeners = new Set<() => void>();
 let docVer = 0;
 const TIER_ORDER: Record<string, number> = { host: 1, builtin: 2, user: 3 };
 function docNotify() { docVer++; for (const fn of docListeners) fn(); }
-(window as any).__stubTier = "builtin"; // 页面包 eval 前 = builtin 归因窗口
+(window as any).__stubTier = "builtin"; // before the page package evals = builtin attribution window
 (window as any).__registerDoc = (def: { id: string; title: any; source: () => any }) => {
   const tier = ((window as any).__stubTier ?? "builtin") as DocEntry["tier"];
   const prev = docRegs.get(def.id);
@@ -135,7 +135,7 @@ function docNotify() { docVer++; for (const fn of docListeners) fn(); }
 };
 (window as any).__docsVersion = () => docVer;
 
-// 调试用错误边界：直接吐 stack
+// Debug error boundary: dumps the stack directly
 class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { err: Error | null }> {
   state: { err: Error | null } = { err: null };
   static getDerivedStateFromError(err: Error) { return { err }; }
@@ -157,6 +157,7 @@ class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { er
 
 (window as any).GITTER_UI = {
   getActiveCaller: () => null,
+  pageDocs: () => null,
   call: (method: string, params?: Record<string, unknown>) => Promise.resolve(mockRpc(method, params)),
   callWith: (_boot: unknown, method: string, params?: Record<string, unknown>) => Promise.resolve(mockRpc(method, params)),
   on: (method: string, cb: (p: unknown) => void) => {
@@ -194,7 +195,7 @@ class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { er
     s.add(cb);
     return () => s.delete(cb);
   },
-  // 快照必须引用稳定：每次返回新对象会让 useSyncExternalStore 无限重渲染（React #185）
+  // Snapshot must be referentially stable: returning a fresh object per call makes useSyncExternalStore re-render infinitely (React #185)
   getState: () => ((window as any).__state ??= { repo: null, refreshTick: 0, focusTaskId: null }),
   registerPage: (_meta: unknown, mount: (c: HTMLElement) => () => void) => { (window as any).__mountPage = mount; },
   registerAgentUI: () => {},
@@ -206,14 +207,14 @@ class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { er
 
 applyTheme("dark");
 
-// ---------- 装载页面产物 ----------
+// ---------- load the page artifact ----------
 await import("../../app/resources/packages/gitui.page.bash/page.js");
 
 const mount = (window as any).__mountPage as (c: HTMLElement) => () => void;
 const container = document.getElementById("root")!;
 mount(container);
 
-// 终端假输出（等 xterm 实例建立后写入）
+// Fake terminal output (written once the xterm instance is up)
 setTimeout(() => {
   const text = [
     "Git Bash on Windows · harness mock",
@@ -227,43 +228,45 @@ setTimeout(() => {
   (window as any).__emit("terminal.data", { id: [...SESSIONS.keys()][0], b64: btoa(unescape(encodeURIComponent(text))) });
 }, 600);
 
-// 预置一篇"插件贡献"文档（user 层）：演示文档切换器——第三方包经 registerDoc 贡献的文档
+// A preset "plugin-contributed" doc (user tier): demonstrates the doc switcher — a third-party
+// package contributing a doc through registerDoc, sharing the same registry as the built-in handbook.
 const DEMO_MD = [
-  "# 示例：插件贡献文档",
+  "# Example: plugin-contributed doc",
   "",
-  "本篇由插件包经 `GITTER_UI.registerDoc` 贡献——与内置 Git 命令手册同一注册表；",
-  "同 id 时用户包（user 层）可整体覆盖内置篇（builtin 层）。",
+  "This doc is contributed by a plugin package via `GITTER_UI.registerDoc` —",
+  "the same registry as the built-in Git command handbook.",
+  "For the same id, a user-tier package overrides the builtin tier wholesale.",
   "",
-  "## 快速上手",
+  "## Quick start",
   "",
-  "### 初始化 my-plugin",
-  "一行命令初始化插件脚手架，生成 manifest 与入口脚本。",
+  "### Initialize my-plugin",
+  "One command bootstraps a plugin scaffold, generating the manifest and entry script.",
   "",
   "```bash",
-  "my-plugin init --dev        # --dev 跳过签名校验",
+  "my-plugin init --dev        # --dev skips signature verification",
   "```",
   "",
-  "| 参数 | 说明 |",
+  "| Flag | Meaning |",
   "| --- | --- |",
-  "| --dev | 开发模式，跳过签名校验 |",
-  "| --dir | 指定脚手架输出目录 |",
+  "| --dev | Dev mode, skips signature verification |",
+  "| --dir | Scaffold output directory |",
   "",
-  "## 进阶",
+  "## Advanced",
   "",
-  "### 发布 my-plugin",
-  "打包并发布到插件市场。",
+  "### Publish my-plugin",
+  "Package it up and publish to the plugin marketplace.",
   "",
   "```bash",
   "my-plugin publish",
   "```",
 ].join("\n");
 docRegs.set("demo.plug.guide", {
-  doc: { id: "demo.plug.guide", title: "示例：插件贡献文档", source: () => DEMO_MD },
+  doc: { id: "demo.plug.guide", title: "Example: plugin-contributed doc", source: () => DEMO_MD },
   packageId: "demo.plug", tier: "user",
 });
 docNotify();
 
-// 主题切换按钮（截图两档用）
+// Theme switch buttons (for screenshotting both palettes)
 const bar = document.createElement("div");
 bar.className = "theme-switch";
 for (const b of ["dark", "light"]) {

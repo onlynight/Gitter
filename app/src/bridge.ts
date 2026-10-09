@@ -1094,6 +1094,9 @@ export class Bridge {
       return (gate ? all : all.filter((p) => p.isBuiltIn)).map((p) => ({
         ...p,
         title: this.shared.commands.resolvePageTitle(p.packageId, p.title, lang),
+        docs: p.docs
+          ? Object.fromEntries(Object.entries(p.docs).map(([l, rel]) => [l, path.join(path.dirname(p.entryAbs), rel)]))
+          : null,
       }));
     });
     R("ui.emptyHints", (args?: { slot?: "changes.empty" | "log.empty" | "branches.empty" }) =>

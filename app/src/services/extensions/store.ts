@@ -365,11 +365,13 @@ export class PackageStore {
     packageId: string; id: string; slot: string; title: string;
     entryAbs: string; permissions: string[]; styles: string[]; lazy: boolean; isBuiltIn: boolean;
     icon: string | null; svg: string | null;
+    /** manifest.contributes.pages[].docs（lang → 包内相对路径）原样透出；渲染层按语言选译读文件 */
+    docs: Record<string, string> | null;
   }[] {
     const out: {
       packageId: string; id: string; slot: string; title: string;
       entryAbs: string; permissions: string[]; styles: string[]; lazy: boolean; isBuiltIn: boolean;
-      icon: string | null; svg: string | null;
+      icon: string | null; svg: string | null; docs: Record<string, string> | null;
     }[] = [];
     for (const e of this.scanAll()) {
       if (e.state !== "active" || !e.manifest) continue;
@@ -387,6 +389,7 @@ export class PackageStore {
           isBuiltIn: e.isBuiltIn,
           icon: pg.icon,
           svg: pg.svg,
+          docs: pg.docs ? { ...pg.docs } : null,
         });
       }
     }
