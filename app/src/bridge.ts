@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, Notification, shell, safeStorage } from "electron";
+import { app, BrowserWindow, dialog, Notification, shell, safeStorage } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import { tryGit, looksLikeRepo, GitError } from "./services/gitexec";
@@ -715,7 +715,33 @@ export class Bridge {
       });
       if (r.canceled || !r.filePaths[0]) return null;
       const full = path.resolve(r.filePaths[0]);
-      if (!looksLikeRepo(full)) throw new BridgeError("所选文件夹不是 git 仓库", full);
+      if (!looksLikeRepo(full)) {
+        // 非 git 仓库：询问是否就地初始化（词条双语，语言 = 设置偏好；system 用 Electron locale 解析）
+        const s = this.shared.i18n.get(
+          resolveLanguage(this.shared.settings.current.language ?? "system", app.getLocale()),
+        ).strings;
+        const t = (key: string, ...args: (string | number)[]) => {
+          let v = s[key] ?? key;
+          args.forEach((a, i) => { v = v.replace(`{${i}}`, String(a)); });
+          return v;
+        };
+        const box = await dialog.showMessageBox(this.win, {
+          type: "question",
+          title: t("Projects_NotRepoTitle"),
+          message: t("Projects_NotRepoBody", path.basename(full)),
+          detail: full,
+          buttons: [t("Projects_InitAndAdd"), t("Common_Cancel")],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true,
+        });
+        if (box.response !== 0) return null;
+        const init = await tryGit(full, ["init"]);
+        if (init.code !== 0) {
+          const detail = [init.stderr, init.stdout].map((x) => x.trim()).filter(Boolean).join("\n");
+          throw new BridgeError(t("Projects_InitFailed"), detail || `git init exit ${init.code}`);
+        }
+      }
       const p = { name: path.basename(full), path: full };
       settings.setCurrentProject(p);
       this.repo = full;
