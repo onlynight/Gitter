@@ -1018,13 +1018,18 @@ select.input {
 .term-page-area { flex: 1; min-height: 0; display: flex; }
 /* 分栏态：抵消 .term-wrap 右外边距（12px）；间距 = 4px 分割槽，与 Log/变更页一致 */
 .term-page-area > .term-wrap { margin-right: 0; min-width: 0; } /* min-width 0：xterm fit 后内部带固定像素宽，自动最小尺寸会顶住不收缩、把文档面板挤没 */
-/* 与 Log/变更页 .splitter 同款：4px 槽、静止无线、悬停/拖拽整条显色 */
+/* 4px 槽、静止无线；悬停 2px 细线（border-strong），拖拽切主题蓝（link）——用户指定线式反馈 */
 .term-doc-splitter {
   flex: 0 0 4px; align-self: stretch; margin: 4px 0 8px; position: relative;
   cursor: col-resize; touch-action: none;
+  transition: background var(--dur-fast) var(--ease-std);
+}
+.term-doc-splitter::after {
+  content: ""; position: absolute; left: 1px; top: 0; bottom: 0; width: 2px;
   background: transparent; transition: background var(--dur-fast) var(--ease-std);
 }
-.term-doc-splitter:hover, .term-doc-splitter.dragging { background: var(--c-border-strong); }
+.term-doc-splitter:hover::after { background: var(--c-border-strong); }
+.term-doc-splitter.dragging::after { background: var(--c-link); }
 .term-doc-splitter.hidden { display: none; }
 
 .doc-panel {
