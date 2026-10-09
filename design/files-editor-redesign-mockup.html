@@ -1,0 +1,1176 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>设计稿：文件页·内建编辑器重设计（参考 VS Code 视觉与交互）</title>
+<style>
+  /* ---- 应用主题 token（theme.gitui.solid dark / light 实测值，右上角按钮切换） ---- */
+  :root {
+    --c-base: #0D0D0D; --c-panel: #171717; --c-panel2: #202020;
+    --c-hover: #272727; --c-selected: #333333;
+    --c-border: #2B2B2B; --c-border-strong: #3E3E3E;
+    --c-text: #EAEAEA; --c-text2: #A0A0A0; --c-text3: #6E6E6E;
+    --c-accent: #EAEAEA; --c-on-accent: #0D0D0D;
+    --c-link: #6BABF5; --c-green: #3FB950; --c-red: #F0655A; --c-amber: #E3B341;
+    --c-chip-blue-bg: #1D2733; --c-chip-blue-fg: #8DB8F5;
+    --c-chip-purple-bg: #241F33; --c-chip-purple-fg: #B9A3EC;
+    --radius: 5px; --radius-md: 8px; --radius-lg: 10px;
+    --mono: "Cascadia Code", "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
+  }
+  /* 亮色（theme.gitui.solid light）：只覆写令牌，结构样式零复制 */
+  .theme-light {
+    --c-base: #FFFFFF; --c-panel: #F7F7F8; --c-panel2: #EFEFF1;
+    --c-hover: #EBEBEC; --c-selected: #E0E1E3;
+    --c-border: #E5E5E5; --c-border-strong: #D0D0D0;
+    --c-text: #1B1B1B; --c-text2: #5C5C5C; --c-text3: #8F8F8F;
+    --c-accent: #1B1B1B; --c-on-accent: #FFFFFF;
+    --c-link: #0B6BCB; --c-green: #1A7F37; --c-red: #CF222E; --c-amber: #BF8700;
+    --c-chip-blue-bg: #DDF4FF; --c-chip-blue-fg: #0B6BCB;
+    --c-chip-purple-bg: #FBEFFF; --c-chip-purple-fg: #8250DF;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: #0D0D0D; color: #EAEAEA;
+    font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 24px;
+  }
+  body.theme-light-body { background: #FFFFFF; color: #1B1B1B; }
+  .page-title { color: #6E6E6E; font-size: 12px; letter-spacing: .5px; }
+  body.theme-light-body .page-title { color: #8F8F8F; }
+  .theme-toggle {
+    position: fixed; top: 14px; right: 16px; height: 26px; padding: 0 12px; font: inherit; font-size: 12px;
+    color: #A0A0A0; background: #171717; border: 1px solid #3E3E3E; border-radius: 5px; cursor: pointer; z-index: 50;
+  }
+  .theme-toggle:hover { background: #272727; color: #EAEAEA; }
+  body.theme-light-body .theme-toggle { background: #F7F7F8; border-color: #D0D0D0; color: #5C5C5C; }
+  body.theme-light-body .theme-toggle:hover { background: #EBEBEC; color: #1B1B1B; }
+
+  .stage { width: 100%; max-width: 1180px; display: flex; flex-direction: column; gap: 16px; }
+  code { font-family: var(--mono); font-size: 11px; background: var(--c-panel2); border: 1px solid var(--c-border); border-radius: 3px; padding: 0 4px; }
+  kbd {
+    font-family: var(--mono); font-size: 10.5px; color: var(--c-text2);
+    border: 1px solid var(--c-border-strong); border-bottom-width: 2px; border-radius: 3px;
+    padding: 0 5px; line-height: 15px; background: var(--c-panel2); white-space: nowrap;
+  }
+
+  /* ================================================================
+     工作台（workbench）：side=资源管理器 / main=标签+面包屑+编辑器+页脚
+     层级语义：侧树/标签条/编辑区同底(Base)，结构线划界；
+     活动标签=Panel2 浮起卡片 + 描边环（终端页 term-tab 家内同款），页脚 Panel。
+     ================================================================ */
+  .workbench {
+    display: flex; height: 640px; background: var(--c-base);
+    border: 1px solid var(--c-border-strong); border-radius: var(--radius-lg); overflow: hidden;
+    user-select: none;
+  }
+
+  /* ---- 左侧文件树（资源管理器） ---- */
+  .side { width: 278px; min-width: 170px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--c-border); }
+  .side.collapsed { display: none; }
+
+  .side-head { height: 30px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 12px; }
+  .side-head .cap { font-size: 11px; font-weight: 600; color: var(--c-text3); letter-spacing: .5px; flex: none; }
+  .mode-tabs { display: flex; gap: 2px; margin-left: 6px; min-width: 0; }
+  .mode-tab {
+    font: inherit; font-size: 11px; color: var(--c-text3); padding: 2px 7px; border: none; background: none;
+    border-radius: 4px; cursor: pointer; white-space: nowrap;
+  }
+  .mode-tab:hover { color: var(--c-text2); background: var(--c-hover); }
+  .mode-tab.on { color: var(--c-text); background: var(--c-selected); font-weight: 600; }
+  .mode-tab .n { font-size: 10px; margin-left: 3px; color: var(--c-text3); font-weight: 400; }
+  .mode-tab.on .n { color: var(--c-text2); }
+  .head-actions { margin-left: auto; display: flex; opacity: 0; transition: opacity 90ms linear; }
+  .side-head:hover .head-actions, .side-head:focus-within .head-actions, .head-actions.keep { opacity: 1; }
+  .ibtn {
+    width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: none; border-radius: 4px; color: var(--c-text3); cursor: pointer; padding: 0;
+  }
+  .ibtn:hover { background: var(--c-hover); color: var(--c-text); }
+  .ibtn.on { color: var(--c-link); }
+
+  .filter-row { flex: none; display: none; align-items: center; gap: 6px; padding: 2px 10px 8px; }
+  .filter-row.show { display: flex; }
+  .filter-row input {
+    flex: 1; min-width: 0; height: 26px; padding: 0 8px; font: inherit; font-size: 12px;
+    color: var(--c-text); background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: 5px; outline: none;
+  }
+  .filter-row input:focus { border-color: color-mix(in srgb, var(--c-link) 60%, transparent); }
+  .filter-row input::placeholder { color: var(--c-text3); }
+  .filter-count { flex: none; font-size: 11px; color: var(--c-text3); }
+
+  /* 树行：无行线（VSCode 语义：分隔交给缩进参考线与间距，不画网格） */
+  .tree { flex: 1; overflow: auto; padding: 2px 0 8px; position: relative; }
+  .trow {
+    height: 24px; display: flex; align-items: center; gap: 4px; padding-right: 8px;
+    position: relative; cursor: pointer; font-size: 13px; white-space: nowrap;
+  }
+  .trow:hover { background: var(--c-hover); }
+  .trow.active { background: var(--c-selected); }
+  .trow:focus-visible { outline: 1px solid color-mix(in srgb, var(--c-link) 70%, transparent); outline-offset: -1px; }
+  .trow.flash { animation: rowflash 1s ease-out; }
+  @keyframes rowflash { 0% { background: color-mix(in srgb, var(--c-link) 28%, transparent); } 100% { } }
+  /* agent 回合层：左缘 2px 紫 bar（在 hover/active 底上仍可辨） */
+  .trow.agent { box-shadow: inset 2px 0 0 var(--c-chip-purple-fg); }
+  .trow .guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--c-border); pointer-events: none; }
+  .trow .chev { width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--c-text3); }
+  .trow .chev svg { transition: transform 120ms ease; }
+  .trow.open > .chev svg { transform: rotate(90deg); }
+  .trow .ficon { width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+  .trow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .trow .nm mark { background: color-mix(in srgb, var(--c-amber) 32%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+  /* git 状态 → 文件名着色（VSCode explorer 语义：名字即状态色，删除线表 deleted） */
+  .nm.s-M { color: var(--c-amber); } .nm.s-A { color: var(--c-green); }
+  .nm.s-D { color: var(--c-red); text-decoration: line-through; }
+  .nm.s-R { color: var(--c-link); } .nm.s-U { color: var(--c-red); }
+  .nm.s-Q { color: var(--c-green); opacity: .85; }
+  .nm.agent-nm { color: var(--c-chip-purple-fg) !important; font-weight: 600; }
+  .trow .mark { flex: none; display: inline-flex; color: var(--c-chip-purple-fg); }
+  .trow .st {
+    flex: none; width: 14px; text-align: center; font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  }
+  .st.s-M { color: var(--c-amber); } .st.s-A { color: var(--c-green); } .st.s-D { color: var(--c-red); }
+  .st.s-R { color: var(--c-link); } .st.s-U { color: var(--c-red); } .st.s-Q { color: var(--c-green); }
+
+  /* 分隔拖拽条（定宽 px，非百分比） */
+  .gutter { width: 5px; flex: none; cursor: col-resize; position: relative; margin: 0 -2px; z-index: 5; }
+  .gutter::after { content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: transparent; }
+  .gutter:hover::after, .gutter.drag::after { background: var(--c-border-strong); }
+
+  /* ---- 右侧编辑区 ---- */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  /* 标签条 = Gitter 家内规范（终端页 term-tab 同款）：底对齐圆角 chip，
+     活动态 = panel2 浮起卡片 + 1px 描边环，无通栏、无强调色顶线 */
+  .tabbar { height: 36px; flex: none; display: flex; align-items: flex-end; background: var(--c-base); border-bottom: 1px solid var(--c-border); min-width: 0; padding: 0 6px; }
+  .tabs { display: flex; align-items: flex-end; gap: 4px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    display: flex; align-items: center; gap: 6px; height: 26px; margin-bottom: 4px; padding: 0 5px 0 9px;
+    max-width: 220px; min-width: 0; border-radius: 6px;
+    font-size: 12px; color: var(--c-text3); cursor: pointer; position: relative; flex: none;
+  }
+  .tab:hover { background: var(--c-hover); color: var(--c-text2); }
+  .tab.active { background: var(--c-panel2); color: var(--c-text); box-shadow: 0 0 0 1px var(--c-border-strong); }
+  /* 预览标签：斜体（VSCode 单击=预览，编辑或双击后转正） */
+  .tab.preview .nm { font-style: italic; color: var(--c-text2); }
+  .tab .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nm.s-M, .tab .nm.s-M { color: var(--c-amber); } .tab .nm.s-A { color: var(--c-green); }
+  .tab .nm.s-D { color: var(--c-red); text-decoration: line-through; }
+  .tab .nm.s-R { color: var(--c-link); } .tab .nm.s-U { color: var(--c-red); } .tab .nm.s-Q { color: var(--c-green); }
+  .tab.active .nm.s-M, .tab.active .nm.s-A, .tab.active .nm.s-D, .tab.active .nm.s-R, .tab.active .nm.s-U, .tab.active .nm.s-Q,
+  .tab:not(.active):not(.preview):hover .nm.s-M, .tab:not(.active):not(.preview):hover .nm.s-A,
+  .tab:not(.active):not(.preview):hover .nm.s-D, .tab:not(.active):not(.preview):hover .nm.s-R { color: inherit; }
+  .tab .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c-text2); }
+  .tab .tclose {
+    flex: none; width: 17px; height: 17px; display: none; align-items: center; justify-content: center;
+    border-radius: 4px; color: var(--c-text3);
+  }
+  .tab:hover .dot, .tab.active .dot { display: none; }
+  .tab:hover .tclose, .tab.active .tclose { display: inline-flex; }
+  .tab .tclose:hover { background: var(--c-hover); color: var(--c-text); }
+  .tab .ficon { flex: none; display: inline-flex; }
+  .tabbar-actions { margin-left: auto; flex: none; display: flex; align-items: flex-end; gap: 2px; padding: 0 4px 4px 6px; }
+  .tabbar-actions .ibtn { align-self: flex-end; margin-bottom: 0; }
+  .saving-tag { font-size: 11px; color: var(--c-text3); padding: 0 6px; align-self: center; margin-bottom: 9px; }
+
+  /* 面包屑：路径段 + 当前符号（点击段落在树中定位） */
+  .crumbs { height: 24px; flex: none; display: flex; align-items: center; gap: 1px; padding: 0 10px; font-size: 12px; color: var(--c-text3); border-bottom: 1px solid var(--c-border); min-width: 0; overflow: hidden; }
+  .crumbs .cseg { display: flex; align-items: center; gap: 4px; padding: 1px 5px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+  .crumbs .cseg:hover { color: var(--c-text); background: var(--c-hover); }
+  .crumbs .csep { flex: none; opacity: .6; display: inline-flex; }
+  .crumbs .csym { color: var(--c-text2); }
+  .crumbs .csym .f { color: #B392F0; font-family: var(--mono); font-weight: 600; }
+  .theme-light .crumbs .csym .f { color: #8250DF; }
+
+  /* 编辑器主体：行号 + 代码 + minimap */
+  .editor { flex: 1; min-height: 0; display: flex; position: relative; }
+  .code-wrap { flex: 1; min-width: 0; overflow: auto; padding: 8px 0 24px; }
+  .cline { display: flex; font: 13px/1.5 var(--mono); white-space: pre; min-width: max-content; padding-right: 24px; }
+  .cline.currow { background: color-mix(in srgb, var(--c-text) 4%, transparent); }
+  .cline .ln { flex: none; width: 56px; padding-right: 22px; text-align: right; color: var(--c-text3); opacity: .8; user-select: none; }
+  .cline.currow .ln { color: var(--c-text2); opacity: 1; }
+  .cline .lc { user-select: text; }
+  .caret { display: inline-block; width: 2px; height: 19px; background: var(--c-text); vertical-align: text-bottom; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+
+  /* 语法配色（草案：GitHub Dim/Github Light 系，落地由宿主主题 syntax 表注入，见 filesMonaco.ts buildTheme） */
+  .tk-com { color: #7A8087; font-style: italic; } .tk-kw { color: #FF7B72; } .tk-str { color: #A5D6FF; }
+  .tk-fn { color: #D2A8FF; } .tk-num { color: #79C0FF; } .tk-type { color: #FFA657; }
+  .tk-prop { color: #79C0FF; } .tk-op { color: #FF7B72; } .tk-pn { color: var(--c-text2); } .tk-pl { color: var(--c-text); }
+  .theme-light .tk-com { color: #6E7781; } .theme-light .tk-kw { color: #CF222E; } .theme-light .tk-str { color: #0A3069; }
+  .theme-light .tk-fn { color: #8250DF; } .theme-light .tk-num { color: #0550AE; } .theme-light .tk-type { color: #953800; }
+  .theme-light .tk-prop { color: #0550AE; } .theme-light .tk-op { color: #CF222E; } .theme-light .tk-pn { color: #5C5C5C; }
+
+  .minimap { flex: none; width: 64px; border-left: 1px solid var(--c-border); position: relative; overflow: hidden; }
+  .mm-line { height: 2px; margin-bottom: 1px; padding-left: 8px; display: flex; gap: 1px; }
+  .mm-line i { height: 2px; border-radius: 1px; display: inline-block; }
+  .mm-com { background: #7A8087; } .mm-kw { background: #FF7B72; } .mm-str { background: #A5D6FF; }
+  .mm-fn { background: #D2A8FF; } .mm-num { background: #79C0FF; } .mm-type { background: #FFA657; }
+  .mm-prop { background: #79C0FF; } .mm-pl { background: #8B949E; } .mm-pn { background: #5A6069; }
+  .theme-light .mm-com { background: #6E7781; } .theme-light .mm-kw { background: #CF222E; } .theme-light .mm-str { background: #0A3069; }
+  .theme-light .mm-fn { background: #8250DF; } .theme-light .mm-num { background: #0550AE; } .theme-light .mm-type { background: #953800; }
+  .theme-light .mm-prop { background: #0550AE; } .theme-light .mm-pl { background: #8C959F; } .theme-light .mm-pn { background: #C0C4CA; }
+  .mm-slider { position: absolute; left: 0; right: 0; top: 6px; height: 62%; background: color-mix(in srgb, var(--c-text) 7%, transparent); border: 1px solid color-mix(in srgb, var(--c-text) 10%, transparent); pointer-events: none; }
+
+  /* 编辑器页脚（VSCode 状态栏语义：光标/缩进/编码/EOL/语言） */
+  .ed-foot {
+    height: 24px; flex: none; display: flex; align-items: center; gap: 1px; padding: 0 6px 0 10px;
+    font-size: 11px; color: var(--c-text3); border-top: 1px solid var(--c-border); background: var(--c-panel);
+  }
+  .ed-foot .it { display: flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+  .ed-foot .it:hover { background: var(--c-hover); color: var(--c-text2); }
+  .ed-foot .right { margin-left: auto; display: flex; }
+
+  /* 空态欢迎页（替代 emoji 空态）：动作列表 + 右下角水印 */
+  .welcome { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .wm {
+    position: absolute; right: 26px; bottom: 14px; font: 700 60px var(--mono); letter-spacing: 8px;
+    color: color-mix(in srgb, var(--c-text) 5%, transparent); pointer-events: none;
+  }
+  .wl { display: flex; flex-direction: column; gap: 9px; font-size: 13px; }
+  .wl .h { font-size: 15px; font-weight: 600; color: var(--c-text2); margin-bottom: 4px; }
+  .wl .wrow { display: flex; align-items: center; gap: 10px; color: var(--c-link); cursor: pointer; }
+  .wl .wrow:hover { text-decoration: underline; }
+  .wl .wrow .nm2 { flex: none; width: 88px; }
+
+  /* ---- 覆盖层：右键菜单 / 快速打开 / 对话框 / toast ---- */
+  .menu {
+    position: fixed; z-index: 140; min-width: 232px; padding: 4px; font-size: 12px;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius);
+    box-shadow: 0 6px 20px rgba(0,0,0,.35);
+  }
+  .theme-light .menu { box-shadow: 0 6px 20px rgba(0,0,0,.14); }
+  .mi { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-radius: 4px; cursor: pointer; color: var(--c-text); }
+  .mi:hover { background: var(--c-hover); }
+  .mi.dis { color: var(--c-text3); opacity: .6; cursor: default; }
+  .mi.dis:hover { background: none; }
+  .mi .k { margin-left: auto; padding-left: 18px; color: var(--c-text3); font-family: var(--mono); font-size: 10.5px; }
+  .mi .ic { flex: none; display: inline-flex; color: var(--c-text2); }
+  .msep { height: 1px; background: var(--c-border); margin: 4px 6px; }
+
+  .qo {
+    position: fixed; top: 9vh; left: 50%; transform: translateX(-50%); width: min(560px, 88%); z-index: 145;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-lg);
+    box-shadow: 0 10px 32px rgba(0,0,0,.45); overflow: hidden;
+  }
+  .theme-light .qo { box-shadow: 0 10px 32px rgba(0,0,0,.16); }
+  .qo input {
+    width: 100%; height: 38px; padding: 0 12px; font: inherit; font-size: 13px; color: var(--c-text);
+    background: transparent; border: none; outline: none; border-bottom: 1px solid var(--c-border);
+  }
+  .qo input::placeholder { color: var(--c-text3); }
+  .qo .qlist { max-height: 328px; overflow: auto; padding: 4px; }
+  .qo .qrow { height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 5px; cursor: pointer; font-size: 12.5px; }
+  .qo .qrow.sel { background: var(--c-selected); }
+  .qo .qrow .qn { flex: none; }
+  .qo .qrow .qp { margin-left: auto; min-width: 0; max-width: 58%; overflow: hidden; white-space: nowrap; direction: rtl; text-align: left; color: var(--c-text3); font-family: var(--mono); font-size: 11px; }
+  .qo .qhint { display: flex; gap: 14px; padding: 6px 10px; border-top: 1px solid var(--c-border); font-size: 11px; color: var(--c-text3); }
+  .qo .qempty { padding: 18px 12px; text-align: center; color: var(--c-text3); font-size: 12px; }
+
+  .scrim { position: fixed; inset: 0; z-index: 150; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; }
+  .dialog {
+    width: 430px; padding: 16px; background: var(--c-panel2); border: 1px solid var(--c-border-strong);
+    border-radius: var(--radius-lg); box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+  .dialog .dt { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .dialog .db { font-size: 12px; color: var(--c-text2); line-height: 1.7; margin-bottom: 16px; user-select: text; }
+  .dialog .acts { display: flex; gap: 8px; justify-content: flex-end; }
+  .btn {
+    height: 28px; padding: 0 14px; font: inherit; font-size: 12px; cursor: pointer;
+    background: var(--c-panel2); color: var(--c-text); border: 1px solid var(--c-border-strong); border-radius: var(--radius);
+  }
+  .btn:hover { background: var(--c-hover); }
+  .btn.primary { background: var(--c-accent); color: var(--c-on-accent); border-color: transparent; font-weight: 600; }
+  .btn.primary:hover { background: var(--c-accent-hover); }
+  .btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--c-link) 60%, transparent); outline-offset: 1px; }
+
+  .toast {
+    position: fixed; right: 18px; bottom: 18px; z-index: 160; padding: 8px 14px; font-size: 12px;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius);
+    box-shadow: 0 6px 20px rgba(0,0,0,.35); animation: toastin 160ms cubic-bezier(.16,1,.3,1);
+  }
+  @keyframes toastin { from { opacity: 0; transform: translateY(6px); } }
+
+  /* ---- 细节组件一览 ---- */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 1180px; }
+  .cmp-item { display: flex; flex-direction: column; gap: 6px; }
+  .cmp-cap { font-size: 11px; color: var(--c-text3); letter-spacing: .4px; }
+  .cmp-cap b { color: var(--c-text2); }
+  .win { background: var(--c-base); border: 1px solid var(--c-border-strong); border-radius: var(--radius-lg); overflow: hidden; position: relative; }
+  .win.demo { height: 250px; }
+  .win .scrim { position: absolute; }
+  .menu.static { position: static; box-shadow: none; width: 264px; margin: 14px auto; }
+
+  /* ---- 设计说明 ---- */
+  .notes { max-width: 1180px; color: var(--c-text2); font-size: 12px; line-height: 1.85; }
+  .notes b { color: var(--c-text); }
+  .notes .t { color: var(--c-text3); font-size: 11px; letter-spacing: .5px; margin: 14px 0 4px; }
+  .notes .t:first-child { margin-top: 0; }
+  .notes li { margin: 2px 0; }
+  .notes table { border-collapse: collapse; font-size: 11.5px; margin: 4px 0; }
+  .notes th, .notes td { border: 1px solid var(--c-border); padding: 3px 10px; text-align: left; color: var(--c-text2); }
+  .notes th { color: var(--c-text3); font-weight: 600; }
+  .notes td .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; border: 1px solid rgba(128,128,128,.35); }
+</style>
+</head>
+<body>
+  <button class="theme-toggle" id="themeToggle">切到亮色</button>
+  <div class="page-title">设计稿 · 文件页（files）内建编辑器 — 参考 VS Code 资源管理器/编辑器范式（可交互原型）</div>
+
+  <div class="stage theme-root" id="app">
+    <!-- ① 主工作台：文件树 + 标签 + 面包屑 + 编辑器 + 页脚 -->
+    <div class="workbench" id="wb">
+      <div class="side" id="side">
+        <div class="side-head" id="sideHead">
+          <span class="cap">文件</span>
+          <div class="mode-tabs" id="modeTabs" role="tablist"></div>
+          <div class="head-actions" id="headActions">
+            <button class="ibtn" id="btnFilter" title="筛选 (Alt+F)"></button>
+            <button class="ibtn" id="btnRefresh" title="刷新"></button>
+            <button class="ibtn" id="btnCollapse" title="全部折叠"></button>
+          </div>
+        </div>
+        <div class="filter-row" id="filterRow">
+          <input id="filterInput" type="text" placeholder="按名称筛选…" spellcheck="false">
+          <span class="filter-count" id="filterCount"></span>
+          <button class="ibtn" id="btnFilterClear" title="清除 (Esc)" style="width:20px;height:20px"></button>
+        </div>
+        <div class="tree" id="tree" role="tree"></div>
+      </div>
+      <div class="gutter" id="gutter" title="拖拽调整宽度（双击复位）"></div>
+      <div class="main">
+        <div class="tabbar">
+          <div class="tabs" id="tabs"></div>
+          <div class="tabbar-actions">
+            <span class="saving-tag" id="savingTag" hidden>保存中…</span>
+            <button class="ibtn" id="btnQuickOpen" title="转到文件 (Ctrl+P)"></button>
+            <button class="ibtn" title="分屏编辑（P3）"></button>
+            <button class="ibtn" title="更多操作…"></button>
+          </div>
+        </div>
+        <div class="crumbs" id="crumbs"></div>
+        <div class="editor" id="editorArea"></div>
+        <div class="ed-foot" id="edFoot"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ② 细节组件一览 -->
+  <div class="compare theme-root">
+    <div class="cmp-item">
+      <div class="cmp-cap"><b>① 空态 · 欢迎页</b>（替代 emoji 空态；动作可直达，快捷键外显）</div>
+      <div class="win demo">
+        <div class="tabbar"><div class="tabs"></div><div class="tabbar-actions"><button class="ibtn" id="dQo" title="转到文件 (Ctrl+P)"></button></div></div>
+        <div class="welcome">
+          <div class="wm">GITTER</div>
+          <div class="wl">
+            <div class="h">开始</div>
+            <div class="wrow" data-act="qo"><span class="nm2">打开文件</span><kbd>Ctrl</kbd><kbd>P</kbd></div>
+            <div class="wrow" data-act="side"><span class="nm2">文件树</span><kbd>Ctrl</kbd><kbd>B</kbd></div>
+            <div class="wrow" data-act="changes"><span class="nm2">查看 Git 变更</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>G</kbd></div>
+            <div class="wrow" data-act="external"><span class="nm2">在外部编辑器中打开项目</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cmp-item">
+      <div class="cmp-cap"><b>② 关闭含未保存更改的标签</b>（三选一：保存 / 不保存 / 取消，主按钮=保存）</div>
+      <div class="win demo">
+        <div class="scrim">
+          <div class="dialog">
+            <div class="dt">未保存的更改</div>
+            <div class="db">是否要在关闭前保存对「<code>FilesEditorPane.tsx</code>」的更改？</div>
+            <div class="acts">
+              <button class="btn">不保存</button>
+              <button class="btn">取消</button>
+              <button class="btn primary">保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cmp-item">
+      <div class="cmp-cap"><b>③ mtime 冲突对话框</b>（磁盘被外部修改；覆盖=保留本地，重新加载=放弃本地）</div>
+      <div class="win demo">
+        <div class="scrim">
+          <div class="dialog">
+            <div class="dt">检测到文件冲突</div>
+            <div class="db">「<code>treex.ts</code>」在磁盘上已被外部修改（可能由 agent 或其它工具写入）。<br>覆盖保存将丢失磁盘上的最新内容。</div>
+            <div class="acts">
+              <button class="btn">重新加载</button>
+              <button class="btn">取消</button>
+              <button class="btn primary">覆盖保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="cmp-item">
+      <div class="cmp-cap"><b>④ 右键菜单规范</b>（平面面板 / 图标+标签+键位提示右对齐 / 分组分隔线；危险项不放菜单）</div>
+      <div class="win demo">
+        <div class="menu static" id="menuSpec"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes theme-root">
+    <div class="t">一 · 现状问题（本稿逐一替换）</div>
+    <ul>
+      <li><b>树</b>：每行一条 <code>border-bottom</code> 成网格；emoji 图标（📄/▶/▼）；git 状态用 Material 硬编码色（<code>#FFD700/#4CAF50/#F44336/#2196F3</code>），活动行用 Material 蓝 <code>rgba(33,150,243,.2)</code>，与近单色壳层冲突；agent 回合=紫色加粗最扎眼。</li>
+      <li><b>标签</b>：活动标签背景取 <code>var(--c-bg)</code> —— 该 token 不存在，实际等于透明，活动标签<b>与普通标签无任何视觉区分</b>；脏点用 <code>#FFD700</code>；关闭钮常显且挤在文字旁。</li>
+      <li><b>空态</b>：📁📝 emoji 居中，无动作入口。</li>
+      <li><b>树头</b>：Select 下拉 + 输入框竖向堆叠占两行 chrome；分栏宽度按百分比（20%–70%），窗口缩放时树宽漂移。</li>
+      <li><b>编辑器</b>：Monaco 背景硬编码 <code>#1e1e1e</code>，与主题 <code>--c-base #0D0D0D</code> 脱节；无面包屑、无光标位置/语言/EOL 状态显示。</li>
+    </ul>
+
+    <div class="t">二 · 视觉规范（全部走主题 token，零字面色进入组件）</div>
+    <ul>
+      <li><b>层级</b>：侧树/标签条/编辑区同为 <code>--c-base</code>（结构线 <code>--c-border</code> 划界）；活动标签 = <code>--c-panel2</code> 浮起卡片 + <code>--c-border-strong</code> 描边环；菜单/浮层/对话框 <code>--c-panel2</code> + 描边承担层级，页脚 <code>--c-panel</code>。</li>
+      <li><b>树行</b>：24px 定高、无行线；缩进参考线 1px <code>--c-border</code>（对齐祖先 chevron 列中心）；hover=<code>--c-hover</code>；活动=<code>--c-selected</code>；键盘焦点=1px <code>--c-link</code> 内描边。chevron 16px、120ms 旋转过渡。</li>
+      <li><b>git 状态映射</b>（名字着色 + 行尾字母徽标，删除加删除线）：</li>
+    </ul>
+    <table>
+      <tr><th>状态</th><th>色 token</th><th>暗色值</th><th>替换的现状</th></tr>
+      <tr><td>M 修改</td><td><code>--c-amber</code></td><td><span class="sw" style="background:#E3B341"></span>#E3B341</td><td>#FFD700（纯黄过饱和）</td></tr>
+      <tr><td>A 新增 / ? 未跟踪</td><td><code>--c-green</code></td><td><span class="sw" style="background:#3FB950"></span>#3FB950（? 名字降 85% 不透明度）</td><td>#4CAF50 / #9E9E9E</td></tr>
+      <tr><td>D 删除 / U 冲突</td><td><code>--c-red</code></td><td><span class="sw" style="background:#F0655A"></span>#F0655A</td><td>#F44336</td></tr>
+      <tr><td>R 重命名</td><td><code>--c-link</code></td><td><span class="sw" style="background:#6BABF5"></span>#6BABF5</td><td>#2196F3</td></tr>
+      <tr><td>agent 回合</td><td><code>--c-chip-purple-fg</code></td><td><span class="sw" style="background:#B9A3EC"></span>#B9A3EC 左缘 2px bar + ✦ 徽标（回合过滤态下名字紫色半粗）</td><td>紫 #9C27B0 加粗（最扎眼的一档降级为标记层）</td></tr>
+    </table>
+    <ul>
+      <li><b>标签</b>（家内规范，终端页 <code>term-tab</code> 同款形制）：26px 圆角 chip 底对齐（间距 4px、圆角 6），无通栏矩形、无强调色顶线；活动 = <code>--c-panel2</code> 底 + <code>--c-border-strong</code> 描边环凸出，hover = <code>--c-hover</code>；文件名随 git 状态着色（悬停与活动态回收为正文色避免花）；预览标签斜体；脏 = <code>--c-text2</code> 圆点，与关闭钮互斥显示（hover/活动显 ×，其余显 ●，即终端页「× 仅 hover 显现、激活常显」规则 + 脏态扩展）。</li>
+      <li><b>文件图标</b>：16px 单形文档 SVG 按扩展名着色（ts 蓝/js 黄/json 黄/css 蓝/html 橙/md 蓝/svg 紫），目录保持中性 <code>--c-text3</code> 描边。v1 内置「扩展名→颜色」映射表即可，P3 可升级 Seti 风格全量 SVG 集。</li>
+      <li><b>Monaco 主题修正</b>：<code>editor.background</code> 跟 <code>--c-base</code>（替换硬编码 #1e1e1e），行高亮 <code>--c-text</code> 4% 叠加，选区 <code>--c-link</code> 30% 叠加，行号/光标/空白符取 Text3/Text/Text3；语法色继续由宿主 syntax 表注入（<code>filesMonaco.ts buildTheme</code> 机制不变，本稿代码配色为 GitHub Dim/Light 系草案）。</li>
+    </ul>
+
+    <div class="t">三 · 交互规范（VSCode 范式逐一落地）</div>
+    <ul>
+      <li><b>标签三态</b>：单击文件=<b>预览标签</b>（斜体，唯一，再开其它文件即替换）；双击/再次点击/编辑后=<b>转正</b>；中键或 × 关闭。关闭含未保存更改的标签 → 三选一对话框（保存/不保存/取消）。</li>
+      <li><b>树过滤</b>：树头漏斗钮展开筛选行（或直接键入）；按名筛选实时过滤 + <b>命中子串高亮</b>（amber 32% 叠加）+ 右侧计数；Esc 清空并收起；过滤态强制全展开并合成祖先目录（沿用现有实现语义）。</li>
+      <li><b>模式 tabs 迁入树头</b>：变更(N) / 回合(N) / 全部 与「文件」标题同行（30px 一行 chrome 替代现状两行堆叠）；变更/回合显示计数徽标；默认落在「变更」。</li>
+      <li><b>树头动作钮</b>：筛选/刷新/全部折叠，hover 或 focus-within 显（筛选激活时常显）；与列表/详细信息设计稿同一显隐策略。</li>
+      <li><b>定位与揭示</b>：激活标签时自动在树中揭示该文件（展开祖先、滚动到位、1s 闪光）；面包屑每段可点击同样定位；右键菜单提供 打开 / 查看变更 / 复制路径 / 复制相对路径 / 在外部编辑器中打开 / 在资源管理器中显示。</li>
+      <li><b>分栏</b>：改为<b>定宽像素</b>（默认 278，范围 170–520，双击复位），持久化 px 而非比例；<code>Ctrl+B</code> 整体收起/展开树。</li>
+      <li><b>保存反馈</b>：自动保存照旧（300ms 防抖，可在设置关）；显式 <code>Ctrl+S</code> 后页脚左侧闪「✓ 已保存」，标签条右侧「保存中…」仅在有延迟时出现；mtime 冲突对话框见 ③。</li>
+      <li><b>键盘</b>：<kbd>Ctrl</kbd>+<kbd>P</kbd> 快速打开（模糊子序列匹配，↑↓ 选择、Enter 打开、Esc 关闭）；<kbd>Ctrl</kbd>+<kbd>Tab</kbd> 循环标签；<kbd>Ctrl</kbd>+<kbd>W</kbd> 关闭；<kbd>Ctrl</kbd>+<kbd>S</kbd> 保存；<kbd>Alt</kbd>+<kbd>F</kbd> 筛选；树内 ↑↓ 移动焦点、Enter 打开、←→ 折叠/展开。浏览器原型可能拦截 Ctrl+Tab/P，应用内（Electron）无此问题。</li>
+      <li><b>标签溢出</b>：横向滚动 + 两端渐隐，悬停显示左右步进箭头（P2 可先仅滚动）；拖拽重排列 P3。</li>
+      <li><b>P3 备选</b>（本稿不做）：标签分屏、Open Editors 区、树 sticky scroll 目录头、quick open 符号模式（@）、底部 DiffView 面板挂载。</li>
+    </ul>
+
+    <div class="t">四 · i18n 新键（Strings.tsv）</div>
+    <ul>
+      <li><code>Files_ModeChanges=变更</code> / <code>Files_ModeAgent=回合</code> / <code>Files_ModeAll=全部</code>（替换 FilterGit/FilterAgent/FilterAll 文案；键可沿用）</li>
+      <li><code>Files_FilterToggle=筛选</code> / <code>Files_FilterPlaceholder=按名称筛选…</code> / <code>Files_FilterMatches={0} 个匹配</code> / <code>Files_Refresh=刷新</code> / <code>Files_CollapseAll=全部折叠</code></li>
+      <li><code>Files_QuickOpen=转到文件…</code> / <code>Files_CopyPath=复制路径</code> / <code>Files_CopyRelPath=复制相对路径</code></li>
+      <li><code>Editor_UnsavedTitle=未保存的更改</code> / <code>Editor_UnsavedBody=是否要在关闭前保存对「{0}」的更改？</code> / <code>Editor_DontSave=不保存</code> / <code>Editor_Save=保存</code>（取消已有）</li>
+      <li><code>Editor_ConflictTitle=检测到文件冲突</code> / <code>Editor_ConflictBody=「{0}」在磁盘上已被外部修改。覆盖保存将丢失磁盘上的最新内容。</code> / <code>Editor_SaveAsOverwrite=覆盖保存</code> / <code>Editor_Saved=已保存</code> / <code>Editor_Saving=保存中…</code></li>
+      <li><code>Editor_WelcomeTitle=开始</code> / <code>Editor_WelcomeOpen=打开文件</code> / <code>Editor_WelcomeChanges=查看 Git 变更</code> / <code>Editor_WelcomeExternal=在外部编辑器中打开项目</code></li>
+    </ul>
+
+    <div class="t">五 · 实现落点（零后端改动）</div>
+    <ul>
+      <li><code>FilesTreePane.tsx</code>：重写渲染层——chevron/图标/缩进参考线/状态着色/agent bar、过滤子串高亮、键盘焦点导航、树头（标题+模式 tabs+动作钮）；数据契约（<code>TreeEntry</code>、合成目录、expandAll）不变。</li>
+      <li><code>FilesPage.tsx</code>：过滤器 UI 迁入树头；分栏持久化改 px（settingsKey 换 <code>filesSidebarWidth</code>）；Ctrl+P/Ctrl+B 快捷键注册。</li>
+      <li><code>FilesEditorPane.tsx</code>：标签栏重构为家内 chip 形制（预览态/脏点与关闭互斥/状态着色，样式对齐终端页 <code>term-tab</code>）、关闭确认与冲突对话框重绘（.dialog 规范）、保存闪反馈、页脚状态条（Ln/Col 从 Monaco position 取）。</li>
+      <li><code>filesMonaco.ts</code>：<code>buildTheme</code> 底色改随宿主 token（#1e1e1e → --c-base 对应值），选区/行高亮/行号色同步换算。</li>
+      <li><code>styles.css</code>：新增 .side-head/.trow/.tab/.crumbs/.ed-foot/.dialog/.menu/.qo 等类组（本稿样式即草案）；RPC/bridge/agent 契约零改动。</li>
+      <li><b>主题</b>：右上角切亮/暗（theme.gitui.solid 实测值），树/标签/对话框/代码语法两套主题下均验证过对比度。</li>
+    </ul>
+  </div>
+
+<script>
+// ============ 模拟数据（TreeEntry 形状：path/status/touchedByAgent） ============
+const FILES = [
+  { p: "app/src/bridge.ts", s: "M", a: true },
+  { p: "app/src/services/treex.ts", s: "A", a: true },
+  { p: "app/src/services/agents/builtinTools.ts", s: "M", a: false },
+  { p: "app/src/services/agents/loop.ts", s: null, a: false },
+  { p: "app/src/services/settings.ts", s: null, a: false },
+  { p: "design/projects-view-modes-mockup.html", s: "?", a: false },
+  { p: "docs/inline-editor-plan.md", s: "?", a: false },
+  { p: "web/package.json", s: "M", a: false },
+  { p: "web/src/kit/SplitPane.tsx", s: null, a: false },
+  { p: "web/src/pages/FilesEditorPane.tsx", s: "M", a: true },
+  { p: "web/src/pages/FilesMonacoEditor.tsx", s: "A", a: false },
+  { p: "web/src/pages/FilesPage.tsx", s: "M", a: true },
+  { p: "web/src/pages/FilesTreePane.tsx", s: "M", a: true },
+  { p: "web/src/pages/TreePane-old.tsx", s: "D", a: false },
+  { p: "web/src/pages/filesMonaco.ts", s: "A", a: true },
+  { p: "web/src/pages/entries/bash.ts", s: null, a: false },
+  { p: "web/src/pages/entries/files.ts", s: "A", a: false },
+  { p: "web/src/state/store.ts", s: null, a: false },
+  { p: "web/src/styles.css", s: "M", a: false },
+  { p: "README.md", s: null, a: false },
+];
+const ST_CLS = { M: "s-M", A: "s-A", D: "s-D", R: "s-R", U: "s-U", "?": "s-Q" };
+const ST_LETTER = { M: "M", A: "A", D: "D", R: "R", U: "U", "?": "?" };
+
+// ============ 内联 SVG（原型自包含；落地换 Segoe Fluent / 内置图标集） ============
+const SVG = {
+  chev: '<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  crumb: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  filter: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11L9.5 8.4v4.1l-3 1.5V8.4z"/></svg>',
+  refresh: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M13 8a5 5 0 1 1-1.5-3.6M13.2 1.8v3h-3"/></svg>',
+  collapse: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v6M8 8 5 5.4M8 8l3-2.6"/><rect x="2.5" y="11" width="11" height="2.5" rx="0.8"/></svg>',
+  clear: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg>',
+  close: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="m4 4 8 8M12 4l-8 8"/></svg>',
+  sparkle: '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5 9.4 6 14 7.4 9.4 8.8 8 13.4 6.6 8.8 2 7.4 6.6 6z"/></svg>',
+  folder: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M1.8 4.2c0-.6.4-1 1-1h3l1.4 1.6h5.9c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1H2.8c-.6 0-1-.4-1-1z"/></svg>',
+  qo: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="7" cy="7" r="4.2"/><path d="m10.4 10.4 3 3"/></svg>',
+  split: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="11" height="11" rx="1.2"/><path d="M8 2.5v11"/></svg>',
+  more: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.2" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.8" cy="8" r="1.2"/></svg>',
+  check: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.2 3.2L13 5"/></svg>',
+  openExt: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5H4A1.5 1.5 0 0 0 2.5 5v7A1.5 1.5 0 0 0 4 13.5h7a1.5 1.5 0 0 0 1.5-1.5V9.5M9 2.5h4.5V7M13 3 7.5 8.5"/></svg>',
+  reveal: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M1.8 4.2c0-.6.4-1 1-1h3l1.4 1.6h5.9c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1H2.8c-.6 0-1-.4-1-1z"/></svg>',
+  diff: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M4.5 2.5v7M4.5 2.5 2.5 4.5M4.5 2.5l2 2M11.5 13.5v-7M11.5 13.5l-2-2M11.5 13.5l2-2"/></svg>',
+  copy: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg>',
+};
+// 文件类型图标：16px 单形文档，扩展名→颜色（v1 内置映射；P3 可升级 Seti 风格 SVG 集）
+const TYPE_COLOR = {
+  ts: "#519ABA", tsx: "#519ABA", js: "#DDB15A", mjs: "#DDB15A", json: "#DDB15A",
+  css: "#519ABA", html: "#E37933", md: "#6BABF5", svg: "#A074C4", png: "#A074C4",
+  tsv: "#8F8F8F", default: "#8F8F8F",
+};
+function fileIcon(p) {
+  const base = p.split("/").pop() ?? p;
+  const dot = base.lastIndexOf(".");
+  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
+  const c = TYPE_COLOR[ext] ?? TYPE_COLOR.default;
+  return `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 1.8h5.2L12.8 5.4V14a.8.8 0 0 1-.8.8H4a.8.8 0 0 1-.8-.8V2.6c0-.44.36-.8.8-.8z" stroke="${c}" stroke-width="1.1" stroke-linejoin="round"/><path d="M9 2v3.4h3.4" stroke="${c}" stroke-width="1.1" stroke-linejoin="round"/></svg>`;
+}
+function folderIcon() { return `<span style="color:var(--c-text3)">${SVG.folder}</span>`; }
+
+// ============ 状态 ============
+let mode = "git";                    // git | agent | all
+let filterOn = false, query = "";
+const expanded = new Set(["web", "app", "docs"]); // 仅「全部」模式生效
+let tabs = [];                        // [{path, preview}]
+let activeTab = null;
+const dirty = new Set();
+let sideOpen = true;
+let flashTimer = null;
+
+const $ = (id) => document.getElementById(id);
+
+// ============ 树 ============
+function filesForMode() {
+  let fs = FILES;
+  if (mode === "git") fs = fs.filter((f) => f.s);
+  else if (mode === "agent") fs = fs.filter((f) => f.a);
+  if (query.trim()) {
+    const q = query.trim().toLowerCase();
+    fs = fs.filter((f) => f.p.toLowerCase().includes(q));
+  }
+  return fs;
+}
+// 目录状态色 = 后代文件状态按严重度取一（U/D > M/A > R > ?）
+const DIR_PRIO = ["U", "D", "M", "A", "R", "?"];
+function buildTree() {
+  const fs = filesForMode();
+  const dirs = new Map(); // path → {cls}
+  const byDir = new Map();
+  for (const f of fs) {
+    const dir = f.p.includes("/") ? f.p.slice(0, f.p.lastIndexOf("/")) : "";
+    if (!byDir.has(dir)) byDir.set(dir, []);
+    byDir.get(dir).push(f);
+    let acc = "";
+    for (const seg of dir ? dir.split("/") : []) {
+      acc = acc ? acc + "/" + seg : seg;
+      dirs.set(acc, null);
+    }
+  }
+  for (const f of fs) {
+    if (!f.s) continue;
+    let acc = "";
+    const segs = f.p.split("/"); segs.pop();
+    for (const seg of segs) {
+      acc = acc ? acc + "/" + seg : seg;
+      const cur = dirs.get(acc);
+      if (!cur || DIR_PRIO.indexOf(f.s) < DIR_PRIO.indexOf(cur)) dirs.set(acc, f.s);
+    }
+  }
+  const root = [];
+  const dirNode = (path, s) => ({
+    dir: true, path, name: path.split("/").pop(), s,
+    children: [], open: mode !== "all" || expanded.has(path),
+  });
+  for (const [path, s] of [...dirs.entries()].sort((x, y) => x[0].localeCompare(y[0]))) {
+    const parts = path.split("/");
+    const parent = parts.length === 1 ? root : (() => {
+      const pp = parts.slice(0, -1).join("/");
+      const stack = pp.split("/");
+      let node = null, level = root;
+      for (const seg of stack) { node = level.find((n) => n.dir && n.name === seg); level = node.children; }
+      return level;
+    })();
+    parent.push(dirNode(path, s));
+  }
+  const fileNode = (f) => ({ dir: false, path: f.p, name: f.p.split("/").pop(), s: f.s, a: f.a });
+  for (const [dir, files] of byDir) {
+    const parts = dir ? dir.split("/") : [];
+    let level = root;
+    for (const seg of parts) level = level.find((n) => n.dir && n.name === seg).children;
+    level.push(...files.map(fileNode));
+  }
+  const sortRec = (level) => {
+    level.sort((x, y) => (x.dir === y.dir ? x.name.localeCompare(y.name) : x.dir ? -1 : 1));
+    level.forEach((n) => n.dir && sortRec(n.children));
+  };
+  sortRec(root);
+  return { root, count: fs.length };
+}
+function highlight(name) {
+  const q = query.trim().toLowerCase();
+  if (!q) return escapeHtml(name);
+  const i = name.toLowerCase().indexOf(q);
+  if (i < 0) return escapeHtml(name);
+  return escapeHtml(name.slice(0, i)) + "<mark>" + escapeHtml(name.slice(i, i + q.length)) + "</mark>" + escapeHtml(name.slice(i + q.length));
+}
+function escapeHtml(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function renderTree() {
+  const { root, count } = buildTree();
+  const rows = [];
+  const walk = (level, depth) => {
+    for (const n of level) {
+      const guides = Array.from({ length: depth }, (_, i) => `<i class="guide" style="left:${14 + 16 * i}px"></i>`).join("");
+      const pad = 6 + depth * 16;
+      if (n.dir) {
+        const nmCls = n.s ? "nm " + ST_CLS[n.s] : "nm";
+        rows.push(`<div class="trow dir ${n.open ? "open" : ""}" data-path="${n.path}" data-dir="1" tabindex="0" style="padding-left:${pad}px" title="${n.path}">
+          ${guides}<span class="chev">${SVG.chev}</span><span class="ficon">${folderIcon()}</span>
+          <span class="${nmCls}">${highlight(n.name)}</span></div>`);
+        if (n.open) walk(n.children, depth + 1);
+      } else {
+        const nmCls = "nm" + (n.s ? " " + ST_CLS[n.s] : "") + (n.a && mode === "agent" ? " agent-nm" : "");
+        rows.push(`<div class="trow${n.a ? " agent" : ""}${n.path === activeTab ? " active" : ""}" data-path="${n.path}" tabindex="0" style="padding-left:${pad}px" title="${n.path}">
+          ${guides}<span class="chev"></span><span class="ficon">${fileIcon(n.path)}</span>
+          <span class="${nmCls}">${highlight(n.name)}</span>
+          ${n.a && mode !== "agent" ? `<span class="mark" title="本回合 agent 改动">${SVG.sparkle}</span>` : ""}
+          ${n.s ? `<span class="st ${ST_CLS[n.s]}">${ST_LETTER[n.s]}</span>` : ""}</div>`);
+      }
+    }
+  };
+  walk(root, 0);
+  $("tree").innerHTML = rows.length ? rows.join("") : `<div style="padding:24px 16px;text-align:center;color:var(--c-text3);font-size:12px">无匹配文件</div>`;
+  $("filterCount").textContent = filterOn && query.trim() ? count + " 个匹配" : "";
+}
+
+// ============ 标签 ============
+function tabEl(t) {
+  const isActive = t.path === activeTab;
+  const isDirty = dirty.has(t.path);
+  const name = t.path.split("/").pop();
+  const st = FILES.find((f) => f.p === t.path)?.s;
+  const nmCls = "nm" + (st ? " " + ST_CLS[st] : "");
+  return `<div class="tab${isActive ? " active" : ""}${t.preview ? " preview" : ""}" data-path="${t.path}" title="${t.path}">
+    <span class="ficon">${fileIcon(t.path)}</span><span class="${nmCls}">${escapeHtml(name)}</span>
+    ${isDirty ? `<span class="dot" title="未保存"></span>` : ""}
+    <span class="tclose" data-close="${t.path}" title="关闭 (Ctrl+W)">${SVG.close}</span></div>`;
+}
+function renderTabs() {
+  $("tabs").innerHTML = tabs.map(tabEl).join("");
+  renderCrumbs();
+  renderEditor();
+}
+function openFile(path, { preview = true } = {}) {
+  let t = tabs.find((x) => x.path === path);
+  if (!t) {
+    tabs = tabs.filter((x) => !x.preview); // 预览标签唯一：开新文件即替换
+    t = { path, preview };
+    tabs.push(t);
+  } else if (!preview && t.preview) {
+    t.preview = false; // 再次点击 = 转正
+  }
+  activeTab = path;
+  renderTabs(); renderTree(); revealInTree(path);
+}
+function pinTab(path) {
+  const t = tabs.find((x) => x.path === path);
+  if (t && t.preview) { t.preview = false; renderTabs(); }
+}
+function requestClose(path) {
+  if (dirty.has(path)) { confirmClose(path); return; }
+  closeTab(path);
+}
+function closeTab(path) {
+  const i = tabs.findIndex((x) => x.path === path);
+  if (i < 0) return;
+  tabs.splice(i, 1);
+  dirty.delete(path);
+  if (activeTab === path) activeTab = tabs[Math.min(i, tabs.length - 1)]?.path ?? null;
+  renderTabs(); renderTree();
+}
+function cycleTab() {
+  if (tabs.length < 2) return;
+  const i = tabs.findIndex((x) => x.path === activeTab);
+  openFile(tabs[(i + 1) % tabs.length].path, { preview: false });
+}
+function revealInTree(path) {
+  // 展开祖先（全部模式）并滚动到位 + 1s 闪光
+  const segs = path.split("/"); segs.pop();
+  let acc = "";
+  for (const s of segs) { acc = acc ? acc + "/" + s : s; expanded.add(acc); }
+  renderTreeSoon(() => {
+    const row = $("tree").querySelector(`.trow[data-path="${CSS.escape(path)}"]`);
+    if (row) {
+      row.scrollIntoView({ block: "nearest" });
+      row.classList.add("flash");
+      setTimeout(() => row.classList.remove("flash"), 1000);
+    }
+  });
+}
+let revealPending = false;
+function renderTreeSoon(fn) {
+  if (revealPending) return;
+  revealPending = true;
+  requestAnimationFrame(() => { revealPending = false; renderTree(); fn(); });
+}
+
+// ============ 面包屑 ============
+function renderCrumbs() {
+  const el = $("crumbs");
+  if (!activeTab) { el.innerHTML = ""; el.style.display = "none"; return; }
+  el.style.display = "flex";
+  const segs = activeTab.split("/");
+  let acc = "";
+  const parts = segs.map((s, i) => {
+    acc = acc ? acc + "/" + s : s;
+    const last = i === segs.length - 1;
+    return `${i > 0 ? `<span class="csep">${SVG.crumb}</span>` : ""}
+      <span class="cseg" data-crumb="${acc}">${last ? fileIcon(s) : folderIcon()}<span>${escapeHtml(s)}</span></span>`;
+  });
+  el.innerHTML = parts.join("") +
+    `<span class="csep">${SVG.crumb}</span><span class="cseg csym" title="当前符号（P3 符号面包屑）"><span class="f">ƒ</span><span>doSave</span></span>`;
+}
+
+// ============ 编辑器（静态高亮代码 + minimap，展示 Monaco 落地后的视觉） ============
+const CODE = [
+  [["com", "// 保存文件（带 mtime 冲突检测）"]],
+  [["kw", "async "], ["kw", "function "], ["fn", "doSave"], ["pn", "("], ["pl", "path"], ["pn", ": "], ["type", "string"], ["pn", ", "], ["pl", "overwrite "], ["op", "= "], ["kw", "false"], ["pn", ") {"]],
+  [["pn", "  "], ["kw", "const "], ["pl", "editor"], ["op", " = "], ["pl", "editors"], ["pn", "."], ["prop", "get"], ["pn", "("], ["pl", "path"], ["pn", ");"]],
+  [["pn", "  "], ["kw", "const "], ["pl", "model"], ["op", " = "], ["pl", "models"], ["pn", "."], ["prop", "current"], ["pn", "."], ["prop", "get"], ["pn", "("], ["pl", "path"], ["pn", ");"]],
+  [["pn", "  "], ["kw", "if "], ["pn", "("], ["op", "!"], ["pl", "editor"], ["op", " || "], ["op", "!"], ["pl", "model"], ["pn", ") "], ["kw", "return"], ["pn", ";"]],
+  [],
+  [["pn", "  "], ["kw", "const "], ["pl", "content"], ["op", " = "], ["pl", "model"], ["pn", "."], ["prop", "getValue"], ["pn", "();"]],
+  [["pn", "  "], ["kw", "if "], ["pn", "("], ["op", "!"], ["pl", "editor"], ["pn", "."], ["prop", "dirty"], ["op", " && "], ["pl", "content"], ["op", " === "], ["pl", "editor"], ["pn", "."], ["prop", "originalContent"], ["pn", ") "], ["kw", "return"], ["pn", ";"]],
+  [["pn", "  "], ["kw", "if "], ["pn", "("], ["pl", "editor"], ["pn", "."], ["prop", "binary"], ["pn", ") "], ["kw", "return"], ["pn", ";"]],
+  [],
+  [["pn", "  "], ["com", "// 冲突检测：磁盘 mtime 与已知值比对，不一致 → 弹出冲突对话框"]],
+  [["pn", "  "], ["kw", "const "], ["pl", "fresh"], ["op", " = "], ["kw", "await "], ["pl", "bridge"], ["pn", "."], ["prop", "call"], ["pn", "<"], ["type", "FileMeta"], ["op", " | "], ["kw", "null"], ["pn", ">("], ["str", "\"file.content\""], ["pn", ", { "], ["pl", "path"], ["pn", " });"]],
+  [["pn", "  "], ["kw", "if "], ["pn", "("], ["pl", "fresh"], ["op", " && "], ["pl", "editor"], ["pn", "."], ["prop", "mtime"], ["op", " > "], ["num", "0"], ["op", " && "], ["pl", "fresh"], ["pn", "."], ["prop", "mtime"], ["op", " !== "], ["pl", "editor"], ["pn", "."], ["prop", "mtime"], ["pn", ") {"]],
+  [["pn", "    "], ["fn", "setConflict"], ["pn", "("], ["pl", "path"], ["pn", ");"], ["pn", "   "], ["com", "// 覆盖或重载由用户选择"]],
+  [["pn", "    "], ["kw", "return"], ["pn", ";"]],
+  [["pn", "  }"]],
+  [],
+  [["pn", "  "], ["kw", "const "], ["pl", "r"], ["op", " = "], ["kw", "await "], ["pl", "bridge"], ["pn", "."], ["prop", "call"], ["pn", "<"], ["type", "WriteResult"], ["pn", ">("], ["str", "\"file.write\""], ["pn", ", { "], ["pl", "path"], ["pn", ", "], ["pl", "content"], ["pn", ", "], ["pl", "eol"], ["pn", ": "], ["pl", "editor"], ["pn", "."], ["prop", "eol"], ["pn", " });"]],
+  [["pn", "  "], ["kw", "if "], ["pn", "("], ["op", "!"], ["pl", "r"], ["pn", "."], ["prop", "ok"], ["pn", ") "], ["kw", "throw "], ["kw", "new "], ["fn", "Error"], ["pn", "("], ["pl", "r"], ["pn", "."], ["prop", "error"], ["op", " ?? "], ["str", "\"save_failed\""], ["pn", ");"]],
+  [["pn", "  "], ["fn", "patchEditor"], ["pn", "("], ["pl", "path"], ["pn", ", ("], ["pl", "ed"], ["pn", ") "], ["kw", "=>"], ["pn", " { "], ["pl", "ed"], ["pn", "."], ["prop", "dirty"], ["op", " = "], ["kw", "false"], ["pn", "; "], ["pl", "ed"], ["pn", "."], ["prop", "mtime"], ["op", " = "], ["pl", "r"], ["pn", "."], ["prop", "mtime"], ["pn", "; });"]],
+  [["pn", "}"]],
+];
+const CUR_LINE = 14; // 演示光标位（对齐页脚 Ln/Col）
+const MM_FILLER = [52, 38, 44, 60, 30, 48, 22, 56, 40, 34, 58, 26, 44, 50, 36, 20, 54, 42, 30, 46, 24, 38, 56, 32, 28, 48, 40, 22, 44, 34];
+
+function renderEditor() {
+  const area = $("editorArea");
+  if (!activeTab) {
+    area.innerHTML = `<div class="welcome">
+      <div class="wm">GITTER</div>
+      <div class="wl">
+        <div class="h">开始</div>
+        <div class="wrow" data-act="qo"><span class="nm2">打开文件</span><kbd>Ctrl</kbd><kbd>P</kbd></div>
+        <div class="wrow" data-act="side"><span class="nm2">文件树</span><kbd>Ctrl</kbd><kbd>B</kbd></div>
+        <div class="wrow" data-act="changes"><span class="nm2">查看 Git 变更</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>G</kbd></div>
+        <div class="wrow" data-act="external"><span class="nm2">在外部编辑器中打开项目</span></div>
+      </div></div>`;
+    $("edFoot").style.display = "none";
+    return;
+  }
+  $("edFoot").style.display = "flex";
+  const lines = CODE.map((segs, i) => {
+    const n = i + 1;
+    const body = segs.map(([c, s]) => `<span class="tk-${c}">${escapeHtml(s)}</span>`).join("");
+    const cur = n === CUR_LINE;
+    return `<div class="cline${cur ? " currow" : ""}"><span class="ln${cur ? " cur" : ""}">${n}</span><span class="lc">${body}${cur ? `<i class="caret"></i>` : ""}</span></div>`;
+  }).join("");
+  const mm = CODE.map((segs) => {
+    const cls = segs.length ? "mm-" + segs[0][0] : "";
+    const w = Math.min(56, segs.reduce((a, s) => a + s[1].length, 0)) || 6;
+    return `<div class="mm-line">${cls ? `<i class="${cls}" style="width:${w}px"></i>` : ""}</div>`;
+  }).join("") + MM_FILLER.map((w) => `<div class="mm-line"><i class="mm-pl" style="width:${w}px;opacity:.45"></i></div>`).join("");
+  area.innerHTML = `<div class="code-wrap" id="codeWrap" title="双击切换「未保存」演示态">${lines}</div><div class="minimap"><div class="mm-slider"></div>${mm}</div>`;
+  renderFoot();
+}
+function renderFoot() {
+  const st = FILES.find((f) => f.p === activeTab)?.s;
+  $("edFoot").innerHTML = `
+    <span class="it" id="footProb" title="问题"><span style="color:var(--c-green)">${SVG.check}</span> 0 错误 0 警告</span>
+    <div class="right">
+      <span class="it" title="光标位置">Ln ${CUR_LINE}, Col 26</span>
+      <span class="it" title="缩进">空格: 4</span>
+      <span class="it" title="编码">UTF-8</span>
+      <span class="it" id="footEol" title="行尾序列（点击切换）">LF</span>
+      <span class="it" title="语言模式">TypeScript</span>
+      ${st ? `<span class="it st ${ST_CLS[st]}" title="Git 状态">${ST_LETTER[st]}</span>` : ""}
+    </div>`;
+}
+
+// ============ 模式 tabs / 树头 ============
+const MODES = [
+  { id: "git", label: "变更" },
+  { id: "agent", label: "回合" },
+  { id: "all", label: "全部" },
+];
+function renderModeTabs() {
+  const nGit = FILES.filter((f) => f.s).length;
+  const nAgent = FILES.filter((f) => f.a).length;
+  $("modeTabs").innerHTML = MODES.map((m) => {
+    const n = m.id === "git" ? nGit : m.id === "agent" ? nAgent : null;
+    return `<button class="mode-tab${mode === m.id ? " on" : ""}" role="tab" aria-selected="${mode === m.id}" data-mode="${m.id}">${m.label}${n !== null ? `<span class="n">${n}</span>` : ""}</button>`;
+  }).join("");
+}
+
+// ============ 右键菜单 ============
+let menuEl = null;
+function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+function showMenu(x, y, items) {
+  closeMenu();
+  menuEl = document.createElement("div");
+  menuEl.className = "menu";
+  menuEl.innerHTML = items.map((it) =>
+    it === "-" ? `<div class="msep"></div>` :
+    `<div class="mi${it.dis ? " dis" : ""}" data-id="${it.id}">${it.ic ? `<span class="ic">${it.ic}</span>` : ""}<span>${it.label}</span>${it.k ? `<span class="k">${it.k}</span>` : ""}</div>`
+  ).join("");
+  $("app").appendChild(menuEl);
+  const r = menuEl.getBoundingClientRect();
+  menuEl.style.left = Math.min(x, window.innerWidth - r.width - 8) + "px";
+  menuEl.style.top = Math.min(y, window.innerHeight - r.height - 8) + "px";
+  menuEl.addEventListener("click", (e) => {
+    const mi = e.target.closest(".mi");
+    if (!mi || mi.classList.contains("dis")) return;
+    closeMenu();
+    items.find((i) => i !== "-" && i.id === mi.dataset.id)?.run?.();
+  });
+}
+function menuForFile(path) { return [
+  { id: "open", label: "打开", k: "Enter", run: () => openFile(path, { preview: false }) },
+  { id: "diff", label: "查看变更", ic: SVG.diff, run: () => toast(`（原型）跳转变更页：${path}`) },
+  "-",
+  { id: "copyPath", label: "复制路径", ic: SVG.copy, k: "Shift+Alt+C", run: () => copyPath(path) },
+  { id: "copyRel", label: "复制相对路径", run: () => copyPath(path) },
+  "-",
+  { id: "ext", label: "在外部编辑器中打开", ic: SVG.openExt, run: () => toast(`（原型）shell.openPath：${path}`) },
+  { id: "reveal", label: "在资源管理器中显示", ic: SVG.reveal, k: "Shift+Alt+R", run: () => toast(`（原型）shell.reveal：${path}`) },
+]; }
+function menuForDir(path) { return [
+  { id: "newFile", label: "新建文件…", run: () => toast("（原型）新建文件") },
+  { id: "newDir", label: "新建文件夹…", run: () => toast("（原型）新建文件夹") },
+  "-",
+  { id: "reveal", label: "在资源管理器中显示", ic: SVG.reveal, run: () => toast(`（原型）shell.reveal：${path}`) },
+  { id: "copyPath", label: "复制路径", ic: SVG.copy, run: () => copyPath(path) },
+]; }
+function copyPath(p) {
+  try { navigator.clipboard?.writeText(p); } catch { /* 原型允许失败 */ }
+  toast("已复制：" + p);
+}
+
+// ============ 快速打开（Ctrl+P） ============
+let qoEl = null, qoSel = 0, qoItems = [];
+function openQO() {
+  if (qoEl) return;
+  qoEl = document.createElement("div");
+  qoEl.className = "qo";
+  qoEl.innerHTML = `<input id="qoInput" type="text" placeholder="转到文件…（支持路径模糊匹配）" spellcheck="false">
+    <div class="qlist" id="qoList"></div>
+    <div class="qhint"><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>Enter</kbd> 打开</span><span><kbd>Esc</kbd> 关闭</span></div>`;
+  $("app").appendChild(qoEl);
+  const input = qoEl.querySelector("#qoInput");
+  input.addEventListener("input", () => { qoSel = 0; renderQO(); });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); qoSel = Math.min(qoSel + 1, qoItems.length - 1); renderQO(true); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); qoSel = Math.max(qoSel - 1, 0); renderQO(true); }
+    else if (e.key === "Enter") { e.preventDefault(); const it = qoItems[qoSel]; if (it) { closeQO(); openFile(it.p, { preview: true }); } }
+    else if (e.key === "Escape") { e.stopPropagation(); closeQO(); }
+  });
+  qoEl.addEventListener("click", (e) => {
+    const row = e.target.closest(".qrow");
+    if (!row) return;
+    closeQO(); openFile(row.dataset.path, { preview: true });
+  });
+  input.focus();
+  renderQO();
+}
+function closeQO() { if (qoEl) { qoEl.remove(); qoEl = null; } }
+function fuzzy(q, s) {
+  q = q.toLowerCase(); s = s.toLowerCase();
+  let i = 0;
+  for (const ch of s) { if (ch === q[i]) i++; if (i === q.length) return true; }
+  return q.length === 0;
+}
+function renderQO(keepScroll) {
+  const q = qoEl.querySelector("#qoInput").value;
+  qoItems = FILES.filter((f) => fuzzy(q, f.p));
+  const list = qoEl.querySelector("#qoList");
+  list.innerHTML = qoItems.length ? qoItems.map((f, i) => `
+    <div class="qrow${i === qoSel ? " sel" : ""}" data-path="${f.p}">
+      <span class="ficon">${fileIcon(f.p)}</span><span class="qn">${escapeHtml(f.p.split("/").pop())}</span>
+      <span class="qp">${escapeHtml(f.p)}</span></div>`).join("")
+    : `<div class="qempty">无匹配文件</div>`;
+  const sel = list.querySelector(".qrow.sel");
+  if (sel && !keepScroll) sel.scrollIntoView({ block: "nearest" });
+  else if (sel) sel.scrollIntoView({ block: "nearest" });
+}
+
+// ============ 对话框 / toast ============
+function confirmClose(path) {
+  const name = path.split("/").pop();
+  const scrim = document.createElement("div");
+  scrim.className = "scrim";
+  scrim.innerHTML = `<div class="dialog" role="alertdialog" aria-label="未保存的更改">
+    <div class="dt">未保存的更改</div>
+    <div class="db">是否要在关闭前保存对「<code>${escapeHtml(name)}</code>」的更改？</div>
+    <div class="acts">
+      <button class="btn" data-r="discard">不保存</button>
+      <button class="btn" data-r="cancel">取消</button>
+      <button class="btn primary" data-r="save">保存</button>
+    </div></div>`;
+  $("app").appendChild(scrim);
+  scrim.addEventListener("click", (e) => {
+    const b = e.target.closest(".btn");
+    if (!b) return;
+    scrim.remove();
+    if (b.dataset.r === "save") { mockSave(path); closeTab(path); }
+    else if (b.dataset.r === "discard") closeTab(path);
+  });
+  scrim.addEventListener("keydown", (e) => { if (e.key === "Escape") scrim.remove(); });
+}
+let toastEl = null, toastTimer = null;
+function toast(msg) {
+  if (toastEl) toastEl.remove();
+  clearTimeout(toastTimer);
+  toastEl = document.createElement("div");
+  toastEl.className = "toast";
+  toastEl.textContent = msg;
+  $("app").appendChild(toastEl);
+  toastTimer = setTimeout(() => { toastEl?.remove(); toastEl = null; }, 2200);
+}
+
+// ============ 保存演示（Ctrl+S / 关闭确认走这里） ============
+function mockSave(path) {
+  const p = path ?? activeTab;
+  if (!p || !dirty.has(p)) return;
+  $("savingTag").hidden = false;
+  setTimeout(() => {
+    $("savingTag").hidden = true;
+    dirty.delete(p);
+    const t = tabs.find((x) => x.path === p);
+    if (t) t.preview = false;
+    renderTabs(); renderTree();
+    const fp = $("footProb");
+    if (fp) {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+      fp.innerHTML = `<span style="color:var(--c-green)">${SVG.check}</span> 已保存 · ${hh}`;
+      clearTimeout(flashTimer);
+      flashTimer = setTimeout(renderFoot, 1600);
+    }
+  }, 420);
+}
+
+// ============ 事件绑定 ============
+// 树：点击 / 双击 / 右键 / 键盘
+$("tree").addEventListener("click", (e) => {
+  const row = e.target.closest(".trow");
+  if (!row) return;
+  const path = row.dataset.path;
+  if (row.dataset.dir) {
+    if (mode === "all") { expanded.has(path) ? expanded.delete(path) : expanded.add(path); renderTree(); }
+    return;
+  }
+  openFile(path, { preview: true });
+});
+$("tree").addEventListener("dblclick", (e) => {
+  const row = e.target.closest(".trow");
+  if (row && !row.dataset.dir) pinTab(row.dataset.path);
+});
+$("tree").addEventListener("contextmenu", (e) => {
+  const row = e.target.closest(".trow");
+  if (!row) return;
+  e.preventDefault();
+  showMenu(e.clientX, e.clientY, row.dataset.dir ? menuForDir(row.dataset.path) : menuForFile(row.dataset.path));
+});
+$("tree").addEventListener("keydown", (e) => {
+  const rows = [...$("tree").querySelectorAll(".trow")];
+  const i = rows.indexOf(document.activeElement);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const next = rows[Math.max(0, Math.min(rows.length - 1, i < 0 ? 0 : i + (e.key === "ArrowDown" ? 1 : -1)))];
+    next?.focus();
+  } else if (e.key === "Enter" && document.activeElement?.classList.contains("trow")) {
+    const row = document.activeElement;
+    if (row.dataset.dir) row.click(); else openFile(row.dataset.path, { preview: true });
+  } else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    const row = document.activeElement;
+    if (!row?.dataset.dir) return;
+    const isOpen = row.classList.contains("open");
+    if (e.key === "ArrowRight" && !isOpen) { expanded.add(row.dataset.path); renderTree(); }
+    else if (e.key === "ArrowLeft" && isOpen) { expanded.delete(row.dataset.path); renderTree(); }
+  }
+});
+// 标签：点击 / 中键 / 双击转正 / 关闭钮
+$("tabs").addEventListener("click", (e) => {
+  const c = e.target.closest(".tclose");
+  if (c) { e.stopPropagation(); requestClose(c.dataset.close); return; }
+  const tab = e.target.closest(".tab");
+  if (tab) openFile(tab.dataset.path, { preview: false });
+});
+$("tabs").addEventListener("auxclick", (e) => {
+  if (e.button !== 1) return;
+  const tab = e.target.closest(".tab");
+  if (tab) closeTab(tab.dataset.path);
+});
+$("tabs").addEventListener("dblclick", (e) => {
+  const tab = e.target.closest(".tab");
+  if (tab) pinTab(tab.dataset.path);
+});
+// 面包屑：点击段落揭示树
+$("crumbs").addEventListener("click", (e) => {
+  const seg = e.target.closest(".cseg[data-crumb]");
+  if (!seg) return;
+  if (!sideOpen) toggleSide();
+  revealInTree(activeTab);
+});
+// 编辑器：双击切脏（演示编辑行为）
+$("editorArea").addEventListener("dblclick", (e) => {
+  const wrow = e.target.closest(".wrow");
+  if (wrow) {
+    const act = wrow.dataset.act;
+    if (act === "qo") openQO();
+    else if (act === "side") toggleSide();
+    else if (act === "changes") toast("（原型）跳转变更页");
+    else if (act === "external") toast("（原型）shell.openPath：仓库根目录");
+    return;
+  }
+  if (!activeTab) return;
+  dirty.has(activeTab) ? dirty.delete(activeTab) : (dirty.add(activeTab), pinTab(activeTab));
+  renderTabs(); renderTree();
+  toast(dirty.has(activeTab) ? "（演示）标记为未保存 —— 脏点 ● 与 × 互换，关闭时弹确认" : "（演示）已还原为已保存");
+});
+$("editorArea").addEventListener("contextmenu", (e) => {
+  if (!e.target.closest(".code-wrap") || !activeTab) return;
+  e.preventDefault();
+  showMenu(e.clientX, e.clientY, menuForFile(activeTab));
+});
+// 树头
+$("modeTabs").addEventListener("click", (e) => {
+  const b = e.target.closest(".mode-tab");
+  if (!b) return;
+  mode = b.dataset.mode;
+  renderModeTabs(); renderTree();
+});
+$("btnFilter").addEventListener("click", () => {
+  filterOn = !filterOn;
+  $("btnFilter").classList.toggle("on", filterOn);
+  $("filterRow").classList.toggle("show", filterOn);
+  if (filterOn) $("filterInput").focus(); else { query = ""; $("filterInput").value = ""; }
+  renderTree();
+});
+$("filterInput").addEventListener("input", (e) => { query = e.target.value; renderTree(); });
+$("filterInput").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    query = ""; $("filterInput").value = "";
+    filterOn = false;
+    $("btnFilter").classList.remove("on");
+    $("filterRow").classList.remove("show");
+    renderTree();
+  }
+});
+$("btnFilterClear").addEventListener("click", () => {
+  query = ""; $("filterInput").value = "";
+  filterOn = false;
+  $("btnFilter").classList.remove("on");
+  $("filterRow").classList.remove("show");
+  renderTree();
+});
+$("btnRefresh").addEventListener("click", () => { toast("（原型）repo.tree 刷新"); renderTree(); });
+$("btnCollapse").addEventListener("click", () => { expanded.clear(); renderTree(); });
+// 分栏拖拽（定宽 px：170–520，双击复位）
+(() => {
+  const gutter = $("gutter"), side = $("side");
+  let drag = null;
+  gutter.addEventListener("mousedown", (e) => {
+    drag = { x: e.clientX, w: side.getBoundingClientRect().width };
+    gutter.classList.add("drag");
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!drag) return;
+    const w = Math.max(170, Math.min(520, drag.w + e.clientX - drag.x));
+    side.style.width = w + "px";
+  });
+  window.addEventListener("mouseup", () => { if (drag) { drag = null; gutter.classList.remove("drag"); } });
+  gutter.addEventListener("dblclick", () => { side.style.width = ""; });
+})();
+function toggleSide() {
+  sideOpen = !sideOpen;
+  $("side").classList.toggle("collapsed", !sideOpen);
+  $("gutter").style.display = sideOpen ? "" : "none";
+}
+// 标签条动作
+$("btnQuickOpen").addEventListener("click", openQO);
+// 全局快捷键
+window.addEventListener("keydown", (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "p") { e.preventDefault(); openQO(); }
+  else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSide(); }
+  else if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); mockSave(); }
+  else if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); if (activeTab) requestClose(activeTab); }
+  else if (e.ctrlKey && e.key === "Tab") { e.preventDefault(); cycleTab(); }
+  else if (e.key === "Escape") { closeMenu(); closeQO(); }
+});
+window.addEventListener("click", (e) => { if (menuEl && !e.target.closest(".menu")) closeMenu(); });
+window.addEventListener("resize", closeMenu);
+// 欢迎页（细节区静态实例）
+document.querySelectorAll(".win .wrow").forEach((el) => {
+  el.addEventListener("click", () => {
+    const act = el.dataset.act;
+    if (act === "qo") openQO();
+    else if (act === "side") { if (!sideOpen) toggleSide(); toast("（原型）已展开文件树"); }
+    else if (act === "changes") toast("（原型）跳转变更页");
+    else if (act === "external") toast("（原型）shell.openPath：仓库根目录");
+  });
+});
+// 右键菜单规范（静态）
+$("menuSpec").innerHTML = menuForFile("web/src/pages/FilesPage.tsx").map((it) =>
+  it === "-" ? `<div class="msep"></div>` :
+  `<div class="mi">${it.ic ? `<span class="ic">${it.ic}</span>` : ""}<span>${it.label}</span>${it.k ? `<span class="k">${it.k}</span>` : ""}</div>`
+).join("");
+
+// ============ 初始化 ============
+$("btnFilter").innerHTML = SVG.filter;
+$("btnRefresh").innerHTML = SVG.refresh;
+$("btnCollapse").innerHTML = SVG.collapse;
+$("btnFilterClear").innerHTML = SVG.clear;
+$("btnQuickOpen").innerHTML = SVG.qo;
+document.querySelectorAll('[title="分屏编辑（P3）"]').forEach((b) => (b.innerHTML = SVG.split));
+document.querySelectorAll('[title="更多操作…"]').forEach((b) => (b.innerHTML = SVG.more));
+$("dQo").innerHTML = SVG.qo;
+renderModeTabs();
+openFile("web/src/pages/FilesEditorPane.tsx", { preview: false });
+dirty.add("web/src/pages/FilesEditorPane.tsx"); // 初始演示脏标签（关闭时会弹确认）
+openFile("web/src/pages/filesMonaco.ts");       // 预览标签（斜体）
+activeTab = "web/src/pages/FilesEditorPane.tsx";
+renderTabs();
+renderTree();
+
+// ============ 亮暗主题切换（token 整组覆写，结构样式零复制） ============
+$("themeToggle").addEventListener("click", () => {
+  const light = !document.body.classList.contains("theme-light-body");
+  document.body.classList.toggle("theme-light-body", light);
+  document.querySelectorAll(".theme-root").forEach((el) => el.classList.toggle("theme-light", light));
+  $("themeToggle").textContent = light ? "切到深色" : "切到亮色";
+});
+</script>
+</body>
+</html>
