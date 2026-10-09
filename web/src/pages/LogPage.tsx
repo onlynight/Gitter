@@ -7,7 +7,7 @@ import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge
 import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
-const { call, t, navigate, refresh: refreshCurrent, setContext: setSharedContext, focusTask } = pageSdk;
+const { call, t, navigate, notifyRepoChanged, setContext: setSharedContext, focusTask } = pageSdk;
 const useApp = useAppState;
 
 // ---- 行模型（对齐 LogRow：按天组头 / 会话卡 / 提交行）----
@@ -66,6 +66,10 @@ export function LogPage() {
   const [tagTarget, setTagTarget] = useState<CommitDTO | null>(null);
   const [tagName, setTagName] = useState("");
   const [tagMessage, setTagMessage] = useState("");
+  // 创建分支对话框（以所选提交为起点）
+  const [branchTarget, setBranchTarget] = useState<CommitDTO | null>(null);
+  const [branchName, setBranchName] = useState("");
+  const [branchCheckout, setBranchCheckout] = useState(true);
   const { showMenu, menuElement } = useContextMenu();
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -103,7 +107,7 @@ export function LogPage() {
     }
   }, [repo]);
 
-  // 首次 / 仓库切换 / F5 / 分支与搜索变化 → 重置加载
+  // 首次 / 仓库切换 / F5 → 重置加载（含选中与详情）
   useEffect(() => {
     if (!repo) { setCommits([]); setDetail(null); return; }
     void loadBranches();
@@ -113,11 +117,27 @@ export function LogPage() {
     setCompareBase(null);
   }, [repo, app.refreshTick]);
 
+  // 项目切换 → 清空分支/搜索过滤与旧列表（上个仓库的分支名在新仓库不存在，git log 会 fatal；
+  // 旧 commits 不清的话，加载失败/竞态时会一直残留上个项目的日志）
+  useEffect(() => {
+    setBranch("");
+    setQuery("");
+    setCommits([]);
+    setHasMore(false);
+    setError(null);
+  }, [repo]);
+
+  // 仓库数据变更（其它页改仓操作/任务广播）→ 分支下拉重拉（不动选中与视图状态）
+  useEffect(() => {
+    if (!repo) return;
+    void loadBranches();
+  }, [repo, app.repoChangedTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!repo) return;
     const timer = setTimeout(() => void loadPage(0, true), 200); // 搜索防抖
     return () => clearTimeout(timer);
-  }, [repo, branch, query, app.refreshTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [repo, branch, query, app.refreshTick, app.repoChangedTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 详情加载（含比较基准语义：log.select 的 base..sha 树 diff）
   useEffect(() => {
@@ -149,6 +169,9 @@ export function LogPage() {
     let curDay = "";
     let dayCollapsed = false;
     let count = 0;
+    // 当前日的分组行引用：计数回填必须直接写它——若查 out 末尾，首条成员行入列后
+    // 就永远不再是分组头，展开日计数会停在 1（折叠日因不推成员行而侥幸正确）
+    let curGroup: Extract<Row, { kind: "group" }> | null = null;
     for (const c of commits) {
       const day = new Date(c.committerDate * 1000).toISOString().slice(0, 10);
       if (day !== curDay) {
@@ -156,11 +179,11 @@ export function LogPage() {
         curDay = day;
         dayCollapsed = collapsedDays.has(day);
         count = 0;
-        out.push({ kind: "group", key: curDay, title: dayTitle(new Date(curDay)), count: 0, collapsed: dayCollapsed });
+        curGroup = { kind: "group", key: curDay, title: dayTitle(new Date(curDay)), count: 0, collapsed: dayCollapsed };
+        out.push(curGroup);
       }
       count++;
-      const last = out[out.length - 1];
-      if (last.kind === "group") last.count = count; // 回填计数
+      curGroup!.count = count; // 回填计数（含会话折叠/日折叠未展示的成员）；首条提交必已建组
       if (dayCollapsed) continue; // 折叠日：成员行（含会话卡）不出现
 
       const session = sessionOfSha.get(c.sha);
@@ -220,7 +243,9 @@ export function LogPage() {
         message: squashMessage(s),
       });
       setError(null);
-      refreshCurrent();
+      setSelectedSha(null); // squash 改写历史：选中可能已不存在
+      setCompareBase(null);
+      notifyRepoChanged();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -232,7 +257,9 @@ export function LogPage() {
       await call("log.reset", { sha: resetTarget.sha, mode: resetMode, branch: (branch || branches.current) || undefined });
       setError(null);
       setResetTarget(null);
-      refreshCurrent();
+      setSelectedSha(null); // reset 改写历史：选中可能已不存在
+      setCompareBase(null);
+      notifyRepoChanged();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -246,7 +273,7 @@ export function LogPage() {
       setTagTarget(null);
       setTagName("");
       setTagMessage("");
-      refreshCurrent();
+      notifyRepoChanged();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -287,6 +314,9 @@ export function LogPage() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "8px 12px 12px" }}>
       <SplitPane settingKey="logSplitterFraction" initial={0.42} a={
         <div className="split-pane" ref={listRef}>
+          {rows.length === 0 && !loading && !error && branches.names.length === 0 && (
+            <div className="empty-state"><div className="big">⏱</div>{t("Log_EmptyRepo")}</div>
+          )}
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
             {virtualizer.getVirtualItems().map((vi) => {
               const row = rows[vi.index];
@@ -360,6 +390,7 @@ export function LogPage() {
                         { label: t("Log_CopyAuthor"), action: () => copy(c.author) },
                         { sep: true, label: "", action: () => {} },
                         { label: t("Log_CreateTag"), action: () => { setTagName(""); setTagMessage(""); setTagTarget(c); } },
+                        { label: t("Log_CreateBranch"), action: () => { setBranchName(""); setBranchCheckout(true); setBranchTarget(c); } },
                         { label: t("Log_ViewReflog"), action: () => setReflogBranch(branch || branches.current || "HEAD") },
                         {
                           label: t("Log_CompareWithSelected"),
@@ -493,12 +524,49 @@ export function LogPage() {
           />
         </Modal>
       )}
+      {branchTarget && (
+        <Modal
+          title={t("Branches_CreateTitle")}
+          confirmText={t("Common_Create")}
+          confirmDisabled={!branchName.trim()}
+          onClose={() => setBranchTarget(null)}
+          onConfirm={() => {
+            const name = branchName.trim();
+            const sha = branchTarget.sha;
+            setBranchTarget(null);
+            void (async () => {
+              try {
+                await call("branches.create", { name, fromSha: sha, checkout: branchCheckout });
+                notifyRepoChanged();
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            })();
+          }}
+        >
+          <div style={{ userSelect: "text", marginBottom: 8 }}>
+            <span className="mono">{branchTarget.shortSha}</span> {branchTarget.subject}
+          </div>
+          <input
+            autoFocus
+            className="input"
+            style={{ width: "100%" }}
+            placeholder={t("Branches_NamePlaceholder")}
+            value={branchName}
+            onChange={(e) => setBranchName(e.target.value)}
+          />
+          <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8 }}>
+            <input type="checkbox" checked={branchCheckout} onChange={(e) => setBranchCheckout(e.target.checked)} />
+            {t("Branches_CheckoutAfter")}
+          </label>
+        </Modal>
+      )}
       {reflogBranch && (
         <ReflogDialog
           refName={reflogBranch}
           title={t("Reflog_Title", reflogBranch)}
           currentBranch={branches.current}
-          onChanged={() => refreshCurrent()}
+          onChanged={() => { setSelectedSha(null); setCompareBase(null); notifyRepoChanged(); }}
           onClose={() => setReflogBranch(null)}
         />
       )}

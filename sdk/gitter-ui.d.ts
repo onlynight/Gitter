@@ -80,6 +80,10 @@ export interface BranchItemDTO {
   subject: string;
   isHead: boolean;
   isRemote: boolean;
+  /** 领先 upstream/当前分支的提交数；null = 不显示 */
+  ahead?: number | null;
+  /** 落后 upstream/当前分支的提交数；null = 不显示 */
+  behind?: number | null;
 }
 
 export interface TagItemDTO {
@@ -100,6 +104,28 @@ export interface DeletePreviewDTO {
   forceRequired: boolean;
   lostCount: number;
   lostSamples: { shortSha: string; subject: string }[];
+}
+
+export interface BranchGraphRowDTO {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  author: string;
+  timestamp: number;
+  /** 本提交所在泳道 id */
+  lane: number;
+  /** 本行并入本泳道的其他泳道（id 稳定，与槽位无关）——分叉点/合并点画曲线 */
+  merges: { from: number; to: number }[];
+  /** 本提交派生出的新泳道 id（向下延伸） */
+  spawns: number[];
+  /** 本行处理完后的槽位表（slot → 泳道 id），供前端定位下一行 */
+  slotAfter: number[];
+  refs: { name: string; isTag: boolean; isHead: boolean }[];
+}
+
+export interface BranchGraphDTO {
+  rows: BranchGraphRowDTO[];
+  hasMore: boolean;
 }
 
 export interface ReflogEntryDTO {

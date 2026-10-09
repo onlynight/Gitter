@@ -513,6 +513,7 @@ Nav_Dashboard	Dashboard	仪表盘
 Common_Branch	Branch	分支
 Select_SearchPlaceholder	Search (contains)	搜索（关键字包含）
 Select_Empty	No matches — switch tab or change keyword	无匹配项——切换 tab 或修改关键字
+Select_UseValue	Use: {0}	使用：{0}
 Common_NoProjectSelected	No project selected	未选择项目
 Common_Rename	Rename	重命名
 Common_ToggleSidebar	Toggle sidebar	收起/展开侧边栏
@@ -557,6 +558,7 @@ Log_ComparingWith	Comparing against {0}	正在对比基准 {0}
 Log_CopySha	Copy SHA	复制 SHA
 Log_CreateTag	Create tag…	创建 tag…
 Log_CreateTagTitle	Create tag on {0}	在 {0} 上创建 tag
+Log_CreateBranch	Create branch…	创建分支…
 Log_TagNamePlaceholder	Tag name	tag 名
 Log_TagMessagePlaceholder	Message (optional, creates annotated tag)	信息（可选，填写则创建附注 tag）
 Log_CopySubject	Copy subject	复制主题
@@ -655,6 +657,9 @@ Branches_StartHead	Current HEAD ({0})	当前 HEAD（{0}）
 Branches_TagSuffix	tag	tag
 Branches_StartPointPlaceholder	Pick a start point…	请选择起点…
 Branches_CheckoutAfter	Checkout after creating	创建后检出
+Branches_CreateFromCommit	Create branch from this commit…	基于此提交创建分支…
+Branches_TabCommit	Commit	提交
+Branches_CommitIdPlaceholder	Paste a commit id, Enter to use	粘贴提交 id，回车采用
 Branches_CheckoutLocal	Checkout as local branch	检出为本地分支
 Branches_DeleteRemote	Delete remote branch…	删除远程分支…
 Branches_DeleteRemoteTitle	Delete remote branch {0}	删除远程分支 {0}
