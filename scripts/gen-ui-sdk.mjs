@@ -97,6 +97,7 @@ interface GITTER_UI_API {
       shadowed: Array<{ packageId: string; isBuiltIn: boolean }>;
     }>;
     agentUI: Array<{ packageId: string; tier: "host" | "builtin" | "user"; renderers: number; providers: number }>;
+    docs: Array<{ id: string; title: string; packageId: string; tier: "host" | "builtin" | "user" }>;
   };
   /** 贡献文档（终端页文档面板可读；同 id 用户包 > 内置包 > 宿主，层级由 loader 注入的包身份决定；
    * 返回退订函数——插件页卸载时撤销本包文档）。内容一律经 renderMarkdown 渲染，无脚本注入面。 */
