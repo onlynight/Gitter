@@ -677,6 +677,14 @@ Projects_NewWindow	New window	新窗口
 Projects_Remove	Remove	移除
 Projects_Current	Current	当前
 Projects_EmptyHint	Add a repository to get started	添加一个仓库开始使用
+Projects_View	View	视图
+Projects_ViewCard	Cards	卡片
+Projects_ViewTiles	Tiles	平铺
+Projects_ViewList	List	列表
+Projects_ViewDetails	Details	详细信息
+Projects_ColName	Name	名称
+Projects_ColPath	Path	路径
+Projects_ColActions	Actions	操作
 Tasks_Create	New task	新建任务
 Tasks_CreateTitle	Create Task Worktree	创建任务 worktree
 Tasks_Created	Task created	任务已创建
