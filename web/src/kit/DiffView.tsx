@@ -104,12 +104,13 @@ export function DiffView(props: {
   onToggleHunk?: (index: number) => void;
   hunkActionLabel?: (index: number) => string;
   onHunkAction?: (index: number) => void;
-  /** 语法高亮 + 字级 diff 开关（详情页只读视图开，普通渲染默认开） */
+  /** 语法高亮 + 字级 diff 开关（缺省开；显式传 false 关闭） */
   rich?: boolean;
   /** 定位到新增行号（安全网发现跳转）：滚动到该行并短暂高亮；ts 变化即重复触发 */
   focusLine?: { line: number; ts: number } | null;
 }) {
   const { diff } = props;
+  const rich = props.rich ?? true;
   const app = useApp();
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -129,7 +130,7 @@ export function DiffView(props: {
   const syntaxColors = app.theme?.syntax ?? {};
   const [syntaxLines, setSyntaxLines] = useState<{ left?: SyntaxRun[][]; right?: SyntaxRun[][] }>({});
 
-  // 并排模式收集左/右行文本 → 两次桥调用取语法 runs（inline 模式行序不同构，v1 纯文本）
+  // 并排模式收集左/右行文本 → 两次桥调用取语法 runs
   const assembled = useMemo(() => {
     const left: string[] = [];
     const right: string[] = [];
@@ -145,19 +146,34 @@ export function DiffView(props: {
     return { left, right, rowsPerHunk };
   }, [diff]);
 
+  // 内联模式行序不同构，按旧/新侧各自聚行（渲染时按下标回映射，见 InlineHunkBody）
+  const inlineAssembled = useMemo(() => {
+    if (!props.inline) return null;
+    const oldLines: string[] = [];
+    const newLines: string[] = [];
+    for (const h of diff.hunks) {
+      for (const l of h.oldLines) oldLines.push(l.slice(1));
+      for (const l of h.newLines) newLines.push(l.slice(1));
+    }
+    return { oldLines, newLines };
+  }, [diff, props.inline]);
+
   useEffect(() => {
-    if (!props.rich || props.inline) return;
+    if (!rich || diff.hunks.length === 0) return;
+    const asm = props.inline ? inlineAssembled : null;
+    const oldText = asm ? asm.oldLines.join("\n") : assembled.left.join("\n");
+    const newText = asm ? asm.newLines.join("\n") : assembled.right.join("\n");
     let cancelled = false;
     (async () => {
       try {
         const [r, r2] = await Promise.all([
           call<{ lines: SyntaxRun[][] }>("highlight.file", {
             path: diff.path,
-            text: assembled.left.join("\n"),
+            text: oldText,
           }),
           call<{ lines: SyntaxRun[][] }>("highlight.file", {
             path: diff.path,
-            text: assembled.right.join("\n"),
+            text: newText,
           }),
         ]);
         if (!cancelled) setSyntaxLines({ left: r.lines, right: r2.lines });
@@ -169,7 +185,7 @@ export function DiffView(props: {
       cancelled = true;
     };
     // app.theme 进依赖：TextMate 颜色在主进程按活动主题解析，切主题需重拉
-  }, [assembled, props.inline, props.rich, diff.path, app.theme]);
+  }, [rich, assembled, inlineAssembled, props.inline, diff.path, diff.hunks.length, app.theme]);
 
   // diff 侧栏注记接缝（E 阶段收尾：L2 按路径只读注记）
   const [notes, setNotes] = useState<{ packageId: string; text: string }[]>([]);
@@ -223,6 +239,8 @@ export function DiffView(props: {
   }
 
   let rowOffset = 0;
+  let inlineOldOffset = 0;
+  let inlineNewOffset = 0;
   const body = diff.hunks.map((h, hi) => {
     const rows = assembled.rowsPerHunk[hi];
     const slice = (arr?: { start: number; end: number; style: string }[][]) =>
@@ -230,6 +248,10 @@ export function DiffView(props: {
     const leftSyntax = slice(syntaxLines.left);
     const rightSyntax = slice(syntaxLines.right);
     rowOffset += rows.length;
+    const inlineOldSyntax = syntaxLines.left?.slice(inlineOldOffset, inlineOldOffset + h.oldLines.length);
+    const inlineNewSyntax = syntaxLines.right?.slice(inlineNewOffset, inlineNewOffset + h.newLines.length);
+    inlineOldOffset += h.oldLines.length;
+    inlineNewOffset += h.newLines.length;
     const checked = props.selectedHunks?.has(hi);
     return (
       <div key={hi}>
@@ -250,9 +272,9 @@ export function DiffView(props: {
           </div>
         ) : null}
         {props.inline ? (
-          <InlineHunkBody hunk={h} />
+          <InlineHunkBody hunk={h} oldSyntax={inlineOldSyntax} newSyntax={inlineNewSyntax} colors={syntaxColors} />
         ) : (
-          <SideHunkBody rows={rows} leftSyntax={leftSyntax} rightSyntax={rightSyntax} colors={syntaxColors} rich={props.rich} />
+          <SideHunkBody rows={rows} leftSyntax={leftSyntax} rightSyntax={rightSyntax} colors={syntaxColors} rich={rich} />
         )}
         {!diff.newEndsWithNewline || !diff.oldEndsWithNewline ? (
           <div style={{ gridColumn: "1 / -1" }}>
@@ -309,7 +331,8 @@ function SideHunkBody(props: {
   );
 }
 
-function InlineHunkBody({ hunk }: { hunk: HunkDTO }) {
+function InlineHunkBody(props: { hunk: HunkDTO; oldSyntax?: SyntaxRun[][]; newSyntax?: SyntaxRun[][]; colors: Record<string, string> }) {
+  const { hunk, oldSyntax, newSyntax, colors } = props;
   const rows = useMemo(() => {
     const out: { cls: string; num: number; text: string }[] = [];
     let oldNum = hunk.oldCount > 0 ? hunk.oldStart : hunk.oldStart + 1;
@@ -328,11 +351,15 @@ function InlineHunkBody({ hunk }: { hunk: HunkDTO }) {
   }, [hunk]);
   return (
     <>
-      {rows.map((r, i) => (
-        <div className="diff-row" key={i}>
-          <Cell num={r.num} newLn={r.cls !== "d-del" ? r.num : undefined} content={r.text} cls={r.cls} />
-        </div>
-      ))}
+      {rows.map((r, i) => {
+        // 行序 = hunk.oldLines 顺接 newLines：前 oldCount 行查旧侧 runs，其余查新侧
+        const runs = i < hunk.oldLines.length ? oldSyntax?.[i] : newSyntax?.[i - hunk.oldLines.length];
+        return (
+          <div className="diff-row" key={i}>
+            <Cell num={r.num} newLn={r.cls !== "d-del" ? r.num : undefined} content={renderCode(r.text, runs, colors)} cls={r.cls} />
+          </div>
+        );
+      })}
     </>
   );
 }
