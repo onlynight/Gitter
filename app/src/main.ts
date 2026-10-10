@@ -17,9 +17,6 @@ import { PluginHost } from "./services/extensions/host";
 import { McpClientManager } from "./services/extensions/mcpClient";
 import { bindToolRegistry } from "./services/extensions/agentLoop";
 
-// TEMP-DIAGNOSTIC（诊断完移除）：GITTER_USER_DATA=<dir> 覆盖 userData——多实例并行诊断用
-if (process.env.GITTER_USER_DATA) app.setPath("userData", process.env.GITTER_USER_DATA);
-
 const bridges = new Map<number, Bridge>();
 let shared: SharedServices;
 
