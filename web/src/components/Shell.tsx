@@ -43,8 +43,8 @@ export function Sidebar() {
   useEffect(() => onUiPagesChanged(() => setPagesTick((x) => x + 1)), []);
 
   // 展开宽度动态贴合内容（ui-branch-reflog 批）：宽度 = 最宽导航项内容 + 与左侧一致的边距
-  // （左：4px 外边距 + 10px 内边距 = 14px，右侧对称），上限 188px（:root 默认值，
-  // 超出上限由 .nav-label 打点截断）。折叠态测量仍准确——scrollWidth 取文本自然宽度。
+  // （左：4px 外边距 + 10px 内边距 = 14px，右侧对称），上限 300px，
+  // 超出上限由 .nav-label 打点截断。折叠态测量仍准确——scrollWidth 取文本自然宽度。
   // 每次渲染后重测（语言/页面包/字体变化都会经此收敛），图标字体晚到时由 fonts.ready 兜底。
   // 注意：直接写 .main 内联 grid 列而非改 --sidebar-w 变量——Chromium 对「变量值变化 +
   // grid-template-columns 过渡」存在失效（变量已新值、轨道恒滞后一步）；内联直写属直接
@@ -58,8 +58,14 @@ export function Sidebar() {
         maxLabel = Math.max(maxLabel, el.scrollWidth, el.offsetWidth);
       }
       const extAllowance = root.querySelector(".nav-ext-x") ? 26 : 0; // 外部页行尾 ✕ 钮
-      const w = Math.min(188, Math.max(48, 16 + 10 + maxLabel + 20 + 8 + extAllowance));
-      document.documentElement.style.setProperty("--sidebar-w", `${w}px`);
+      const w = Math.min(300, Math.max(48, 16 + 10 + maxLabel + 20 + 8 + extAllowance));
+      // 直写 .main 内联 grid 列而非改 --sidebar-w 变量——Chromium 对「变量值变化 +
+      // grid-template-columns 过渡」存在失效（变量已新值、轨道恒滞后一步）；内联直写
+      // 属直接属性值变化，过渡动画正常。折叠态移除内联，让 .main.collapsed 规则生效。
+      const main = document.querySelector<HTMLElement>(".main");
+      if (!main) return;
+      if (main.classList.contains("collapsed")) main.style.removeProperty("grid-template-columns");
+      else main.style.setProperty("grid-template-columns", `${w}px 1fr`);
     };
     measure();
     document.fonts?.ready.then(measure).catch(() => {});
@@ -87,8 +93,21 @@ export function Sidebar() {
     labelKey: "Nav_Settings",
   };
 
+  // 包 manifest 标题支持 %key% 引用包 i18n/<lang>.json；包常只随 zh-Hans 一篇，
+  // 其它语言会露出原始 %...% 键（实测英文态 %Nav_Files%/%Nav_Office%）。
+  // %宿主键%（Nav_* 宿主词表 en/zh-Hans 双语齐全）回退宿主 t()；未命中保留原文。
+  const navLabel = (n: { key: PageKey; labelKey?: string; title?: string }) => {
+    if (n.labelKey) return t(n.labelKey);
+    const raw = n.title;
+    if (!raw) return n.key;
+    const m = /^%(.+)%$/.exec(raw);
+    if (!m) return raw;
+    const s = t(m[1]);
+    return s === m[1] ? raw : s;
+  };
+
   const navButton = (n: { key: PageKey; glyph?: string; svg?: string; labelKey?: string; title?: string; pkg?: string }) => {
-    const label = n.labelKey ? t(n.labelKey) : n.title ?? n.key;
+    const label = navLabel(n);
     return (
       <button
         key={n.key}

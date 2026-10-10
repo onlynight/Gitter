@@ -13,6 +13,6 @@ registerBuiltinPages([
   { id: "tasks", titleKey: "Nav_Tasks", glyph: "\uE7C1", order: 50 },
   { id: "bash", titleKey: "Nav_Terminal", glyph: "\uE756", order: 60 },
   { id: "files", titleKey: "Nav_Files", glyph: "\uE8A5", order: 70 },
-  { id: "office", titleKey: "Nav_Office", glyph: "\uE786", order: 71 },
+  { id: "office", titleKey: "Nav_Office", glyph: "\uE7C3", order: 71 }, // E7C3 Page——E786 在图标字体缺字，导航渲染空白
   { id: "settings", titleKey: "Nav_Settings", glyph: "\uE713", order: 700 },
 ]);
