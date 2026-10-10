@@ -11,9 +11,15 @@
  *   iframe → 宿主  { source, type: "done", id, info: { pages?, sheets? } }
  *                | { source, type: "error", id, message }
  * 缩放（宿主顶栏为唯一事实源，iframe 里 Ctrl+滚轮只发请求）：
- *   宿主 → iframe  { source, type: "zoom", zoom }          —— 应用 CSS zoom（#root 内容层）
+ *   宿主 → iframe  { source, type: "zoom", zoom }          —— 内容层 transform: scale(z)
  *   iframe → 宿主  { source, type: "zoom-request", dir }   —— Ctrl+滚轮请求步进
+ * 用 transform 而非 CSS zoom：pptx-preview 等库内部自带 transform: scale（origin 0 0），
+ * 祖先 CSS zoom 与后代 transform 组合会撕裂渲染（实测白带/残条）；两个 transform
+ * 线性复合无此问题，且变换后包围盒计入滚动范围（四格式实测 sl+cw=sw、st+ch=sh）。
  * pdf 额外经 session.setZoom 防抖重渲染画布（zoom×dpr 分辨率），保证放大后文字锐利。
+ * 验收钩子：{ source, type: "scroll-debug" } → iframe 滚到右/下极限并回包
+ * { type: "scroll-debug", m: { sw,sh,sl,st,cw,ch,bboxW,bboxH } }——沙箱 iframe 进不去
+ * executeJavaScript，缩放后滚动可达性验收（§10.7）经此通道取数。
  */
 import { renderPdf } from "./renderPdf";
 import { renderDocx } from "./renderDocx";
@@ -27,7 +33,7 @@ type Renderer = "pdf" | "docx" | "sheet" | "pptx";
 
 interface RenderMsg {
   source: string;
-  type: "render" | "zoom";
+  type: "render" | "zoom" | "scroll-debug";
   id: number;
   renderer: Renderer;
   name: string;
@@ -97,8 +103,23 @@ window.addEventListener("message", (ev) => {
     });
   } else if (msg.type === "zoom" && typeof msg.zoom === "number" && msg.zoom > 0) {
     currentZoom = msg.zoom;
-    content.style.zoom = String(msg.zoom);
+    content.style.transform = `scale(${msg.zoom})`;
     session?.setZoom?.(msg.zoom);
+  } else if (msg.type === "scroll-debug") {
+    root.scrollTop = 1e6;
+    root.scrollLeft = 1e6;
+    window.setTimeout(() => {
+      const bbox = content.getBoundingClientRect();
+      post({
+        type: "scroll-debug",
+        m: {
+          sw: root.scrollWidth, sh: root.scrollHeight,
+          sl: root.scrollLeft, st: root.scrollTop,
+          cw: root.clientWidth, ch: root.clientHeight,
+          bboxW: Math.round(bbox.width), bboxH: Math.round(bbox.height),
+        },
+      });
+    }, 150);
   }
 });
 

@@ -11,6 +11,10 @@ body {
 }
 body.dark { background: #1f1f1f; color: #ddd; }
 #gitter-preview-root { position: absolute; inset: 0; overflow: auto; }
+/* 内容层缩放载体：transform: scale（宿主经消息设置）。
+   width:max-content 让滚动包围盒恰好等于内容（放大的空边不出现），
+   margin:0 auto 在窄于视口时居中、溢出时自动归零（不会左侧不可达）。 */
+.gpv-content { width: max-content; min-width: 100%; margin: 0 auto; transform-origin: 0 0; }
 .gpv-empty { padding: 48px 24px; text-align: center; font-size: 12.5px; opacity: .6; }
 
 /* pdf：灰背板 + 居中页卡 */

@@ -846,10 +846,17 @@ v2 的核心教训是注入 CSS 污染宿主（§10.1）。预览-only 方案把
 - [x] 暗色管道：`data-base=dark` → iframe `body.dark` 背板切换（文档本体恒白纸）；
 - [x] 权限：manifest 只声明 `git.read` + `window`；boot-check PASS、权限 E2E PASS；
 - [x] 体积：office page.js = 3.56MB（minified，含内联 worker），§10.6 预期 3–4MB ✓；
-- [x] 缩放（首版反馈补充）：顶栏 `−/%/+`（25%–400% 档位，点百分比复位）+
-      iframe 内 Ctrl+滚轮（zoom-request 上行、宿主统一步进）。内容层 CSS zoom
-      即时生效；pdf 另经 setZoom 防抖重渲染画布（适宽 × zoom × dpr 位图、CSS
-      尺寸不变），150% 实测文字锐利、漂移 61ms；
+- [x] 缩放（首版反馈补充，第二版修正机制）：顶栏 `−/%/+`（25%–400% 档位，点百分比
+      复位）+ iframe 内 Ctrl+滚轮（zoom-request 上行、宿主统一步进）。内容层用
+      **transform: scale** 而非 CSS zoom——pptx-preview 内部自带 transform: scale
+      （origin 0 0），祖先 CSS zoom 与后代 transform 组合会撕裂渲染（实测幻灯片
+      白带/残条）；transform 线性复合无此问题，且变换后包围盒计入滚动范围——
+      四格式 150% 实测 `sl+cw=sw`、`st+ch=sh` 全部精确到边界（scroll-debug 验收
+      钩子取数：sw=sh 覆盖 bbox、截图确认底/右边缘可见）。内容层
+      `width:max-content + margin:0 auto`：滚动包围盒恰好等于内容（无放大空边）、
+      窄于视口时居中。pdf 另经 setZoom 防抖重渲染画布（适宽 × zoom × dpr 位图、
+      CSS 尺寸不变），150% 实测文字锐利；首版 CSS zoom 方案的滚动范围缺陷由本钩子
+      定量定位（zoom 语义下 scroll extent 与变换后 bbox 不一致）；
 - [ ] 待人工验收：20× 打开/关闭循环漂移、50MB 二进制 / 8MB csv·tsv 边界提示、
       10MB 级 xlsx 解析耗时、20MB 级 pdf 首页耗时、pptx 复杂真实样本保真度终审；
 - [ ] 已知良性噪音：开 ELECTRON_ENABLE_LOGGING 时偶见一条 `Uncaught SyntaxError:

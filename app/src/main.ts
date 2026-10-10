@@ -435,6 +435,29 @@ app.whenReady().then(() => {
           await new Promise((r) => setTimeout(r, 400));
         }
         if (shotPage) {
+          // 先等仓库真正打开（openRepo 是异步 git 操作，其完成回调会把 page 设为 log——
+          // 导航若发生在回调前会被扯回 log；慢机器上 repo.open 可能拖到十几秒）。
+          // 轮询 GITTER_UI.getState().repo 与 shotRepo 一致，并要求 2 次读数稳定。
+          const wantRepo = (shotRepo ?? "").replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
+          if (wantRepo) {
+            const readRepo = () => win.webContents.executeJavaScript(
+              '(function(){ try { var r = window.GITTER_UI && window.GITTER_UI.getState && window.GITTER_UI.getState().repo; return r ? String(r.workDir).replaceAll("\\\\","/") : ""; } catch { return ""; } })()');
+            const norm = (s: string) => s.replace(/\/+$/, "").toLowerCase();
+            let prev = "";
+            const deadline = Date.now() + 40000;
+            for (;;) {
+              const cur = norm(String(await readRepo().catch(() => "")));
+              const ok = cur === wantRepo && prev === cur;
+              if (ok) break;
+              if (Date.now() > deadline) {
+                process.stdout.write("[shot] 等仓库超时 repo=" + cur + "\n");
+                break;
+              }
+              prev = cur;
+              await new Promise((r) => setTimeout(r, 700));
+            }
+            await new Promise((r) => setTimeout(r, 1200)); // context.changed 广播余量
+          }
           await win.webContents.executeJavaScript(
             "(document.querySelectorAll('.nav-top .nav-item')[7] || {}).click()");
           await new Promise((r) => setTimeout(r, 2500)); // 惰性装载 + 渲染稳定
@@ -574,6 +597,22 @@ app.whenReady().then(() => {
               process.stdout.write("[probe] 尝试" + attempt + " FAIL " + (e as Error).message + "\n");
               await new Promise((r) => setTimeout(r, 1500));
             }
+          }
+        }
+        // GITTER_SHOT_INPUT=<json 数组>：注入真实输入事件（元素为 sendInputEvent 参数，
+        // 间隔 400ms）——sandbox iframe 是 opaque origin，executeJavaScript 进不去，
+        // 滚轮/键盘等须经真实输入管线才能触达（缩放后滚动可达性等验收用）。
+        const shotInput = process.env.GITTER_SHOT_INPUT;
+        if (shotInput) {
+          try {
+            const events = JSON.parse(shotInput) as Array<Record<string, unknown>>;
+            for (const ev of events) {
+              win.webContents.sendInputEvent(ev as never);
+              await new Promise((r) => setTimeout(r, 400));
+            }
+            process.stdout.write("[shot] 注入输入事件 x" + events.length + "\n");
+          } catch (e) {
+            process.stdout.write("[shot] INPUT FAIL " + (e as Error).message + "\n");
           }
         }
         // 水平溢出探测：报告整页与各面板的超宽（定位"最小宽度过大"类问题）
