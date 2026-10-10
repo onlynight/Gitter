@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 内置页面构建（ui-full-pluginization-plan.md R2/R2c）：
- * 八个页面各自构建为 IIFE 经典脚本 → app/resources/packages/gitui.page.<slot>/page.js。
+ * 九个页面各自构建为 IIFE 经典脚本 → app/resources/packages/gitui.page.<slot>/page.js。
  * - react 系（react / jsx-runtime / react-dom(+/client)）声明为 window.GITTER_KIT.* globals
  *   external——与宿主（kitGlobal.ts 组装的单实例）三方共享同一 React；
  * - "../pageSdk" / "../kit" / "../commands" 构建期映射到 src/external/* 适配层（window 面），
@@ -18,7 +18,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(here, "..");
 const outRoot = path.resolve(webRoot, "..", "app", "resources", "packages");
 
-const PAGES = ["projects", "log", "changes", "branches", "tasks", "bash", "files", "settings"];
+const PAGES = ["projects", "log", "changes", "branches", "tasks", "bash", "files", "office", "settings"];
 
 /**
  * Monaco ESM 的样式经 JS 分发（96 个 contrib 模块 `import './x.css'`）。
@@ -26,6 +26,8 @@ const PAGES = ["projects", "log", "changes", "branches", "tasks", "bash", "files
  * 且 file:// 下 codicon.css 里相对 url(./codicon.ttf) 也取不到字体。
  * 此插件把 monaco 的 .css 模块重写为「自注入 <style>」的 JS 模块，字体/图标二进制
  * 内联为 data URI——page.js 即装即用，无额外产物。仅 files 页引入 monaco，其余页面不受影响。
+ * （office-integration-plan.md §10：office 页预览渲染进 iframe，样式随 iframe 文档隔离，
+ * 不经本通道进宿主文档。）
  */
 function monacoCssInline() {
   const FONT_MIME = {
@@ -117,4 +119,4 @@ for (const slot of PAGES) {
   });
   process.stdout.write(`[pages] gitui.page.${slot} → page.js ✓` + "\n");
 }
-process.stdout.write(`[pages] 八个内置页面构建完成` + "\n");
+process.stdout.write(`[pages] ${PAGES.length} 个内置页面构建完成` + "\n");

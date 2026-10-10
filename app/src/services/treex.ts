@@ -247,6 +247,104 @@ export interface FileWriteResult {
 
 export const MAX_WRITE_BYTES = 2 * 1024 * 1024;
 
+/**
+ * OOXML 二进制通道（office-integration-plan.md §5）：
+ * Office 家族扩展名走白名单——zip 容器不做 NUL 嗅探、不做 EOL 变换，
+ * 以 base64 进出 RPC。读写上限独立于文本通道（读 50MB / 写 20MB）：
+ * 复杂工作簿/演示文稿 5–20MB 常见，文本通道的 2MB 写护栏不适用。
+ */
+const OOXML_EXTS = new Set([
+  ".pptx", ".pptm", ".ppsx", ".potx",
+  ".docx", ".docm", ".dotx",
+  ".xlsx", ".xlsm", ".xltx",
+]);
+
+export function isOoxmlPath(rel: string): boolean {
+  const i = rel.lastIndexOf(".");
+  return i >= 0 && OOXML_EXTS.has(rel.slice(i).toLowerCase());
+}
+
+export const MAX_BINARY_READ_BYTES = 50 * 1024 * 1024;
+export const MAX_BINARY_WRITE_BYTES = 20 * 1024 * 1024;
+
+export interface BinaryContentResult {
+  base64: string;
+  size: number;
+  mtime: number;
+  /** 超读上限：base64 为空串（zip 截断半包无意义），前端提示过大 */
+  truncated: boolean;
+}
+
+/** 轻量 stat（office 页保存前的 mtime 冲突检测；避免为比对 mtime 重拉全量 base64）。 */
+export async function statFile(
+  workDir: string,
+  rel: string,
+): Promise<{ size: number; mtime: number } | null> {
+  const abs = path.resolve(workDir, rel);
+  const realWt = await fsp.realpath(workDir).catch(() => workDir);
+  const relCheck = path.relative(realWt, abs);
+  if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) {
+    return null;
+  }
+  try {
+    const st = await fsp.stat(abs);
+    return { size: st.size, mtime: st.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+export async function readBinaryContent(
+  workDir: string,
+  rel: string,
+): Promise<BinaryContentResult | null> {
+  if (!isOoxmlPath(rel)) return null; // 白名单外不走二进制通道（防绕过文本嗅探）
+  const abs = path.resolve(workDir, rel);
+  const realWt = await fsp.realpath(workDir).catch(() => workDir);
+  const relCheck = path.relative(realWt, abs);
+  if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) {
+    return null;
+  }
+  try {
+    const st = await fsp.stat(abs);
+    if (st.size > MAX_BINARY_READ_BYTES) {
+      return { base64: "", size: st.size, mtime: st.mtimeMs, truncated: true };
+    }
+    const buf = await fsp.readFile(abs);
+    return { base64: buf.toString("base64"), size: buf.length, mtime: st.mtimeMs, truncated: false };
+  } catch {
+    return null;
+  }
+}
+
+export async function writeBinaryContent(
+  workDir: string,
+  rel: string,
+  base64: string,
+): Promise<FileWriteResult> {
+  if (!isOoxmlPath(rel)) {
+    return { ok: false, size: 0, mtime: 0, error: "binary" };
+  }
+  const abs = path.resolve(workDir, rel);
+  const realWt = await fsp.realpath(workDir).catch(() => workDir);
+  const relCheck = path.relative(realWt, abs);
+  if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) {
+    return { ok: false, size: 0, mtime: 0, error: "path_locked" };
+  }
+  const buf = Buffer.from(base64, "base64");
+  if (buf.length > MAX_BINARY_WRITE_BYTES) {
+    return { ok: false, size: buf.length, mtime: 0, error: "size_limit" };
+  }
+  try {
+    await fsp.mkdir(path.dirname(abs), { recursive: true });
+    await fsp.writeFile(abs, buf);
+    const st = await fsp.stat(abs);
+    return { ok: true, size: st.size, mtime: st.mtimeMs };
+  } catch {
+    return { ok: false, size: buf.length, mtime: 0, error: "write_failed" };
+  }
+}
+
 export async function writeFileContent(
   workDir: string,
   rel: string,

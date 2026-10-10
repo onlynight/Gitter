@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen } from "electron";
+import { app, BrowserWindow, contentTracing, ipcMain, Menu, nativeTheme, screen } from "electron";
 import * as os from "os";
 import * as path from "path";
 import { Bridge, SharedServices } from "./bridge";
@@ -365,7 +365,7 @@ app.whenReady().then(() => {
           const wmBlend = wm && wm !== "none" ? (cb.includes("rgba(") || cb.replace("#", "").length === 8) : true;
           return { navCount, rootRendered, gitterUi, kit, pageMounted, navLabels, wm, wmBlend };
         })()`);
-        const slots = ["projects", "log", "changes", "branches", "tasks", "bash", "files", "settings"];
+        const slots = ["projects", "log", "changes", "branches", "tasks", "bash", "files", "office", "settings"];
         const resolved: Record<string, { source: string; isBuiltInPackage: boolean } | null> = {};
         for (const s of slots) {
           resolved[s] = await win.webContents.executeJavaScript(
@@ -387,7 +387,7 @@ app.whenReady().then(() => {
             "window.__gitterDebugReload && void window.__gitterDebugReload('en')");
           await new Promise((r2) => setTimeout(r2, 2500));
           const after: Record<string, { source: string } | null> = {};
-          for (const s2 of ["projects", "log", "changes", "branches", "tasks", "bash", "files", "settings"]) {
+          for (const s2 of ["projects", "log", "changes", "branches", "tasks", "bash", "files", "office", "settings"]) {
             after[s2] = await win.webContents.executeJavaScript(
               `window.__gitterDebugResolve ? window.__gitterDebugResolve(${JSON.stringify(s2)}) : null`);
           }
@@ -403,9 +403,16 @@ app.whenReady().then(() => {
     }, bootExitMs);
   }
 
+  const shotPath = process.env.GITTER_SHOT;
+  const shotPage = process.env.GITTER_SHOT_PAGE;
+  const shotRepo = process.env.GITTER_SHOT_REPO;
+
   // 视觉验收截图钩子（GITTER_SHOT=<png 路径>，需配合 GITTER_BOOT_EXIT_MS）：
   // boot 断言通过后 capturePage 落盘；GITTER_SHOT_VARS=JSON 可临时覆盖 --c-* token（浅色验收）。
-  const shotPath = process.env.GITTER_SHOT;
+  // GITTER_SHOT_REPO=<git 仓库> 时先挂载一个页面以满足 window 域权限，再切仓库（广播
+  // context.changed → 目标页按新 repo 重取数据）——启动参数传仓库会把页面锁在 log 槽，
+  // 与截图目标页冲突，故在此钩子内完成。
+  // 注意：此钩子必须排在 boot 断言（bootExitMs 处 app.exit）之前。
   if (shotPath && bootExitMs > 0) {
     setTimeout(async () => {
       try {
@@ -416,15 +423,158 @@ app.whenReady().then(() => {
             "(() => { const v = " + JSON.stringify(vars) + "; try { Object.entries(JSON.parse(v)).forEach(([k, val]) => document.documentElement.style.setProperty(k, String(val))); } catch {} })()");
           await new Promise((r) => setTimeout(r, 400));
         }
-        const shotPage = process.env.GITTER_SHOT_PAGE;
+        if (shotRepo) {
+          // 截图用仓库：走 app.openRepo 事件（App.tsx 的处理器用宿主侧 call，无 __caller 权限校验）。
+          // 该处理器会把页面设为 log——随后仍按 shotPage 导航到目标页。
+          await win.webContents.send("evt", { method: "app.openRepo", params: { path: shotRepo } });
+          process.stdout.write("[boot] shotRepo 已发 app.openRepo\n");
+          await new Promise((r) => setTimeout(r, 3000));
+        }
         if (shotPage) {
           await win.webContents.executeJavaScript(
-            "window.GITTER_UI && window.GITTER_UI.navigate(" + JSON.stringify(shotPage) + ")");
-          await new Promise((r) => setTimeout(r, 900)); // 惰性装载 + 渲染稳定
+            "(document.querySelectorAll('.nav-top .nav-item')[7] || {}).click()");
+          await new Promise((r) => setTimeout(r, 2500)); // 惰性装载 + 渲染稳定
         }
-        // 水平溢出探测：报告整页与各面板的超宽（定位“最小宽度过大”类问题）
+        // GITTER_SHOT_CLICK=<css 选择器>：截图前点击页面内元素（如 .office-row 打开文件验收编辑器），
+        // 等待 GITTER_SHOT_CLICK_WAIT_MS（默认 4000）后探测渲染进程主线程活跃度——
+        // 50ms 定时器的实际漂移即忙程度：漂移秒级 = 死循环/长任务（UI 冻结类 bug 的量化证据）。
+        const shotClick = process.env.GITTER_SHOT_CLICK;
+        if (shotClick) {
+          // GITTER_TRACE_HANG=1：点击前启动 V8 栈采样 tracing——主线程忙死循环时
+          // tracing 服务（独立进程）仍能采样 JS 栈，stopRecording 后聚合出热点函数。
+          if (process.env.GITTER_TRACE_HANG === "1") {
+            await contentTracing.startRecording({
+              included_categories: ["disabled-by-default-cpu_profiler", "disabled-by-default-v8.cpu_profiler"],
+            });
+            process.stdout.write("[shot] tracing 已启动（cpu_profiler）\n");
+          }
+          // GITTER_SHOT_PREPARE_JS=<js>：点击前执行（此刻页面必然响应）——适合安装收集器
+          const prepareJs = process.env.GITTER_SHOT_PREPARE_JS;
+          if (prepareJs) {
+            try {
+              const out = await win.webContents.executeJavaScript(prepareJs);
+              process.stdout.write("[prepare] " + JSON.stringify(out) + "\n");
+            } catch (e) {
+              process.stdout.write("[prepare] FAIL " + (e as Error).message + "\n");
+            }
+          }
+          const hit = await win.webContents.executeJavaScript(
+            "((sel) => { const el = document.querySelector(sel); if (!el) return 'NO_MATCH'; el.click(); return 'clicked:' + sel; })(" + JSON.stringify(shotClick) + ")");
+          process.stdout.write("[shot] 点击 " + String(hit) + "\n");
+          await new Promise((r) => setTimeout(r, Number(process.env.GITTER_SHOT_CLICK_WAIT_MS ?? 4000)));
+          let hung = false;
+          try {
+            const lag = await Promise.race([
+              win.webContents.executeJavaScript(
+                "new Promise((r) => { const t0 = performance.now(); setTimeout(() => r(Math.round(performance.now() - t0)), 50); })"),
+              new Promise((_, rej) => setTimeout(() => rej(new Error("探针 8s 无响应")), 8000)),
+            ]);
+            process.stdout.write("[shot] 主线程定时器漂移: " + String(lag) + "ms（≈50 为空闲）\n");
+          } catch {
+            hung = true;
+            process.stdout.write("[shot] 主线程探针失败（疑似同步阻塞死循环）\n");
+          }
+          if (process.env.GITTER_TRACE_HANG === "1") {
+            // 无论探针结果如何都停止采样并聚合热点——忙风暴与短暂空闲交替时，
+            // 8s 等待窗口内的样本足以定位热点函数。tracing 服务独立于渲染主线程。
+            try {
+              const traceFile = await contentTracing.stopRecording();
+              const keep = path.join(process.env.TEMP ?? ".", "gitter-trace.json");
+              fs.copyFileSync(traceFile, keep);
+              process.stdout.write("[shot] trace 已留存: " + keep + "\n");
+              let raw = fs.readFileSync(traceFile, "utf8");
+              // Chromium trace 文件可能是分块 JSON（多个 [...] 拼接）——拆成平衡的数组块分别 parse
+              let events: Array<Record<string, any>> = [];
+              try {
+                const parsed = JSON.parse(raw);
+                events = Array.isArray(parsed)
+                  ? parsed
+                  : (parsed?.traceEvents ?? Object.values(parsed).find(Array.isArray) ?? []);
+              } catch {
+                const chunks: string[] = [];
+                let depth = 0, start = -1;
+                for (let i = 0; i < raw.length; i++) {
+                  const ch = raw[i];
+                  if (ch === "[") { if (depth === 0) start = i; depth++; }
+                  else if (ch === "]") { depth--; if (depth === 0 && start >= 0) { chunks.push(raw.slice(start, i + 1)); start = -1; } }
+                }
+                for (const c of chunks) {
+                  try { const part = JSON.parse(c); if (Array.isArray(part)) events = events.concat(part); } catch {}
+                }
+              }
+              const buckets = new Map<string, number>();
+              // v8.cpu_profiler 事件：ProfileChunk 带帧表（frames/nodes）+ samples（帧 id 序列）
+              const frameTable = new Map<number, string>();
+              let profileChunks = 0, sampleTotal = 0;
+              const addFrames = (arr: any[]) => {
+                for (const f of arr) {
+                  const cf = f?.callFrame ?? f;
+                  const id = Number(f?.id ?? f?.nodeId ?? NaN);
+                  const name = String(cf?.functionName ?? f?.name ?? "(anonymous)");
+                  const url = String(cf?.url ?? cf?.scriptUrl ?? "").split("/").pop() ?? "";
+                  const line = Number(cf?.lineNumber ?? cf?.line ?? -1);
+                  frameTable.set(id, `${name} @ ${url}:${line}`);
+                }
+              };
+              for (const ev of events) {
+                const dd = ev?.args?.detailed_data ?? ev?.args;
+                const cp = dd?.cpu_profiler ?? dd?.cpuProfile;
+                if (!cp) continue;
+                if (Array.isArray(cp.frames)) addFrames(cp.frames);
+                if (Array.isArray(cp.nodes)) addFrames(cp.nodes);
+                if (Array.isArray(cp.samples)) {
+                  profileChunks++;
+                  for (const sid of cp.samples) {
+                    sampleTotal++;
+                    const key = frameTable.get(Number(sid)) ?? `#${sid}`;
+                    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+                  }
+                }
+              }
+              process.stdout.write(`[shot] ProfileChunk ${profileChunks} 块，样本 ${sampleTotal} 条，帧表 ${frameTable.size} 帧\n`);
+              const top = [...buckets.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+              for (const [k, c] of top) process.stdout.write("[hot] x" + c + "  " + k + "\n");
+              if (profileChunks === 0) {
+                // 打印事件名直方图辅助定位实际产出的事件类别/名称
+                const hist = new Map<string, number>();
+                for (const ev of events) {
+                  const key = `${String(ev?.cat ?? "?")} | ${String(ev?.name ?? "?")}`;
+                  hist.set(key, (hist.get(key) ?? 0) + 1);
+                }
+                const htop = [...hist.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25);
+                for (const [k, c] of htop) process.stdout.write("[ev] x" + c + "  " + k + "\n");
+              }
+            } catch (e2) {
+              process.stdout.write("[shot] 停止 tracing 失败: " + (e2 as Error).message + "\n");
+            }
+            // 渲染进程忙死时后续 executeJavaScript/capturePage 可能永久挂起——直接退出
+            if (hung) {
+              app.exit(5);
+              return;
+            }
+          }
+        }
+        // GITTER_SHOT_PROBE_JS=<js 表达式>：截图前执行并打印结果（页面状态诊断用）。
+        // 主线程忙风暴与短暂空闲交替——最多重试 8 次（每次 6s 超时 + 1.5s 间隔）直到拿到结果。
+        const probeJs = process.env.GITTER_SHOT_PROBE_JS;
+        if (probeJs) {
+          for (let attempt = 1; attempt <= 20; attempt++) {
+            try {
+              const out = await Promise.race([
+                win.webContents.executeJavaScript(probeJs),
+                new Promise((_, rej) => setTimeout(() => rej(new Error("探针 6s 无响应")), 6000)),
+              ]);
+              process.stdout.write("[probe] 尝试" + attempt + " " + JSON.stringify(out) + "\n");
+              break;
+            } catch (e) {
+              process.stdout.write("[probe] 尝试" + attempt + " FAIL " + (e as Error).message + "\n");
+              await new Promise((r) => setTimeout(r, 1500));
+            }
+          }
+        }
+        // 水平溢出探测：报告整页与各面板的超宽（定位"最小宽度过大"类问题）
         try {
-          const fit = await win.webContents.executeJavaScript(`(() => {
+          const fit = await Promise.race([win.webContents.executeJavaScript(`(() => {
             const pageOver = document.documentElement.scrollWidth - document.documentElement.clientWidth;
             const offenders = [...document.querySelectorAll('.page *')]
               .map((el) => ({ el, tag: el.tagName, cls: String(el.className).slice(0, 40),
@@ -441,20 +591,21 @@ app.whenReady().then(() => {
                 return { chain: chain.join(" < "), right: Math.round(x.r.right), w: Math.round(x.r.width) };
               });
             return { pageOver, offenders };
-          })()`);
+          })()`), new Promise((_, rej) => setTimeout(() => rej(new Error("fit 6s 无响应")), 6000))]);
           if (fit.pageOver > 2 || fit.offenders.length > 0) {
             process.stdout.write("[fit] 页面水平溢出 " + fit.pageOver + "px; 元素: " + JSON.stringify(fit.offenders) + "\n");
           }
         } catch {}
 
-        const img = await win.webContents.capturePage();
+        const img = await Promise.race([win.webContents.capturePage(), new Promise<Electron.NativeImage>((_, rej) => setTimeout(() => rej(new Error("capture 6s 无响应")), 6000))]);
         fs.writeFileSync(shotPath, img.toPNG());
         process.stdout.write("[shot] saved " + shotPath + "\n");
       } catch (e) {
         process.stdout.write("[shot] FAIL " + (e as Error).message + "\n");
       }
-    }, Math.max(bootExitMs - 2500, 2000));
+    }, 15000);
   }
+
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

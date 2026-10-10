@@ -27,3 +27,4 @@ scripts/node_modules/
 # 图标/构建产物
 app/build/
 web/harness-dist/
+web/.vite/

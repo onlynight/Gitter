@@ -1044,3 +1044,16 @@ Files_StatusTitle	Git status	Git 状态
 Files_GutterHint	Drag to resize (double-click to reset)	拖拽调整宽度（双击复位）
 Common_Choose	Select	选择
 Common_More	More actions…	更多操作…
+Nav_Office	Office	Office 文档
+Office_Title	Office documents	Office 文档
+Office_Empty	No Office documents — open a repository first	无 Office 文档——请先打开一个仓库
+Office_NoFiles	No Office files in this project	项目中没有 Office 文档
+Office_Refresh	Refresh	刷新
+Office_FileCount	{0} file(s)	{0} 个文件
+Office_WelcomeTitle	Office documents	Office 文档
+Office_WelcomeHint	Select a project file to preview it	在左侧选择项目文件进行预览
+Office_PhaseNote	Preview pdf / docx / pptx / xlsx / ods / csv / tsv in page; editing opens the file in an external app	页内预览 pdf / docx / pptx / xlsx / ods / csv / tsv；编辑请用外部程序打开
+Office_Loading	Loading…	加载中…
+Office_ExternalOpen	Open in external app	用外部程序打开
+Office_UseSideList	Pick a project file from the list on the left	请从左侧列表选择项目内的文件
+Office_PreviewUnavailable	In-page preview is not available for this format yet	此格式暂无页内预览

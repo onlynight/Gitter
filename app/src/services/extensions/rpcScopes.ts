@@ -57,6 +57,8 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "agent.task.checkpoint": "git.write",
   // 项目文件树 + 编辑器读写面（editor-design.md）
   "repo.tree": "git.read", "file.content": "git.read", "file.write": "git.write",
+  // Office 文档二进制读写面（office-integration-plan.md §5 OOXML 通道）
+  "file.stat": "git.read", "file.readBinary": "git.read", "file.writeBinary": "git.write",
 
   // ---- git.read ----
   "log.query": "git.read", "log.branches": "git.read", "log.detail": "git.read", "log.fileDiff": "git.read",

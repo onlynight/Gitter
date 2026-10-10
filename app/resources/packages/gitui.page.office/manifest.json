@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.page.office",
+  "name": "内置页面：Office 文档",
+  "version": "0.2.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——项目内 Office 文档的页内预览（iframe 文档隔离渲染，编辑一律交给外部应用；office-integration-plan.md §10 预览-only）",
+  "contributes": {
+    "pages": [
+      {
+        "id": "office",
+        "slot": "office",
+        "title": "%Nav_Office%",
+        "entry": "page.js",
+        "icon": "",
+        "svg": null,
+        "lazy": true,
+        "permissions": [
+          "git.read",
+          "window"
+        ],
+        "docs": {
+          "zh-Hans": "docs/zh-Hans.md"
+        }
+      }
+    ]
+  }
+}

@@ -459,6 +459,21 @@ export class Bridge {
       return result;
     });
 
+    // ---- Office 文档二进制读写（office-integration-plan.md §5 OOXML 白名单通道）----
+    // stat：office 页保存前 mtime 冲突检测（免拉全量 base64）
+    R("file.stat", async (args: { path: string }) => treex.statFile(this.needRepo(), args.path));
+    // 读：base64 + mtime；超 50MB 返回 truncated（zip 半包无意义）
+    R("file.readBinary", async (args: { path: string }) =>
+      treex.readBinaryContent(this.needRepo(), args.path));
+    // 写：base64 进（OOXML 白名单内，20MB 护栏）；与文本写同路刷新 readLog
+    R("file.writeBinary", async (args: { path: string; base64: string }) => {
+      const result = await treex.writeBinaryContent(this.needRepo(), args.path, args.base64);
+      if (result.ok) {
+        this.agents.refreshReadLogFor(args.path, result.mtime, result.size);
+      }
+      return result;
+    });
+
     // ---- LSP 语言服务器（inline-editor-plan.md §4.5，P3）----
     // 命令来自设置（settings.write 域持久化）；缺省命令由服务层兜底。
     // 启停/request 走 "lsp" 域（进程级能力，与 terminal 同级），status 只读走 open。

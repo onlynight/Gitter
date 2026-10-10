@@ -1,0 +1,15 @@
+{
+  "Nav_Office": "Office 文档",
+  "Office_Title": "Office 文档",
+  "Office_Empty": "无 Office 文档——请先打开一个仓库",
+  "Office_NoFiles": "项目中没有 Office 文档",
+  "Office_Refresh": "刷新",
+  "Office_FileCount": "{0} 个文件",
+  "Office_WelcomeTitle": "Office 文档",
+  "Office_WelcomeHint": "在左侧选择项目文件进行预览",
+  "Office_PhaseNote": "页内预览 pdf / docx / pptx / xlsx / ods / csv / tsv；编辑请用外部程序打开",
+  "Office_Loading": "加载中…",
+  "Office_ExternalOpen": "用外部程序打开",
+  "Office_UseSideList": "请从左侧列表选择项目内的文件",
+  "Office_PreviewUnavailable": "此格式暂无页内预览"
+}
