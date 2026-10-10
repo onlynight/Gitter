@@ -845,7 +845,11 @@ v2 的核心教训是注入 CSS 污染宿主（§10.1）。预览-only 方案把
       pptx（标题/内容页，§10.3 预期的「内容可读」级保真——P2 保留，不砍）；
 - [x] 暗色管道：`data-base=dark` → iframe `body.dark` 背板切换（文档本体恒白纸）；
 - [x] 权限：manifest 只声明 `git.read` + `window`；boot-check PASS、权限 E2E PASS；
-- [x] 体积：office page.js = 3.56MB（minified，含内联 worker），§10.6 预期 3–4MB ✓。
+- [x] 体积：office page.js = 3.56MB（minified，含内联 worker），§10.6 预期 3–4MB ✓；
+- [x] 缩放（首版反馈补充）：顶栏 `−/%/+`（25%–400% 档位，点百分比复位）+
+      iframe 内 Ctrl+滚轮（zoom-request 上行、宿主统一步进）。内容层 CSS zoom
+      即时生效；pdf 另经 setZoom 防抖重渲染画布（适宽 × zoom × dpr 位图、CSS
+      尺寸不变），150% 实测文字锐利、漂移 61ms；
 - [ ] 待人工验收：20× 打开/关闭循环漂移、50MB 二进制 / 8MB csv·tsv 边界提示、
       10MB 级 xlsx 解析耗时、20MB 级 pdf 首页耗时、pptx 复杂真实样本保真度终审；
 - [ ] 已知良性噪音：开 ELECTRON_ENABLE_LOGGING 时偶见一条 `Uncaught SyntaxError:

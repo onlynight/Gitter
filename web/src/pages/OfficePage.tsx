@@ -30,6 +30,14 @@ const SIDEBAR_DEFAULT = 248;
 const SIDEBAR_MIN = 170;
 const SIDEBAR_MAX = 420;
 
+/** 缩放档位（宿主为唯一事实源；iframe 里 Ctrl+滚轮只发步进请求） */
+const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 3, 4];
+
+function zoomStep(z: number, dir: 1 | -1): number {
+  if (dir > 0) return ZOOM_STEPS.find((s) => s > z + 1e-9) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1];
+  return [...ZOOM_STEPS].reverse().find((s) => s < z - 1e-9) ?? ZOOM_STEPS[0];
+}
+
 function loadWidth(): number {
   const raw = window.localStorage.getItem(SIDEBAR_KEY);
   const n = raw ? Number(raw) : NaN;
@@ -50,6 +58,7 @@ export function OfficePage() {
   const [pageCount, setPageCount] = useState<number | null>(null);
   const [width, setWidth] = useState(loadWidth);
   const [nonce, setNonce] = useState(0);
+  const [zoom, setZoom] = useState(1);
 
   const activeRef = useRef<string | null>(null);
 
@@ -86,6 +95,7 @@ export function OfficePage() {
     setPageCount(null);
     setSize(null);
     setPayload(null);
+    setZoom(1);
     setNonce((n) => n + 1);
     const k = officeKindOf(path);
     if (k === null || k === "legacy") {
@@ -253,6 +263,29 @@ export function OfficePage() {
               <div className="right">
                 {size != null && <span className="it">{formatSize(size)}</span>}
                 {pageCount != null && <span className="it">{t("Office_PageCount", pageCount)}</span>}
+                {phase !== "legacy" && phase !== "error" && (
+                  <span className="office-zoom">
+                    <button
+                      className="files-ibtn"
+                      title={t("Office_ZoomOut")}
+                      disabled={zoom <= ZOOM_STEPS[0]}
+                      onClick={() => setZoom((z) => zoomStep(z, -1))}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.4" fill="none"><path d="M1.5 6h9" /></svg>
+                    </button>
+                    <button className="office-zoom-pct" title={t("Office_ZoomReset")} onClick={() => setZoom(1)}>
+                      {Math.round(zoom * 100)}%
+                    </button>
+                    <button
+                      className="files-ibtn"
+                      title={t("Office_ZoomIn")}
+                      disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+                      onClick={() => setZoom((z) => zoomStep(z, 1))}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.4" fill="none"><path d="M6 1.5v9M1.5 6h9" /></svg>
+                    </button>
+                  </span>
+                )}
                 <button className="tool-btn" onClick={openExternal}>
                   {t("Office_ExternalOpen")}
                 </button>
@@ -294,6 +327,8 @@ export function OfficePage() {
                   name={nameOf(active)}
                   payload={payload}
                   dark={dark}
+                  zoom={zoom}
+                  onZoomDelta={(dir) => setZoom((z) => zoomStep(z, dir))}
                   timeoutMessage={t("Office_PreviewTimeout")}
                   onDone={onPreviewDone}
                   onError={onPreviewError}
@@ -314,6 +349,8 @@ export function OfficePage() {
  * sandbox iframe 预览容器：srcdoc 装静态运行时，postMessage 握手
  * （ready → render → done|error）。sandbox="allow-scripts"（无 allow-same-origin）
  * → opaque origin，iframe 内代码摸不到宿主 DOM/localStorage；超时兜底防挂死。
+ * 缩放：宿主顶栏是唯一事实源——zoom 变化即下行 {type:"zoom"}；iframe 内
+ * Ctrl+滚轮上行 {type:"zoom-request"} 步进请求。
  */
 function PreviewFrame(props: {
   path: string;
@@ -321,6 +358,8 @@ function PreviewFrame(props: {
   name: string;
   payload: Payload;
   dark: boolean;
+  zoom: number;
+  onZoomDelta: (dir: 1 | -1) => void;
   timeoutMessage: string;
   onDone: (info: { pages?: number; sheets?: string[] }) => void;
   onError: (message: string) => void;
@@ -340,8 +379,20 @@ function PreviewFrame(props: {
   payloadRef.current = props.payload;
   const darkRef = useRef(props.dark);
   darkRef.current = props.dark;
+  const zoomRef = useRef(props.zoom);
+  zoomRef.current = props.zoom;
+  const onZoomDeltaRef = useRef(props.onZoomDelta);
+  onZoomDeltaRef.current = props.onZoomDelta;
   const timeoutMsgRef = useRef(props.timeoutMessage);
   timeoutMsgRef.current = props.timeoutMessage;
+
+  // zoom 下行（ready 前不发——ready 握手时会带当前值）
+  useEffect(() => {
+    if (sentRef.current && iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        { source: PREVIEW_MSG_SRC, type: "zoom", zoom: props.zoom }, "*");
+    }
+  }, [props.zoom]);
 
   useEffect(() => {
     sentRef.current = false;
@@ -354,20 +405,32 @@ function PreviewFrame(props: {
     }, 30000);
     const handler = (ev: MessageEvent) => {
       if (ev.source !== iframeRef.current?.contentWindow) return;
-      const msg = ev.data as { source?: string; type?: string; message?: string; info?: { pages?: number; sheets?: string[] } };
+      const msg = ev.data as { source?: string; type?: string; message?: string; dir?: number; info?: { pages?: number; sheets?: string[] } };
       if (!msg || msg.source !== PREVIEW_MSG_SRC) return;
       if (msg.type === "ready" && !sentRef.current) {
         sentRef.current = true;
-        iframeRef.current?.contentWindow?.postMessage({
-          source: PREVIEW_MSG_SRC,
-          type: "render",
-          id: 1,
-          renderer: rendererRef.current,
-          name: nameRef.current,
-          dark: darkRef.current,
-          base64: payloadRef.current.base64,
-          text: payloadRef.current.text,
-        }, "*");
+        const win = iframeRef.current?.contentWindow;
+        if (win) {
+          win.postMessage({
+            source: PREVIEW_MSG_SRC,
+            type: "render",
+            id: 1,
+            renderer: rendererRef.current,
+            name: nameRef.current,
+            dark: darkRef.current,
+            base64: payloadRef.current.base64,
+            text: payloadRef.current.text,
+          }, "*");
+          // 渲染消息后补发当前缩放（打开即缩放过的场景：重试/快速操作）
+          if (zoomRef.current !== 1) {
+            win.postMessage({ source: PREVIEW_MSG_SRC, type: "zoom", zoom: zoomRef.current }, "*");
+          }
+        }
+        return;
+      }
+      // zoom 步进请求不受 settled 限制（done 之后仍可缩放）
+      if (msg.type === "zoom-request") {
+        onZoomDeltaRef.current(msg.dir != null && msg.dir < 0 ? -1 : 1);
         return;
       }
       if (settledRef.current) return;

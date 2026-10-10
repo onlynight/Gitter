@@ -1545,6 +1545,17 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
 .office-headbar .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .office-headbar .it { font-size: 11px; color: var(--c-text3); font-variant-numeric: tabular-nums; }
 
+/* 缩放控件（顶栏 −/%/+；点百分比复位 100%） */
+.office-zoom { display: inline-flex; align-items: center; gap: 1px; margin-right: 4px; }
+.office-zoom .files-ibtn:disabled { opacity: .35; cursor: default; }
+.office-zoom .files-ibtn:disabled:hover { background: transparent; }
+.office-zoom-pct {
+  min-width: 44px; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums;
+  color: var(--c-text2); background: transparent; border: 0; border-radius: var(--radius);
+  padding: 3px 2px; cursor: pointer;
+}
+.office-zoom-pct:hover { background: var(--c-hover); }
+
 /* 画布：预览（iframe）占满其余空间，容器只管边界；预览库样式不进宿主文档 */
 .office-canvas { flex: 1; min-height: 0; position: relative; overflow: hidden; display: flex; flex-direction: column; }
 .office-canvas > iframe { flex: 1; min-height: 0; width: 100%; border: 0; background: var(--c-panel); }

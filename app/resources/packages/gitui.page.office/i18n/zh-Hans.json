@@ -16,5 +16,8 @@
   "Office_PreviewTimeout": "预览超时",
   "Office_Retry": "重试",
   "Office_TooLarge": "文件过大，无法页内预览（二进制 50MB / csv·tsv 8MB）",
-  "Office_PageCount": "{0} 页"
+  "Office_PageCount": "{0} 页",
+  "Office_ZoomIn": "放大",
+  "Office_ZoomOut": "缩小",
+  "Office_ZoomReset": "重置缩放（适宽）"
 }
