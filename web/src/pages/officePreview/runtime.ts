@@ -17,9 +17,9 @@
  * 祖先 CSS zoom 与后代 transform 组合会撕裂渲染（实测白带/残条）；两个 transform
  * 线性复合无此问题，且变换后包围盒计入滚动范围（四格式实测 sl+cw=sw、st+ch=sh）。
  * pdf 额外经 session.setZoom 防抖重渲染画布（zoom×dpr 分辨率），保证放大后文字锐利。
- * 验收钩子：{ source, type: "scroll-debug" } → iframe 滚到右/下极限并回包
- * { type: "scroll-debug", m: { sw,sh,sl,st,cw,ch,bboxW,bboxH } }——沙箱 iframe 进不去
- * executeJavaScript，缩放后滚动可达性验收（§10.7）经此通道取数。
+ * 验收钩子：{ source, type: "scroll-debug", to?: {sl, st} } → 带 to 则先滚到该位置
+ * （缺省滚到右/下极限）并回包 { type: "scroll-debug", m: { sw,sh,sl,st,cw,ch,bboxW,bboxH } }
+ * ——沙箱 iframe 进不去 executeJavaScript，缩放滚动可达性/中心锚定验收（§10.7）经此取数。
  */
 import { renderPdf } from "./renderPdf";
 import { renderDocx } from "./renderDocx";
@@ -102,12 +102,28 @@ window.addEventListener("message", (ev) => {
       post({ type: "error", id: msg.id, message: (e as Error)?.message ?? String(e) });
     });
   } else if (msg.type === "zoom" && typeof msg.zoom === "number" && msg.zoom > 0) {
-    currentZoom = msg.zoom;
-    content.style.transform = `scale(${msg.zoom})`;
-    session?.setZoom?.(msg.zoom);
+    // 以显示区中心为锚点缩放：先记下当前视口中心的内容坐标，应用新缩放后把它放回中心，
+    // 用户阅读位置不跳（transform-origin 固定 0 0，锚定全靠滚动补偿）。
+    const z1 = msg.zoom;
+    const ax = content.offsetLeft;
+    const ay = content.offsetTop;
+    const cx = (root.scrollLeft + root.clientWidth / 2 - ax) / currentZoom;
+    const cy = (root.scrollTop + root.clientHeight / 2 - ay) / currentZoom;
+    currentZoom = z1;
+    content.style.transform = `scale(${z1})`;
+    root.scrollLeft = Math.max(0, cx * z1 + ax - root.clientWidth / 2);
+    root.scrollTop = Math.max(0, cy * z1 + ay - root.clientHeight / 2);
+    session?.setZoom?.(z1);
   } else if (msg.type === "scroll-debug") {
-    root.scrollTop = 1e6;
-    root.scrollLeft = 1e6;
+    // 可带 to: {sl, st}——只滚到指定位置（缺省滚到右/下极限）
+    const to = (msg as { to?: { sl?: number; st?: number } }).to;
+    if (to) {
+      if (to.sl != null) root.scrollLeft = to.sl;
+      if (to.st != null) root.scrollTop = to.st;
+    } else {
+      root.scrollLeft = 1e6;
+      root.scrollTop = 1e6;
+    }
     window.setTimeout(() => {
       const bbox = content.getBoundingClientRect();
       post({

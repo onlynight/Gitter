@@ -856,7 +856,10 @@ v2 的核心教训是注入 CSS 污染宿主（§10.1）。预览-only 方案把
       `width:max-content + margin:0 auto`：滚动包围盒恰好等于内容（无放大空边）、
       窄于视口时居中。pdf 另经 setZoom 防抖重渲染画布（适宽 × zoom × dpr 位图、
       CSS 尺寸不变），150% 实测文字锐利；首版 CSS zoom 方案的滚动范围缺陷由本钩子
-      定量定位（zoom 语义下 scroll extent 与变换后 bbox 不一致）；
+      定量定位（zoom 语义下 scroll extent 与变换后 bbox 不一致）。缩放以**显示区
+      中心为锚点**：应用新缩放前后把「视口中心的内容坐标」放回中心（滚动补偿，
+      cx=(sl+cw/2−offX)/z₀ → sl'=cx·z₁+offX−cw/2）——阅读位置不跳；实测 150%→200%、
+      预置 st=800：终态 st=1182（理论 1182.17）、sl=157（理论 156.83），像素级一致；
 - [ ] 待人工验收：20× 打开/关闭循环漂移、50MB 二进制 / 8MB csv·tsv 边界提示、
       10MB 级 xlsx 解析耗时、20MB 级 pdf 首页耗时、pptx 复杂真实样本保真度终审；
 - [ ] 已知良性噪音：开 ELECTRON_ENABLE_LOGGING 时偶见一条 `Uncaught SyntaxError:
