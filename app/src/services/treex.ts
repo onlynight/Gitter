@@ -248,20 +248,23 @@ export interface FileWriteResult {
 export const MAX_WRITE_BYTES = 2 * 1024 * 1024;
 
 /**
- * OOXML 二进制通道（office-integration-plan.md §5）：
- * Office 家族扩展名走白名单——zip 容器不做 NUL 嗅探、不做 EOL 变换，
+ * 二进制文档通道（office-integration-plan.md §5/§10）：
+ * 预览格式扩展名走白名单——二进制容器不做 NUL 嗅探、不做 EOL 变换，
  * 以 base64 进出 RPC。读写上限独立于文本通道（读 50MB / 写 20MB）：
  * 复杂工作簿/演示文稿 5–20MB 常见，文本通道的 2MB 写护栏不适用。
+ * §10 预览-only：页面侧只用读半边（office 页无写权限）；写半边保留给 agent。
+ * 白名单 = OOXML 家族 + §10.6 扩展的 .pdf / .ods（csv/tsv 走既有文本通道）。
  */
-const OOXML_EXTS = new Set([
+const BINARY_DOC_EXTS = new Set([
   ".pptx", ".pptm", ".ppsx", ".potx",
   ".docx", ".docm", ".dotx",
   ".xlsx", ".xlsm", ".xltx",
+  ".pdf", ".ods",
 ]);
 
-export function isOoxmlPath(rel: string): boolean {
+export function isBinaryDocPath(rel: string): boolean {
   const i = rel.lastIndexOf(".");
-  return i >= 0 && OOXML_EXTS.has(rel.slice(i).toLowerCase());
+  return i >= 0 && BINARY_DOC_EXTS.has(rel.slice(i).toLowerCase());
 }
 
 export const MAX_BINARY_READ_BYTES = 50 * 1024 * 1024;
@@ -275,7 +278,7 @@ export interface BinaryContentResult {
   truncated: boolean;
 }
 
-/** 轻量 stat（office 页保存前的 mtime 冲突检测；避免为比对 mtime 重拉全量 base64）。 */
+/** 轻量 stat（office 页顶栏大小显示；避免为显示体积拉全量 base64）。 */
 export async function statFile(
   workDir: string,
   rel: string,
@@ -298,7 +301,7 @@ export async function readBinaryContent(
   workDir: string,
   rel: string,
 ): Promise<BinaryContentResult | null> {
-  if (!isOoxmlPath(rel)) return null; // 白名单外不走二进制通道（防绕过文本嗅探）
+  if (!isBinaryDocPath(rel)) return null; // 白名单外不走二进制通道（防绕过文本嗅探）
   const abs = path.resolve(workDir, rel);
   const realWt = await fsp.realpath(workDir).catch(() => workDir);
   const relCheck = path.relative(realWt, abs);
@@ -322,7 +325,7 @@ export async function writeBinaryContent(
   rel: string,
   base64: string,
 ): Promise<FileWriteResult> {
-  if (!isOoxmlPath(rel)) {
+  if (!isBinaryDocPath(rel)) {
     return { ok: false, size: 0, mtime: 0, error: "binary" };
   }
   const abs = path.resolve(workDir, rel);

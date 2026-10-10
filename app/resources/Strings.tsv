@@ -1056,4 +1056,9 @@ Office_PhaseNote	Preview pdf / docx / pptx / xlsx / ods / csv / tsv in page; edi
 Office_Loading	Loading…	加载中…
 Office_ExternalOpen	Open in external app	用外部程序打开
 Office_UseSideList	Pick a project file from the list on the left	请从左侧列表选择项目内的文件
-Office_PreviewUnavailable	In-page preview is not available for this format yet	此格式暂无页内预览
+Office_PreviewUnavailable	Legacy formats have no in-page preview — open in an external app	旧格式不支持页内预览——请用外部程序打开
+Office_PreviewFailed	Preview failed	预览失败
+Office_PreviewTimeout	Preview timed out	预览超时
+Office_Retry	Retry	重试
+Office_TooLarge	File too large for in-page preview (binary 50 MB / csv·tsv 8 MB)	文件过大，无法页内预览（二进制 50MB / csv·tsv 8MB）
+Office_PageCount	{0} page(s)	{0} 页

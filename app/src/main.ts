@@ -409,10 +409,21 @@ app.whenReady().then(() => {
 
   // 视觉验收截图钩子（GITTER_SHOT=<png 路径>，需配合 GITTER_BOOT_EXIT_MS）：
   // boot 断言通过后 capturePage 落盘；GITTER_SHOT_VARS=JSON 可临时覆盖 --c-* token（浅色验收）。
-  // GITTER_SHOT_REPO=<git 仓库> 时先挂载一个页面以满足 window 域权限，再切仓库（广播
-  // context.changed → 目标页按新 repo 重取数据）——启动参数传仓库会把页面锁在 log 槽，
-  // 与截图目标页冲突，故在此钩子内完成。
-  // 注意：此钩子必须排在 boot 断言（bootExitMs 处 app.exit）之前。
+  // GITTER_SHOT_REPO=<git 仓库>：did-finish-load 后延迟 5s 发 app.openRepo（走 App.tsx
+  // 处理器，宿主侧 call 无 __caller 权限校验；处理器会把页面设为 log，15s 截图钩子内
+  // 再按 shotPage 导航）。延迟是给渲染层启动恢复让路：App.tsx boot effect 会异步
+  // repo.open(settings.currentProjectPath)——openRepo 必须晚于它，否则被覆盖；
+  // 也必须远早于 15s 截图钩子，否则其完成回调（setState page:"log"）会落在
+  // shotPage 导航之后，把页面从目标页扯回 log（两类竞态都实测过）。
+  if (shotRepo && shotPath && bootExitMs > 0) {
+    const win0 = BrowserWindow.getAllWindows()[0];
+    win0.webContents.once("did-finish-load", () => {
+      setTimeout(() => {
+        win0.webContents.send("evt", { method: "app.openRepo", params: { path: shotRepo } });
+        process.stdout.write("[boot] shotRepo 已发 app.openRepo（did-finish-load+5s）\n");
+      }, 5000);
+    });
+  }
   if (shotPath && bootExitMs > 0) {
     setTimeout(async () => {
       try {
@@ -422,13 +433,6 @@ app.whenReady().then(() => {
           await win.webContents.executeJavaScript(
             "(() => { const v = " + JSON.stringify(vars) + "; try { Object.entries(JSON.parse(v)).forEach(([k, val]) => document.documentElement.style.setProperty(k, String(val))); } catch {} })()");
           await new Promise((r) => setTimeout(r, 400));
-        }
-        if (shotRepo) {
-          // 截图用仓库：走 app.openRepo 事件（App.tsx 的处理器用宿主侧 call，无 __caller 权限校验）。
-          // 该处理器会把页面设为 log——随后仍按 shotPage 导航到目标页。
-          await win.webContents.send("evt", { method: "app.openRepo", params: { path: shotRepo } });
-          process.stdout.write("[boot] shotRepo 已发 app.openRepo\n");
-          await new Promise((r) => setTimeout(r, 3000));
         }
         if (shotPage) {
           await win.webContents.executeJavaScript(

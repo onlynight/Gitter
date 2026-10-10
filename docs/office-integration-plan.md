@@ -799,3 +799,55 @@ v2 的核心教训是注入 CSS 污染宿主（§10.1）。预览-only 方案把
   「Shadow DOM + 注入审计」备选案；
 - 复评触发点：pdfjs-dist / docx-preview / pptx-preview / @e965-xlsx 任一发布破坏性大版本，
   或出现更好的保真渲染器（对照 §8.2 竞争项目清单）。
+
+### 10.9 实施回填（P1 + P2，2026-10-10 晚）
+
+按本节方案落地为 commit 2（此前 commit 1 已下线 v2 编辑套件、收敛为骨架）。
+
+**实现**：
+
+- iframe 运行时：`web/src/pages/officePreview/`（runtime.ts 协议入口 +
+  renderPdf/renderDocx/renderSheet/renderPptx 四渲染器 + iframeCss.ts iframe 内样式 +
+  virtual.d.ts）。协议：`ready → render{id,renderer,name,dark,base64|text} → done|error`，
+  宿主 30s 超时兜底；iframe `sandbox="allow-scripts"`（opaque origin）。
+- 双阶段构建：`build-pages.mjs` 先把运行时单独构建为 minified IIFE，经
+  `virtual:officePreviewRuntime` 内联进 office 页 page.js；`</script` 转义防提前闭合。
+- 宿主 OfficePage：列表（含 legacy 格式，徽标 PDF 红/表格族绿）→ 顶栏（体积/页数/外部打开）
+  → iframe 容器 + 加载态 + 失败兜底卡（重试/外部打开）。csv/tsv 走 `file.content` 文本通道，
+  其余走 `file.readBinary`；treex 白名单扩 `.pdf` `.ods`（`isBinaryDocPath`）。
+- CSP（web/index.html）：`script-src 'self' 'unsafe-inline' blob:` + `worker-src blob:` +
+  `img-src blob:`（srcdoc 继承宿主 CSP，内联脚本与 blob worker 必需；connect-src 不动）。
+- 依赖 4 个：pdfjs-dist 6.4.299 / docx-preview 0.4.1 / xlsx 0.18.5 / pptx-preview 1.0.7。
+
+**实测发现（都进了实现）**：
+
+- **沙箱 iframe 内 module worker 被 Chromium 拒绝**（`Refused to cross-origin redirects of
+  the top-level worker script` → pdf.js 静默回退 fake worker 拖累宿主主线程）。实测
+  classic worker 可用：把 pdf.worker.min.mjs 整形（尾部 `export{...}` 剥除——同行已赋值
+  `globalThis.pdfjsWorker`；WASM 桩内 `import.meta.url` → `self.location.href`）后经
+  `GlobalWorkerOptions.workerPort` 挂 classic blob worker（renderPdf.ts）。
+- **截图 harness 两类竞态**（main.ts shotRepo 钩子）：openRepo 的完成回调会把页面设回
+  log——发早了被 boot 恢复（settings.currentProjectPath）覆盖、发晚了把 shotPage 导航
+  扯回 log。定版：did-finish-load + 5s 延迟发送。
+- xlsx-react-viewer 时代生成的 `测试表格.xlsx` 实为空工作簿（`<sheetData/>`）——SheetJS
+  判空正确，非兼容缺陷；富内容路径由 SheetJS 自产 4 表样本验证。
+
+**验收（§10.7 对照，GITTER_SHOT harness）**：
+
+- [x] 宿主零污染：pptx/pdf 预览打开后 `getComputedStyle(.main).transitionDuration` =
+      0.3s（不变），head `<style>` Preflight 特征 0 命中（PROBE_JS 探针）；
+- [x] 主线程健康：全格式打开定时器漂移 54–63ms（空闲）；1.5MB ESP32 原理图 PDF
+      （复杂矢量）经 classic worker 渲染完整保真、无 fake worker 回退；
+- [x] 崩溃隔离：`corrupted.docx`（假 zip）→ iframe 内异常捕获 → postMessage →
+      「预览失败」兜底卡 + 重试/外部打开，宿主无恙；
+- [x] 每格式真实样本截图：pdf（合成 2 页 + ESP32 原理图）、docx（中文正文分页）、
+      xlsx/ods（同工作簿 4 表：列宽/合并/中文/空表，数字右对齐）、csv（引号转义/中文）、
+      pptx（标题/内容页，§10.3 预期的「内容可读」级保真——P2 保留，不砍）；
+- [x] 暗色管道：`data-base=dark` → iframe `body.dark` 背板切换（文档本体恒白纸）；
+- [x] 权限：manifest 只声明 `git.read` + `window`；boot-check PASS、权限 E2E PASS；
+- [x] 体积：office page.js = 3.56MB（minified，含内联 worker），§10.6 预期 3–4MB ✓。
+- [ ] 待人工验收：20× 打开/关闭循环漂移、50MB 二进制 / 8MB csv·tsv 边界提示、
+      10MB 级 xlsx 解析耗时、20MB 级 pdf 首页耗时、pptx 复杂真实样本保真度终审；
+- [ ] 已知良性噪音：开 ELECTRON_ENABLE_LOGGING 时偶见一条 `Uncaught SyntaxError:
+      Missing initializer in const declaration @ index.html (9)`——不命中主帧 onerror、
+      不影响任何渲染/断言，来源未定位（疑为沙箱帧/worker 错误归因），持续观察。

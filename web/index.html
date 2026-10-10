@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://localhost:5173"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws://localhost:5173; worker-src blob:"
     />
+    <!-- script-src 'unsafe-inline' + worker-src blob:（office-integration-plan.md §10.5）：
+         office 页预览运行在 sandbox iframe（srcdoc 内联打包的渲染库 + pdfjs blob worker），
+         srcdoc 文档继承本 CSP，故需放行内联脚本与 blob worker；预览库无网络请求，connect-src 不动。 -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Gitter</title>
   </head>

@@ -11,5 +11,10 @@
   "Office_Loading": "加载中…",
   "Office_ExternalOpen": "用外部程序打开",
   "Office_UseSideList": "请从左侧列表选择项目内的文件",
-  "Office_PreviewUnavailable": "此格式暂无页内预览"
+  "Office_PreviewUnavailable": "旧格式不支持页内预览——请用外部程序打开",
+  "Office_PreviewFailed": "预览失败",
+  "Office_PreviewTimeout": "预览超时",
+  "Office_Retry": "重试",
+  "Office_TooLarge": "文件过大，无法页内预览（二进制 50MB / csv·tsv 8MB）",
+  "Office_PageCount": "{0} 页"
 }

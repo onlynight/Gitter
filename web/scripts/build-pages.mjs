@@ -21,6 +21,36 @@ const outRoot = path.resolve(webRoot, "..", "app", "resources", "packages");
 const PAGES = ["projects", "log", "changes", "branches", "tasks", "bash", "files", "office", "settings"];
 
 /**
+ * office 槽的 iframe 预览运行时（office-integration-plan.md §10.5）：
+ * 先单独构建为 minified IIFE，再以字符串经 virtual:officePreviewRuntime 内联进
+ * office 页 page.js；页面运行时把它写进 iframe srcdoc——预览库（pdfjs/SheetJS/
+ * docx-preview/pptx-preview）及其全部样式只存在于 iframe 文档内，宿主文档零污染。
+ */
+async function buildOfficePreviewRuntime() {
+  const outDir = path.join(webRoot, ".vite-office-preview");
+  await build({
+    root: webRoot,
+    logLevel: "warn",
+    define: { "process.env.NODE_ENV": JSON.stringify("production") },
+    build: {
+      outDir,
+      emptyOutDir: true,
+      minify: true,
+      lib: {
+        entry: path.resolve(webRoot, "src/pages/officePreview/runtime.ts"),
+        name: "GitterOfficePreview",
+        formats: ["iife"],
+        fileName: () => "runtime.js",
+      },
+      chunkSizeWarningLimit: 10000,
+    },
+  });
+  const js = fs.readFileSync(path.join(outDir, "runtime.js"), "utf8");
+  fs.rmSync(outDir, { recursive: true, force: true });
+  return js;
+}
+
+/**
  * Monaco ESM 的样式经 JS 分发（96 个 contrib 模块 `import './x.css'`）。
  * lib IIFE 构建下 vite 会把 CSS 抽成独立 .css 产物，而页装载器只装 page.js——样式永远装不上；
  * 且 file:// 下 codicon.css 里相对 url(./codicon.ttf) 也取不到字体。
@@ -67,11 +97,27 @@ function monacoCssInline() {
   };
 }
 
+const officePreviewJs = PAGES.includes("office") ? await buildOfficePreviewRuntime() : null;
+
 for (const slot of PAGES) {
+  const plugins = [monacoCssInline()];
+  if (slot === "office" && officePreviewJs !== null) {
+    plugins.push({
+      name: "office-preview-runtime",
+      resolveId(source) {
+        if (source === "virtual:officePreviewRuntime") return "\0virtual:officePreviewRuntime";
+        return null;
+      },
+      load(id) {
+        if (id === "\0virtual:officePreviewRuntime") return `export default ${JSON.stringify(officePreviewJs)};`;
+        return null;
+      },
+    });
+  }
   await build({
     root: webRoot,
     logLevel: "warn",
-    plugins: [monacoCssInline()],
+    plugins,
     resolve: {
       alias: [
         // 精确匹配（^...$）：monaco 内部也有 "../commands/..." 形态的相对导入，
@@ -93,10 +139,11 @@ for (const slot of PAGES) {
       // 页面包不需要宿主 public/ 资产（favicon / 品牌图），禁止 vite 复制
       copyPublicDir: false,
       // 不压缩是页面包缺省策略（安全网按行扫描、报错行号有意义）。
-      // 例外：files 槽内联了 Monaco 全量 + 五个语言 worker（未压缩 ~24.8MB，§6.2），
-      // P4 优化按文档 §6.2 选项 2 仅对该槽启用 minify（预计 ~8MB）——Monaco 主体是第三方代码，
-      // 自研代码占比极小，压缩不损失安全网可读性。
-      minify: slot === "files",
+      // 例外：内联了大型第三方库的槽位启用 minify（自研代码占比极小，
+      // 压缩不损失安全网可读性）——files 内联 Monaco 全量（未压缩 ~24.8MB，§6.2）；
+      // office 内联 iframe 预览运行时（pdfjs + SheetJS + docx-preview + pptx-preview，
+      // office-integration-plan.md §10）。
+      minify: slot === "files" || slot === "office",
       lib: {
         entry: path.resolve(webRoot, `src/pages/entries/${slot}.ts`),
         name: "GitterPage",

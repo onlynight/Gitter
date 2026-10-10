@@ -1542,7 +1542,8 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
 }
 .office-headbar .fico { display: inline-flex; color: var(--c-text3); flex: none; }
 .office-headbar .nm { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
-.office-headbar .right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.office-headbar .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.office-headbar .it { font-size: 11px; color: var(--c-text3); font-variant-numeric: tabular-nums; }
 
 /* 画布：预览（iframe）占满其余空间，容器只管边界；预览库样式不进宿主文档 */
 .office-canvas { flex: 1; min-height: 0; position: relative; overflow: hidden; display: flex; flex-direction: column; }
@@ -1565,11 +1566,14 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
   border-radius: var(--radius); font-size: 12.5px; color: var(--c-text2);
 }
 .office-welcome .nm2 { color: var(--c-text2); }
-/* 文件类型徽标配色（PPT 橙 / Word 蓝 / Excel 绿，与 Office 品牌色直觉一致） */
+/* 文件类型徽标配色（PPT 橙 / Word 蓝 / Excel·表格族 绿 / PDF 红，品牌色直觉） */
 .office-ext.k-pptx { color: var(--c-amber); }
 .office-ext.k-docx { color: var(--c-chip-blue-fg); }
-.office-ext.k-xlsx { color: var(--c-green); }
+.office-ext.k-xlsx, .office-ext.k-ods, .office-ext.k-csv, .office-ext.k-tsv { color: var(--c-green); }
+.office-ext.k-pdf { color: var(--c-red); }
 .office-row.active .office-ext.k-pptx { color: var(--c-amber); }
 .office-row.active .office-ext.k-docx { color: var(--c-chip-blue-fg); }
-.office-row.active .office-ext.k-xlsx { color: var(--c-green); }
+.office-row.active .office-ext.k-xlsx, .office-row.active .office-ext.k-ods,
+.office-row.active .office-ext.k-csv, .office-row.active .office-ext.k-tsv { color: var(--c-green); }
+.office-row.active .office-ext.k-pdf { color: var(--c-red); }
 
