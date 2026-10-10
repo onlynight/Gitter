@@ -10,7 +10,10 @@ body {
   background: #f2f2f2; color: #222;
 }
 body.dark { background: #1f1f1f; color: #ddd; }
-#gitter-preview-root { position: absolute; inset: 0; overflow: auto; }
+#gitter-preview-root { position: absolute; inset: 0; overflow: auto; overflow-anchor: none; }
+/* overflow-anchor:none：pdf 缩放重渲染会整片替换画布，Chromium 滚动锚定在
+   DOM 替换时自行调整 scrollTop，与中心锚定的滚动补偿相互打架（实测
+   st 800→1182 的补偿被锚定改写成 382）。我们是程序化滚动的确定性场景，禁用。 */
 /* 内容层缩放载体：transform: scale（宿主经消息设置）。
    width:max-content 让滚动包围盒恰好等于内容（放大的空边不出现），
    margin:0 auto 在窄于视口时居中、溢出时自动归零（不会左侧不可达）。 */

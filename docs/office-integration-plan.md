@@ -859,7 +859,12 @@ v2 的核心教训是注入 CSS 污染宿主（§10.1）。预览-only 方案把
       定量定位（zoom 语义下 scroll extent 与变换后 bbox 不一致）。缩放以**显示区
       中心为锚点**：应用新缩放前后把「视口中心的内容坐标」放回中心（滚动补偿，
       cx=(sl+cw/2−offX)/z₀ → sl'=cx·z₁+offX−cw/2）——阅读位置不跳；实测 150%→200%、
-      预置 st=800：终态 st=1182（理论 1182.17）、sl=157（理论 156.83），像素级一致；
+      预置 st=800：终态 st=1182（理论 1182.17）、sl=157（理论 156.83），像素级一致。
+      **缩小（视觉宽 < 视口）水平居中**：内容层按 zoom 动态 translateX
+      X=max(0,(cw−W·z)/2)，居中/溢出两态无缝切换；X 纳入锚定公式与 resize 重算。
+      滚动容器 `overflow-anchor:none`——pdf 重渲染整片替换画布会触发 Chromium
+      滚动锚定自行改写 scrollTop，与中心锚定补偿打架（实测 1182 被改写成 382）；
+      scroll-debug 钩子扩展 to:{sl,st}（滚到指定位置再报几何）与 bboxL；
 - [ ] 待人工验收：20× 打开/关闭循环漂移、50MB 二进制 / 8MB csv·tsv 边界提示、
       10MB 级 xlsx 解析耗时、20MB 级 pdf 首页耗时、pptx 复杂真实样本保真度终审；
 - [ ] 已知良性噪音：开 ELECTRON_ENABLE_LOGGING 时偶见一条 `Uncaught SyntaxError:

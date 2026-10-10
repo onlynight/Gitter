@@ -82,16 +82,38 @@ async function render(msg: RenderMsg, content: HTMLElement): Promise<void> {
       info = await renderPptx(content, b64ToBytes(msg.base64!), msg.name);
       break;
   }
-  // 渲染期间到来的缩放：CSS zoom 已即时生效，这里补上 pdf 的位图重渲染
+  // 渲染期间到来的缩放：transform 已即时生效，这里补上 pdf 的位图重渲染；
+  // 内容自然宽在异步渲染中增长（pdf 逐页挂载），完成后重算居中位移
   if (currentZoom !== 1) (info as { setZoom?: (z: number) => void }).setZoom?.(currentZoom);
+  applyZoomLayout();
   post({ type: "done", id: msg.id, info: { pages: info.pages, sheets: info.sheets } });
 }
 
 const root = document.getElementById(ROOT_ID) as HTMLElement;
-/** 缩放作用域：root 只当滚动容器，内容层整体 CSS zoom（滚动条保持原尺寸） */
+/** 缩放作用域：root 只当滚动容器，内容层整体 transform 缩放（滚动条保持原尺寸） */
 const content = document.createElement("div");
 content.className = "gpv-content";
 root.appendChild(content);
+
+/**
+ * 缩放布局：translateX(X) scale(z)。缩小（视觉宽 < 视口）时 X 居中内容——
+ * 文档缩小后左右居中而非贴左；放大（溢出）时 X=0，左锚增长不留左侧死区。
+ * X 计入中心锚定（ax = offsetLeft + xShift）与滚动范围（变换包围盒计入）。
+ */
+let xShift = 0;
+function applyZoomLayout(): void {
+  const w = content.offsetWidth; // 布局宽（transform 不影响），≥ 视口（min-width:100%）
+  xShift = Math.max(0, (root.clientWidth - w * currentZoom) / 2);
+  content.style.transform =
+    currentZoom === 1 && xShift === 0 ? "" : `translateX(${xShift}px) scale(${currentZoom})`;
+}
+
+// 宿主布局变化（分栏拖拽/窗口缩放）→ 重算居中位移
+let resizeTimer = 0;
+window.addEventListener("resize", () => {
+  window.clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(applyZoomLayout, 120);
+});
 
 window.addEventListener("message", (ev) => {
   if (ev.source !== window.parent) return;
@@ -103,15 +125,15 @@ window.addEventListener("message", (ev) => {
     });
   } else if (msg.type === "zoom" && typeof msg.zoom === "number" && msg.zoom > 0) {
     // 以显示区中心为锚点缩放：先记下当前视口中心的内容坐标，应用新缩放后把它放回中心，
-    // 用户阅读位置不跳（transform-origin 固定 0 0，锚定全靠滚动补偿）。
+    // 用户阅读位置不跳（transform-origin 固定 0 0，锚定全靠滚动补偿；ax 含居中位移 xShift）。
     const z1 = msg.zoom;
-    const ax = content.offsetLeft;
+    const ax = content.offsetLeft + xShift;
     const ay = content.offsetTop;
     const cx = (root.scrollLeft + root.clientWidth / 2 - ax) / currentZoom;
     const cy = (root.scrollTop + root.clientHeight / 2 - ay) / currentZoom;
     currentZoom = z1;
-    content.style.transform = `scale(${z1})`;
-    root.scrollLeft = Math.max(0, cx * z1 + ax - root.clientWidth / 2);
+    applyZoomLayout();
+    root.scrollLeft = Math.max(0, cx * z1 + content.offsetLeft + xShift - root.clientWidth / 2);
     root.scrollTop = Math.max(0, cy * z1 + ay - root.clientHeight / 2);
     session?.setZoom?.(z1);
   } else if (msg.type === "scroll-debug") {
@@ -133,6 +155,7 @@ window.addEventListener("message", (ev) => {
           sl: root.scrollLeft, st: root.scrollTop,
           cw: root.clientWidth, ch: root.clientHeight,
           bboxW: Math.round(bbox.width), bboxH: Math.round(bbox.height),
+          bboxL: Math.round(bbox.left),
         },
       });
     }, 150);

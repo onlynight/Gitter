@@ -17,6 +17,9 @@ import { PluginHost } from "./services/extensions/host";
 import { McpClientManager } from "./services/extensions/mcpClient";
 import { bindToolRegistry } from "./services/extensions/agentLoop";
 
+// TEMP-DIAGNOSTIC（诊断完移除）：GITTER_USER_DATA=<dir> 覆盖 userData——多实例并行诊断用
+if (process.env.GITTER_USER_DATA) app.setPath("userData", process.env.GITTER_USER_DATA);
+
 const bridges = new Map<number, Bridge>();
 let shared: SharedServices;
 
@@ -582,14 +585,16 @@ app.whenReady().then(() => {
           }
         }
         // GITTER_SHOT_PROBE_JS=<js 表达式>：截图前执行并打印结果（页面状态诊断用）。
-        // 主线程忙风暴与短暂空闲交替——最多重试 8 次（每次 6s 超时 + 1.5s 间隔）直到拿到结果。
+        // 主线程忙风暴与短暂空闲交替——最多重试 8 次（每次超时 + 1.5s 间隔）直到拿到结果。
+        // 超时可用 GITTER_SHOT_PROBE_TIMEOUT_MS 调（探针内含长等待序列时）。
         const probeJs = process.env.GITTER_SHOT_PROBE_JS;
+        const probeTimeout = Number(process.env.GITTER_SHOT_PROBE_TIMEOUT_MS ?? 6000);
         if (probeJs) {
           for (let attempt = 1; attempt <= 20; attempt++) {
             try {
               const out = await Promise.race([
                 win.webContents.executeJavaScript(probeJs),
-                new Promise((_, rej) => setTimeout(() => rej(new Error("探针 6s 无响应")), 6000)),
+                new Promise((_, rej) => setTimeout(() => rej(new Error("探针超时 " + probeTimeout + "ms")), probeTimeout)),
               ]);
               process.stdout.write("[probe] 尝试" + attempt + " " + JSON.stringify(out) + "\n");
               break;
