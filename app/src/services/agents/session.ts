@@ -6,7 +6,7 @@ import type { ModelMessage } from "ai";
 import type { PackageStore } from "../extensions/store";
 import type { SettingsStore } from "../settings";
 import { tryGit } from "../gitexec";
-import { parseUnifiedDiff } from "../gitlog";
+import { parseUnifiedDiff, truncateDiff } from "../gitlog";
 import * as status from "../gitstatus";
 import { createTaskWorktree, listWorktrees } from "../worktrees";
 import { commitCheckpoint, headSha } from "./checkpoint";
@@ -611,7 +611,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
 
   async taskDiff(args: { taskId: string; path?: string; since?: string }): Promise<import("../../shared/types").DiffDTO[]> {
     const text = await this.taskDiffText(args);
-    return parseUnifiedDiff(text);
+    return parseUnifiedDiff(text).map((d) => truncateDiff(d));
   }
 
   /** 原始 unified diff 文本（复制/导出用）。 */

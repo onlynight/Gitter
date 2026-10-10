@@ -51,6 +51,8 @@ export interface DiffDTO {
   deletedLines: number;
   oldEndsWithNewline: boolean;
   newEndsWithNewline: boolean;
+  /** 超过 MAX_DIFF_LINES 被截断：仅保留靠前的完整 hunk */
+  truncated?: boolean;
 }
 
 export interface FileStatusDTO {

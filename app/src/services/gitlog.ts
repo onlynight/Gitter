@@ -25,6 +25,64 @@ export function parseUnifiedDiff(patch: string): DiffDTO[] {
   return files;
 }
 
+/** 单文件 DiffDTO 的展示行数上限（oldLines+newLines 条目计）：钳住 IPC 载荷与前端 DOM 规模。 */
+export const MAX_DIFF_LINES = 20_000;
+
+/**
+ * 在 hunk 内部按源行序切前缀，保留 budget 个源行。
+ * 统一 diff 中 ' ' 同时进 old/new，'-' 只进 old，'+' 只进 new——双游标按此对齐推进，
+ * 保证切出的 oldLines/newLines 前缀在行配对（buildSideRows）语义下自洽。
+ * 返回 null = 一行都放不下。
+ */
+function cutHunkPrefix(h: HunkDTO, budget: number): HunkDTO | null {
+  if (budget <= 0) return null;
+  let i = 0;
+  let j = 0;
+  let used = 0;
+  while (i < h.oldLines.length || j < h.newLines.length) {
+    const o = h.oldLines[i];
+    const n = h.newLines[j];
+    if (o !== undefined && n !== undefined && o.startsWith(" ") && n.startsWith(" ")) {
+      if (used + 2 > budget) break;
+      i++; j++; used += 2;
+    } else if (o !== undefined && o.startsWith("-")) {
+      if (used + 1 > budget) break;
+      i++; used += 1;
+    } else if (n !== undefined) {
+      if (used + 1 > budget) break;
+      j++; used += 1;
+    } else {
+      break;
+    }
+  }
+  if (i === 0 && j === 0) return null;
+  return { ...h, oldLines: h.oldLines.slice(0, i), newLines: h.newLines.slice(0, j) };
+}
+
+/**
+ * 截断到 MAX_DIFF_LINES 源行：整 hunk 放得下就保留，放不下在该 hunk 内切前缀。
+ * 溢出置 truncated=true；added/deletedLines 保留全量统计（描述文件变更本身）。
+ */
+export function truncateDiff(d: DiffDTO, max: number = MAX_DIFF_LINES): DiffDTO {
+  let budget = max;
+  let cut = false;
+  const hunks: HunkDTO[] = [];
+  for (const h of d.hunks) {
+    const cost = h.oldLines.length + h.newLines.length;
+    if (cost <= budget) {
+      hunks.push(h);
+      budget -= cost;
+      continue;
+    }
+    cut = true;
+    const partial = cutHunkPrefix(h, budget);
+    if (partial) hunks.push(partial);
+    break;
+  }
+  if (!cut) return d;
+  return { ...d, hunks, truncated: true };
+}
+
 function parseFileSection(lines: string[]): DiffDTO | null {
   const header = lines[0]; // diff --git a/x b/y
   const m = /^diff --git a\/(.+?) b\/(.+)$/.exec(header);
@@ -282,11 +340,11 @@ export async function fileDiff(workDir: string, sha: string, path_: string, base
     patch = await git(workDir, ["diff-tree", "--no-color", "-p", "--root", sha, "--", path_]);
   }
   const files = parseUnifiedDiff(patch);
-  return (
+  return truncateDiff(
     files[0] ?? {
       path: path_, oldPath: path_, isBinary: false, isNew: false, isDeleted: false, isRenamed: false,
       hunks: [], addedLines: 0, deletedLines: 0, oldEndsWithNewline: true, newEndsWithNewline: true,
-    }
+    },
   );
 }
 

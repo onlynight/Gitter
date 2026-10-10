@@ -721,6 +721,7 @@ Terminal_DocFindClose	Close search (Esc)	关闭查找（Esc）
 Terminal_DocResize	Drag to resize · double-click to reset	拖动调整宽度 · 双击恢复默认
 Terminal_DocSwitch	Switch document	切换文档
 Diff_BinaryFile	Binary file (not shown)	二进制文件（不显示）
+Diff_Truncated	Diff truncated: too many changed lines, only the leading part is shown. Use `git diff` for the full change.	差异过大已截断：仅显示前一部分，完整内容请用 git diff 查看
 Diff_NoNewlineAtEof	No newline at end of file	文件末尾无换行符
 Settings_AppearanceSection	Appearance	外观
 Settings_Theme	Theme	主题

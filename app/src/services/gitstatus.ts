@@ -1,5 +1,5 @@
 import { git, tryGit, tryGitStream, GitError, type GitResult } from "./gitexec";
-import { parseUnifiedDiff } from "./gitlog";
+import { parseUnifiedDiff, truncateDiff } from "./gitlog";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../shared/types";
 
 // ---------------------------------------------------------------------------
@@ -107,7 +107,7 @@ export async function worktreeFileDiff(
     if (r.code === 0) return empty; // 空文件：无差异
     if (r.code === 1) {
       const files = parseUnifiedDiff(r.stdout);
-      return files[0] ?? empty;
+      return files[0] ? truncateDiff(files[0]) : empty;
     }
     throw new GitError(["diff", "--no-index", path_], r);
   }
@@ -122,7 +122,7 @@ export async function worktreeFileDiff(
       files = parseUnifiedDiff(sides.stdout);
     }
   }
-  return files[0] ?? empty;
+  return files[0] ? truncateDiff(files[0]) : empty;
 }
 
 /**

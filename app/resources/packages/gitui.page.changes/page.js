@@ -222,6 +222,38 @@
         setError(e.message);
       }
     }, []);
+    const runRef = react.useRef(run);
+    runRef.current = run;
+    const toggleHunk = react.useCallback((i) => {
+      setSelectedHunks((prev) => {
+        const next = new Set(prev);
+        if (next.has(i)) next.delete(i);
+        else next.add(i);
+        return next;
+      });
+    }, []);
+    const hunkActionLabel = react.useCallback(
+      (_i) => (selected == null ? void 0 : selected.staged) ? t("Changes_UnstageHunk") : t("Changes_StageHunk"),
+      [selected]
+    );
+    const hunkAction = react.useCallback(
+      (i) => {
+        const sel = selected;
+        if (!sel) return;
+        if (sel.staged) {
+          void runRef.current(async () => {
+            await call("changes.unstageHunks", { path: sel.path, indices: [i] });
+            return t("Changes_UnstagedHunks");
+          });
+        } else if (!sel.isNew) {
+          void runRef.current(async () => {
+            await call("changes.stageHunks", { path: sel.path, indices: [i] });
+            return t("Changes_StagedHunks");
+          });
+        }
+      },
+      [selected]
+    );
     const select = (f, stagedView) => {
       const sel = { path: f.path, staged: stagedView, isNew: f.category === "unversioned", isConflict: f.isConflict };
       setSelected(sel);
@@ -709,20 +741,9 @@
             focusLine,
             inline: ((_a2 = app.settings) == null ? void 0 : _a2.diffMode) === "inline",
             selectedHunks: selected.staged || selected.isNew ? void 0 : selectedHunks,
-            onToggleHunk: selected.staged || selected.isNew ? void 0 : (i) => setSelectedHunks((prev) => {
-              const next = new Set(prev);
-              if (next.has(i)) next.delete(i);
-              else next.add(i);
-              return next;
-            }),
-            hunkActionLabel: () => selected.staged ? t("Changes_UnstageHunk") : t("Changes_StageHunk"),
-            onHunkAction: selected.staged ? (i) => void run(async () => {
-              await call("changes.unstageHunks", { path: selected.path, indices: [i] });
-              return t("Changes_UnstagedHunks");
-            }) : selected.isNew ? void 0 : (i) => void run(async () => {
-              await call("changes.stageHunks", { path: selected.path, indices: [i] });
-              return t("Changes_StagedHunks");
-            })
+            onToggleHunk: selected.staged || selected.isNew ? void 0 : toggleHunk,
+            hunkActionLabel,
+            onHunkAction: selected.staged ? hunkAction : selected.isNew ? void 0 : hunkAction
           }
         ) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: t("Changes_SelectFileHint") }) })
       ] }) }) }),

@@ -201,6 +201,38 @@ export function ChangesPage() {
     }
   }, []);
 
+  // run 经 ref 间接引用，保持 hunk 回调引用稳定——DiffView 已 memo 化（浅比较），
+  // 内联箭头函数会让每次全页重渲染都穿透 memo、重协调整棵 diff 树
+  const runRef = useRef(run);
+  runRef.current = run;
+
+  const toggleHunk = useCallback((i: number) => {
+    setSelectedHunks((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }, []);
+
+  const hunkActionLabel = useCallback(
+    (_i: number) => (selected?.staged ? t("Changes_UnstageHunk") : t("Changes_StageHunk")),
+    [selected],
+  );
+
+  const hunkAction = useCallback(
+    (i: number) => {
+      const sel = selected;
+      if (!sel) return;
+      if (sel.staged) {
+        void runRef.current(async () => { await call("changes.unstageHunks", { path: sel.path, indices: [i] }); return t("Changes_UnstagedHunks"); });
+      } else if (!sel.isNew) {
+        void runRef.current(async () => { await call("changes.stageHunks", { path: sel.path, indices: [i] }); return t("Changes_StagedHunks"); });
+      }
+    },
+    [selected],
+  );
+
   const select = (f: FileStatusDTO, stagedView: boolean) => {
     const sel = { path: f.path, staged: stagedView, isNew: f.category === "unversioned", isConflict: f.isConflict };
     setSelected(sel);
@@ -687,22 +719,9 @@ export function ChangesPage() {
                 focusLine={focusLine}
                 inline={app.settings?.diffMode === "inline"}
                 selectedHunks={selected.staged || selected.isNew ? undefined : selectedHunks}
-                onToggleHunk={selected.staged || selected.isNew ? undefined : (i) =>
-                  setSelectedHunks((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(i)) next.delete(i);
-                    else next.add(i);
-                    return next;
-                  })
-                }
-                hunkActionLabel={() => (selected.staged ? t("Changes_UnstageHunk") : t("Changes_StageHunk"))}
-                onHunkAction={
-                  selected.staged
-                    ? (i) => void run(async () => { await call("changes.unstageHunks", { path: selected.path, indices: [i] }); return t("Changes_UnstagedHunks"); })
-                    : selected.isNew
-                      ? undefined
-                      : (i) => void run(async () => { await call("changes.stageHunks", { path: selected.path, indices: [i] }); return t("Changes_StagedHunks"); })
-                }
+                onToggleHunk={selected.staged || selected.isNew ? undefined : toggleHunk}
+                hunkActionLabel={hunkActionLabel}
+                onHunkAction={selected.staged ? hunkAction : selected.isNew ? undefined : hunkAction}
               />
             ) : (
               <div className="empty-state">{t("Changes_SelectFileHint")}</div>
