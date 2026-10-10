@@ -63,6 +63,9 @@ const LEGACY_SCOPES: Record<string, string> = {
 export function buildRawTheme(theme: {
   activeId: string | null;
   syntax: Record<string, string>;
+  /** 主题 --c-* 令牌：--c-text 作为全局默认前景（vscode-textmate 色表 index 1 缺省是
+   * #000000——不带默认前景时未命中 scope 的文本在暗色主题下会渲染成黑字，不可读） */
+  tokens?: Record<string, string>;
   tokenColors?: { scope: string | string[]; settings: { foreground?: string; fontStyle?: string } }[] | null;
 }): { theme: IRawTheme; signature: string } {
   const settings = theme.tokenColors?.length
@@ -70,9 +73,11 @@ export function buildRawTheme(theme: {
     : Object.entries(theme.syntax)
         .filter(([key, color]) => LEGACY_SCOPES[key] && typeof color === "string" && color.startsWith("#"))
         .map(([key, color]) => ({ scope: LEGACY_SCOPES[key], settings: { foreground: color } }));
+  const defaultFg = theme.tokens?.["--c-text"];
+  const full = defaultFg && defaultFg.startsWith("#") ? [{ settings: { foreground: defaultFg } }, ...settings] : settings;
   return {
-    theme: { name: theme.activeId ?? "gitter-default", settings } as IRawTheme,
-    signature: `${theme.activeId ?? "-"}:${settings.length}:${settings[0]?.settings.foreground ?? ""}`,
+    theme: { name: theme.activeId ?? "gitter-default", settings: full } as IRawTheme,
+    signature: `${theme.activeId ?? "-"}:${full.length}:${full[0]?.settings.foreground ?? ""}`,
   };
 }
 
@@ -82,6 +87,7 @@ export class GrammarService {
 
   private registry: Registry | null = null;
   private registryFailed = false;
+  private registryCreating: Promise<Registry | null> | null = null;
   private themeSignature = "";
   private colorMap: string[] = [];
   private userGrammars = new Map<string, GrammarEntry>(); // 扩展名(带点小写) → 语法文件
@@ -99,6 +105,7 @@ export class GrammarService {
     this.registerUserGrammars();
     this.registry = null;
     this.registryFailed = false;
+    this.registryCreating = null;
     this.themeSignature = "";
   }
 
@@ -122,22 +129,33 @@ export class GrammarService {
   private async ensureRegistry(): Promise<Registry | null> {
     if (this.registry) return this.registry;
     if (this.registryFailed) return null;
-    if (!(await GrammarService.initOnig(this.onigWasmPath))) {
-      this.registryFailed = true;
-      return null;
+    // 单飞：并发 highlight（DiffView 每视图 Promise.all×2）在 reset() 置空后同时走到这里，
+    // 各自 new Registry 会产生"输家实例"——它从未 setTheme，token 前景索引对不上共享
+    // colorMap，解码结果全部 style:"plain"（渲染层表现为高亮静默消失）。必须共享同一创建Promise。
+    if (!this.registryCreating) {
+      this.registryCreating = (async () => {
+        if (!(await GrammarService.initOnig(this.onigWasmPath))) {
+          this.registryFailed = true;
+          return null;
+        }
+        try {
+          const self = this;
+          const reg = new Registry({
+            onigLib: Promise.resolve({ createOnigScanner, createOnigString }),
+            loadGrammar: async (scopeName) => self.loadGrammarByScope(scopeName),
+          });
+          this.registry = reg;
+          this.themeSignature = ""; // 新 registry 必须重设主题
+          return reg;
+        } catch {
+          this.registryFailed = true;
+          return null;
+        } finally {
+          this.registryCreating = null;
+        }
+      })();
     }
-    try {
-      const self = this;
-      this.registry = new Registry({
-        onigLib: Promise.resolve({ createOnigScanner, createOnigString }),
-        loadGrammar: async (scopeName) => self.loadGrammarByScope(scopeName),
-      });
-      this.themeSignature = ""; // 新 registry 必须重设主题
-      return this.registry;
-    } catch {
-      this.registryFailed = true;
-      return null;
-    }
+    return this.registryCreating;
   }
 
   /** 从活跃扩展包收集用户语法（扩展名可能覆盖内置映射）。 */

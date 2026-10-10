@@ -29,14 +29,14 @@
     "ChipPurpleFg": "#8250DF"
   },
   "syntax": {
-    "keyword": "#569CD6",
-    "string": "#6A9955",
-    "comment": "#6A9955",
-    "number": "#B5CEA8",
-    "type": "#4EC9B0",
-    "function": "#DCDCAA",
-    "variable": "#9CDCFE",
-    "operator": "#D4D4D4",
-    "punctuation": "#D4D4D4"
+    "keyword": "#0000FF",
+    "string": "#A31515",
+    "comment": "#008000",
+    "number": "#098658",
+    "type": "#267F99",
+    "function": "#795E26",
+    "variable": "#001080",
+    "operator": "#000000",
+    "punctuation": "#000000"
   }
 }

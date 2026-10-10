@@ -1073,7 +1073,9 @@ export class Bridge {
       const built = buildRawTheme(themeState);
       const tm = await this.shared.grammar.highlight(args.path, args.text, built);
       if (tm) return { language: tm.language, lines: tm.lines, syntaxColors };
-      // 第二级：内置声明式引擎（highlighters.json）
+      // 第二级：内置声明式引擎（highlighters.json）——逐字符锚定匹配是 O(行长²)，
+      // 超长文本（压缩产物单行可达数百 KB）会长时间阻塞主进程，直接放弃
+      if (args.text.length > 200_000) return { language: null, lines: [], syntaxColors };
       const h = this.shared.highlight.forFile(args.path);
       if (!h) return { language: null, lines: [], syntaxColors };
       const lines = args.text.split("\n");
