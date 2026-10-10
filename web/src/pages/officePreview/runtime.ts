@@ -77,6 +77,13 @@ async function render(msg: RenderMsg, content: HTMLElement): Promise<void> {
       break;
     case "sheet":
       info = renderSheet(content, msg.base64 ? b64ToBytes(msg.base64) : (msg.text ?? ""), msg.name);
+      // sheet 条提升出缩放载体（root 直下、content 之前）：transform 祖先内的 sticky
+      // 钉扎坐标被缩放空间扭曲，放大后条会跟着内容滚走并被一同放大；移出后在未缩放
+      // 的滚动空间 sticky（横纵双向），缩放只作用于表格内容层
+      {
+        const tabs = content.querySelector(":scope > .gpv-sheet-tabs");
+        if (tabs) root.insertBefore(tabs, content);
+      }
       break;
     case "pptx":
       info = await renderPptx(content, b64ToBytes(msg.base64!), msg.name);

@@ -14,6 +14,7 @@ import {
 } from "./officeShared";
 import previewRuntimeJs from "virtual:officePreviewRuntime";
 import { IFRAME_CSS } from "./officePreview/iframeCss";
+import { RefreshIcon } from "./filesIcons";
 
 type PreviewRenderer = NonNullable<ReturnType<typeof previewerOf>>;
 type Payload = { base64?: string; text?: string };
@@ -202,7 +203,7 @@ export function OfficePage() {
             <span className="cap">{t("Office_Title")}</span>
             <div className="files-hacts">
               <button className="files-ibtn" title={t("Office_Refresh")} onClick={() => void loadTree()}>
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a6 6 0 1 0 5.65 4H12.4A4.8 4.8 0 1 1 12.2 5H9.5v1.6L6.3 4 9.5 1.4V3h2.7A6 6 0 0 0 8 2z" /></svg>
+                <RefreshIcon />
               </button>
             </div>
           </div>

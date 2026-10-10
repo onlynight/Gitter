@@ -27,9 +27,9 @@ body.dark { background: #1f1f1f; color: #ddd; }
 /* docx：docx-preview 自带 .docx-wrapper 灰底，覆写为透明贴合主题背板 */
 .gpv-docx .docx-wrapper { background: transparent; padding: 24px 0; }
 
-/* 表格：工作表 tab 条（sticky）+ 白底表格 */
+/* 表格：工作表 tab 条（sticky，位于滚动容器直下、缩放载体之外——横纵双向钉扎）+ 白底表格 */
 .gpv-sheet-tabs {
-  position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 2px;
+  position: sticky; top: 0; left: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 2px;
   padding: 5px 8px; background: #e8e8e8; border-bottom: 1px solid #d0d0d0;
 }
 body.dark .gpv-sheet-tabs { background: #262626; border-bottom-color: #3a3a3a; }
