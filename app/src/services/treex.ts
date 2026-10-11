@@ -565,8 +565,12 @@ export async function pasteEntry(
   if (!target) return { ok: false, path: targetRel, error: "path_locked" };
 
   try {
-    if (from === target) return { ok: false, path: targetRel, error: "exists" };
-    if (!(await fsp.lstat(from).catch(() => null))) return { ok: false, path: fromRel, error: "not_found" };
+    if (from === target) {
+      // 剪切回原地 = 无操作；复制回原地 = 复制副本，落到下方重名自动序号分支
+      if (cut) return { ok: false, path: targetRel, error: "exists" };
+    } else if (!(await fsp.lstat(from).catch(() => null))) {
+      return { ok: false, path: fromRel, error: "not_found" };
+    }
     if (await fsp.lstat(target).catch(() => null)) {
       if (cut) return { ok: false, path: targetRel, error: "exists" };
       // 复制重名：自动序号（有扩展名时插在扩展名前）
