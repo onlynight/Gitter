@@ -32,6 +32,7 @@ import type { ModelProfileDTO, UserModelProfileDTO } from "./shared/types";
 import * as gitconfig from "./services/gitconfig";
 import * as preview from "./services/preview";
 import * as treex from "./services/treex";
+import { FsWatchService } from "./services/fsWatch";
 import * as aiSvc from "./services/ai";
 import * as safety from "./services/safety";
 import * as modelDiscovery from "./services/modelDiscovery";
@@ -91,6 +92,21 @@ export class Bridge {
   });
   /** 当前仓库（渲染层 repo.open 驱动，对齐 RepositoryContext 单仓库语义）。 */
   repo: string | null = null;
+
+  /** 仓库工作区监听（外部变更 → fs.changed 事件 → files 页刷树 + 打开标签 mtime 校验） */
+  private readonly fsWatch = new FsWatchService();
+
+  /** repo 赋值唯一入口：挂/停工作区监听（监听不可用静默降级为手动刷新）。 */
+  private setRepo(full: string | null): void {
+    this.repo = full;
+    if (full) {
+      this.fsWatch.start(full, () => {
+        if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method: "fs.changed", params: {} });
+      });
+    } else {
+      this.fsWatch.stop();
+    }
+  }
 
   constructor(
     private readonly win: BrowserWindow,
@@ -275,14 +291,14 @@ export class Bridge {
       if (!fs.existsSync(full) || !looksLikeRepo(full)) {
         throw new BridgeError("不是有效的 git 仓库", full);
       }
-      this.repo = full;
+      this.setRepo(full);
       this.shared.host.setCurrentRepo(full);
       this.ensureMcp();
       void this.shared.events.emit("repo.opened", { repo: full });
       return { workDir: full, name: path.basename(full) };
     });
     R("repo.close", () => {
-      this.repo = null;
+      this.setRepo(null);
       this.shared.host.setCurrentRepo(null);
       this.mcpHost?.stop();
       this.mcpHost = null;
@@ -312,6 +328,19 @@ export class Bridge {
     R("changes.state", () => status.getStatus(this.needRepo()));
     R("changes.stage", (args: { paths: string[] }) => status.stageFiles(this.needRepo(), args.paths));
     R("changes.unstage", (args: { paths: string[] }) => status.unstageFiles(this.needRepo(), args.paths));
+    // 放弃单文件修改（files 编辑器 tab 菜单）：已跟踪 checkout HEAD --，未跟踪删除
+    R("changes.discardFile", async (args: { path: string }) => {
+      const wd = this.needRepo();
+      const tracked = await tryGit(wd, ["ls-files", "--error-unmatch", "--", args.path]);
+      if (tracked.code === 0) {
+        const r = await tryGit(wd, ["checkout", "HEAD", "--", args.path]);
+        if (r.code !== 0) throw new BridgeError("放弃修改失败", r.stderr || args.path);
+      } else {
+        const del = await treex.deleteEntry(wd, args.path);
+        if (!del.ok) throw new BridgeError("放弃修改失败", args.path);
+      }
+      return {};
+    });
     R("changes.diffFile", (args: { path: string; staged: boolean; isNewFile?: boolean }) =>
       status.worktreeFileDiff(this.needRepo(), args.path, !!args.staged, !!args.isNewFile));
     R("changes.stageHunks", (args: { path: string; indices: number[] }) =>
@@ -450,12 +479,12 @@ export class Bridge {
       }
       return treex.listTree(wd, args?.prefix ?? "", touched);
     });
-    // 文件内容读取（编辑器打开）：8MB 上限，返回 mtime/eol 供冲突检测与行尾保留
-    R("file.content", async (args: { path: string; revision?: "worktree" | "index" | string; maxBytes?: number }) =>
-      treex.readFileContent(this.needRepo(), args.path, args.revision ?? "worktree", args.maxBytes));
+    // 文件内容读取（编辑器打开）：8MB 上限，返回 mtime/eol/encoding 供冲突检测、行尾保留与编码切换
+    R("file.content", async (args: { path: string; revision?: "worktree" | "index" | string; maxBytes?: number; encoding?: "utf8" | "gbk" }) =>
+      treex.readFileContent(this.needRepo(), args.path, args.revision ?? "worktree", args.maxBytes, args.encoding));
     // 文件写入（编辑器保存）：复用 fsx 路径锁与 2MB 护栏，不走 readLog 校验
-    R("file.write", async (args: { path: string; content: string; eol?: "crlf" | "lf" }) => {
-      const result = await treex.writeFileContent(this.needRepo(), args.path, args.content, args.eol);
+    R("file.write", async (args: { path: string; content: string; eol?: "crlf" | "lf"; encoding?: "utf8" | "gbk"; bom?: boolean }) => {
+      const result = await treex.writeFileContent(this.needRepo(), args.path, args.content, args.eol, args.encoding, args.bom);
       // 写成功后刷新 readLog，让 agent 的 file_patch 能通过 mtime 校验
       if (result.ok) {
         const rel = args.path;
@@ -474,6 +503,15 @@ export class Bridge {
       treex.deleteEntry(this.needRepo(), args.path));
     R("file.paste", async (args: { from: string; toDir?: string; cut?: boolean }) =>
       treex.pasteEntry(this.needRepo(), args.from, args.toDir ?? "", !!args.cut));
+    // 批量轻量 stat（外部变更监听：打开标签 mtime 校验一次往返）
+    R("file.statMany", async (args: { paths: string[] }) =>
+      treex.statMany(this.needRepo(), args.paths ?? []));
+    // 跨文件全文搜索（files 页全局搜索 Ctrl+Shift+F）：git grep 定长/正则 + 大小写开关
+    R("repo.search", async (args: { query: string; regex?: boolean; caseSensitive?: boolean; max?: number }) =>
+      treex.searchWorkspace(this.needRepo(), args.query ?? "", args ?? {}));
+    // 行级归属（编辑器悬停 blame）
+    R("git.blame", async (args: { path: string }) =>
+      treex.blameFile(this.needRepo(), args.path));
 
     // ---- Office 文档二进制读写（office-integration-plan.md §5 OOXML 白名单通道）----
     // stat：office 页保存前 mtime 冲突检测（免拉全量 base64）
@@ -513,7 +551,7 @@ export class Bridge {
 
     // ---- Agent 宿主（agent-harness-codex.md v2.0 §三/§八 + v4.0 F1/F5/F6/F7/F10）----
     R("agents.list", () => this.agents.listHarnesses());
-    R("agent.tasks", () => this.agents.listTasks());
+    R("agent.tasks", (args?: { includeArchived?: boolean }) => this.agents.listTasks(args ?? {}));
     R("agent.task.create", (args: { name?: string; prompt: string; taskType?: string; model?: string; thinking?: string; mode?: string }) =>
       this.agents.createTask({ name: args?.name, prompt: args?.prompt ?? "", taskType: args?.taskType, model: args?.model, thinking: args?.thinking as never, mode: args?.mode as never }));
     R("agent.task.resume", (args: { taskId: string; prompt: string; thinking?: string; mode?: string }) =>
@@ -558,7 +596,15 @@ export class Bridge {
     R("agent.task.setModel", (args: { taskId: string; model: string }) => this.agents.setModel(args) ?? {});
     R("agent.task.fork", (args: { taskId: string; model?: string }) => this.agents.fork(args));
     R("agent.task.archive", (args: { taskId: string; archived: boolean }) => this.agents.archive(args) ?? {});
-    R("agent.task.delete", (args: { taskId: string }) => this.agents.deleteTask(args));
+    // 列表管理（task-page-wrapup-and-list-design.md 工作流 A）：重命名 / 删除（可选清理 worktree+分支）
+    R("agent.task.rename", (args: { taskId: string; title: string }) => this.agents.rename(args) ?? {});
+    R("agent.task.delete", (args: { taskId: string; cleanup?: boolean }) => this.agents.deleteTask(args));
+    // 收尾合并（工作流 B）：预检 + 执行
+    R("agent.task.mergeCheck", (args: { taskId: string }) => this.agents.mergeCheck(args));
+    R("agent.task.merge", (args: { taskId: string; strategy: "squash" | "merge"; message?: string; cleanup?: boolean }) =>
+      this.agents.mergeTask({ ...args, strategy: args.strategy === "merge" ? "merge" : "squash" }));
+    // 后台 shell 终止（工作流 C）
+    R("agent.task.shellKill", (args: { taskId: string; shellId: string }) => this.agents.shellKill(args));
     R("agent.taskTypes.list", () => {
       const { entries } = compileTaskTypes(this.shared.pkgStore);
       const free = {
@@ -834,7 +880,7 @@ export class Bridge {
       }
       const p = { name: path.basename(full), path: full };
       settings.setCurrentProject(p);
-      this.repo = full;
+      this.setRepo(full);
       return p;
     });
     R("projects.remove", (args: { path: string }) => {
@@ -845,7 +891,7 @@ export class Bridge {
       const full = path.resolve(args.path);
       if (!looksLikeRepo(full)) throw new BridgeError("不是有效的 git 仓库", full);
       settings.setCurrentProject({ name: path.basename(full), path: full });
-      this.repo = full;
+      this.setRepo(full);
       return { workDir: full, name: path.basename(full) };
     });
 

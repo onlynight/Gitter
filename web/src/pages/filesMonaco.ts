@@ -187,15 +187,112 @@ export function createTextModel(path: string, value: string): monaco.editor.ITex
   return monaco.editor.getModel(uri) ?? monaco.editor.createModel(value, languageForPath(path), uri);
 }
 
-/** 创建编辑器实例（构造选项统一走 EDITOR_OPTIONS）。 */
-export function createEditor(host: HTMLElement): monaco.editor.IStandaloneCodeEditor {
-  return monaco.editor.create(host, EDITOR_OPTIONS);
+/** 创建编辑器实例（构造选项统一走 EDITOR_OPTIONS；overrides 供字号恢复等实例级覆盖）。 */
+export function createEditor(
+  host: HTMLElement,
+  overrides?: monaco.editor.IStandaloneEditorConstructionOptions,
+): monaco.editor.IStandaloneCodeEditor {
+  return monaco.editor.create(host, { ...EDITOR_OPTIONS, ...overrides });
 }
 
 /** 销毁文本模型（幂等）。 */
 export function disposeTextModel(model: unknown | null): void {
   (model as { dispose?: () => void } | null)?.dispose?.();
 }
+
+/** 任意 model 的 marker 变化（问题面板聚合刷新；不区分 resource）。 */
+export function onAnyMarkers(cb: () => void): { dispose: () => void } {
+  return monaco.editor.onDidChangeMarkers(() => cb());
+}
+
+/** 单 model 的 marker 列表（问题面板渲染用）。 */
+export function markersOf(model: unknown): monaco.editor.IMarker[] {
+  const m = model as monaco.editor.ITextModel | null;
+  if (!m || m.isDisposed()) return [];
+  return monaco.editor.getModelMarkers({ resource: m.uri });
+}
+
+/** model URI → 仓库相对路径（blame 悬停/问题面板定位用；createTextModel 挂的 file URI）。 */
+export function pathOfModel(model: unknown): string | null {
+  const m = model as monaco.editor.ITextModel | null;
+  if (!m || m.isDisposed()) return null;
+  try {
+    return m.uri.path.replace(/^\/+/, "");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 缩进探测（打开文件时按内容猜，页脚可再改）：扫前 200 行行首空白——
+ * tab 占多 → Tab 缩进；否则 2/4 空格按多数决。
+ */
+export function detectIndent(text: string): { insertSpaces: boolean; tabSize: number } {
+  let tabs = 0;
+  let s2 = 0;
+  let s4 = 0;
+  for (const line of text.split("\n").slice(0, 200)) {
+    if (/^\t+/.test(line)) tabs++;
+    else if (/^ {2}/.test(line)) {
+      if (/^ {4}/.test(line)) s4++;
+      else s2++;
+    }
+  }
+  if (tabs > s2 + s4) return { insertSpaces: false, tabSize: 4 };
+  return { insertSpaces: true, tabSize: s4 >= s2 ? 4 : 2 };
+}
+
+// ---- blame 悬停（git 深度集成）：全语言 hover provider，git.blame 按文件缓存（30s TTL）----
+
+interface BlameEntry {
+  line: number;
+  sha: string;
+  author: string;
+  time: number;
+  summary: string;
+}
+
+const blameCache = new Map<string, { at: number; lines: BlameEntry[] }>();
+const BLAME_TTL = 30_000;
+
+function blameOfPath(path: string): BlameEntry[] {
+  const hit = blameCache.get(path);
+  if (hit && Date.now() - hit.at < BLAME_TTL) return hit.lines;
+  void pageSdk.call<BlameLineDTO[]>("git.blame", { path })
+    .then((lines) => {
+      if (Array.isArray(lines)) blameCache.set(path, { at: Date.now(), lines });
+    })
+    .catch(() => { /* blame 不可用（空仓库/越界）：悬停静默无归属 */ });
+  return hit?.lines ?? [];
+}
+
+/** git.blame 行 DTO（与 treex.BlameLine 同形，页面不 import 主进程类型） */
+interface BlameLineDTO {
+  line: number;
+  sha: string;
+  author: string;
+  time: number;
+  summary: string;
+}
+
+// 首次 hover 触发拉取，命中缓存后立即渲染；未提交行（全零 sha）不显示
+monaco.languages.registerHoverProvider("*", {
+  provideHover: (model, position) => {
+    const path = pathOfModel(model);
+    if (!path) return null;
+    const lines = blameOfPath(path);
+    if (lines.length === 0) return null;
+    const info = lines[position.lineNumber - 1];
+    if (!info || /^0+$/.test(info.sha)) return null;
+    const when = info.time ? new Date(info.time * 1000).toLocaleDateString() : "";
+    return {
+      contents: [
+        { value: `**${info.author || "?"}** · ${when} · \`${info.sha.slice(0, 7)}\`` },
+        ...(info.summary ? [{ value: info.summary.replace(/[\n\r]/g, " ") }] : []),
+      ],
+    };
+  },
+});
 
 // 初始主题：模块装载即应用（page.js 经典脚本 eval 时 GITTER_UI 已注入）
 try {

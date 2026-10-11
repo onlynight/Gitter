@@ -86,6 +86,8 @@ export interface PageSurface {
   notifyRepoChanged(): void;
   /** 当前仓库 */
   repo(): { workDir: string; name: string } | null;
+  /** 拖拽落下的外部 File → 绝对路径（Electron webUtils，仅预加载层可得；非Electron/拖出窗口返回空串） */
+  pathForFile(file: File): string;
   /** 当前设置快照 */
   settings(): SettingsDTO | null;
   /** 当前主题状态（TerminalPage 等直读主题令牌的页面用） */
@@ -143,6 +145,14 @@ export function hostSurface(callFn: PageSurface["call"], onFn: PageSurface["on"]
     refresh: refreshCurrent,
     notifyRepoChanged,
     repo: () => getState().repo,
+    pathForFile: (file) => {
+      try {
+        const g = (window as { gitter?: { getPathForFile?: (f: File) => string } }).gitter;
+        return g?.getPathForFile ? g.getPathForFile(file) : "";
+      } catch {
+        return "";
+      }
+    },
     settings: () => getState().settings,
     theme: () => getState().theme,
     openRepo: async (path) => {

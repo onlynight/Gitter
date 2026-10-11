@@ -47,6 +47,13 @@
     refresh: () => U().refresh(),
     notifyRepoChanged: () => U().notifyRepoChanged(),
     repo: () => U().repo(),
+    pathForFile: (file) => {
+      try {
+        return U().pathForFile(file);
+      } catch {
+        return "";
+      }
+    },
     settings: () => U().settings(),
     theme: () => U().theme(),
     openRepo: (path) => U().openRepo(path),
@@ -1606,7 +1613,7 @@
   const React = K().React;
   K().ReactDOM;
   const ReactDOMClient = K().ReactDOMClient;
-  K().DiffView;
+  const DiffView = K().DiffView;
   K().diffStatusLetter;
   K().renderSegments;
   K().wordDiff;
@@ -1631,6 +1638,13 @@
     const sep = nativeSepOf(workDir);
     const tail = rel.replace(/\\/g, "/").replace(/^[/\\]+/, "");
     return base + sep + tail.split("/").join(sep);
+  }
+  function relOfWork(workDir, abs) {
+    const norm = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+    const base = norm(workDir);
+    const a = norm(abs);
+    if (!a.toLowerCase().startsWith(base.toLowerCase() + "/")) return null;
+    return a.slice(base.length + 1);
   }
   const TYPE_COLOR = {
     ts: "#519ABA",
@@ -1700,6 +1714,10 @@
     /* @__PURE__ */ jsxRuntime.jsx("circle", { cx: "7", cy: "7", r: "4.2", ...S }),
     /* @__PURE__ */ jsxRuntime.jsx("path", { d: "m10.4 10.4 3 3", ...S })
   ] });
+  const SplitIcon = () => /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+    /* @__PURE__ */ jsxRuntime.jsx("rect", { x: "2.5", y: "2.5", width: "11", height: "11", rx: "1.2", ...S }),
+    /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M8 2.5v11", ...S })
+  ] });
   const CheckIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "m3 8.5 3.2 3.2L13 5", ...S, strokeWidth: "1.4" }) });
   const OpenExternalIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M6.5 3.5H4A1.5 1.5 0 0 0 2.5 5v7A1.5 1.5 0 0 0 4 13.5h7a1.5 1.5 0 0 0 1.5-1.5V9.5M9 2.5h4.5V7M13 3 7.5 8.5", ...S }) });
   const PencilIcon = () => /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
@@ -1726,6 +1744,8 @@
     /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M5.5 3.2H4.2c-.66 0-1.2.54-1.2 1.2v8.4c0 .66.54 1.2 1.2 1.2h7.6c.66 0 1.2-.54 1.2-1.2V4.4c0-.66-.54-1.2-1.2-1.2h-1.3", ...S, strokeWidth: "1.1" }),
     /* @__PURE__ */ jsxRuntime.jsx("rect", { x: "5.5", y: "1.8", width: "5", height: "2.8", rx: "0.7", ...S, strokeWidth: "1.1" })
   ] });
+  const PinIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "11", height: "11", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M9.5 1.8 14.2 6.5l-1.6.5-2.8 2.8-.4 3.4-1.5-1.5-3.6 2.5 2.5-3.6L5.3 9.1l3.4-.4L11.5 6z", stroke: "currentColor", strokeWidth: "1.1", strokeLinejoin: "round" }) });
+  const OutlineIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "13", height: "13", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2.5 3.5h11M5 7h8.5M5 10.5h8.5M8 14h5.5", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" }) });
   const NewFileIcon = () => /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "13", height: "13", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
     /* @__PURE__ */ jsxRuntime.jsx(
       "path",
@@ -1770,6 +1790,8 @@
     const draftInputRef = React$1.useRef(null);
     const [clip, setClip] = React$1.useState(null);
     const [confirmDel, setConfirmDel] = React$1.useState(null);
+    const [dragItem, setDragItem] = React$1.useState(null);
+    const [dropTarget, setDropTarget] = React$1.useState(null);
     const [selectedPath, setSelectedPath] = React$1.useState(null);
     const [kbFocus, setKbFocus] = React$1.useState(null);
     const [kbKey, setKbKey] = React$1.useState(false);
@@ -1992,6 +2014,15 @@
       if (c.cut && (c.path.includes("/") ? c.path.slice(0, c.path.lastIndexOf("/")) : "") === toDir) return false;
       return true;
     }, []);
+    const dropMove = React$1.useCallback((toDir) => {
+      const d = dragItem;
+      setDragItem(null);
+      setDropTarget(null);
+      if (!d) return;
+      const clip2 = { path: d.path, isDir: d.isDir, cut: true };
+      if (!canPasteInto(clip2, toDir)) return;
+      doPaste(clip2, toDir);
+    }, [dragItem, canPasteInto, doPaste]);
     const menuFor = React$1.useCallback((node) => {
       const path = node.entry.path;
       const parentOf = (p) => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
@@ -2158,12 +2189,38 @@
       const statusCls = entry.status ? STATUS_CLS$1[entry.status] ?? "" : "";
       const isAgent = !entry.isDir && entry.touchedByAgent;
       const nameCls = "files-nm" + (entry.isDir && node.dirStatus ? ` ${STATUS_CLS$1[node.dirStatus]}` : "") + (!entry.isDir && entry.status ? ` ${statusCls}` : "");
+      const isDropDir = entry.isDir && dropTarget === entry.path;
       return /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
-          className: "files-row" + (entry.isDir && node.open ? " open" : "") + (isActive ? " active" : "") + (isAgent ? " agent" : "") + (kbKey && entry.path === kbFocus ? " kb-focus" : ""),
+          className: "files-row" + (entry.isDir && node.open ? " open" : "") + (isActive ? " active" : "") + (isAgent ? " agent" : "") + (kbKey && entry.path === kbFocus ? " kb-focus" : "") + (isDropDir ? " drop-target" : "") + ((dragItem == null ? void 0 : dragItem.path) === entry.path ? " dragging" : ""),
           style: rowStyle,
           title: entry.path,
+          draggable: true,
+          onDragStart: (e) => {
+            e.dataTransfer.setData("text/gitter-tree", entry.path);
+            e.dataTransfer.effectAllowed = "move";
+            setDragItem({ path: entry.path, isDir: entry.isDir });
+          },
+          onDragEnd: () => {
+            setDragItem(null);
+            setDropTarget(null);
+          },
+          onDragOver: (e) => {
+            if (!entry.isDir || !dragItem) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (dropTarget !== entry.path) setDropTarget(entry.path);
+          },
+          onDragLeave: (e) => {
+            if (entry.isDir && dropTarget === entry.path) setDropTarget(null);
+          },
+          onDrop: (e) => {
+            if (!entry.isDir) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dropMove(entry.path);
+          },
           onClick: () => {
             setKbKey(false);
             setKbFocus(entry.path);
@@ -2279,7 +2336,32 @@
           }
         )
       ] }),
-      /* @__PURE__ */ jsxRuntime.jsx("div", { ref: parentRef, className: "files-tree", role: "tree", tabIndex: 0, onKeyDown: handleKey, onContextMenu: handleBodyContext, children: props.loading && visibleNodes.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "files-empty", children: "Loading…" }) : visibleNodes.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "files-empty", children: t("Files_NoMatch") }) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: virtualizer.getTotalSize(), position: "relative" }, children: rows }) }),
+      /* @__PURE__ */ jsxRuntime.jsx(
+        "div",
+        {
+          ref: parentRef,
+          className: "files-tree",
+          role: "tree",
+          tabIndex: 0,
+          onKeyDown: handleKey,
+          onContextMenu: handleBodyContext,
+          onDragOver: (e) => {
+            if (!dragItem) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          },
+          onDrop: (e) => {
+            if (!dragItem) return;
+            e.preventDefault();
+            dropMove("");
+          },
+          onDragEnd: () => {
+            setDragItem(null);
+            setDropTarget(null);
+          },
+          children: props.loading && visibleNodes.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "files-empty", children: "Loading…" }) : visibleNodes.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "files-empty", children: t("Files_NoMatch") }) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: virtualizer.getTotalSize(), position: "relative" }, children: rows })
+        }
+      ),
       menuElement,
       confirmDel && /* @__PURE__ */ jsxRuntime.jsxs(
         Modal,
@@ -2519,13 +2601,72 @@
     const uri = Uri.file(path.replace(/\\/g, "/"));
     return editor.getModel(uri) ?? editor.createModel(value, languageForPath(path), uri);
   }
-  function createEditor(host) {
-    return editor.create(host, EDITOR_OPTIONS);
+  function createEditor(host, overrides) {
+    return editor.create(host, { ...EDITOR_OPTIONS, ...overrides });
   }
   function disposeTextModel(model) {
     var _a2;
     (_a2 = model == null ? void 0 : model.dispose) == null ? void 0 : _a2.call(model);
   }
+  function onAnyMarkers(cb) {
+    return editor.onDidChangeMarkers(() => cb());
+  }
+  function markersOf(model) {
+    const m = model;
+    if (!m || m.isDisposed()) return [];
+    return editor.getModelMarkers({ resource: m.uri });
+  }
+  function pathOfModel(model) {
+    const m = model;
+    if (!m || m.isDisposed()) return null;
+    try {
+      return m.uri.path.replace(/^\/+/, "");
+    } catch {
+      return null;
+    }
+  }
+  function detectIndent(text) {
+    let tabs = 0;
+    let s2 = 0;
+    let s4 = 0;
+    for (const line of text.split("\n").slice(0, 200)) {
+      if (/^\t+/.test(line)) tabs++;
+      else if (/^ {2}/.test(line)) {
+        if (/^ {4}/.test(line)) s4++;
+        else s2++;
+      }
+    }
+    if (tabs > s2 + s4) return { insertSpaces: false, tabSize: 4 };
+    return { insertSpaces: true, tabSize: s4 >= s2 ? 4 : 2 };
+  }
+  const blameCache = /* @__PURE__ */ new Map();
+  const BLAME_TTL = 3e4;
+  function blameOfPath(path) {
+    const hit = blameCache.get(path);
+    if (hit && Date.now() - hit.at < BLAME_TTL) return hit.lines;
+    void pageSdk.call("git.blame", { path }).then((lines) => {
+      if (Array.isArray(lines)) blameCache.set(path, { at: Date.now(), lines });
+    }).catch(() => {
+    });
+    return (hit == null ? void 0 : hit.lines) ?? [];
+  }
+  languages.registerHoverProvider("*", {
+    provideHover: (model, position) => {
+      const path = pathOfModel(model);
+      if (!path) return null;
+      const lines = blameOfPath(path);
+      if (lines.length === 0) return null;
+      const info = lines[position.lineNumber - 1];
+      if (!info || /^0+$/.test(info.sha)) return null;
+      const when = info.time ? new Date(info.time * 1e3).toLocaleDateString() : "";
+      return {
+        contents: [
+          { value: `**${info.author || "?"}** · ${when} · \`${info.sha.slice(0, 7)}\`` },
+          ...info.summary ? [{ value: info.summary.replace(/[\n\r]/g, " ") }] : []
+        ]
+      };
+    }
+  });
   try {
     applyMonacoTheme(pageSdk.theme());
   } catch {
@@ -2654,98 +2795,163 @@
     }
     decorationsByModel.set(model, model.deltaDecorations(old, decos));
   }
-  function FilesMonacoEditor(props) {
-    const hostRef = React$1.useRef(null);
-    const edRef = React$1.useRef(null);
-    const viewStates = React$1.useRef(/* @__PURE__ */ new Map());
-    const cbRef = React$1.useRef(props);
-    cbRef.current = props;
-    const theme = useAppState().theme;
-    React$1.useEffect(() => {
-      const host = hostRef.current;
-      if (!host) return;
-      const ed = createEditor(host);
-      edRef.current = ed;
-      return () => {
-        ed.dispose();
-        edRef.current = null;
-      };
-    }, []);
-    React$1.useEffect(() => {
-      applyMonacoTheme(theme);
-    }, [theme]);
-    React$1.useEffect(() => {
-      var _a2;
-      (_a2 = edRef.current) == null ? void 0 : _a2.updateOptions({ readOnly: !!props.readOnly });
-    }, [props.readOnly]);
-    React$1.useEffect(() => {
-      var _a2, _b2, _c2, _d;
-      const ed = edRef.current;
-      if (!ed) return;
-      const prev = ed.getModel();
-      if (prev) {
-        const vs = ed.saveViewState();
-        if (vs) viewStates.current.set(prev.id, vs);
-      }
-      const model = props.model;
-      ed.setModel(model);
-      if (model) {
-        const vs = viewStates.current.get(model.id);
-        if (vs) ed.restoreViewState(vs);
-        ed.focus();
-      }
-      const pos = ed.getPosition();
-      if (pos) (_b2 = (_a2 = cbRef.current).onPosition) == null ? void 0 : _b2.call(_a2, { line: pos.lineNumber, col: pos.column });
-      (_d = (_c2 = cbRef.current).onMarkers) == null ? void 0 : _d.call(_c2, markerCounts(model));
-      const sub = ed.onDidChangeModelContent((e) => {
-        var _a3, _b3;
-        if (e.isFlush) return;
-        (_b3 = (_a3 = cbRef.current).onChange) == null ? void 0 : _b3.call(_a3, model ? model.getValue() : "");
-      });
-      let gutterTimer = 0;
-      const rerunGutter = () => {
-        window.clearTimeout(gutterTimer);
-        gutterTimer = window.setTimeout(() => {
-          const m = ed.getModel();
-          if (m && m === model) {
-            updateGitGutter(m, cbRef.current.showDiff ? cbRef.current.gitBase ?? null : null);
-          }
-        }, 250);
-      };
-      if (model) {
-        updateGitGutter(model, cbRef.current.showDiff ? cbRef.current.gitBase ?? null : null);
-      }
-      const subGutter = model ? model.onDidChangeContent(rerunGutter) : null;
-      return () => {
-        sub.dispose();
-        subGutter == null ? void 0 : subGutter.dispose();
-        window.clearTimeout(gutterTimer);
-      };
-    }, [props.model]);
-    React$1.useEffect(() => {
-      var _a2;
-      const m = (_a2 = edRef.current) == null ? void 0 : _a2.getModel();
-      if (m) updateGitGutter(m, props.showDiff ? props.gitBase ?? null : null);
-    }, [props.gitBase, props.showDiff]);
-    React$1.useEffect(() => {
-      const ed = edRef.current;
-      if (!ed) return;
-      const reportMarkers = () => {
-        var _a2, _b2;
-        return (_b2 = (_a2 = cbRef.current).onMarkers) == null ? void 0 : _b2.call(_a2, markerCounts(ed.getModel()));
-      };
-      const d1 = ed.onDidChangeCursorPosition((e) => {
-        var _a2, _b2;
-        (_b2 = (_a2 = cbRef.current).onPosition) == null ? void 0 : _b2.call(_a2, { line: e.position.lineNumber, col: e.position.column });
-      });
-      const d2 = editor.onDidChangeMarkers(reportMarkers);
-      return () => {
-        d1.dispose();
-        d2.dispose();
-      };
-    }, []);
-    return /* @__PURE__ */ jsxRuntime.jsx("div", { ref: hostRef, style: { width: "100%", height: "100%", position: "relative" } });
+  const FONT_KEY = "gitter.files.fontSize";
+  const FONT_MIN = 9;
+  const FONT_MAX = 32;
+  function loadFontSize() {
+    const n = Number(window.localStorage.getItem(FONT_KEY));
+    return Number.isFinite(n) && n >= FONT_MIN && n <= FONT_MAX ? n : 13;
   }
+  const FilesMonacoEditor = React$1.forwardRef(
+    function FilesMonacoEditor2(props, ref) {
+      var _a2;
+      const hostRef = React$1.useRef(null);
+      const edRef = React$1.useRef(null);
+      const viewStates = React$1.useRef(/* @__PURE__ */ new Map());
+      const fontSizeRef = React$1.useRef(loadFontSize());
+      const cbRef = React$1.useRef(props);
+      cbRef.current = props;
+      const theme = useAppState().theme;
+      React$1.useEffect(() => {
+        const host = hostRef.current;
+        if (!host) return;
+        const ed = createEditor(host, { fontSize: fontSizeRef.current });
+        edRef.current = ed;
+        return () => {
+          ed.dispose();
+          edRef.current = null;
+        };
+      }, []);
+      React$1.useEffect(() => {
+        applyMonacoTheme(theme);
+      }, [theme]);
+      React$1.useEffect(() => {
+        var _a3;
+        (_a3 = edRef.current) == null ? void 0 : _a3.updateOptions({ readOnly: !!props.readOnly });
+      }, [props.readOnly]);
+      const applyFont = (px) => {
+        var _a3;
+        const next = Math.min(FONT_MAX, Math.max(FONT_MIN, px));
+        fontSizeRef.current = next;
+        window.localStorage.setItem(FONT_KEY, String(next));
+        (_a3 = edRef.current) == null ? void 0 : _a3.updateOptions({ fontSize: next });
+      };
+      React$1.useEffect(() => {
+        const host = hostRef.current;
+        const onWheel = (e) => {
+          if (!(e.ctrlKey || e.metaKey)) return;
+          e.preventDefault();
+          applyFont(fontSizeRef.current + (e.deltaY < 0 ? 1 : -1));
+        };
+        const onKey = (e) => {
+          if (!cbRef.current.ownsKeys) return;
+          if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+          if (e.key === "=" || e.key === "+") {
+            e.preventDefault();
+            applyFont(fontSizeRef.current + 1);
+          } else if (e.key === "-") {
+            e.preventDefault();
+            applyFont(fontSizeRef.current - 1);
+          } else if (e.key === "0") {
+            e.preventDefault();
+            applyFont(13);
+          }
+        };
+        host == null ? void 0 : host.addEventListener("wheel", onWheel, { passive: false });
+        window.addEventListener("keydown", onKey);
+        return () => {
+          host == null ? void 0 : host.removeEventListener("wheel", onWheel);
+          window.removeEventListener("keydown", onKey);
+        };
+      }, []);
+      React$1.useEffect(() => {
+        const ed = edRef.current;
+        const r = props.revealLine;
+        if (!ed || !r || !props.model) return;
+        ed.revealLineInCenter(r.line);
+        ed.setPosition({ lineNumber: r.line, column: 1 });
+        ed.focus();
+      }, [(_a2 = props.revealLine) == null ? void 0 : _a2.ts]);
+      React$1.useImperativeHandle(ref, () => ({
+        runAction: (actionId) => {
+          const ed = edRef.current;
+          if (!ed) return false;
+          const a = ed.getAction(actionId);
+          if (!a) return false;
+          a.run();
+          return true;
+        },
+        fontSize: () => fontSizeRef.current
+      }), []);
+      React$1.useEffect(() => {
+        var _a3, _b2, _c2, _d;
+        const ed = edRef.current;
+        if (!ed) return;
+        const prev = ed.getModel();
+        if (prev) {
+          const vs = ed.saveViewState();
+          if (vs) viewStates.current.set(prev.id, vs);
+        }
+        const model = props.model;
+        ed.setModel(model);
+        if (model) {
+          const vs = viewStates.current.get(model.id);
+          if (vs) ed.restoreViewState(vs);
+          ed.focus();
+        }
+        const pos = ed.getPosition();
+        if (pos) (_b2 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b2.call(_a3, { line: pos.lineNumber, col: pos.column });
+        (_d = (_c2 = cbRef.current).onMarkers) == null ? void 0 : _d.call(_c2, markerCounts(model));
+        const sub = ed.onDidChangeModelContent((e) => {
+          var _a4, _b3;
+          if (e.isFlush) return;
+          (_b3 = (_a4 = cbRef.current).onChange) == null ? void 0 : _b3.call(_a4, model ? model.getValue() : "");
+        });
+        let gutterTimer = 0;
+        const rerunGutter = () => {
+          window.clearTimeout(gutterTimer);
+          gutterTimer = window.setTimeout(() => {
+            const m = ed.getModel();
+            if (m && m === model) {
+              updateGitGutter(m, cbRef.current.showDiff ? cbRef.current.gitBase ?? null : null);
+            }
+          }, 250);
+        };
+        if (model) {
+          updateGitGutter(model, cbRef.current.showDiff ? cbRef.current.gitBase ?? null : null);
+        }
+        const subGutter = model ? model.onDidChangeContent(rerunGutter) : null;
+        return () => {
+          sub.dispose();
+          subGutter == null ? void 0 : subGutter.dispose();
+          window.clearTimeout(gutterTimer);
+        };
+      }, [props.model]);
+      React$1.useEffect(() => {
+        var _a3;
+        const m = (_a3 = edRef.current) == null ? void 0 : _a3.getModel();
+        if (m) updateGitGutter(m, props.showDiff ? props.gitBase ?? null : null);
+      }, [props.gitBase, props.showDiff]);
+      React$1.useEffect(() => {
+        const ed = edRef.current;
+        if (!ed) return;
+        const reportMarkers = () => {
+          var _a3, _b2;
+          return (_b2 = (_a3 = cbRef.current).onMarkers) == null ? void 0 : _b2.call(_a3, markerCounts(ed.getModel()));
+        };
+        const d1 = ed.onDidChangeCursorPosition((e) => {
+          var _a3, _b2;
+          (_b2 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b2.call(_a3, { line: e.position.lineNumber, col: e.position.column });
+        });
+        const d2 = editor.onDidChangeMarkers(reportMarkers);
+        return () => {
+          d1.dispose();
+          d2.dispose();
+        };
+      }, []);
+      return /* @__PURE__ */ jsxRuntime.jsx("div", { ref: hostRef, style: { width: "100%", height: "100%", position: "relative" } });
+    }
+  );
   function serverKeyOf(languageId) {
     if (languageId === "typescript" || languageId === "javascript") return "typescript";
     if (languageId === "python") return "python";
@@ -3628,6 +3834,22 @@ li { margin: .25em 0; }
     const [textMode, setTextMode] = React$1.useState(/* @__PURE__ */ new Set());
     const textModeRef = React$1.useRef(textMode);
     textModeRef.current = textMode;
+    const [confirmReopen, setConfirmReopen] = React$1.useState(null);
+    const [confirmDiscard, setConfirmDiscard] = React$1.useState(null);
+    const [headDiff, setHeadDiff] = React$1.useState(null);
+    const [problemsOpen, setProblemsOpen] = React$1.useState(false);
+    const [markerTick, setMarkerTick] = React$1.useState(0);
+    React$1.useEffect(() => {
+      const d = onAnyMarkers(() => setMarkerTick((v) => v + 1));
+      return () => d.dispose();
+    }, []);
+    const [indentByPath, setIndentByPath] = React$1.useState(/* @__PURE__ */ new Map());
+    const [splitPath, setSplitPath] = React$1.useState(null);
+    const mainEditorRef = React$1.useRef(null);
+    const [localReveal, setLocalReveal] = React$1.useState(null);
+    const editorsRef = React$1.useRef(editors);
+    editorsRef.current = editors;
+    const externToasted = React$1.useRef(/* @__PURE__ */ new Set());
     const statusOf = React$1.useCallback(
       (path) => path ? props.statusByPath[path] ?? null : null,
       [props.statusByPath]
@@ -3635,7 +3857,8 @@ li { margin: .25em 0; }
     const activeStatus = statusOf(props.activeTab);
     const theme = useAppState().theme;
     const editorBg = ((_b2 = theme == null ? void 0 : theme.tokens) == null ? void 0 : _b2.Base) ?? "var(--c-base)";
-    const loadFile = React$1.useCallback(async (path) => {
+    const isTextual = React$1.useCallback((p) => !!p && (!viewerForPath(p) || textModeRef.current.has(p)), []);
+    const loadFile = React$1.useCallback(async (path, encoding) => {
       if (viewerForPath(path) && !textModeRef.current.has(path) || models.current.has(path)) return;
       setEditors((prev) => {
         const next = new Map(prev);
@@ -3645,6 +3868,8 @@ li { margin: .25em 0; }
           originalContent: "",
           eol: "lf",
           mtime: 0,
+          encoding: encoding ?? "utf8",
+          bom: false,
           dirty: false,
           loading: true,
           binary: false,
@@ -3655,7 +3880,7 @@ li { margin: .25em 0; }
         return next;
       });
       try {
-        const r = await pageSdk.call("file.content", { path });
+        const r = await pageSdk.call("file.content", { path, encoding });
         if (!r) {
           setEditors((prev) => {
             const next = new Map(prev);
@@ -3684,6 +3909,13 @@ li { margin: .25em 0; }
         }
         const model = createTextModel(path, r.content);
         models.current.set(path, model);
+        const indent2 = detectIndent(r.content);
+        model.updateOptions(indent2);
+        setIndentByPath((prev) => {
+          const next = new Map(prev);
+          next.set(path, indent2);
+          return next;
+        });
         documentOpened(path, languageForPath(path), r.content, model);
         setEditors((prev) => {
           const next = new Map(prev);
@@ -3693,6 +3925,8 @@ li { margin: .25em 0; }
             ed.content = r.content;
             ed.originalContent = r.content;
             ed.eol = r.eol;
+            ed.encoding = r.encoding;
+            ed.bom = r.bom;
             ed.mtime = r.mtime;
             ed.dirty = false;
             ed.truncated = r.truncated;
@@ -3700,6 +3934,7 @@ li { margin: .25em 0; }
           }
           return next;
         });
+        externToasted.current.delete(path);
         void pageSdk.call("file.content", { path, revision: "HEAD" }).then((base) => {
           setEditors((prev) => {
             const next = new Map(prev);
@@ -3727,6 +3962,17 @@ li { margin: .25em 0; }
         });
       }
     }, [t]);
+    const reloadFile = React$1.useCallback(async (path, encoding) => {
+      const timer = saveTimers.current.get(path);
+      if (timer !== void 0) {
+        window.clearTimeout(timer);
+        saveTimers.current.delete(path);
+      }
+      documentClosed(path);
+      disposeTextModel(models.current.get(path) ?? null);
+      models.current.delete(path);
+      await loadFile(path, encoding);
+    }, [loadFile]);
     const requestTextMode = React$1.useCallback((path) => {
       if (!textModeRef.current.has(path)) {
         const next = new Set(textModeRef.current);
@@ -3764,7 +4010,7 @@ li { margin: .25em 0; }
       try {
         const r = await pageSdk.call(
           "file.write",
-          { path, content, eol: editor2.eol }
+          { path, content, eol: editor2.eol, encoding: editor2.encoding, bom: editor2.bom }
         );
         if (!r.ok) throw new Error(r.error || t("Editor_SaveFailed"));
         setEditors((prev) => {
@@ -3778,6 +4024,7 @@ li { margin: .25em 0; }
           }
           return next;
         });
+        externToasted.current.delete(path);
         const now = /* @__PURE__ */ new Date();
         setSavedAt(`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
         if (savedTimer.current) window.clearTimeout(savedTimer.current);
@@ -3861,6 +4108,14 @@ li { margin: .25em 0; }
           next.set(np, { ...ed, path: np });
           return next;
         });
+        setIndentByPath((prev) => {
+          const ind = prev.get(p);
+          if (!ind) return prev;
+          const next = new Map(prev);
+          next.delete(p);
+          next.set(np, ind);
+          return next;
+        });
       }
       const nextTextMode = /* @__PURE__ */ new Set();
       for (const p of textModeRef.current) nextTextMode.add(fsAffected(oldPath, isDir, p) ? fsRemap(p, oldPath, newPath, isDir) : p);
@@ -3884,6 +4139,12 @@ li { margin: .25em 0; }
           next.delete(p);
           return next;
         });
+        setIndentByPath((prev) => {
+          if (!prev.has(p)) return prev;
+          const next = new Map(prev);
+          next.delete(p);
+          return next;
+        });
       }
       const nextTextMode = new Set([...textModeRef.current].filter((p) => !fsAffected(path, isDir, p)));
       textModeRef.current = nextTextMode;
@@ -3897,27 +4158,89 @@ li { margin: .25em 0; }
     }, [props.activeTab, editors]);
     const batchClose = React$1.useCallback((targets) => {
       var _a3;
-      const dirtyKept = targets.filter((p) => {
+      const closable = targets.filter((p) => {
+        const tab = props.tabs.find((x) => x.path === p);
+        return !(tab == null ? void 0 : tab.pinned);
+      });
+      const dirtyKept = closable.filter((p) => {
         var _a4;
         return (_a4 = editors.get(p)) == null ? void 0 : _a4.dirty;
       }).length;
-      for (const p of targets) {
+      for (const p of closable) {
         if (!((_a3 = editors.get(p)) == null ? void 0 : _a3.dirty)) closeTabImpl(p);
       }
       if (dirtyKept > 0) pageSdk.toast(t("Editor_TabClose"), t("Editor_KeptDirty", dirtyKept));
-    }, [editors, closeTabImpl, t]);
+    }, [editors, closeTabImpl, props.tabs, t]);
+    const openHeadDiff = React$1.useCallback(async (path) => {
+      try {
+        const d = await pageSdk.call("changes.diffFile", { path, staged: false });
+        setHeadDiff({ path, diff: d });
+      } catch (e) {
+        pageSdk.toast(t("Editor_DiffHead"), e.message);
+      }
+    }, [t]);
     const tabMenu = React$1.useCallback((path) => {
+      const tab = props.tabs.find((x) => x.path === path);
       const idx = props.tabs.findIndex((x) => x.path === path);
-      return [
+      const textual = isTextual(path);
+      const items = [
+        { label: (tab == null ? void 0 : tab.pinned) ? t("Editor_UnpinTab") : t("Editor_PinTab"), action: () => {
+          var _a3;
+          return (_a3 = props.onTogglePin) == null ? void 0 : _a3.call(props, path);
+        } },
+        ...textual ? [{ label: t("Editor_OpenInSplit"), action: () => setSplitPath(path) }] : [],
+        { sep: true },
         { label: t("Editor_TabClose"), hint: "Ctrl+W", action: () => requestClose(path) },
         { label: t("Editor_TabCloseOthers"), action: () => batchClose(props.tabs.filter((x) => x.path !== path).map((x) => x.path)) },
         { label: t("Editor_TabCloseRight"), action: () => batchClose(props.tabs.slice(idx + 1).map((x) => x.path)) },
-        { label: t("Editor_TabCloseAll"), action: () => batchClose(props.tabs.map((x) => x.path)) }
+        { label: t("Editor_TabCloseAll"), action: () => batchClose(props.tabs.map((x) => x.path)) },
+        { sep: true },
+        { label: t("Editor_StageFile"), action: () => {
+          var _a3;
+          return void ((_a3 = props.onStageFile) == null ? void 0 : _a3.call(props, path));
+        } },
+        { label: t("Editor_DiscardFile"), action: () => setConfirmDiscard(path) },
+        { label: t("Editor_DiffHead"), action: () => void openHeadDiff(path) }
       ];
-    }, [props.tabs, requestClose, batchClose, t]);
+      return items;
+    }, [props.tabs, props.onTogglePin, props.onStageFile, requestClose, batchClose, isTextual, openHeadDiff, t]);
     React$1.useEffect(() => {
       if (props.activeTab) void loadFile(props.activeTab);
     }, [props.activeTab, loadFile]);
+    React$1.useEffect(() => {
+      if (splitPath) void loadFile(splitPath);
+    }, [splitPath, loadFile]);
+    React$1.useEffect(() => {
+      if (splitPath && !props.tabs.some((tb) => tb.path === splitPath)) setSplitPath(null);
+    }, [props.tabs, splitPath]);
+    React$1.useEffect(() => {
+      if (!props.fsTick) return;
+      const paths = [...models.current.keys()];
+      if (paths.length === 0) return;
+      let cancelled = false;
+      void pageSdk.call("file.statMany", { paths }).then((stats) => {
+        if (cancelled || !stats) return;
+        const fresh = new Map(stats.map((s) => [s.path, s.mtime]));
+        for (const [p] of models.current) {
+          const fm = fresh.get(p);
+          if (fm === void 0) continue;
+          const ed = editorsRef.current.get(p);
+          if (!ed || ed.binary || ed.loading || fm === ed.mtime) continue;
+          if (ed.dirty) {
+            if (!externToasted.current.has(p)) {
+              externToasted.current.add(p);
+              pageSdk.toast(t("Files_Title"), t("Editor_ExternalChangedDirty", p.split("/").pop() ?? p));
+            }
+          } else {
+            void reloadFile(p);
+          }
+        }
+      }).catch(() => {
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [props.fsTick, reloadFile, t]);
     React$1.useEffect(() => {
       const handler = (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === "s") {
@@ -3944,6 +4267,48 @@ li { margin: .25em 0; }
       if (savedTimer.current) window.clearTimeout(savedTimer.current);
     }, []);
     const nameOf = (path) => path.split("/").pop() ?? path;
+    const requestReopen = React$1.useCallback((path, enc) => {
+      var _a3;
+      if ((_a3 = editors.get(path)) == null ? void 0 : _a3.dirty) {
+        setConfirmReopen({ path, enc });
+        return;
+      }
+      void reloadFile(path, enc);
+    }, [editors, reloadFile]);
+    const switchEol = React$1.useCallback((path) => {
+      const ed = editors.get(path);
+      const model = models.current.get(path);
+      if (!ed || !model) return;
+      const crlf = ed.eol !== "crlf";
+      model.setEOL(crlf ? editor.EndOfLineSequence.CRLF : editor.EndOfLineSequence.LF);
+      setEditors((prev) => {
+        const next = new Map(prev);
+        const e = next.get(path);
+        if (e) e.eol = crlf ? "crlf" : "lf";
+        return next;
+      });
+      handleContentChange(path, model.getValue());
+    }, [editors, handleContentChange]);
+    const applyIndent = React$1.useCallback((path, insertSpaces, tabSize) => {
+      var _a3;
+      (_a3 = models.current.get(path)) == null ? void 0 : _a3.updateOptions({ insertSpaces, tabSize });
+      setIndentByPath((prev) => {
+        const next = new Map(prev);
+        next.set(path, { insertSpaces, tabSize });
+        return next;
+      });
+    }, []);
+    const problemRows = React$1.useMemo(() => {
+      if (!problemsOpen) return [];
+      const rows = [];
+      for (const [p, m] of models.current) {
+        for (const mk of markersOf(m)) {
+          rows.push({ path: p, line: mk.startLineNumber, col: mk.startColumn, severity: mk.severity, message: mk.message });
+        }
+      }
+      rows.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+      return rows;
+    }, [problemsOpen, markerTick, props.tabs, editors]);
     if (props.tabs.length === 0) {
       const repo = pageSdk.repo();
       return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "edwelcome", children: [
@@ -3954,6 +4319,12 @@ li { margin: .25em 0; }
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: "nm2", children: t("Editor_WelcomeOpen") }),
             /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "kbd", children: "Ctrl" }),
             /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "kbd", children: "P" })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "wrow", onClick: () => props.onQuickOpen, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "nm2", children: t("Files_GlobalSearch") }),
+            /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "kbd", children: "Ctrl" }),
+            /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "kbd", children: "Shift" }),
+            /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "kbd", children: "F" })
           ] }),
           /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "wrow", onClick: () => pageSdk.navigate("changes"), children: [
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: "nm2", children: t("Editor_WelcomeChanges") }),
@@ -3970,6 +4341,11 @@ li { margin: .25em 0; }
     const ActiveViewer = props.activeTab && !textMode.has(props.activeTab) ? viewerForPath(props.activeTab) : null;
     const crumbs = props.activeTab ? props.activeTab.split("/") : [];
     const lang = props.activeTab ? languageLabel(languageForPath(props.activeTab)) : "";
+    const indent = props.activeTab ? indentByPath.get(props.activeTab) : void 0;
+    const encLabel = activeEditor && !activeEditor.binary ? `${activeEditor.encoding.toUpperCase()}${activeEditor.bom ? " BOM" : ""}` : "UTF-8";
+    const revealLine = (localReveal && localReveal.path === props.activeTab ? localReveal : null) ?? (props.reveal && props.reveal.path === props.activeTab ? props.reveal : null);
+    const splitEditor = splitPath ? editors.get(splitPath) : null;
+    const splitModel = splitPath ? models.current.get(splitPath) ?? null : null;
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }, children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "edtabs", style: { background: editorBg }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "edtabs-list", children: props.tabs.map((tab) => {
@@ -3984,7 +4360,26 @@ li { margin: .25em 0; }
               className: "edtab" + (isActive ? " active" : "") + (tab.preview ? " preview" : ""),
               style: isActive ? { background: editorBg, borderBottomColor: editorBg } : void 0,
               title: tab.path,
-              onClick: () => props.onActivateTab(tab.path),
+              draggable: true,
+              onDragStart: (e) => {
+                e.dataTransfer.setData("text/gitter-tab", tab.path);
+                e.dataTransfer.effectAllowed = "move";
+              },
+              onDragOver: (e) => {
+                if (e.dataTransfer.types.includes("text/gitter-tab")) e.preventDefault();
+              },
+              onDrop: (e) => {
+                var _a4;
+                const from = e.dataTransfer.getData("text/gitter-tab");
+                if (from && from !== tab.path) (_a4 = props.onMoveTab) == null ? void 0 : _a4.call(props, from, tab.path);
+              },
+              onClick: (e) => {
+                if (e.altKey && isTextual(tab.path)) {
+                  setSplitPath(tab.path);
+                  return;
+                }
+                props.onActivateTab(tab.path);
+              },
               onDoubleClick: () => props.onPinTab(tab.path),
               onAuxClick: (e) => {
                 if (e.button === 1) requestClose(tab.path);
@@ -3994,7 +4389,19 @@ li { margin: .25em 0; }
                 /* @__PURE__ */ jsxRuntime.jsx("span", { className: "fico", children: /* @__PURE__ */ jsxRuntime.jsx(FileIcon, { path: tab.path }) }),
                 /* @__PURE__ */ jsxRuntime.jsx("span", { className: nmCls, children: nameOf(tab.path) }),
                 isDirty && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dot", title: t("Editor_Unsaved") }),
-                /* @__PURE__ */ jsxRuntime.jsx(
+                tab.pinned ? /* @__PURE__ */ jsxRuntime.jsx(
+                  "span",
+                  {
+                    className: "x",
+                    title: t("Editor_UnpinTab"),
+                    onClick: (e) => {
+                      var _a4;
+                      e.stopPropagation();
+                      (_a4 = props.onTogglePin) == null ? void 0 : _a4.call(props, tab.path);
+                    },
+                    children: /* @__PURE__ */ jsxRuntime.jsx(PinIcon, {})
+                  }
+                ) : /* @__PURE__ */ jsxRuntime.jsx(
                   "span",
                   {
                     className: "x",
@@ -4013,6 +4420,22 @@ li { margin: .25em 0; }
         }) }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "edtabs-acts", children: [
           saving && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "saving", children: t("Editor_Saving") }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "files-ibtn",
+              title: splitPath ? t("Editor_SplitOff") : t("Editor_Split"),
+              disabled: !isTextual(props.activeTab),
+              onClick: () => {
+                if (splitPath) {
+                  setSplitPath(null);
+                  return;
+                }
+                if (isTextual(props.activeTab)) setSplitPath(props.activeTab);
+              },
+              children: /* @__PURE__ */ jsxRuntime.jsx(SplitIcon, {})
+            }
+          ),
           /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Files_QuickOpen"), onClick: props.onQuickOpen, children: /* @__PURE__ */ jsxRuntime.jsx(SearchIcon, {}) })
         ] })
       ] }),
@@ -4031,43 +4454,153 @@ li { margin: .25em 0; }
             ] })
           ] }, p);
         }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "edcrumbs-acts", children: props.activeTab && textMode.has(props.activeTab) && viewerForPath(props.activeTab) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Editor_PreviewMode"), onClick: () => exitTextMode(props.activeTab), children: /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
-          /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M1.3 8C2.2 5.9 4.8 3.5 8 3.5S13.8 5.9 14.7 8c-.9 2.1-3.5 4.5-6.7 4.5S2.2 10.1 1.3 8Z", stroke: "currentColor", strokeWidth: "1.2" }),
-          /* @__PURE__ */ jsxRuntime.jsx("circle", { cx: "8", cy: "8", r: "1.9", stroke: "currentColor", strokeWidth: "1.2" })
-        ] }) }) : props.activeTab && !textMode.has(props.activeTab) && isMdPath(props.activeTab) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Editor_EditSource"), onClick: () => requestTextMode(props.activeTab), children: /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
-          /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M11.3 2.1a1.4 1.4 0 0 1 2 2L6 11.4l-2.8.8.8-2.8 7.3-7.3Z", stroke: "currentColor", strokeWidth: "1.2", strokeLinejoin: "round" }),
-          /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2.5 14h11", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" })
-        ] }) }) : null })
-      ] }),
-      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "hidden", position: "relative", minHeight: 0 }, children: ActiveViewer && props.activeTab ? /* @__PURE__ */ jsxRuntime.jsx(
-        ActiveViewer,
-        {
-          path: props.activeTab,
-          onEditText: requestTextMode
-        },
-        props.activeTab
-      ) : activeEditor && activeEditor.binary ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 20, textAlign: "center", opacity: 0.7 }, children: t("Editor_ErrorBinary") }) : activeEditor && activeEditor.error && !activeEditor.content ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ed-note", children: activeEditor.error }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-        (() => {
-          const stale = !activeModel && !!(lastReady.current && models.current.get(lastReady.current.path) === lastReady.current.model);
-          const shown = activeModel ?? (stale ? lastReady.current.model : null);
-          return shown ? /* @__PURE__ */ jsxRuntime.jsx(
-            FilesMonacoEditor,
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "edcrumbs-acts", children: [
+          props.activeTab && isTextual(props.activeTab) && /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
             {
-              model: shown,
-              readOnly: stale,
-              gitBase: stale ? null : (activeEditor == null ? void 0 : activeEditor.gitBase) ?? null,
-              showDiff: props.showDiff,
-              onChange: (value) => {
-                if (!stale) handleContentChange(activeEditor.path, value);
+              className: "files-ibtn",
+              title: t("Editor_Outline"),
+              onClick: () => {
+                var _a3;
+                return (_a3 = mainEditorRef.current) == null ? void 0 : _a3.runAction("editor.action.quickOutline");
               },
-              onPosition: setPosition,
-              onMarkers: setMarkers
+              children: /* @__PURE__ */ jsxRuntime.jsx(OutlineIcon, {})
             }
-          ) : activeEditor ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.7 }, children: "Loading…" }) : null;
-        })(),
-        (activeEditor == null ? void 0 : activeEditor.loading) && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ed-loading", children: "Loading…" }),
-        (activeEditor == null ? void 0 : activeEditor.error) && !activeEditor.loading && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ed-note", children: activeEditor.error })
-      ] }) }),
+          ),
+          props.activeTab && textMode.has(props.activeTab) && viewerForPath(props.activeTab) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Editor_PreviewMode"), onClick: () => exitTextMode(props.activeTab), children: /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M1.3 8C2.2 5.9 4.8 3.5 8 3.5S13.8 5.9 14.7 8c-.9 2.1-3.5 4.5-6.7 4.5S2.2 10.1 1.3 8Z", stroke: "currentColor", strokeWidth: "1.2" }),
+            /* @__PURE__ */ jsxRuntime.jsx("circle", { cx: "8", cy: "8", r: "1.9", stroke: "currentColor", strokeWidth: "1.2" })
+          ] }) }) : props.activeTab && !textMode.has(props.activeTab) && isMdPath(props.activeTab) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Editor_EditSource"), onClick: () => requestTextMode(props.activeTab), children: /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M11.3 2.1a1.4 1.4 0 0 1 2 2L6 11.4l-2.8.8.8-2.8 7.3-7.3Z", stroke: "currentColor", strokeWidth: "1.2", strokeLinejoin: "round" }),
+            /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2.5 14h11", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" })
+          ] }) }) : null
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs(
+        "div",
+        {
+          style: { flex: 1, overflow: "hidden", position: "relative", minHeight: 0, display: "flex" },
+          onDragOver: (e) => {
+            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          },
+          onDrop: (e) => {
+            var _a3;
+            if (!e.dataTransfer.types.includes("Files")) return;
+            e.preventDefault();
+            for (const f of Array.from(e.dataTransfer.files)) {
+              const abs = pageSdk.pathForFile(f);
+              if (abs) (_a3 = props.onOpenDropped) == null ? void 0 : _a3.call(props, abs);
+            }
+          },
+          children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, minWidth: 0, position: "relative", overflow: "hidden" }, children: ActiveViewer && props.activeTab ? /* @__PURE__ */ jsxRuntime.jsx(
+              ActiveViewer,
+              {
+                path: props.activeTab,
+                onEditText: requestTextMode
+              },
+              props.activeTab
+            ) : activeEditor && activeEditor.binary ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 20, textAlign: "center", opacity: 0.7 }, children: t("Editor_ErrorBinary") }) : activeEditor && activeEditor.error && !activeEditor.content ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ed-note", children: activeEditor.error }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              (() => {
+                const stale = !activeModel && !!(lastReady.current && models.current.get(lastReady.current.path) === lastReady.current.model);
+                const shown = activeModel ?? (stale ? lastReady.current.model : null);
+                return shown ? /* @__PURE__ */ jsxRuntime.jsx(
+                  FilesMonacoEditor,
+                  {
+                    ref: mainEditorRef,
+                    model: shown,
+                    readOnly: stale,
+                    ownsKeys: !stale,
+                    gitBase: stale ? null : (activeEditor == null ? void 0 : activeEditor.gitBase) ?? null,
+                    showDiff: props.showDiff,
+                    revealLine,
+                    onChange: (value) => {
+                      if (!stale) handleContentChange(activeEditor.path, value);
+                    },
+                    onPosition: setPosition,
+                    onMarkers: setMarkers
+                  }
+                ) : activeEditor ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.7 }, children: "Loading…" }) : null;
+              })(),
+              (activeEditor == null ? void 0 : activeEditor.loading) && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ed-loading", children: "Loading…" }),
+              (activeEditor == null ? void 0 : activeEditor.error) && !activeEditor.loading && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ed-note", children: activeEditor.error })
+            ] }) }),
+            splitPath && /* @__PURE__ */ jsxRuntime.jsxs(
+              "div",
+              {
+                style: {
+                  width: "50%",
+                  minWidth: 240,
+                  flex: "none",
+                  display: "flex",
+                  flexDirection: "column",
+                  borderLeft: "1px solid var(--c-line, rgba(128,128,128,0.25))",
+                  background: editorBg,
+                  minHeight: 0
+                },
+                children: [
+                  /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", fontSize: 12, opacity: 0.8, flex: "none" }, children: [
+                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "fico", children: /* @__PURE__ */ jsxRuntime.jsx(FileIcon, { path: splitPath }) }),
+                    /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: splitPath, children: nameOf(splitPath) }),
+                    (splitEditor == null ? void 0 : splitEditor.dirty) && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dot", title: t("Editor_Unsaved") }),
+                    /* @__PURE__ */ jsxRuntime.jsx(
+                      "span",
+                      {
+                        className: "x",
+                        title: t("Editor_SplitOff"),
+                        style: { display: "inline-flex", cursor: "pointer" },
+                        onClick: () => setSplitPath(null),
+                        children: /* @__PURE__ */ jsxRuntime.jsx(CloseIcon, {})
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }, children: splitModel ? /* @__PURE__ */ jsxRuntime.jsx(
+                    FilesMonacoEditor,
+                    {
+                      model: splitModel,
+                      gitBase: (splitEditor == null ? void 0 : splitEditor.gitBase) ?? null,
+                      showDiff: props.showDiff,
+                      onChange: (value) => {
+                        if (splitPath) handleContentChange(splitPath, value);
+                      }
+                    }
+                  ) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.7 }, children: "Loading…" }) })
+                ]
+              }
+            )
+          ]
+        }
+      ),
+      problemsOpen && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: "none", height: 160, borderTop: "1px solid var(--c-line, rgba(128,128,128,0.25))", display: "flex", flexDirection: "column", background: editorBg }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", fontSize: 12, opacity: 0.8, flex: "none" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 }, children: t("Editor_ProblemsTitle") }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "x", style: { display: "inline-flex", cursor: "pointer" }, title: t("Common_Close"), onClick: () => setProblemsOpen(false), children: /* @__PURE__ */ jsxRuntime.jsx(CloseIcon, {}) })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "auto", padding: "0 10px 8px" }, children: problemRows.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { opacity: 0.6, fontSize: 12, padding: "6px 2px" }, children: t("Editor_NoProblems") }) : problemRows.map((r, i) => /* @__PURE__ */ jsxRuntime.jsxs(
+          "div",
+          {
+            className: "cseg",
+            style: { display: "flex", gap: 8, alignItems: "baseline", padding: "2px 4px", borderRadius: 4, cursor: "pointer", fontSize: 12 },
+            title: `${r.path}:${r.line}:${r.col}`,
+            onClick: () => {
+              props.onActivateTab(r.path);
+              setLocalReveal({ path: r.path, line: r.line, ts: Date.now() });
+            },
+            children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: r.severity === 1 ? "var(--c-red, #e5534b)" : r.severity === 2 ? "var(--c-yellow, #d4a72c)" : "var(--c-link, #4493f8)", flex: "none" }, children: "●" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { flex: "none", opacity: 0.75 }, children: [
+                nameOf(r.path),
+                ":",
+                r.line,
+                ":",
+                r.col
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: r.message })
+            ]
+          },
+          `${r.path}:${r.line}:${i}`
+        )) })
+      ] }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "edfoot", children: [
         savedAt ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "it", title: t("Editor_Saved"), children: [
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ok", children: /* @__PURE__ */ jsxRuntime.jsx(CheckIcon, {}) }),
@@ -4075,11 +4608,20 @@ li { margin: .25em 0; }
           t("Editor_Saved"),
           " · ",
           savedAt
-        ] }) : /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "it", title: t("Editor_ProblemsTitle"), children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ok", children: /* @__PURE__ */ jsxRuntime.jsx(CheckIcon, {}) }),
-          " ",
-          t("Editor_Problems", markers.errors, markers.warnings)
-        ] }),
+        ] }) : /* @__PURE__ */ jsxRuntime.jsxs(
+          "span",
+          {
+            className: "it",
+            title: t("Editor_ProblemsTitle"),
+            style: { cursor: "pointer" },
+            onClick: () => setProblemsOpen((v) => !v),
+            children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ok", children: /* @__PURE__ */ jsxRuntime.jsx(CheckIcon, {}) }),
+              " ",
+              t("Editor_Problems", markers.errors, markers.warnings)
+            ]
+          }
+        ),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "right", children: [
           /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "it", children: [
             "Ln ",
@@ -4087,9 +4629,55 @@ li { margin: .25em 0; }
             ", Col ",
             position.col
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "it", title: t("Editor_Indent"), children: t("Editor_Spaces", 4) }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "it", children: "UTF-8" }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "it", children: ((activeEditor == null ? void 0 : activeEditor.eol) ?? "lf").toUpperCase() }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "span",
+            {
+              className: "it",
+              title: t("Editor_Indent"),
+              style: { cursor: "pointer" },
+              onClick: (e) => {
+                if (!props.activeTab) return;
+                showMenu(e, [
+                  { label: t("Editor_Spaces", 2), action: () => applyIndent(props.activeTab, true, 2) },
+                  { label: t("Editor_Spaces", 4), action: () => applyIndent(props.activeTab, true, 4) },
+                  { label: t("Editor_Spaces", 8), action: () => applyIndent(props.activeTab, true, 8) },
+                  { sep: true },
+                  { label: t("Editor_TabsIndent"), action: () => applyIndent(props.activeTab, false, 4) }
+                ]);
+              },
+              children: indent ? indent.insertSpaces ? t("Editor_Spaces", indent.tabSize) : t("Editor_TabsIndent") : t("Editor_Spaces", 4)
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "span",
+            {
+              className: "it",
+              title: t("Editor_EncodingTitle"),
+              style: { cursor: activeEditor && !activeEditor.binary ? "pointer" : void 0 },
+              onClick: (e) => {
+                if (!props.activeTab || !activeEditor || activeEditor.binary) return;
+                showMenu(e, [
+                  { label: "UTF-8" + (activeEditor.encoding === "utf8" ? " ✓" : ""), action: () => requestReopen(props.activeTab, "utf8") },
+                  { label: "GBK" + (activeEditor.encoding === "gbk" ? " ✓" : ""), action: () => requestReopen(props.activeTab, "gbk") },
+                  { sep: true },
+                  { label: t("Editor_ReopenTitle"), disabled: true }
+                ]);
+              },
+              children: encLabel
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "span",
+            {
+              className: "it",
+              title: t("Editor_EolTitle"),
+              style: { cursor: "pointer" },
+              onClick: () => {
+                if (props.activeTab) switchEol(props.activeTab);
+              },
+              children: ((activeEditor == null ? void 0 : activeEditor.eol) ?? "lf").toUpperCase()
+            }
+          ),
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "it", children: lang }),
           activeStatus && /* @__PURE__ */ jsxRuntime.jsx("span", { className: `it st ${STATUS_CLS[activeStatus] ?? ""}`, title: t("Files_StatusTitle"), children: STATUS_LETTER[activeStatus] ?? activeStatus })
         ] })
@@ -4166,6 +4754,49 @@ li { margin: .25em 0; }
           )
         ] })
       ] }) }),
+      confirmReopen && /* @__PURE__ */ jsxRuntime.jsx(
+        Modal,
+        {
+          title: t("Editor_ReopenTitle"),
+          confirmText: t("Editor_Reload"),
+          onClose: () => setConfirmReopen(null),
+          onConfirm: () => {
+            const { path, enc } = confirmReopen;
+            setConfirmReopen(null);
+            void reloadFile(path, enc);
+          },
+          children: /* @__PURE__ */ jsxRuntime.jsx("div", { children: t("Editor_ReopenDirty", nameOf(confirmReopen.path)) })
+        }
+      ),
+      confirmDiscard && /* @__PURE__ */ jsxRuntime.jsx(
+        Modal,
+        {
+          title: t("Editor_DiscardConfirmTitle"),
+          danger: true,
+          confirmText: t("Editor_DiscardFile"),
+          onClose: () => setConfirmDiscard(null),
+          onConfirm: () => {
+            var _a3;
+            const p = confirmDiscard;
+            setConfirmDiscard(null);
+            void ((_a3 = props.onDiscardFile) == null ? void 0 : _a3.call(props, p).then((ok) => {
+              if (ok) void reloadFile(p);
+            }));
+          },
+          children: /* @__PURE__ */ jsxRuntime.jsx("div", { children: t("Editor_DiscardConfirmBody", nameOf(confirmDiscard)) })
+        }
+      ),
+      headDiff && /* @__PURE__ */ jsxRuntime.jsx(
+        Modal,
+        {
+          title: `${t("Editor_DiffHead")} · ${nameOf(headDiff.path)}`,
+          width: 900,
+          confirmText: t("Common_Close"),
+          onClose: () => setHeadDiff(null),
+          onConfirm: () => setHeadDiff(null),
+          children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { maxHeight: "65vh", overflow: "auto" }, children: /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: headDiff.diff, inline: true }) })
+        }
+      ),
       menuElement
     ] });
   });
@@ -4332,6 +4963,262 @@ li { margin: .25em 0; }
       ] })
     ] });
   }
+  function plainSource(q) {
+    return q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function buildRegex(q, regexMode, caseSensitive) {
+    try {
+      return new RegExp(regexMode ? q : plainSource(q), caseSensitive ? "g" : "gi");
+    } catch {
+      return null;
+    }
+  }
+  function highlightLine(text, re) {
+    const out = [];
+    const rx = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+    let last = 0;
+    let m;
+    let key = 0;
+    while ((m = rx.exec(text)) !== null) {
+      if (m.index > last) out.push(text.slice(last, m.index));
+      out.push(/* @__PURE__ */ jsxRuntime.jsx("mark", { children: m[0].length > 0 ? m[0] : text[m.index] ?? "" }, key++));
+      last = m.index + Math.max(m[0].length, 1);
+      if (!rx.global) break;
+      if (m[0].length === 0) rx.lastIndex++;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+  }
+  function GlobalSearch(props) {
+    const t = pageSdk.t;
+    const [query, setQuery] = React$1.useState("");
+    const [replaceOpen, setReplaceOpen] = React$1.useState(false);
+    const [replaceWith, setReplaceWith] = React$1.useState("");
+    const [caseSensitive, setCaseSensitive] = React$1.useState(false);
+    const [regexMode, setRegexMode] = React$1.useState(false);
+    const [busy, setBusy] = React$1.useState(false);
+    const [replacing, setReplacing] = React$1.useState(false);
+    const [error, setError] = React$1.useState(null);
+    const [hits, setHits] = React$1.useState([]);
+    const [truncated, setTruncated] = React$1.useState(false);
+    const inputRef = React$1.useRef(null);
+    const rootRef = React$1.useRef(null);
+    const seqRef = React$1.useRef(0);
+    React$1.useEffect(() => {
+      var _a2;
+      return (_a2 = inputRef.current) == null ? void 0 : _a2.focus();
+    }, []);
+    React$1.useEffect(() => {
+      const onDown = (e) => {
+        if (rootRef.current && !rootRef.current.contains(e.target)) props.onClose();
+      };
+      document.addEventListener("mousedown", onDown);
+      return () => document.removeEventListener("mousedown", onDown);
+    }, [props]);
+    const q = query.trim();
+    const rx = q ? buildRegex(q, regexMode, caseSensitive) : null;
+    const runSearch = React$1.useCallback(async () => {
+      const queryNow = query.trim();
+      const seq = ++seqRef.current;
+      if (!queryNow) {
+        setHits([]);
+        setTruncated(false);
+        setError(null);
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const r = await pageSdk.call(
+          "repo.search",
+          { query: queryNow, regex: regexMode, caseSensitive, max: 300 }
+        );
+        if (seq !== seqRef.current) return;
+        if (!r || !Array.isArray(r.matches)) throw new Error((r == null ? void 0 : r.error) || t("Files_SearchFailed"));
+        setHits(r.matches);
+        setTruncated(!!r.truncated);
+      } catch (e) {
+        if (seq !== seqRef.current) return;
+        setError(e.message);
+        setHits([]);
+        setTruncated(false);
+      } finally {
+        if (seq === seqRef.current) setBusy(false);
+      }
+    }, [query, regexMode, caseSensitive, t]);
+    React$1.useEffect(() => {
+      if (!q) {
+        setHits([]);
+        setTruncated(false);
+        return;
+      }
+      const timer = window.setTimeout(() => void runSearch(), 400);
+      return () => window.clearTimeout(timer);
+    }, [q, caseSensitive, regexMode, runSearch]);
+    const replaceAll = React$1.useCallback(async () => {
+      var _a2;
+      if (!q || !rx || replacing) return;
+      const files = [...new Set(hits.map((h) => h.file))];
+      const total = hits.length;
+      if (files.length === 0) return;
+      if (!window.confirm(t("Files_ReplaceConfirm", files.length, total))) return;
+      setReplacing(true);
+      let doneFiles = 0;
+      let doneCount = 0;
+      const apply = new RegExp(rx.source, "g");
+      for (const f of files) {
+        try {
+          const r = await pageSdk.call("file.content", { path: f, encoding: void 0 });
+          if (!r || !r.content) continue;
+          let count = 0;
+          const next = r.content.replace(apply, () => {
+            count++;
+            return replaceWith;
+          });
+          if (count === 0) continue;
+          const w = await pageSdk.call("file.write", {
+            path: f,
+            content: next,
+            eol: r.eol,
+            encoding: r.encoding,
+            bom: r.bom
+          });
+          if (w == null ? void 0 : w.ok) {
+            doneFiles++;
+            doneCount += count;
+          }
+        } catch {
+        }
+      }
+      setReplacing(false);
+      pageSdk.toast(t("Files_ReplaceAll"), t("Files_Replaced", doneCount, doneFiles));
+      (_a2 = props.onReplaced) == null ? void 0 : _a2.call(props);
+      void runSearch();
+    }, [q, rx, hits, replaceWith, replacing, runSearch, props, t]);
+    const fileCount = new Set(hits.map((h) => h.file)).size;
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { style: { position: "absolute", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.28)", display: "flex", justifyContent: "center", alignItems: "flex-start", paddingTop: 42 }, children: /* @__PURE__ */ jsxRuntime.jsxs(
+      "div",
+      {
+        ref: rootRef,
+        style: {
+          width: 640,
+          maxWidth: "92%",
+          maxHeight: "70%",
+          display: "flex",
+          flexDirection: "column",
+          borderRadius: 8,
+          border: "1px solid var(--c-border)",
+          background: "var(--c-panel, var(--c-base))",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
+          overflow: "hidden"
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "8px 10px 4px" }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                ref: inputRef,
+                type: "text",
+                value: query,
+                placeholder: t("Files_SearchContent"),
+                spellCheck: false,
+                style: { flex: 1, background: "transparent", border: "none", outline: "none", color: "inherit", fontSize: 13 },
+                onChange: (e) => setQuery(e.target.value),
+                onKeyDown: (e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void runSearch();
+                  } else if (e.key === "Escape") {
+                    e.stopPropagation();
+                    props.onClose();
+                  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "h") {
+                    e.preventDefault();
+                    setReplaceOpen(true);
+                  }
+                }
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "files-ibtn" + (caseSensitive ? " on" : ""),
+                title: t("Files_SearchCaseSensitive"),
+                style: { width: 24, height: 24, fontSize: 12, fontWeight: 700 },
+                onClick: () => setCaseSensitive((v) => !v),
+                children: "Aa"
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "files-ibtn" + (regexMode ? " on" : ""),
+                title: t("Files_SearchRegex"),
+                style: { width: 24, height: 24, fontSize: 12, fontWeight: 700 },
+                onClick: () => setRegexMode((v) => !v),
+                children: ".*"
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "files-ibtn",
+                title: t("Files_SearchReplace"),
+                style: { width: 24, height: 24 },
+                onClick: () => setReplaceOpen((v) => !v),
+                children: /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "13", height: "13", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M3 3.5h7M3 6.5h4M12 9.5l2 2-2 2M6 12.5h4", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" }) })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Common_Close"), style: { width: 24, height: 24 }, onClick: props.onClose, children: /* @__PURE__ */ jsxRuntime.jsx(CloseIcon, {}) })
+          ] }),
+          replaceOpen && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "0 10px 6px" }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                type: "text",
+                value: replaceWith,
+                placeholder: t("Files_SearchReplace"),
+                spellCheck: false,
+                style: { flex: 1, background: "transparent", border: "none", outline: "none", color: "inherit", fontSize: 13 },
+                onChange: (e) => setReplaceWith(e.target.value),
+                onKeyDown: (e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void replaceAll();
+                  }
+                }
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: replacing || hits.length === 0, onClick: () => void replaceAll(), children: replacing ? t("Editor_Saving") : t("Files_ReplaceAll") })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", gap: 8, padding: "2px 12px 6px", fontSize: 11.5, opacity: 0.65 }, children: error ? /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-red, #e5534b)" }, children: error }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            q && /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+              busy ? t("Files_Searching") : t("Files_FilterMatches", hits.length),
+              fileCount > 1 ? ` · ${fileCount} ${t("Files_SearchFiles")}` : ""
+            ] }),
+            truncated && /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("Files_SearchTruncated", 300) })
+          ] }) }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, overflow: "auto", borderTop: "1px solid var(--c-border)", paddingBottom: 6 }, children: [
+            hits.map((h, i) => /* @__PURE__ */ jsxRuntime.jsxs(
+              "div",
+              {
+                className: "qrow",
+                style: { position: "static", display: "flex", gap: 8, padding: "2px 12px", cursor: "pointer", fontSize: 12.5 },
+                title: `${h.file}:${h.line}`,
+                onClick: () => props.onOpen(h.file, h.line),
+                children: [
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: "none", opacity: 0.65, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: h.file }),
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: "none", opacity: 0.5, fontVariantNumeric: "tabular-nums" }, children: h.line }),
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: rx ? highlightLine(h.text, rx) : h.text })
+                ]
+              },
+              `${h.file}:${h.line}:${i}`
+            )),
+            q && !busy && hits.length === 0 && !error && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "10px 12px", opacity: 0.6, fontSize: 12.5 }, children: t("Files_NoMatch") })
+          ] })
+        ]
+      }
+    ) });
+  }
   const SIDEBAR_KEY = "gitter.files.sidebar.v2";
   const SIDEBAR_DEFAULT = 248;
   const SIDEBAR_MIN = 170;
@@ -4351,6 +5238,9 @@ li { margin: .25em 0; }
     const [quickOpen, setQuickOpen] = React$1.useState(false);
     const [revealTick, setRevealTick] = React$1.useState(0);
     const [treeMode, setTreeMode] = React$1.useState("all");
+    const [globalSearch, setGlobalSearch] = React$1.useState(false);
+    const [reveal, setReveal] = React$1.useState(null);
+    const [fsTick, setFsTick] = React$1.useState(0);
     const repo = pageSdk.repo();
     const tabsRef = React$1.useRef(tabs);
     tabsRef.current = tabs;
@@ -4374,6 +5264,21 @@ li { margin: .25em 0; }
     }, [repo]);
     React$1.useEffect(() => {
       void loadTree();
+    }, [loadTree]);
+    const fsTimer = React$1.useRef(null);
+    React$1.useEffect(() => {
+      const off = pageSdk.on("fs.changed", () => {
+        if (fsTimer.current) window.clearTimeout(fsTimer.current);
+        fsTimer.current = window.setTimeout(() => {
+          fsTimer.current = null;
+          void loadTree();
+          setFsTick((v) => v + 1);
+        }, 800);
+      });
+      return () => {
+        if (fsTimer.current) window.clearTimeout(fsTimer.current);
+        off();
+      };
     }, [loadTree]);
     const openFile = React$1.useCallback((path, opts) => {
       const preview = (opts == null ? void 0 : opts.preview) !== false;
@@ -4496,6 +5401,49 @@ li { margin: .25em 0; }
         return a === path ? ((_a2 = next[Math.min(i, next.length - 1)]) == null ? void 0 : _a2.path) ?? null : a;
       });
     }, []);
+    const togglePin = React$1.useCallback((path) => {
+      setTabs((prev) => prev.map((tb) => tb.path === path ? { path: tb.path, preview: tb.pinned ? tb.preview : false, pinned: !tb.pinned } : tb));
+    }, []);
+    const moveTab = React$1.useCallback((from, to) => {
+      setTabs((prev) => {
+        const fi = prev.findIndex((x) => x.path === from);
+        const ti = prev.findIndex((x) => x.path === to);
+        if (fi < 0 || ti < 0 || fi === ti) return prev;
+        const next = prev.slice();
+        const [m] = next.splice(fi, 1);
+        next.splice(ti, 0, m);
+        return next;
+      });
+    }, []);
+    const stageFile = React$1.useCallback(async (path) => {
+      try {
+        await pageSdk.call("changes.stage", { paths: [path] });
+        await loadTree();
+        return true;
+      } catch (e) {
+        pageSdk.toast(pageSdk.t("Files_Title"), e.message);
+        return false;
+      }
+    }, [loadTree]);
+    const discardFile = React$1.useCallback(async (path) => {
+      try {
+        await pageSdk.call("changes.discardFile", { path });
+        await loadTree();
+        return true;
+      } catch (e) {
+        pageSdk.toast(pageSdk.t("Files_Title"), e.message);
+        return false;
+      }
+    }, [loadTree]);
+    const openDropped = React$1.useCallback((abs) => {
+      if (!repo) return;
+      const rel = relOfWork(repo.workDir, abs);
+      if (!rel || rel.length === 0) {
+        pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t("Files_OutsideRepo"));
+        return;
+      }
+      openFile(rel, { preview: false });
+    }, [repo, openFile]);
     const statusByPath = React$1.useMemo(() => {
       const map = {};
       for (const e of treeData.entries) {
@@ -4506,8 +5454,15 @@ li { margin: .25em 0; }
     const allFiles = React$1.useMemo(() => treeData.entries.filter((e) => !e.isDir).map((e) => e.path), [treeData.entries]);
     React$1.useEffect(() => {
       const handler = (e) => {
-        if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
         const k = e.key.toLowerCase();
+        if (e.shiftKey) {
+          if (k === "f") {
+            e.preventDefault();
+            setGlobalSearch((v) => !v);
+          }
+          return;
+        }
         if (k === "p") {
           e.preventDefault();
           setQuickOpen((v) => !v);
@@ -4596,7 +5551,14 @@ li { margin: .25em 0; }
             onQuickOpen: () => setQuickOpen(true),
             onToggleSidebar: () => setCollapsed(false),
             onReveal: () => setRevealTick((v) => v + 1),
-            onSaved: () => void loadTree()
+            onSaved: () => void loadTree(),
+            onMoveTab: moveTab,
+            onTogglePin: togglePin,
+            onStageFile: stageFile,
+            onDiscardFile: discardFile,
+            onOpenDropped: openDropped,
+            reveal,
+            fsTick
           }
         ),
         quickOpen && /* @__PURE__ */ jsxRuntime.jsx(
@@ -4605,6 +5567,17 @@ li { margin: .25em 0; }
             files: allFiles,
             onOpen: (p) => openFile(p, { preview: true }),
             onClose: () => setQuickOpen(false)
+          }
+        ),
+        globalSearch && /* @__PURE__ */ jsxRuntime.jsx(
+          GlobalSearch,
+          {
+            onOpen: (p, line) => {
+              openFile(p, { preview: false });
+              setReveal({ path: p, line, ts: Date.now() });
+            },
+            onClose: () => setGlobalSearch(false),
+            onReplaced: () => void loadTree()
           }
         )
       ] })

@@ -600,6 +600,7 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 
 /* 任务列表行：发光状态点 + 标题；分叉/归档悬停行尾显现（v3 极简列表） */
 .tk-row {
+  position: relative;
   display: flex; align-items: center; gap: 8px; min-height: 34px;
   padding: 5px 6px 5px 10px; border-radius: 10px; cursor: pointer;
   border: 1px solid var(--c-border); background: var(--c-panel);
@@ -619,6 +620,130 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .tk-quick { display: none; align-items: center; gap: 2px; flex: none; }
 .tk-row:hover .tk-quick, .tk-row.sel .tk-quick { display: inline-flex; }
 .tk-quick .icon-btn { width: 22px; height: 22px; }
+
+/* ===== 任务页 v3.3（task-page-wrapup-and-list-design.md）：列表管理 + 收尾闭环 ===== */
+
+/* 列表搜索框（纯前端过滤：标题/摘要/id） */
+.tk-search {
+  display: flex; align-items: center; gap: 7px; height: 28px; margin: 0 10px 8px;
+  padding: 0 9px; border: 1px solid var(--c-border-strong); border-radius: 8px;
+  background: var(--c-panel); flex: none;
+}
+.tk-search:focus-within { border-color: var(--c-text3); }
+.tk-search svg { width: 12px; height: 12px; color: var(--c-text3); flex: none; }
+.tk-search input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--c-text); font: 12px/1.4 inherit; }
+.tk-search input::placeholder { color: var(--c-text3); }
+.tk-search .tk-search-clr { border: none; background: none; color: var(--c-text3); cursor: pointer; font-size: 11px; padding: 0 2px; display: none; }
+.tk-search.has .tk-search-clr { display: block; }
+
+/* 状态筛选 chips（全部/进行中/待处理/已完成/失败·中断；带计数与色点） */
+.tk-fchips { display: flex; gap: 4px; padding: 0 10px 8px; flex-wrap: wrap; flex: none; }
+.tk-fchip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-family: inherit;
+  color: var(--c-text3); border: 1px solid var(--c-border-strong); border-radius: 999px;
+  padding: 1px 8px; cursor: pointer; background: none; user-select: none; white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-std), border-color var(--dur-fast) var(--ease-std), background var(--dur-fast) var(--ease-std);
+}
+.tk-fchip:hover { color: var(--c-text); border-color: var(--c-text3); }
+.tk-fchip.on { background: var(--c-selected); border-color: var(--c-selected); color: var(--c-text); font-weight: 600; }
+.tk-fchip .n { opacity: .7; font-family: var(--mono, monospace); font-size: 9.5px; }
+.tk-fchip .d { width: 5px; height: 5px; border-radius: 50%; flex: none; background: currentColor; opacity: .75; }
+
+/* 日期分组头（今天/昨天/近 7 天/更早） */
+.tk-ghead { display: flex; align-items: center; gap: 8px; padding: 8px 2px 3px; color: var(--c-text3); font-size: 10px; letter-spacing: .05em; flex: none; }
+.tk-ghead::after { content: ""; flex: 1; height: 1px; background: var(--c-border); }
+
+/* 归档：行 55% 透明 + 底部折叠开关 */
+.tk-row.arch { opacity: .55; }
+.tk-arch-toggle {
+  margin: 6px 10px 10px; padding: 4px 8px; text-align: center; flex: none;
+  color: var(--c-text3); font-size: 11px; font-family: inherit; cursor: pointer; user-select: none;
+  border: 1px dashed var(--c-border-strong); border-radius: 8px; background: none;
+}
+.tk-arch-toggle:hover { color: var(--c-text2); border-color: var(--c-text3); }
+
+/* 行内重命名（双击标题） */
+.tk-ren { width: 100%; font: 600 12px/1.4 inherit; color: var(--c-text); background: var(--c-panel2); border: 1px solid var(--c-text3); border-radius: 5px; padding: 1px 6px; outline: none; }
+
+/* 删除确认浮层（锚定行内，右下弹出） */
+.tk-delpop {
+  position: absolute; right: 6px; top: 30px; z-index: 40; width: 236px;
+  background: var(--c-panel2); backdrop-filter: blur(18px); border: 1px solid var(--c-border-strong);
+  border-radius: 10px; box-shadow: 0 8px 22px rgba(0,0,0,.28); padding: 9px 11px; font-size: 11.5px;
+}
+.tk-delpop .t { font-weight: 650; font-size: 12px; margin-bottom: 2px; }
+.tk-delpop .d { color: var(--c-text3); margin-bottom: 6px; }
+.tk-delpop label { display: flex; align-items: center; gap: 6px; color: var(--c-text3); cursor: pointer; margin-bottom: 8px; }
+.tk-delpop .b { display: flex; justify-content: flex-end; gap: 6px; }
+.tk-mtag { flex: none; font-size: 9.5px; color: var(--c-text3); border: 1px solid var(--c-border-strong); border-radius: 999px; padding: 0 6px; }
+
+/* 收尾条：任务完成且有独立 worktree 产出时出现在 pagehead 下沿（合并入口） */
+.tk-wrapbar {
+  display: flex; align-items: center; gap: 9px; padding: 6px 18px; flex-wrap: wrap; flex: none;
+  border-bottom: 1px solid var(--c-border);
+  background: color-mix(in srgb, var(--c-green) 4%, transparent);
+}
+.tk-wrapbar .meta { color: var(--c-text3); font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-wrapbar .add { color: var(--c-green); }
+.tk-wrapbar .del { color: var(--c-red); }
+.tk-wrapbar .sp { flex: 1; }
+
+/* 合并/验收反馈对话框 */
+.tk-mask { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.42); display: flex; align-items: center; justify-content: center; }
+.tk-modal {
+  width: 560px; max-width: 94vw; max-height: 88vh; overflow-y: auto;
+  background: var(--c-panel2); backdrop-filter: blur(22px); border: 1px solid var(--c-border-strong);
+  border-radius: 13px; box-shadow: 0 14px 38px rgba(0,0,0,.34);
+}
+.tk-modal-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px 4px; }
+.tk-modal-head .t { font-weight: 650; font-size: 13.5px; }
+.tk-modal-sec { padding: 9px 18px 0; }
+.tk-modal-sec .lb { color: var(--c-text3); font-size: 11px; margin-bottom: 5px; }
+.tk-modal-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 18px 15px; margin-top: 10px; border-top: 1px solid var(--c-border); }
+.tk-modal-foot .left { margin-right: auto; color: var(--c-text3); font-size: 10.5px; }
+.tk-msel {
+  background: var(--c-panel); border: 1px solid var(--c-border-strong); border-radius: 7px;
+  color: var(--c-text); font: 12px/1.4 inherit; padding: 3px 8px; outline: none;
+}
+.tk-minput {
+  width: 100%; background: var(--c-panel); border: 1px solid var(--c-border-strong); border-radius: 8px;
+  color: var(--c-text); font: 12px/1.55 inherit; padding: 7px 10px; outline: none; resize: vertical;
+}
+.tk-minput:focus { border-color: var(--c-text3); }
+.tk-mhint { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; color: var(--c-amber); }
+.tk-mhint.ok { color: var(--c-green); }
+.tk-mdesc { margin-top: 6px; color: var(--c-text3); font-size: 11px; line-height: 1.55; }
+.tk-mtrailer {
+  font-family: var(--mono, monospace); font-size: 10.5px; color: var(--c-text3);
+  background: var(--c-panel); border: 1px solid var(--c-border); border-radius: 7px;
+  padding: 6px 10px; margin-top: 7px; white-space: pre-wrap;
+}
+.tk-mdetails { border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-panel); margin-top: 4px; }
+.tk-mdetails summary { list-style: none; padding: 6px 10px; font-size: 11px; color: var(--c-text3); cursor: pointer; user-select: none; }
+.tk-mdetails summary:hover { color: var(--c-text2); }
+.tk-mdetails .dbody { border-top: 1px solid var(--c-border); padding: 7px 11px; font-family: var(--mono, monospace); font-size: 10.5px; line-height: 1.7; color: var(--c-text3); white-space: pre; overflow-x: auto; }
+.tk-mcheck { display: flex; align-items: center; gap: 7px; color: var(--c-text2); font-size: 11.5px; cursor: pointer; user-select: none; }
+.tk-mcheck input { accent-color: var(--c-accent); }
+.tk-conflict {
+  border: 1px solid color-mix(in srgb, var(--c-red) 42%, transparent);
+  background: color-mix(in srgb, var(--c-red) 6%, transparent);
+  border-radius: 9px; padding: 9px 11px; margin-top: 4px;
+}
+.tk-conflict .ct { display: flex; align-items: center; gap: 7px; color: var(--c-red); font-weight: 650; font-size: 11.5px; margin-bottom: 5px; }
+.tk-conflict .cf { display: flex; align-items: center; gap: 8px; font-family: var(--mono, monospace); font-size: 11px; color: var(--c-text); padding: 2px 0; }
+.tk-conflict .cf .b { font-size: 9.5px; color: var(--c-amber); border: 1px solid color-mix(in srgb, var(--c-amber) 45%, transparent); border-radius: 999px; padding: 0 6px; flex: none; }
+.tk-conflict .cnote { color: var(--c-text3); font-size: 10.5px; margin-top: 6px; line-height: 1.55; }
+
+/* 后台 shell 页（ShellsTab） */
+.tk-shell { border: 1px solid var(--c-border); border-radius: 10px; background: var(--c-panel); margin-bottom: 8px; overflow: hidden; }
+.tk-shell-h { display: flex; align-items: center; gap: 9px; padding: 7px 11px; }
+.tk-shell-cmd { flex: 1; min-width: 0; font-family: var(--mono, monospace); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-shell-tm { color: var(--c-text3); font-size: 10.5px; font-family: var(--mono, monospace); flex: none; font-variant-numeric: tabular-nums; }
+.tk-shell-tail {
+  border-top: 1px solid var(--c-border); padding: 7px 11px; max-height: 140px; overflow-y: auto;
+  font-family: var(--mono, monospace); font-size: 11px; line-height: 1.6; color: var(--c-text3);
+  white-space: pre-wrap; word-break: break-word; background: color-mix(in srgb, var(--c-base, transparent) 40%, transparent);
+}
 
 /* 时间线工具卡（v3）：面板卡 + 状态色图标章 + 折叠箭头 + 分区结果 */
 .tl-tool { border: 1px solid var(--c-border); border-radius: 10px; background: var(--c-panel); overflow: hidden; }
@@ -1701,6 +1826,9 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
 .files-row:hover { background: var(--c-hover); }
 .files-row.active { background: var(--c-selected); }
 .files-row.kb-focus { outline: 1px solid color-mix(in srgb, var(--c-link) 70%, transparent); outline-offset: -1px; }
+/* 树内拖拽移动：可放置目录高亮（虚线内框），拖动行降透明度 */
+.files-row.drop-target { outline: 1px dashed var(--c-link); outline-offset: -1px; background: color-mix(in srgb, var(--c-link) 12%, transparent); }
+.files-row.dragging { opacity: 0.45; }
 /* agent 回合层：左缘 2px 紫 bar（hover/active 底上仍可辨） */
 .files-row.agent { box-shadow: inset 2px 0 0 var(--c-chip-purple-fg); }
 .files-guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--c-border); pointer-events: none; }

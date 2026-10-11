@@ -1,11 +1,18 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 /**
  * 渲染层唯一入口（winui3-to-web-migration.md §3.3 安全模型）：
- * 只暴露 invoke(method, params) + 事件订阅，无 Node 能力泄漏。
+ * 只暴露 invoke(method, params) + 事件订阅 + 拖拽文件路径解析（webUtils，无 Node 能力泄漏）。
  */
 contextBridge.exposeInMainWorld("gitter", {
   invoke: (method: string, params?: unknown) => ipcRenderer.invoke("rpc", method, params),
+  pathForFile: (file: File) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return "";
+    }
+  },
   onEvent: (cb: (method: string, params: unknown) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, msg: { method: string; params: unknown }) => {
       try {

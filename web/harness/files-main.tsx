@@ -389,6 +389,30 @@ function mockRpc(method: string, params?: Record<string, unknown>): unknown {
       if (cut) delete FILES[from];
       return { ok: true, path: to };
     }
+    case "file.statMany": {
+      const paths = Array.isArray(params?.paths) ? (params!.paths as string[]) : [];
+      return paths.filter((p) => FILES[p] !== undefined).map((p) => ({ path: p, mtime: MTIMES.get(p) ?? 0, size: FILES[p].length }));
+    }
+    case "repo.search": {
+      const q = String(params?.query ?? "").toLowerCase();
+      if (!q) return { matches: [], truncated: false };
+      const cs = params?.caseSensitive === true;
+      const matches: { file: string; line: number; text: string }[] = [];
+      for (const [p, content] of Object.entries(FILES)) {
+        content.split("\n").forEach((ln, i) => {
+          const hay = cs ? ln : ln.toLowerCase();
+          const needle = cs ? q : q.toLowerCase();
+          if (hay.includes(needle) && matches.length < 300) matches.push({ file: p, line: i + 1, text: ln });
+        });
+      }
+      return { matches, truncated: false };
+    }
+    case "git.blame":
+      return [];
+    case "changes.stage":
+    case "changes.discardFile":
+      (window as any).__lastGitAction = method;
+      return {};
     case "settings.get":
       return SETTINGS;
     case "lsp.status":
@@ -438,6 +462,40 @@ const I18N: Record<string, string> = {
   Files_DeleteFailed: "删除失败",
   Files_PasteFailed: "粘贴失败",
   Files_MoveFailed: "移动失败",
+  Editor_TabCloseOthers: "关闭其他标签",
+  Editor_TabCloseRight: "关闭右侧标签",
+  Editor_TabCloseAll: "关闭所有标签",
+  Editor_KeptDirty: "{0} 个含未保存更改的标签已保留",
+  Editor_PinTab: "固定标签",
+  Editor_UnpinTab: "取消固定",
+  Editor_OpenInSplit: "在分屏打开",
+  Editor_Split: "分屏编辑",
+  Editor_SplitOff: "关闭分屏",
+  Editor_Outline: "转到符号（Ctrl+Shift+O）",
+  Editor_TabsIndent: "Tab 缩进",
+  Editor_EncodingTitle: "文件编码（点击切换/重新打开）",
+  Editor_ReopenTitle: "以指定编码重新打开",
+  Editor_ReopenDirty: "「{0}」有未保存的更改，重新打开将丢弃这些更改。",
+  Editor_EolTitle: "行尾序列（点击互转，保存生效）",
+  Editor_StageFile: "暂存此文件",
+  Editor_DiscardFile: "放弃修改",
+  Editor_DiscardConfirmTitle: "放弃修改",
+  Editor_DiscardConfirmBody: "放弃对「{0}」的未提交修改？此操作不可恢复。",
+  Editor_DiffHead: "与 HEAD 比较差异",
+  Editor_ExternalChangedDirty: "「{0}」在磁盘上已被外部修改；未保存内容已保留，保存时将提示冲突。",
+  Editor_NoProblems: "当前打开的文件没有问题",
+  Files_SearchContent: "搜索内容…",
+  Files_SearchCaseSensitive: "区分大小写",
+  Files_SearchRegex: "正则表达式",
+  Files_SearchReplace: "替换",
+  Files_ReplaceAll: "全部替换",
+  Files_ReplaceConfirm: "在 {0} 个文件中替换 {1} 处？",
+  Files_Replaced: "已替换 {0} 处（{1} 个文件）",
+  Files_SearchFailed: "搜索失败",
+  Files_Searching: "搜索中…",
+  Files_SearchTruncated: "结果过多，仅显示前 {0} 条",
+  Files_SearchFiles: "个文件",
+  Files_OutsideRepo: "仅支持打开仓库内的文件",
   Files_AgentTouched: "本回合 agent 改动",
   Files_NoMatch: "无匹配文件",
   Files_Missing: "文件不存在或无法读取",

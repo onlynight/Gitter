@@ -1,22 +1,28 @@
 /**
  * 编辑器面板（files-editor-redesign-mockup.html §二/§三）：
- * 家内 chip 标签条（预览斜体/脏点与关闭钮互斥/状态着色）+ 面包屑 + Monaco + 页脚状态条。
+ * 家内 chip 标签条（预览斜体/固定图钉/脏点与关闭钮互斥/状态着色/拖拽排序）+ 面包屑
+ * （含转到符号）+ Monaco 主区 + 可选分屏（同 model 双实例）+ 问题面板 + 页脚状态条。
  * 标签 keep-alive：每个文件一个 ITextModel，切标签只换 model 不销毁编辑器
  * （大文件不重复 tokenize，视图状态随 model.id 存取），关闭标签才 dispose model。
  *
  * 保存：Ctrl+S 显式保存 + 300ms 防抖自动保存。保存前 mtime 冲突检测——
  * 磁盘 mtime 与编辑器记录不一致时弹冲突对话框（重新加载/取消/覆盖）。
  * 关闭含未保存更改的标签弹三选一确认（保存/不保存/取消）。
+ * 编码：自动嗅探 UTF-8(BOM)/GBK，页脚编码段可重开（脏文件先确认）；保存按原编码+BOM。
+ * 状态栏：EOL 点击互转、缩进按内容探测+菜单切换；字号 Ctrl+滚轮/±/0（FilesMonacoEditor）。
+ * 外部变更：fsTick 信号 → 批量 stat 打开标签，干净标签自动重载、脏标签提示一次。
  */
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { useContextMenu } from "../kit";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import * as MonacoNs from "monaco-editor";
+import { Modal, useContextMenu, DiffView, type CtxMenuItem } from "../kit";
 import { pageSdk, useAppState } from "../pageSdk";
-import { CheckIcon, ChevronSepIcon, CloseIcon, FileIcon, FolderIcon, SearchIcon } from "./filesIcons";
-import { FilesMonacoEditor } from "./FilesMonacoEditor";
-import { createTextModel, disposeTextModel, languageForPath, languageLabel } from "./filesMonaco";
+import { CheckIcon, ChevronSepIcon, CloseIcon, FileIcon, FolderIcon, OutlineIcon, PinIcon, SearchIcon, SplitIcon } from "./filesIcons";
+import { FilesMonacoEditor, type FilesMonacoEditorHandle } from "./FilesMonacoEditor";
+import { createTextModel, disposeTextModel, languageForPath, languageLabel, detectIndent, onAnyMarkers, markersOf } from "./filesMonaco";
 import { documentOpened, documentChanged, documentClosed } from "./filesLsp";
 import { viewerForPath } from "./filesViewers";
 import { isMdPath } from "./externalPreview";
+import type { DiffDTO } from "../bridge/types";
 
 type MonacoModel = import("monaco-editor").editor.ITextModel;
 
@@ -24,13 +30,20 @@ export interface EditorTab {
   path: string;
   /** 预览标签（斜体，唯一；激活/编辑/双击后转正） */
   preview: boolean;
+  /** 固定标签（批量关闭跳过；× 换图钉，关闭走右键菜单） */
+  pinned?: boolean;
 }
+
+type Encoding = "utf8" | "gbk";
 
 interface EditorState {
   path: string;
   content: string;
   originalContent: string;
   eol: "crlf" | "lf";
+  /** 文件编码（读取嗅探/重开指定；保存按此编码 + bom 还原） */
+  encoding: Encoding;
+  bom: boolean;
   mtime: number;
   dirty: boolean;
   loading: boolean;
@@ -60,6 +73,20 @@ export interface EditorPaneProps {
   onReveal?: () => void;
   /** 保存成功 → FilesPage 重拉 repo.tree（树状态色 + 页脚 git 字母实时化） */
   onSaved?: () => void;
+  /** 标签拖拽排序（from 拖到 to 的位置） */
+  onMoveTab?: (from: string, to: string) => void;
+  /** 固定/取消固定标签 */
+  onTogglePin?: (path: string) => void;
+  /** 暂存单文件（tab 菜单）：成功返回 true */
+  onStageFile?: (path: string) => Promise<boolean>;
+  /** 放弃单文件未提交修改（tab 菜单，编辑器侧确认后调用）：成功返回 true，随后编辑器重载磁盘版 */
+  onDiscardFile?: (path: string) => Promise<boolean>;
+  /** 外部文件拖入（绝对路径）：FilesPage 换算仓库相对路径后打开 */
+  onOpenDropped?: (absPath: string) => void;
+  /** 全局搜索结果定位（path+line；ts 防重） */
+  reveal?: { path: string; line: number; ts: number } | null;
+  /** 外部变更信号（fs.changed 防抖后递增）：批量校验打开标签 mtime */
+  fsTick?: number;
 }
 
 /** 文件树侧文件系统操作（重命名/删除/剪切移动）发生后，FilesPage 经 ref 调用同步编辑器 */
@@ -78,6 +105,14 @@ function fsAffected(root: string, isDir: boolean, p: string): boolean {
 /** 路径迁移映射：目录按前缀整体改写，文件精确替换 */
 function fsRemap(p: string, oldPath: string, newPath: string, isDir: boolean): string {
   return isDir ? newPath + p.slice(oldPath.length) : newPath;
+}
+
+interface ProblemRow {
+  path: string;
+  line: number;
+  col: number;
+  severity: number;
+  message: string;
 }
 
 export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function EditorPane(props, ref) {
@@ -109,6 +144,35 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
   const textModeRef = useRef<Set<string>>(textMode);
   textModeRef.current = textMode;
 
+  // 编码重开确认（脏文件）/ 放弃修改确认 / HEAD 差异弹窗
+  const [confirmReopen, setConfirmReopen] = useState<{ path: string; enc: Encoding } | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
+  const [headDiff, setHeadDiff] = useState<{ path: string; diff: DiffDTO } | null>(null);
+
+  // 问题面板 + marker 变化版本号（onAnyMarkers 全局订阅触发重算）
+  const [problemsOpen, setProblemsOpen] = useState(false);
+  const [markerTick, setMarkerTick] = useState(0);
+  useEffect(() => {
+    const d = onAnyMarkers(() => setMarkerTick((v) => v + 1));
+    return () => d.dispose();
+  }, []);
+
+  // 缩进（探测/切换后记忆，随 model 选项联动；键为路径）
+  const [indentByPath, setIndentByPath] = useState<Map<string, { insertSpaces: boolean; tabSize: number }>>(new Map());
+
+  // 分屏（右栏展示的路径；同 model 双实例，编辑互通）
+  const [splitPath, setSplitPath] = useState<string | null>(null);
+  const mainEditorRef = useRef<FilesMonacoEditorHandle | null>(null);
+
+  // 问题点击的本地定位（与 props.reveal——全局搜索定位——合并后下发主编辑器）
+  const [localReveal, setLocalReveal] = useState<{ path: string; line: number; ts: number } | null>(null);
+
+  // editors 的 ref 镜像（fsTick 等低频回调读取最新脏态，不进依赖）
+  const editorsRef = useRef(editors);
+  editorsRef.current = editors;
+  // 脏标签外部修改提示去重（一次变更只提示一次，保存/重载后解除）
+  const externToasted = useRef(new Set<string>());
+
   const statusOf = useCallback(
     (path: string | null) => (path ? props.statusByPath[path] ?? null : null),
     [props.statusByPath],
@@ -121,15 +185,20 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
   const theme = useAppState().theme;
   const editorBg = theme?.tokens?.Base ?? "var(--c-base)";
 
+  /** 该路径是否走 Monaco 文本流（查看器接管且未切文本模式的路径无 model） */
+  const isTextual = useCallback((p: string | null): p is string =>
+    !!p && (!viewerForPath(p) || textModeRef.current.has(p)), []);
+
   // 加载文件内容（画布查看器接管的路径——office 预览等——不走文本流，无 model/脏态；
-  // 被文本模式覆盖的查看器路径除外）
-  const loadFile = useCallback(async (path: string) => {
+  // 被文本模式覆盖的查看器路径除外）。encoding：以指定编码重新打开（缺省自动嗅探）。
+  const loadFile = useCallback(async (path: string, encoding?: Encoding) => {
     if ((viewerForPath(path) && !textModeRef.current.has(path)) || models.current.has(path)) return; // 已加载（keep-alive）
 
     setEditors((prev) => {
       const next = new Map(prev);
       next.set(path, {
         path, content: "", originalContent: "", eol: "lf", mtime: 0,
+        encoding: encoding ?? "utf8", bom: false,
         dirty: false, loading: true, binary: false, error: null, truncated: false, gitBase: null,
       });
       return next;
@@ -138,8 +207,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
     try {
       const r = await pageSdk.call<{
         content: string; eol: "crlf" | "lf"; size: number; mtime: number;
-        binary: boolean; truncated: boolean;
-      } | null>("file.content", { path });
+        encoding: Encoding; bom: boolean; binary: boolean; truncated: boolean;
+      } | null>("file.content", { path, encoding });
 
       if (!r) {
         setEditors((prev) => {
@@ -163,6 +232,14 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
       // 创建 Monaco model（keep-alive；切标签换 model，不重建编辑器）
       const model = createTextModel(path, r.content);
       models.current.set(path, model);
+      // 缩进按内容探测（页脚可改，仅影响本文件的编辑行为）
+      const indent = detectIndent(r.content);
+      model.updateOptions(indent);
+      setIndentByPath((prev) => {
+        const next = new Map(prev);
+        next.set(path, indent);
+        return next;
+      });
       // LSP（设置启用时）：注册文档 + 启动对应语言服务器 + didOpen
       documentOpened(path, languageForPath(path), r.content, model);
 
@@ -174,6 +251,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
           ed.content = r.content;
           ed.originalContent = r.content;
           ed.eol = r.eol;
+          ed.encoding = r.encoding;
+          ed.bom = r.bom;
           ed.mtime = r.mtime;
           ed.dirty = false;
           ed.truncated = r.truncated;
@@ -181,6 +260,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
         }
         return next;
       });
+      externToasted.current.delete(path);
 
       // git gutter 基线：HEAD 版本全文（未跟踪新文件 git show 失败 → ""，整文件新增）
       void pageSdk.call<{ content: string } | null>("file.content", { path, revision: "HEAD" })
@@ -211,6 +291,16 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t]);
 
+  /** 从磁盘整体重载（丢弃前端 model 缓存）：外部修改的干净标签 / 放弃修改 / 编码重开共用 */
+  const reloadFile = useCallback(async (path: string, encoding?: Encoding) => {
+    const timer = saveTimers.current.get(path);
+    if (timer !== undefined) { window.clearTimeout(timer); saveTimers.current.delete(path); }
+    documentClosed(path);
+    disposeTextModel(models.current.get(path) ?? null);
+    models.current.delete(path);
+    await loadFile(path, encoding);
+  }, [loadFile]);
+
   // 查看器回退卡请求切文本：登记覆盖并补加载 model（查看器路径平时不走文本流；
   // ref 先行更新——loadFile 守卫读的是 ref 而非本轮 state）
   const requestTextMode = useCallback((path: string) => {
@@ -229,7 +319,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
     setTextMode(next);
   }, []);
 
-  // 保存文件（带 mtime 冲突检测）
+  // 保存文件（带 mtime 冲突检测；按读取时的编码 + BOM 写回）
   const doSave = useCallback(async (path: string, overwrite = false) => {
     const editor = editors.get(path);
     const model = models.current.get(path);
@@ -255,7 +345,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
     setSaving(true);
     try {
       const r = await pageSdk.call<{ ok: boolean; size: number; mtime: number; error?: string }>(
-        "file.write", { path, content, eol: editor.eol });
+        "file.write", { path, content, eol: editor.eol, encoding: editor.encoding, bom: editor.bom });
       if (!r.ok) throw new Error(r.error || t("Editor_SaveFailed"));
 
       setEditors((prev) => {
@@ -269,6 +359,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
         }
         return next;
       });
+      externToasted.current.delete(path);
       const now = new Date();
       setSavedAt(`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
       if (savedTimer.current) window.clearTimeout(savedTimer.current);
@@ -279,6 +370,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
     } finally {
       setSaving(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editors, t]);
 
   // 自动保存（300ms 防抖；设置关闭时跳过——仅 Ctrl+S 显式保存）
@@ -351,6 +443,14 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
         next.set(np, { ...ed, path: np });
         return next;
       });
+      setIndentByPath((prev) => {
+        const ind = prev.get(p);
+        if (!ind) return prev;
+        const next = new Map(prev);
+        next.delete(p);
+        next.set(np, ind);
+        return next;
+      });
     }
     const nextTextMode = new Set<string>();
     for (const p of textModeRef.current) nextTextMode.add(fsAffected(oldPath, isDir, p) ? fsRemap(p, oldPath, newPath, isDir) : p);
@@ -373,6 +473,12 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
         next.delete(p);
         return next;
       });
+      setIndentByPath((prev) => {
+        if (!prev.has(p)) return prev;
+        const next = new Map(prev);
+        next.delete(p);
+        return next;
+      });
     }
     const nextTextMode = new Set<string>([...textModeRef.current].filter((p) => !fsAffected(path, isDir, p)));
     textModeRef.current = nextTextMode;
@@ -389,31 +495,96 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
     if (m) lastReady.current = { path: props.activeTab, model: m };
   }, [props.activeTab, editors]);
 
-  // 批量关闭（关闭其他/右侧/全部）：未保存的标签保留并提示，不静默丢改动
+  // 批量关闭（关闭其他/右侧/全部）：固定标签跳过；未保存的标签保留并提示，不静默丢改动
   const batchClose = useCallback((targets: string[]) => {
-    const dirtyKept = targets.filter((p) => editors.get(p)?.dirty).length;
-    for (const p of targets) {
+    const closable = targets.filter((p) => {
+      const tab = props.tabs.find((x) => x.path === p);
+      return !tab?.pinned;
+    });
+    const dirtyKept = closable.filter((p) => editors.get(p)?.dirty).length;
+    for (const p of closable) {
       if (!editors.get(p)?.dirty) closeTabImpl(p);
     }
     if (dirtyKept > 0) pageSdk.toast(t("Editor_TabClose"), t("Editor_KeptDirty", dirtyKept));
-  }, [editors, closeTabImpl, t]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editors, closeTabImpl, props.tabs, t]);
 
-  // 标签右键菜单：关闭 / 关闭其他 / 关闭右侧标签 / 关闭所有
-  const tabMenu = useCallback((path: string) => {
+  // HEAD 差异弹窗（tab 菜单「与 HEAD 比较差异」）：复用 changes.diffFile 工作区档
+  const openHeadDiff = useCallback(async (path: string) => {
+    try {
+      const d = await pageSdk.call<DiffDTO>("changes.diffFile", { path, staged: false });
+      setHeadDiff({ path, diff: d });
+    } catch (e) {
+      pageSdk.toast(t("Editor_DiffHead"), (e as Error).message);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t]);
+
+  // 标签右键菜单：固定/分屏 / 关闭组 / git 组（暂存/放弃/HEAD差异）/ 关闭其他与全部
+  const tabMenu = useCallback((path: string): CtxMenuItem[] => {
+    const tab = props.tabs.find((x) => x.path === path);
     const idx = props.tabs.findIndex((x) => x.path === path);
-    return [
+    const textual = isTextual(path);
+    const items: CtxMenuItem[] = [
+      { label: tab?.pinned ? t("Editor_UnpinTab") : t("Editor_PinTab"), action: () => props.onTogglePin?.(path) },
+      ...(textual ? [{ label: t("Editor_OpenInSplit"), action: () => setSplitPath(path) }] : []),
+      { sep: true },
       { label: t("Editor_TabClose"), hint: "Ctrl+W", action: () => requestClose(path) },
       { label: t("Editor_TabCloseOthers"), action: () => batchClose(props.tabs.filter((x) => x.path !== path).map((x) => x.path)) },
       { label: t("Editor_TabCloseRight"), action: () => batchClose(props.tabs.slice(idx + 1).map((x) => x.path)) },
       { label: t("Editor_TabCloseAll"), action: () => batchClose(props.tabs.map((x) => x.path)) },
+      { sep: true },
+      { label: t("Editor_StageFile"), action: () => void props.onStageFile?.(path) },
+      { label: t("Editor_DiscardFile"), action: () => setConfirmDiscard(path) },
+      { label: t("Editor_DiffHead"), action: () => void openHeadDiff(path) },
     ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.tabs, requestClose, batchClose, t]);
+    return items;
+  }, [props.tabs, props.onTogglePin, props.onStageFile, requestClose, batchClose, isTextual, openHeadDiff, t]);
 
   // 切换标签时确保 model 已加载
   useEffect(() => {
     if (props.activeTab) void loadFile(props.activeTab);
   }, [props.activeTab, loadFile]);
+
+  // 分屏文件确保加载（viewer 接管路径不允许进分屏，入口已挡）
+  useEffect(() => {
+    if (splitPath) void loadFile(splitPath);
+  }, [splitPath, loadFile]);
+
+  // 分屏文件被关闭 → 分屏同步收起
+  useEffect(() => {
+    if (splitPath && !props.tabs.some((tb) => tb.path === splitPath)) setSplitPath(null);
+  }, [props.tabs, splitPath]);
+
+  // 外部变更信号：批量 stat 打开标签——干净标签自动重载，脏标签提示一次（保存时有冲突检测兜底）
+  useEffect(() => {
+    if (!props.fsTick) return;
+    const paths = [...models.current.keys()];
+    if (paths.length === 0) return;
+    let cancelled = false;
+    void pageSdk.call<{ path: string; mtime: number }[] | null>("file.statMany", { paths })
+      .then((stats) => {
+        if (cancelled || !stats) return;
+        const fresh = new Map(stats.map((s) => [s.path, s.mtime]));
+        for (const [p] of models.current) {
+          const fm = fresh.get(p);
+          if (fm === undefined) continue; // 已消失的文件不动，等树刷新/用户操作
+          const ed = editorsRef.current.get(p);
+          if (!ed || ed.binary || ed.loading || fm === ed.mtime) continue;
+          if (ed.dirty) {
+            if (!externToasted.current.has(p)) {
+              externToasted.current.add(p);
+              pageSdk.toast(t("Files_Title"), t("Editor_ExternalChangedDirty", p.split("/").pop() ?? p));
+            }
+          } else {
+            void reloadFile(p);
+          }
+        }
+      })
+      .catch(() => { /* stat 失败静默（仓库正在大量变动，下一轮 fsTick 再校） */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.fsTick, reloadFile, t]);
 
   // 键盘快捷键：Ctrl+S 保存；Ctrl+W 关闭（脏标签先确认）；Ctrl+Tab 循环切换
   useEffect(() => {
@@ -446,6 +617,52 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
 
   const nameOf = (path: string) => path.split("/").pop() ?? path;
 
+  // 编码重开（干净直接重载；脏文件先确认）
+  const requestReopen = useCallback((path: string, enc: Encoding) => {
+    if (editors.get(path)?.dirty) { setConfirmReopen({ path, enc }); return; }
+    void reloadFile(path, enc);
+  }, [editors, reloadFile]);
+
+  // EOL 互转（页脚点击）：改 model EOL + 走一次内容变更链（脏标 + 自动保存 + LSP）
+  const switchEol = useCallback((path: string) => {
+    const ed = editors.get(path);
+    const model = models.current.get(path);
+    if (!ed || !model) return;
+    const crlf = ed.eol !== "crlf";
+    model.setEOL(crlf ? MonacoNs.editor.EndOfLineSequence.CRLF : MonacoNs.editor.EndOfLineSequence.LF);
+    setEditors((prev) => {
+      const next = new Map(prev);
+      const e = next.get(path);
+      if (e) e.eol = crlf ? "crlf" : "lf";
+      return next;
+    });
+    handleContentChange(path, model.getValue());
+  }, [editors, handleContentChange]);
+
+  // 缩进切换（页脚菜单）：改 model 选项（不触碰文件内容）
+  const applyIndent = useCallback((path: string, insertSpaces: boolean, tabSize: number) => {
+    models.current.get(path)?.updateOptions({ insertSpaces, tabSize });
+    setIndentByPath((prev) => {
+      const next = new Map(prev);
+      next.set(path, { insertSpaces, tabSize });
+      return next;
+    });
+  }, []);
+
+  // 问题面板数据：全部打开 model 的 marker 聚合（markerTick 触发重算）
+  const problemRows = useMemo<ProblemRow[]>(() => {
+    if (!problemsOpen) return [];
+    const rows: ProblemRow[] = [];
+    for (const [p, m] of models.current) {
+      for (const mk of markersOf(m)) {
+        rows.push({ path: p, line: mk.startLineNumber, col: mk.startColumn, severity: mk.severity, message: mk.message });
+      }
+    }
+    rows.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+    return rows;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problemsOpen, markerTick, props.tabs, editors]);
+
   // 渲染空状态：欢迎页（动作列表 + 右下角水印，替代 emoji 空态）
   if (props.tabs.length === 0) {
     const repo = pageSdk.repo();
@@ -457,6 +674,10 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
           <div className="wrow" onClick={props.onQuickOpen}>
             <span className="nm2">{t("Editor_WelcomeOpen")}</span>
             <kbd className="kbd">Ctrl</kbd><kbd className="kbd">P</kbd>
+          </div>
+          <div className="wrow" onClick={() => props.onQuickOpen}>
+            <span className="nm2">{t("Files_GlobalSearch")}</span>
+            <kbd className="kbd">Ctrl</kbd><kbd className="kbd">Shift</kbd><kbd className="kbd">F</kbd>
           </div>
           <div className="wrow" onClick={() => pageSdk.navigate("changes")}>
             <span className="nm2">{t("Editor_WelcomeChanges")}</span>
@@ -479,10 +700,19 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
   const ActiveViewer = props.activeTab && !textMode.has(props.activeTab) ? viewerForPath(props.activeTab) : null;
   const crumbs = props.activeTab ? props.activeTab.split("/") : [];
   const lang = props.activeTab ? languageLabel(languageForPath(props.activeTab)) : "";
+  const indent = props.activeTab ? indentByPath.get(props.activeTab) : undefined;
+  const encLabel = activeEditor && !activeEditor.binary
+    ? `${activeEditor.encoding.toUpperCase()}${activeEditor.bom ? " BOM" : ""}`
+    : "UTF-8";
+  // 定位请求合并：问题面板本地定位优先，其次全局搜索定位（都按当前激活标签过滤）
+  const revealLine = (localReveal && localReveal.path === props.activeTab ? localReveal : null)
+    ?? (props.reveal && props.reveal.path === props.activeTab ? props.reveal : null);
+  const splitEditor = splitPath ? editors.get(splitPath) : null;
+  const splitModel = splitPath ? (models.current.get(splitPath) ?? null) : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-      {/* 标签条（家内 chip：活动 = panel2 + 描边环；× hover/活动显，脏点其余显） */}
+      {/* 标签条（家内 chip：活动 = panel2 + 描边环；× hover/活动显，脏点其余显；拖拽排序） */}
       <div className="edtabs" style={{ background: editorBg }}>
         <div className="edtabs-list">
           {props.tabs.map((tab) => {
@@ -496,7 +726,21 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
                 className={"edtab" + (isActive ? " active" : "") + (tab.preview ? " preview" : "")}
                 style={isActive ? { background: editorBg, borderBottomColor: editorBg } : undefined}
                 title={tab.path}
-                onClick={() => props.onActivateTab(tab.path)}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/gitter-tab", tab.path);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragOver={(e) => { if (e.dataTransfer.types.includes("text/gitter-tab")) e.preventDefault(); }}
+                onDrop={(e) => {
+                  const from = e.dataTransfer.getData("text/gitter-tab");
+                  if (from && from !== tab.path) props.onMoveTab?.(from, tab.path);
+                }}
+                onClick={(e) => {
+                  // Alt+点击 = 送入分屏右栏（文本文件）；普通点击激活
+                  if (e.altKey && isTextual(tab.path)) { setSplitPath(tab.path); return; }
+                  props.onActivateTab(tab.path);
+                }}
                 onDoubleClick={() => props.onPinTab(tab.path)}
                 onAuxClick={(e) => { if (e.button === 1) requestClose(tab.path); }}
                 onContextMenu={(e) => showMenu(e, tabMenu(tab.path))}
@@ -504,24 +748,45 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
                 <span className="fico"><FileIcon path={tab.path} /></span>
                 <span className={nmCls}>{nameOf(tab.path)}</span>
                 {isDirty && <span className="dot" title={t("Editor_Unsaved")} />}
-                <span
-                  className="x"
-                  title={t("Editor_TabClose")}
-                  onClick={(e) => { e.stopPropagation(); requestClose(tab.path); }}
-                >
-                  <CloseIcon />
-                </span>
+                {tab.pinned ? (
+                  <span
+                    className="x"
+                    title={t("Editor_UnpinTab")}
+                    onClick={(e) => { e.stopPropagation(); props.onTogglePin?.(tab.path); }}
+                  >
+                    <PinIcon />
+                  </span>
+                ) : (
+                  <span
+                    className="x"
+                    title={t("Editor_TabClose")}
+                    onClick={(e) => { e.stopPropagation(); requestClose(tab.path); }}
+                  >
+                    <CloseIcon />
+                  </span>
+                )}
               </div>
             );
           })}
         </div>
         <div className="edtabs-acts">
           {saving && <span className="saving">{t("Editor_Saving")}</span>}
+          <button
+            className="files-ibtn"
+            title={splitPath ? t("Editor_SplitOff") : t("Editor_Split")}
+            disabled={!isTextual(props.activeTab)}
+            onClick={() => {
+              if (splitPath) { setSplitPath(null); return; }
+              if (isTextual(props.activeTab)) setSplitPath(props.activeTab);
+            }}
+          >
+            <SplitIcon />
+          </button>
           <button className="files-ibtn" title={t("Files_QuickOpen")} onClick={props.onQuickOpen}><SearchIcon /></button>
         </div>
       </div>
 
-      {/* 面包屑：路径段（点击 → 树中揭示）；最右侧 = md 预览/源码切换（图标互斥） */}
+      {/* 面包屑：路径段（点击 → 树中揭示）；最右侧 = 转到符号 + md 预览/源码切换（图标互斥） */}
       <div className="edcrumbs" style={{ background: editorBg }}>
         {crumbs.map((seg, i) => {
           const p = crumbs.slice(0, i + 1).join("/");
@@ -537,6 +802,15 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
           );
         })}
         <div className="edcrumbs-acts">
+          {props.activeTab && isTextual(props.activeTab) && (
+            <button
+              className="files-ibtn"
+              title={t("Editor_Outline")}
+              onClick={() => mainEditorRef.current?.runAction("editor.action.quickOutline")}
+            >
+              <OutlineIcon />
+            </button>
+          )}
           {props.activeTab && textMode.has(props.activeTab) && viewerForPath(props.activeTab) ? (
             <button className="files-ibtn" title={t("Editor_PreviewMode")} onClick={() => exitTextMode(props.activeTab!)}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -557,44 +831,128 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
 
       {/* 编辑区：Monaco 实例常驻（新文件加载期保留上一个画面 + Loading 覆盖层，
           不卸载重建——实例重挂是选中文件时「闪黑」的根因）。
-          画布查看器（office 预览）命中时接管整个画布。 */}
-      <div style={{ flex: 1, overflow: "hidden", position: "relative", minHeight: 0 }}>
-        {ActiveViewer && props.activeTab ? (
-          <ActiveViewer
-            key={props.activeTab}
-            path={props.activeTab}
-            onEditText={requestTextMode}
-          />
-        ) : activeEditor && activeEditor.binary ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 20, textAlign: "center", opacity: 0.7 }}>{t("Editor_ErrorBinary")}</div>
-        ) : activeEditor && activeEditor.error && !activeEditor.content ? (
-          <div className="ed-note">{activeEditor.error}</div>
-        ) : (
-          <>
-            {(() => {
-              // 新文件加载中（尚无 model）：继续显示上一个已就绪的 model（只读），避免卸载闪烁
-              const stale = !activeModel && !!(lastReady.current
-                && models.current.get(lastReady.current.path) === lastReady.current.model);
-              const shown = activeModel ?? (stale ? lastReady.current!.model : null);
-              return shown ? (
+          画布查看器（office 预览）命中时接管整个画布；分屏开启时左右双栏。 */}
+      <div
+        style={{ flex: 1, overflow: "hidden", position: "relative", minHeight: 0, display: "flex" }}
+        onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+        onDrop={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          for (const f of Array.from(e.dataTransfer.files)) {
+            const abs = pageSdk.pathForFile(f);
+            if (abs) props.onOpenDropped?.(abs);
+          }
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0, position: "relative", overflow: "hidden" }}>
+          {ActiveViewer && props.activeTab ? (
+            <ActiveViewer
+              key={props.activeTab}
+              path={props.activeTab}
+              onEditText={requestTextMode}
+            />
+          ) : activeEditor && activeEditor.binary ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 20, textAlign: "center", opacity: 0.7 }}>{t("Editor_ErrorBinary")}</div>
+          ) : activeEditor && activeEditor.error && !activeEditor.content ? (
+            <div className="ed-note">{activeEditor.error}</div>
+          ) : (
+            <>
+              {(() => {
+                // 新文件加载中（尚无 model）：继续显示上一个已就绪的 model（只读），避免卸载闪烁
+                const stale = !activeModel && !!(lastReady.current
+                  && models.current.get(lastReady.current.path) === lastReady.current.model);
+                const shown = activeModel ?? (stale ? lastReady.current!.model : null);
+                return shown ? (
+                  <FilesMonacoEditor
+                    ref={mainEditorRef}
+                    model={shown}
+                    readOnly={stale}
+                    ownsKeys={!stale}
+                    gitBase={stale ? null : activeEditor?.gitBase ?? null}
+                    showDiff={props.showDiff}
+                    revealLine={revealLine}
+                    onChange={(value) => { if (!stale) handleContentChange(activeEditor!.path, value); }}
+                    onPosition={setPosition}
+                    onMarkers={setMarkers}
+                  />
+                ) : activeEditor ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.7 }}>Loading…</div>
+                ) : null;
+              })()}
+              {activeEditor?.loading && <div className="ed-loading">Loading…</div>}
+              {activeEditor?.error && !activeEditor.loading && <div className="ed-note">{activeEditor.error}</div>}
+            </>
+          )}
+        </div>
+
+        {/* 分屏右栏：同 model 双实例（编辑互通），自带标题条；Alt+点击标签送入 */}
+        {splitPath && (
+          <div
+            style={{
+              width: "50%", minWidth: 240, flex: "none", display: "flex", flexDirection: "column",
+              borderLeft: "1px solid var(--c-line, rgba(128,128,128,0.25))", background: editorBg, minHeight: 0,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", fontSize: 12, opacity: 0.8, flex: "none" }}>
+              <span className="fico"><FileIcon path={splitPath} /></span>
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={splitPath}>{nameOf(splitPath)}</span>
+              {splitEditor?.dirty && <span className="dot" title={t("Editor_Unsaved")} />}
+              <span
+                className="x"
+                title={t("Editor_SplitOff")}
+                style={{ display: "inline-flex", cursor: "pointer" }}
+                onClick={() => setSplitPath(null)}
+              >
+                <CloseIcon />
+              </span>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
+              {splitModel ? (
                 <FilesMonacoEditor
-                  model={shown}
-                  readOnly={stale}
-                  gitBase={stale ? null : activeEditor?.gitBase ?? null}
+                  model={splitModel}
+                  gitBase={splitEditor?.gitBase ?? null}
                   showDiff={props.showDiff}
-                  onChange={(value) => { if (!stale) handleContentChange(activeEditor!.path, value); }}
-                  onPosition={setPosition}
-                  onMarkers={setMarkers}
+                  onChange={(value) => { if (splitPath) handleContentChange(splitPath, value); }}
                 />
-              ) : activeEditor ? (
+              ) : (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.7 }}>Loading…</div>
-              ) : null;
-            })()}
-            {activeEditor?.loading && <div className="ed-loading">Loading…</div>}
-            {activeEditor?.error && !activeEditor.loading && <div className="ed-note">{activeEditor.error}</div>}
-          </>
+              )}
+            </div>
+          </div>
         )}
       </div>
+
+      {/* 问题面板：全部打开文件的诊断聚合，点击定位到行 */}
+      {problemsOpen && (
+        <div style={{ flex: "none", height: 160, borderTop: "1px solid var(--c-line, rgba(128,128,128,0.25))", display: "flex", flexDirection: "column", background: editorBg }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", fontSize: 12, opacity: 0.8, flex: "none" }}>
+            <span style={{ flex: 1 }}>{t("Editor_ProblemsTitle")}</span>
+            <span className="x" style={{ display: "inline-flex", cursor: "pointer" }} title={t("Common_Close")} onClick={() => setProblemsOpen(false)}>
+              <CloseIcon />
+            </span>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "0 10px 8px" }}>
+            {problemRows.length === 0 ? (
+              <div style={{ opacity: 0.6, fontSize: 12, padding: "6px 2px" }}>{t("Editor_NoProblems")}</div>
+            ) : problemRows.map((r, i) => (
+              <div
+                key={`${r.path}:${r.line}:${i}`}
+                className="cseg"
+                style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "2px 4px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
+                title={`${r.path}:${r.line}:${r.col}`}
+                onClick={() => {
+                  props.onActivateTab(r.path);
+                  setLocalReveal({ path: r.path, line: r.line, ts: Date.now() });
+                }}
+              >
+                <span style={{ color: r.severity === 1 ? "var(--c-red, #e5534b)" : r.severity === 2 ? "var(--c-yellow, #d4a72c)" : "var(--c-link, #4493f8)", flex: "none" }}>●</span>
+                <span style={{ flex: "none", opacity: 0.75 }}>{nameOf(r.path)}:{r.line}:{r.col}</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 页脚状态条：问题 / 光标 / 缩进 / 编码 / EOL / 语言 / git 状态 */}
       <div className="edfoot">
@@ -603,15 +961,60 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
             <span className="ok"><CheckIcon /></span> {t("Editor_Saved")} · {savedAt}
           </span>
         ) : (
-          <span className="it" title={t("Editor_ProblemsTitle")}>
+          <span
+            className="it"
+            title={t("Editor_ProblemsTitle")}
+            style={{ cursor: "pointer" }}
+            onClick={() => setProblemsOpen((v) => !v)}
+          >
             <span className="ok"><CheckIcon /></span> {t("Editor_Problems", markers.errors, markers.warnings)}
           </span>
         )}
         <div className="right">
           <span className="it">Ln {position.line}, Col {position.col}</span>
-          <span className="it" title={t("Editor_Indent")}>{t("Editor_Spaces", 4)}</span>
-          <span className="it">UTF-8</span>
-          <span className="it">{(activeEditor?.eol ?? "lf").toUpperCase()}</span>
+          <span
+            className="it"
+            title={t("Editor_Indent")}
+            style={{ cursor: "pointer" }}
+            onClick={(e) => {
+              if (!props.activeTab) return;
+              const cur = indent ?? { insertSpaces: true, tabSize: 4 };
+              showMenu(e, [
+                { label: t("Editor_Spaces", 2), action: () => applyIndent(props.activeTab!, true, 2) },
+                { label: t("Editor_Spaces", 4), action: () => applyIndent(props.activeTab!, true, 4) },
+                { label: t("Editor_Spaces", 8), action: () => applyIndent(props.activeTab!, true, 8) },
+                { sep: true },
+                { label: t("Editor_TabsIndent"), action: () => applyIndent(props.activeTab!, false, 4) },
+              ]);
+              void cur;
+            }}
+          >
+            {indent ? (indent.insertSpaces ? t("Editor_Spaces", indent.tabSize) : t("Editor_TabsIndent")) : t("Editor_Spaces", 4)}
+          </span>
+          <span
+            className="it"
+            title={t("Editor_EncodingTitle")}
+            style={{ cursor: activeEditor && !activeEditor.binary ? "pointer" : undefined }}
+            onClick={(e) => {
+              if (!props.activeTab || !activeEditor || activeEditor.binary) return;
+              showMenu(e, [
+                { label: "UTF-8" + (activeEditor.encoding === "utf8" ? " ✓" : ""), action: () => requestReopen(props.activeTab!, "utf8") },
+                { label: "GBK" + (activeEditor.encoding === "gbk" ? " ✓" : ""), action: () => requestReopen(props.activeTab!, "gbk") },
+                { sep: true },
+                { label: t("Editor_ReopenTitle"), disabled: true },
+              ]);
+            }}
+          >
+            {encLabel}
+          </span>
+          <span
+            className="it"
+            title={t("Editor_EolTitle")}
+            style={{ cursor: "pointer" }}
+            onClick={() => { if (props.activeTab) switchEol(props.activeTab); }}
+          >
+            {(activeEditor?.eol ?? "lf").toUpperCase()}
+          </span>
           <span className="it">{lang}</span>
           {activeStatus && (
             <span className={`it st ${STATUS_CLS[activeStatus] ?? ""}`} title={t("Files_StatusTitle")}>
@@ -683,6 +1086,54 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
             </div>
           </div>
         </div>
+      )}
+
+      {/* 编码重开（脏文件）：丢弃未保存内容从磁盘按新编码重读 */}
+      {confirmReopen && (
+        <Modal
+          title={t("Editor_ReopenTitle")}
+          confirmText={t("Editor_Reload")}
+          onClose={() => setConfirmReopen(null)}
+          onConfirm={() => {
+            const { path, enc } = confirmReopen;
+            setConfirmReopen(null);
+            void reloadFile(path, enc);
+          }}
+        >
+          <div>{t("Editor_ReopenDirty", nameOf(confirmReopen.path))}</div>
+        </Modal>
+      )}
+
+      {/* 放弃修改（未提交内容不可恢复）：确认后交主进程 checkout/删除，随后编辑器重载磁盘版 */}
+      {confirmDiscard && (
+        <Modal
+          title={t("Editor_DiscardConfirmTitle")}
+          danger
+          confirmText={t("Editor_DiscardFile")}
+          onClose={() => setConfirmDiscard(null)}
+          onConfirm={() => {
+            const p = confirmDiscard;
+            setConfirmDiscard(null);
+            void props.onDiscardFile?.(p).then((ok) => { if (ok) void reloadFile(p); });
+          }}
+        >
+          <div>{t("Editor_DiscardConfirmBody", nameOf(confirmDiscard))}</div>
+        </Modal>
+      )}
+
+      {/* HEAD 差异弹窗：DiffView 工作区 vs HEAD */}
+      {headDiff && (
+        <Modal
+          title={`${t("Editor_DiffHead")} · ${nameOf(headDiff.path)}`}
+          width={900}
+          confirmText={t("Common_Close")}
+          onClose={() => setHeadDiff(null)}
+          onConfirm={() => setHeadDiff(null)}
+        >
+          <div style={{ maxHeight: "65vh", overflow: "auto" }}>
+            <DiffView diff={headDiff.diff} inline />
+          </div>
+        </Modal>
       )}
       {menuElement}
     </div>

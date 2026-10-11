@@ -3,11 +3,14 @@ import { pageSdk, useAppState } from "../pageSdk";
 import { TreePane, type TreeEntry } from "./FilesTreePane";
 import { EditorPane, type EditorPaneHandle, type EditorTab } from "./FilesEditorPane";
 import { QuickOpen } from "./FilesQuickOpen";
+import { GlobalSearch } from "./FilesGlobalSearch";
+import { relOfWork } from "./filesPaths";
 
 /**
  * 项目文件树页面（files-editor-redesign-mockup.html）：
- * 左侧资源管理器树（git 状态/agent 回合高亮 + 模式 tabs + 筛选）+ 右侧编辑器
- * （chip 标签 + 面包屑 + Monaco + 页脚状态条）。
+ * 左侧资源管理器树（git 状态/agent 回合高亮 + 模式 tabs + 筛选 + 拖拽移动）+ 右侧编辑器
+ * （chip 标签（拖拽排序/固定/分屏）+ 面包屑 + Monaco + 问题面板 + 页脚状态条）。
+ * 全局搜索 Ctrl+Shift+F；外部文件变更经 fs.changed 事件刷树并校验打开标签。
  * 分栏为定宽 px（170–520，localStorage 持久化，双击复位，Ctrl+B 整体收起）。
  * 走页面包链路（manifest → pageLoader → registerPage → PageOutlet keep-alive）。
  */
@@ -34,6 +37,10 @@ export function FilesPage() {
   const [revealTick, setRevealTick] = useState(0);
   // 文件树模式（全部/变更）：变更模式下编辑器才显示 git 行级 diff 高亮
   const [treeMode, setTreeMode] = useState<"all" | "git">("all");
+  // 全局搜索（Ctrl+Shift+F）+ 搜索结果定位 + 外部变更信号（驱动编辑器 mtime 校验）
+  const [globalSearch, setGlobalSearch] = useState(false);
+  const [reveal, setReveal] = useState<{ path: string; line: number; ts: number } | null>(null);
+  const [fsTick, setFsTick] = useState(0);
 
   const repo = pageSdk.repo();
   const tabsRef = useRef(tabs);
@@ -62,6 +69,23 @@ export function FilesPage() {
 
   useEffect(() => {
     void loadTree();
+  }, [loadTree]);
+
+  // 外部文件变更（主进程 fs.watch → fs.changed，事件已防抖）：刷树 + 通知编辑器校验打开标签
+  const fsTimer = useRef<number | null>(null);
+  useEffect(() => {
+    const off = pageSdk.on("fs.changed" as never, () => {
+      if (fsTimer.current) window.clearTimeout(fsTimer.current);
+      fsTimer.current = window.setTimeout(() => {
+        fsTimer.current = null;
+        void loadTree();
+        setFsTick((v) => v + 1);
+      }, 800);
+    });
+    return () => {
+      if (fsTimer.current) window.clearTimeout(fsTimer.current);
+      off();
+    };
   }, [loadTree]);
 
   // 打开文件：单击 = 预览标签（唯一，再开即替换）；再次打开/显式 pin = 转正
@@ -204,6 +228,63 @@ export function FilesPage() {
     setActiveTab((a) => (a === path ? (next[Math.min(i, next.length - 1)]?.path ?? null) : a));
   }, []);
 
+  // 固定/取消固定（固定 = 不再是预览；批量关闭跳过，× 换图钉）
+  const togglePin = useCallback((path: string) => {
+    setTabs((prev) => prev.map((tb) => (
+      tb.path === path
+        ? { path: tb.path, preview: tb.pinned ? tb.preview : false, pinned: !tb.pinned }
+        : tb
+    )));
+  }, []);
+
+  // 标签拖拽排序：from 移到 to 的位置
+  const moveTab = useCallback((from: string, to: string) => {
+    setTabs((prev) => {
+      const fi = prev.findIndex((x) => x.path === from);
+      const ti = prev.findIndex((x) => x.path === to);
+      if (fi < 0 || ti < 0 || fi === ti) return prev;
+      const next = prev.slice();
+      const [m] = next.splice(fi, 1);
+      next.splice(ti, 0, m);
+      return next;
+    });
+  }, []);
+
+  // 暂存单文件（编辑器 tab 菜单）
+  const stageFile = useCallback(async (path: string): Promise<boolean> => {
+    try {
+      await pageSdk.call("changes.stage", { paths: [path] });
+      await loadTree();
+      return true;
+    } catch (e) {
+      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
+      return false;
+    }
+  }, [loadTree]);
+
+  // 放弃单文件未提交修改（编辑器侧已确认）：成功后由 EditorPane 重载磁盘版
+  const discardFile = useCallback(async (path: string): Promise<boolean> => {
+    try {
+      await pageSdk.call("changes.discardFile", { path });
+      await loadTree();
+      return true;
+    } catch (e) {
+      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
+      return false;
+    }
+  }, [loadTree]);
+
+  // 外部文件拖入：绝对路径 → 仓库相对路径（仓库外提示）
+  const openDropped = useCallback((abs: string) => {
+    if (!repo) return;
+    const rel = relOfWork(repo.workDir, abs);
+    if (!rel || rel.length === 0) {
+      pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t("Files_OutsideRepo"));
+      return;
+    }
+    openFile(rel, { preview: false });
+  }, [repo, openFile]);
+
   // path → git 状态码（标签名着色 + 页脚徽标）
   const statusByPath = useMemo(() => {
     const map: Record<string, string | null> = {};
@@ -215,12 +296,19 @@ export function FilesPage() {
 
   const allFiles = useMemo(() => treeData.entries.filter((e) => !e.isDir).map((e) => e.path), [treeData.entries]);
 
-  // 全局快捷键：Ctrl+P 快速打开；Ctrl+B 收起/展开文件树
-  // （须排除 Shift/Alt：Ctrl+Shift+P 是宿主命令面板，不能重复触发）
+  // 全局快捷键：Ctrl+P 快速打开；Ctrl+Shift+F 仓库内搜索；Ctrl+B 收起/展开文件树
+  // （Ctrl+Shift+P 是宿主命令面板，不能重复触发——Shift 组只放行 F）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const k = e.key.toLowerCase();
+      if (e.shiftKey) {
+        if (k === "f") {
+          e.preventDefault();
+          setGlobalSearch((v) => !v);
+        }
+        return;
+      }
       if (k === "p") {
         e.preventDefault();
         setQuickOpen((v) => !v);
@@ -317,12 +405,29 @@ export function FilesPage() {
           onToggleSidebar={() => setCollapsed(false)}
           onReveal={() => setRevealTick((v) => v + 1)}
           onSaved={() => void loadTree()}
+          onMoveTab={moveTab}
+          onTogglePin={togglePin}
+          onStageFile={stageFile}
+          onDiscardFile={discardFile}
+          onOpenDropped={openDropped}
+          reveal={reveal}
+          fsTick={fsTick}
         />
         {quickOpen && (
           <QuickOpen
             files={allFiles}
             onOpen={(p) => openFile(p, { preview: true })}
             onClose={() => setQuickOpen(false)}
+          />
+        )}
+        {globalSearch && (
+          <GlobalSearch
+            onOpen={(p, line) => {
+              openFile(p, { preview: false });
+              setReveal({ path: p, line, ts: Date.now() });
+            }}
+            onClose={() => setGlobalSearch(false)}
+            onReplaced={() => void loadTree()}
           />
         )}
       </div>

@@ -108,6 +108,9 @@ export function TreePane(props: {
   const [clip, setClip] = useState<Clip | null>(null);
   // 删除确认（目录递归且不入回收站，Modal 二次确认）
   const [confirmDel, setConfirmDel] = useState<{ path: string; isDir: boolean } | null>(null);
+  // 树内拖拽移动（拖起的行 = 源；目录行/空白区 = 放置目标，语义为剪切移动）
+  const [dragItem, setDragItem] = useState<{ path: string; isDir: boolean } | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   // 目录选中态（点击行记忆，供树头新建按钮定位目标目录；文件行的选中 = 激活标签）
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   // 键盘导航锚点（kbFocus）+ 描边可见性（kbKey：仅键盘操作时显示描边，鼠标点击不闪边框）
@@ -357,6 +360,17 @@ export function TreePane(props: {
     return true;
   }, []);
 
+  /** 拖拽放置 = 剪切移动到 toDir（合法性同粘贴门控；完成/取消后清拖拽态） */
+  const dropMove = useCallback((toDir: string) => {
+    const d = dragItem;
+    setDragItem(null);
+    setDropTarget(null);
+    if (!d) return;
+    const clip: Clip = { path: d.path, isDir: d.isDir, cut: true };
+    if (!canPasteInto(clip, toDir)) return;
+    doPaste(clip, toDir);
+  }, [dragItem, canPasteInto, doPaste]);
+
   const menuFor = useCallback((node: VisibleNode): CtxMenuItem[] => {
     const path = node.entry.path;
     const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
@@ -538,6 +552,7 @@ export function TreePane(props: {
       "files-nm" +
       (entry.isDir && node.dirStatus ? ` ${STATUS_CLS[node.dirStatus]}` : "") +
       (!entry.isDir && entry.status ? ` ${statusCls}` : "");
+    const isDropDir = entry.isDir && dropTarget === entry.path;
     return (
       <div
         key={entry.path}
@@ -546,10 +561,35 @@ export function TreePane(props: {
           (entry.isDir && node.open ? " open" : "") +
           (isActive ? " active" : "") +
           (isAgent ? " agent" : "") +
-          (kbKey && entry.path === kbFocus ? " kb-focus" : "")
+          (kbKey && entry.path === kbFocus ? " kb-focus" : "") +
+          (isDropDir ? " drop-target" : "") +
+          (dragItem?.path === entry.path ? " dragging" : "")
         }
         style={rowStyle}
         title={entry.path}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/gitter-tree", entry.path);
+          e.dataTransfer.effectAllowed = "move";
+          setDragItem({ path: entry.path, isDir: entry.isDir });
+        }}
+        onDragEnd={() => { setDragItem(null); setDropTarget(null); }}
+        onDragOver={(e) => {
+          if (!entry.isDir || !dragItem) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          if (dropTarget !== entry.path) setDropTarget(entry.path);
+        }}
+        onDragLeave={(e) => {
+          if (entry.isDir && dropTarget === entry.path) setDropTarget(null);
+          void e;
+        }}
+        onDrop={(e) => {
+          if (!entry.isDir) return;
+          e.preventDefault();
+          e.stopPropagation();
+          dropMove(entry.path);
+        }}
         onClick={() => {
           setKbKey(false);
           setKbFocus(entry.path);
@@ -665,8 +705,28 @@ export function TreePane(props: {
         </div>
       )}
 
-      {/* 树体（虚拟化；键盘焦点在容器上，↑↓/Enter/←→ 导航；空白处右键 = 根目录动作） */}
-      <div ref={parentRef} className="files-tree" role="tree" tabIndex={0} onKeyDown={handleKey} onContextMenu={handleBodyContext}>
+      {/* 树体（虚拟化；键盘焦点在容器上，↑↓/Enter/←→ 导航；空白处右键 = 根目录动作，
+          空白处拖放 = 移动到根目录） */}
+      <div
+        ref={parentRef}
+        className="files-tree"
+        role="tree"
+        tabIndex={0}
+        onKeyDown={handleKey}
+        onContextMenu={handleBodyContext}
+        onDragOver={(e) => {
+          if (!dragItem) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(e) => {
+          // 命中行时行的 onDrop 已处理（行会 stopPropagation）；到这里 = 空白区 → 根
+          if (!dragItem) return;
+          e.preventDefault();
+          dropMove("");
+        }}
+        onDragEnd={() => { setDragItem(null); setDropTarget(null); }}
+      >
         {props.loading && visibleNodes.length === 0 ? (
           <div className="files-empty">Loading…</div>
         ) : visibleNodes.length === 0 ? (

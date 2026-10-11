@@ -58,6 +58,7 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   // 项目文件树 + 编辑器读写面（editor-design.md）
   "repo.tree": "git.read", "file.content": "git.read", "file.write": "git.write",
   "file.create": "git.write", "file.rename": "git.write", "file.delete": "git.write", "file.paste": "git.write",
+  "file.statMany": "git.read", "repo.search": "git.read", "git.blame": "git.read",
   // Office 文档二进制读写面（office-integration-plan.md §5 OOXML 通道）
   "file.stat": "git.read", "file.readBinary": "git.read", "file.writeBinary": "git.write",
 
@@ -68,7 +69,7 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "gitconfig.list": "git.read", "file.preview": "git.read",
 
   // ---- git.write（主进程侧人审门/安全网天然继续生效） ----
-  "changes.stage": "git.write", "changes.unstage": "git.write",
+  "changes.stage": "git.write", "changes.unstage": "git.write", "changes.discardFile": "git.write",
   "changes.stageHunks": "git.write", "changes.unstageHunks": "git.write",
   "changes.commit": "git.write", "changes.push": "git.write", "changes.pull": "git.write",
   "changes.fetch": "git.write", "changes.pushSetUpstream": "git.write",

@@ -19,3 +19,15 @@ export function absPathOf(workDir: string, rel: string): string {
   const tail = rel.replace(/\\/g, "/").replace(/^[/\\]+/, "");
   return base + sep + tail.split("/").join(sep);
 }
+
+/**
+ * 绝对路径 → 仓库相对路径（外部文件拖入打开）；仓库外返回 null。
+ * 前缀比较大小写不敏感（Windows 盘符/目录大小写不稳），返回段保留原样。
+ */
+export function relOfWork(workDir: string, abs: string): string | null {
+  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+  const base = norm(workDir);
+  const a = norm(abs);
+  if (!a.toLowerCase().startsWith(base.toLowerCase() + "/")) return null;
+  return a.slice(base.length + 1);
+}

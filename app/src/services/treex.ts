@@ -99,10 +99,16 @@ export async function listTree(
  * 文件内容读取（editor-design.md §2.2）。
  * 不设 64K 字符 cap（区别于 agent.task.previewFile，那是给 agent 上下文用的），
  * 8 MB 上限；返回 mtime/eol 供编辑器做冲突检测与保存时保留行尾。
+ * 编码：自动嗅探 UTF-8(BOM)/GBK（Windows 中文场景常见 ANSI/GBK 日志与老代码），
+ * 也可显式指定 encoding（「以编码重新打开」，强制档不做有效性校验，非法字节替换）。
  */
+export type TextEncoding = "utf8" | "gbk";
+
 export interface FileContentResult {
   content: string;
-  encoding: "utf8";
+  encoding: TextEncoding;
+  /** 读到的文件带 UTF-8 BOM（保存时还原；BOM 字符不进 content） */
+  bom: boolean;
   eol: "crlf" | "lf";
   size: number;
   mtime: number;
@@ -133,11 +139,40 @@ export function isBinary(buf: Buffer): boolean {
   return sample.includes(0);
 }
 
+const UTF8_BOM = [0xef, 0xbb, 0xbf] as const;
+
+/** 编码嗅探：BOM → utf8(bom)；严格 UTF-8 解码失败 → gbk（GBK 几乎全字节域合法，作兜底）。 */
+export function detectEncoding(buf: Buffer): { encoding: TextEncoding; bom: boolean } {
+  if (buf.length >= 3 && buf[0] === UTF8_BOM[0] && buf[1] === UTF8_BOM[1] && buf[2] === UTF8_BOM[2]) {
+    return { encoding: "utf8", bom: true };
+  }
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(buf);
+    return { encoding: "utf8", bom: false };
+  } catch {
+    return { encoding: "gbk", bom: false };
+  }
+}
+
+/** 按编码解码（强制档不做有效性校验：utf8 用非 fatal 容忍替换符，gbk 解不动回退 utf8）。 */
+function decodeByEncoding(buf: Buffer, encoding: TextEncoding, bom: boolean): string {
+  const body = bom ? buf.subarray(3) : buf;
+  if (encoding === "gbk") {
+    try {
+      return new TextDecoder("gbk").decode(body);
+    } catch {
+      return body.toString("utf8");
+    }
+  }
+  return body.toString("utf8");
+}
+
 export async function readFileContent(
   workDir: string,
   rel: string,
   revision: "worktree" | "index" | string = "worktree",
   maxBytes = 8 * 1024 * 1024,
+  encoding?: TextEncoding,
 ): Promise<FileContentResult | null> {
   // 路径锁：resolve + realpath 双重校验
   const abs = path.resolve(workDir, rel);
@@ -174,9 +209,11 @@ export async function readFileContent(
       const st = await fsp.stat(abs);
       if (st.size > maxBytes) {
         const truncated = await fsp.readFile(abs).then(b => b.subarray(0, maxBytes));
+        const det = encoding ? { encoding, bom: false } : detectEncoding(truncated);
         return {
-          content: truncated.toString("utf8"),
-          encoding: "utf8",
+          content: decodeByEncoding(truncated, det.encoding, det.bom),
+          encoding: det.encoding,
+          bom: det.bom,
           eol: detectEol(truncated),
           size: st.size,
           mtime: st.mtimeMs,
@@ -202,6 +239,7 @@ export async function readFileContent(
     return {
       content: "",
       encoding: "utf8",
+      bom: false,
       eol: "lf",
       size: buf.length,
       mtime: 0,
@@ -221,9 +259,15 @@ export async function readFileContent(
     }
   }
 
+  // 编码：显式指定（重新打开）优先，否则嗅探；git index/HEAD 基线恒按 UTF-8
+  const det = fromIndex
+    ? { encoding: "utf8" as TextEncoding, bom: false }
+    : (encoding ? { encoding, bom: encoding === "utf8" && buf[0] === UTF8_BOM[0] && buf[1] === UTF8_BOM[1] && buf[2] === UTF8_BOM[2] } : detectEncoding(buf));
+
   return {
-    content: buf.toString("utf8"),
-    encoding: "utf8",
+    content: decodeByEncoding(buf, det.encoding, det.bom),
+    encoding: det.encoding,
+    bom: det.bom,
     eol: detectEol(buf),
     size: buf.length,
     mtime,
@@ -366,6 +410,8 @@ export async function writeFileContent(
   rel: string,
   content: string,
   eol?: "crlf" | "lf",
+  encoding: TextEncoding = "utf8",
+  bom = false,
 ): Promise<FileWriteResult> {
   // 路径锁
   const abs = path.resolve(workDir, rel);
@@ -383,7 +429,19 @@ export async function writeFileContent(
     if (eol === "crlf") text = text.replace(/\n/g, "\r\n");
   }
 
-  const buf = Buffer.from(text, "utf8");
+  // 编码：GBK 需 full-ICU（Electron 默认带）；编码不可用回退 UTF-8 保内容不丢
+  let buf: Buffer;
+  if (encoding === "gbk") {
+    try {
+      // BufferEncoding 类型档不含 ICU 扩展编码，运行时（full-ICU）可用；不支持则抛错回退
+      buf = Buffer.from(text, "gbk" as unknown as BufferEncoding);
+    } catch {
+      buf = Buffer.from(text, "utf8");
+    }
+  } else {
+    buf = Buffer.from(text, "utf8");
+    if (bom) buf = Buffer.concat([Buffer.from(UTF8_BOM), buf]);
+  }
   if (buf.length > MAX_WRITE_BYTES) {
     return { ok: false, size: buf.length, mtime: 0, error: "size_limit" };
   }
@@ -395,12 +453,107 @@ export async function writeFileContent(
 
   try {
     await fsp.mkdir(path.dirname(abs), { recursive: true });
-    await fsp.writeFile(abs, buf, "utf8");
+    await fsp.writeFile(abs, buf);
     const st = await fsp.stat(abs);
     return { ok: true, size: st.size, mtime: st.mtimeMs };
   } catch {
     return { ok: false, size: buf.length, mtime: 0, error: "write_failed" };
   }
+}
+
+/** 批量轻量 stat（外部变更监听：打开标签的 mtime 校验一次往返）。 */
+export async function statMany(
+  workDir: string,
+  rels: string[],
+): Promise<{ path: string; mtime: number; size: number }[]> {
+  const out: { path: string; mtime: number; size: number }[] = [];
+  for (const rel of rels) {
+    const st = await statFile(workDir, rel);
+    if (st) out.push({ path: rel, mtime: st.mtime, size: st.size });
+  }
+  return out;
+}
+
+/**
+ * 跨文件全文搜索（files 页全局搜索，Ctrl+Shift+F）：
+ * git grep（-I 跳二进制、--untracked 含未跟踪），定长/正则两档、大小写开关。
+ * 列式解析 path:line:text（路径含冒号的极端场景罕见，接受）；结果截断到 max。
+ */
+export interface SearchHit {
+  file: string;
+  line: number;
+  text: string;
+}
+
+export interface SearchResult {
+  matches: SearchHit[];
+  truncated: boolean;
+  error?: string;
+}
+
+export async function searchWorkspace(
+  workDir: string,
+  query: string,
+  opts: { regex?: boolean; caseSensitive?: boolean; max?: number } = {},
+): Promise<SearchResult> {
+  const q = query.trim();
+  if (!q) return { matches: [], truncated: false };
+  const max = Math.min(Math.max(opts.max ?? 300, 1), 1000);
+  const args = [
+    "grep", "-n", "-I", "--untracked", "--no-color",
+    ...(opts.regex ? [] : ["-F"]),
+    ...(opts.caseSensitive ? [] : ["-i"]),
+    "-e", q,
+  ];
+  const r = await tryGit(workDir, args);
+  if (r.code > 1) return { matches: [], truncated: false, error: r.stderr.trim() || "git grep 失败" };
+  const lines = r.stdout.split(/\r?\n/).filter(Boolean);
+  const matches: SearchHit[] = [];
+  for (const ln of lines) {
+    const c1 = ln.indexOf(":");
+    if (c1 <= 0) continue;
+    const c2 = ln.indexOf(":", c1 + 1);
+    if (c2 <= 0) continue;
+    const lineNo = parseInt(ln.slice(c1 + 1, c2), 10);
+    if (!Number.isFinite(lineNo)) continue;
+    matches.push({ file: ln.slice(0, c1), line: lineNo, text: ln.slice(c2 + 1) });
+    if (matches.length >= max) return { matches, truncated: true };
+  }
+  return { matches, truncated: false };
+}
+
+/** git blame --line-porcelain 解析（files 页编辑器悬停归属）。 */
+export interface BlameLine {
+  line: number;
+  sha: string;
+  author: string;
+  /** unix 秒；0 = 解析不到 */
+  time: number;
+  summary: string;
+}
+
+const SHA_RE = /^[0-9a-f]{40}$/;
+
+export async function blameFile(workDir: string, rel: string): Promise<BlameLine[]> {
+  const r = await tryGit(workDir, ["blame", "--line-porcelain", "--", rel]);
+  if (r.code !== 0) return [];
+  const out: BlameLine[] = [];
+  let cur: Partial<BlameLine> = {};
+  for (const ln of r.stdout.split(/\r?\n/)) {
+    if (SHA_RE.test(ln.slice(0, 40)) && (ln[40] === " " || ln.length === 40)) {
+      if (cur.line !== undefined) out.push(cur as BlameLine);
+      // <sha> <orig-line> <final-line> [<num-lines>]
+      cur = { sha: ln.slice(0, 40), line: parseInt(ln.split(/\s+/)[2], 10) || out.length + 1 };
+    } else if (ln.startsWith("author ")) {
+      cur.author = ln.slice(7);
+    } else if (ln.startsWith("author-time ")) {
+      cur.time = parseInt(ln.slice(12), 10) || 0;
+    } else if (ln.startsWith("summary ")) {
+      cur.summary = ln.slice(8);
+    }
+  }
+  if (cur.line !== undefined) out.push(cur as BlameLine);
+  return out.slice(0, 20000);
 }
 
 /**

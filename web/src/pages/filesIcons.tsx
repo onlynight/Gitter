@@ -127,6 +127,18 @@ export const PasteIcon = () => (
     <rect x="5.5" y="1.8" width="5" height="2.8" rx="0.7" {...S} strokeWidth="1.1" />
   </svg>
 );
+/** 固定标签：图钉形（固定态替换 ×，点击取消固定） */
+export const PinIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M9.5 1.8 14.2 6.5l-1.6.5-2.8 2.8-.4 3.4-1.5-1.5-3.6 2.5 2.5-3.6L5.3 9.1l3.4-.4L11.5 6z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+  </svg>
+);
+/** 转到符号：大纲行形（缩进条 + 短行） */
+export const OutlineIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M2.5 3.5h11M5 7h8.5M5 10.5h8.5M8 14h5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+  </svg>
+);
 /** 新建文件：文档折角形 + 内嵌加号 */
 export const NewFileIcon = () => (
   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
