@@ -88,7 +88,7 @@ export function ChangesTab(props: {
             );
           })}
         </div>
-        <div style={{ overflowY: "auto", padding: "12px 16px", minWidth: 0 }}>
+        <div className="tl-scroll" style={{ overflowY: "auto", padding: "12px 16px", minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
             <span style={{ fontFamily: "var(--mono, monospace)", fontSize: 12.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ?? "（选择文件）"}</span>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>

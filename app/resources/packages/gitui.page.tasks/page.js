@@ -1,4 +1,4 @@
-(function(jsxRuntime, react) {
+(function(jsxRuntime, react, reactDom) {
   "use strict";
   var _a, _b;
   function U$1() {
@@ -160,7 +160,8 @@
     // 复制（Octicons copy-16：双叠方块）
     "copy": "M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z",
     // 分屏（分栏切换钮，VS Code 布局钮同型）：左右两个圆角栏
-    "splitpane": "M2 3h5.25c.55 0 1 .45 1 1v8c0 .55-.45 1-1 1H2c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1Zm6.75 0H14c.55 0 1 .45 1 1v8c0 .55-.45 1-1 1H8.75c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1Z",
+    // 分屏（VS Code split-editor 同构：外框 + 中缝，左右栏挖孔）
+    "splitpane": "M2 3h12v10H2V3Zm1 1v8h4.5V4H3Zm5.5 0v8H13V4H8.5Z",
     // 灯泡（思考深度；Octicons light-bulb-16 改绘）——密齿 gear 缩到 13px 糊成一团（v3 设计稿 task-page-v3-mockup）
     "bulb": "M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319a8.456 8.456 0 0 0-.542.68c-.207.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"
   };
@@ -271,7 +272,86 @@
   K().Select;
   K().ReflogDialog;
   K().ScrollArea;
+  const MD_EXTS = [".md", ".markdown"];
+  function isMdPath(p) {
+    const i = p.lastIndexOf(".");
+    return i >= 0 && MD_EXTS.includes(p.slice(i).toLowerCase());
+  }
+  function isProviderResult(r) {
+    return !!r && typeof r.kind === "string" && typeof r.content === "string";
+  }
+  function mdSrcdoc(html, dark) {
+    const c = dark ? { bg: "#14161B", fg: "#D4D4D4", fg2: "#A8B0BC", border: "#FFFFFF21", thumb: "#FFFFFF40", thumbHover: "#FFFFFF59", codeBg: "#FFFFFF12", link: "#6BABF5" } : { bg: "#FFFFFF", fg: "#1B1B1B", fg2: "#5C5C5C", border: "#E5E5E5", thumb: "#C9C9CE", thumbHover: "#AFAFB5", codeBg: "#F2F2F3", link: "#0B6BCB" };
+    return `<!doctype html><html><head><meta charset="utf-8"><style>
+html, body { background: ${c.bg}; }
+body { margin: 0; padding: 28px 34px 48px; font: 14px/1.75 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; color: ${c.fg}; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: ${c.thumb}; border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: ${c.thumbHover}; background-clip: content-box; }
+h1, h2, h3, h4, h5, h6 { line-height: 1.35; margin: 1.4em 0 .55em; }
+h1, h2 { border-bottom: 1px solid ${c.border}; padding-bottom: .3em; }
+h1:first-child, h2:first-child, h1 + h2 { margin-top: .4em; }
+p { margin: .65em 0; }
+code { background: ${c.codeBg}; padding: .15em .38em; border-radius: 4px; font-family: Consolas,"Cascadia Mono",monospace; font-size: 92%; }
+pre { background: ${c.codeBg}; padding: 12px 14px; border-radius: 8px; overflow: auto; line-height: 1.6; }
+pre code { background: transparent; padding: 0; }
+blockquote { margin: .8em 0; padding: 0 1em; color: ${c.fg2}; border-left: 3px solid ${c.border}; }
+table { border-collapse: collapse; margin: .8em 0; }
+th, td { border: 1px solid ${c.border}; padding: 5px 12px; }
+th { background: ${c.codeBg}; }
+img { max-width: 100%; }
+a { color: ${c.link}; text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: 0; border-top: 1px solid ${c.border}; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+li { margin: .25em 0; }
+</style></head><body>${html}</body></html>`;
+  }
+  function ExternalFilePreview(props) {
+    const dark = props.dark ?? (document.documentElement.getAttribute("data-base") ?? "dark") !== "light";
+    const [phase, setPhase] = react.useState({ kind: "loading" });
+    react.useEffect(() => {
+      let stale = false;
+      setPhase({ kind: "loading" });
+      call$1("file.preview", { path: props.path }).then((r) => {
+        if (stale) return;
+        if (isProviderResult(r)) setPhase({ kind: r.kind, content: r.content });
+        else setPhase({ kind: "fallback" });
+      }).catch(() => {
+        if (!stale) setPhase({ kind: "fallback" });
+      });
+      return () => {
+        stale = true;
+      };
+    }, [props.path]);
+    const name = props.path.split("/").pop() ?? props.path;
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { style: { position: "absolute", inset: 0 }, children: phase.kind === "loading" ? null : phase.kind === "html" ? /* @__PURE__ */ jsxRuntime.jsx(
+      "iframe",
+      {
+        className: "extpreview-frame",
+        sandbox: "",
+        title: name,
+        srcDoc: mdSrcdoc(phase.content, dark)
+      }
+    ) : phase.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "extpreview-text", children: phase.content }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "office-welcome", children: [
+      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "edwm", children: name }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "list", style: { alignItems: "flex-start" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "h", children: props.fallbackTitle ?? "外部预览不可用" }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "wrow", style: { height: "auto", whiteSpace: "normal" }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "nm2", children: props.fallbackBody ?? "未安装提供该格式预览的插件（设置 → 扩展 → 允许代码插件）" }) }),
+        props.onEditText && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", style: { marginTop: 10 }, onClick: props.onEditText, children: props.editLabel ?? "编辑源文件" })
+      ] })
+    ] }) });
+  }
   const IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i;
+  function imgMime(path) {
+    var _a2;
+    const ext = ((_a2 = path.split(".").pop()) == null ? void 0 : _a2.toLowerCase()) ?? "png";
+    if (ext === "jpg") return "jpeg";
+    if (ext === "svg") return "svg+xml";
+    if (ext === "ico") return "x-icon";
+    return ext || "png";
+  }
   const MAX_TEXT_BYTES = 2e6;
   const TURNS_TAB = "turns";
   function letterColor(letter) {
@@ -385,13 +465,17 @@
       if (IMG_RE.test(activePath)) {
         setView({ kind: "loading" });
         void call$1("file.readBinary", { path: activePath }).then((r) => {
-          var _a3;
           if (cancelled) return;
-          const ext = ((_a3 = activePath.split(".").pop()) == null ? void 0 : _a3.toLowerCase()) ?? "png";
-          setView({ kind: "image", url: `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${(r == null ? void 0 : r.base64) ?? ""}` });
+          setView({ kind: "image", url: `data:image/${imgMime(activePath)};base64,${(r == null ? void 0 : r.base64) ?? ""}` });
         }).catch((e) => {
           if (!cancelled) setView({ kind: "error", message: e.message });
         });
+        return () => {
+          cancelled = true;
+        };
+      }
+      if (isMdPath(activePath)) {
+        setView({ kind: "external" });
         return () => {
           cancelled = true;
         };
@@ -522,7 +606,14 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           ] })
         ] }),
         err && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-err", children: err }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-body", children: activeMode === "diff" ? diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "（无差异）" }) : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d }, d.path)) : view.kind === "loading" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "加载中…" }) : view.kind === "image" ? /* @__PURE__ */ jsxRuntime.jsx("img", { className: "lc-img", src: view.url, alt: activePath ?? "" }) : view.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "lc-code", children: view.lines.length > 0 ? view.lines.map((runs, li) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-line", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-body", children: activeMode === "diff" ? diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "（无差异）" }) : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d }, d.path)) : view.kind === "loading" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "加载中…" }) : view.kind === "image" ? /* @__PURE__ */ jsxRuntime.jsx("img", { className: "lc-img", src: view.url, alt: activePath ?? "" }) : view.kind === "external" ? /* @__PURE__ */ jsxRuntime.jsx(
+          ExternalFilePreview,
+          {
+            path: activePath ?? "",
+            fallbackBody: "未安装 Markdown 预览插件，或未在 设置 → 扩展 打开「允许代码插件」",
+            onEditText: () => activePath && props.onEditInFilesPage(activePath)
+          }
+        ) : view.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "lc-code", children: view.lines.length > 0 ? view.lines.map((runs, li) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-line", children: [
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-ln", children: li + 1 }),
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-code", children: runs.length === 0 ? view.plain[li] ?? "" : runs.map((r, ri) => {
             var _a3;
@@ -1845,7 +1936,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
             );
           })
         ] }),
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { overflowY: "auto", padding: "12px 16px", minWidth: 0 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { overflowY: "auto", padding: "12px 16px", minWidth: 0 }, children: [
           /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }, children: [
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", fontSize: 12.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: sel ?? "（选择文件）" }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginLeft: "auto", display: "flex", gap: 6 }, children: [
@@ -2167,30 +2258,198 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       }
     }, [addImages]);
     const [changesPanelOpen, setChangesPanelOpen] = react.useState(true);
-    const [listWidth, setListWidth] = react.useState(() => {
-      const v = Number(localStorage.getItem("gitter.taskListWidth"));
-      return Number.isFinite(v) && v >= 210 && v <= 440 ? v : 300;
+    const detailRef = react.useRef(null);
+    const [pageVisible, setPageVisible] = react.useState(true);
+    const [, setTitlebarTick] = react.useState(0);
+    react.useEffect(() => {
+      const el = detailRef.current;
+      if (!el || typeof IntersectionObserver === "undefined") return;
+      const io = new IntersectionObserver((entries) => {
+        var _a3;
+        return setPageVisible(((_a3 = entries[entries.length - 1]) == null ? void 0 : _a3.isIntersecting) ?? true);
+      });
+      io.observe(el);
+      return () => io.disconnect();
+    }, []);
+    react.useEffect(() => {
+      if (document.getElementById("tbPageActions")) {
+        setTitlebarTick((x) => x + 1);
+        return;
+      }
+      let tries = 0;
+      const timer = window.setInterval(() => {
+        if (document.getElementById("tbPageActions") || ++tries > 50) {
+          window.clearInterval(timer);
+          setTitlebarTick((x) => x + 1);
+        }
+      }, 100);
+      return () => window.clearInterval(timer);
+    }, []);
+    const [listRatio, setListRatio] = react.useState(() => {
+      localStorage.removeItem("gitter.taskListWidth");
+      const v = Number(localStorage.getItem("gitter.taskListRatio"));
+      return Number.isFinite(v) && v >= 0.12 && v <= 0.5 ? v : 0.23;
     });
-    const [splitChatW, setSplitChatW] = react.useState(() => {
-      const v = Number(localStorage.getItem("gitter.taskSplitChatW"));
-      return Number.isFinite(v) && v >= 340 ? v : 0;
+    const [splitRatio, setSplitRatio] = react.useState(() => {
+      localStorage.removeItem("gitter.taskSplitChatW");
+      const v = Number(localStorage.getItem("gitter.taskSplitRatio"));
+      return Number.isFinite(v) && v >= 0.2 && v <= 0.85 ? v : 4 / 7;
     });
+    const PANEL_CLOSED_TPL = "minmax(0px, 1fr) 6px minmax(0px, 0fr)";
+    const panelTemplate = (r) => `minmax(280px, ${r.toFixed(4)}fr) 6px minmax(280px, ${(1 - r).toFixed(4)}fr)`;
+    const panelWrapRef = react.useRef(null);
+    const panelInnerRef = react.useRef(null);
+    const panelAnimRef = react.useRef(null);
+    const panelTargetRef = react.useRef(true);
+    const splitRatioRef = react.useRef(splitRatio);
+    splitRatioRef.current = splitRatio;
+    const lockInner = () => {
+      const grid = detailRef.current, wrap = panelWrapRef.current, inner = panelInnerRef.current;
+      if (!grid || !wrap || !inner) return;
+      const saved = grid.style.gridTemplateColumns;
+      grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
+      const w = Math.round(wrap.getBoundingClientRect().width);
+      grid.style.gridTemplateColumns = saved;
+      if (w > 4) {
+        inner.style.width = w + "px";
+        inner.style.flex = "none";
+      }
+      const ro = ensurePanelRO();
+      if (ro && observedWrapRef.current !== wrap) {
+        ro.disconnect();
+        ro.observe(wrap);
+        observedWrapRef.current = wrap;
+      }
+    };
+    const panelRORef = react.useRef(null);
+    const observedWrapRef = react.useRef(null);
+    const ensurePanelRO = () => {
+      if (panelRORef.current || typeof ResizeObserver !== "function") return panelRORef.current;
+      panelRORef.current = new ResizeObserver(() => {
+        if (panelAnimRef.current) return;
+        const wrap = panelWrapRef.current, inner = panelInnerRef.current;
+        if (!wrap || !inner || !inner.style.width) return;
+        const w = wrap.getBoundingClientRect().width;
+        if (w > 4) inner.style.width = w + "px";
+      });
+      return panelRORef.current;
+    };
+    const cancelPanelTween = () => {
+      if (panelAnimRef.current) {
+        panelAnimRef.current.cancelled = true;
+        panelAnimRef.current = null;
+      }
+    };
+    const currentChatRatio = () => {
+      const grid = detailRef.current;
+      if (!grid) return panelTargetRef.current ? splitRatioRef.current : 1;
+      const nums = getComputedStyle(grid).gridTemplateColumns.split(" ").map((v) => parseFloat(v)).filter((n) => Number.isFinite(n));
+      if (nums.length >= 3 && nums[0] + nums[2] > 1) return nums[0] / (nums[0] + nums[2]);
+      return panelTargetRef.current ? splitRatioRef.current : 1;
+    };
+    const schedulePanelFrame = (fn) => {
+      if (typeof requestAnimationFrame !== "function") {
+        window.setTimeout(fn, 16);
+        return;
+      }
+      let fired = false;
+      const h = requestAnimationFrame(() => {
+        fired = true;
+        fn();
+      });
+      window.setTimeout(() => {
+        if (!fired) {
+          cancelAnimationFrame(h);
+          fn();
+        }
+      }, 50);
+    };
+    const tweenPanel = (from, to, opening, done) => {
+      const grid = detailRef.current;
+      if (!grid) {
+        done();
+        return;
+      }
+      const token = { cancelled: false };
+      panelAnimRef.current = token;
+      const t0 = performance.now();
+      const DUR = 400;
+      const ease = (t2) => 1 - Math.pow(1 - t2, 3);
+      const step = () => {
+        if (token.cancelled || panelAnimRef.current !== token) return;
+        const p = Math.min(1, (performance.now() - t0) / DUR);
+        const e = ease(p);
+        const chatFr = from + (to - from) * e;
+        const min = 280 * (opening ? e : 1 - e);
+        grid.style.gridTemplateColumns = `minmax(${min.toFixed(1)}px, ${chatFr.toFixed(4)}fr) 6px minmax(${min.toFixed(1)}px, ${(1 - chatFr).toFixed(4)}fr)`;
+        if (p < 1) schedulePanelFrame(step);
+        else {
+          panelAnimRef.current = null;
+          done();
+        }
+      };
+      schedulePanelFrame(step);
+    };
+    const animatePanel = (open) => {
+      if (open === panelTargetRef.current && panelAnimRef.current == null) return;
+      panelTargetRef.current = open;
+      cancelPanelTween();
+      const grid = detailRef.current;
+      if (!grid) {
+        setChangesPanelOpen(open);
+        return;
+      }
+      if (open && !panelWrapRef.current) {
+        setChangesPanelOpen(true);
+        return;
+      }
+      if (open) lockInner();
+      const from = currentChatRatio();
+      const to = open ? splitRatioRef.current : 1;
+      tweenPanel(from, to, open, () => {
+        if (open) {
+          grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
+        } else {
+          grid.style.gridTemplateColumns = PANEL_CLOSED_TPL;
+          setChangesPanelOpen(false);
+        }
+      });
+    };
+    const closePanel = () => animatePanel(false);
+    const togglePanel = () => animatePanel(!panelTargetRef.current);
+    const prevOpenRef = react.useRef(changesPanelOpen);
+    react.useLayoutEffect(() => {
+      const wasOpen = prevOpenRef.current;
+      prevOpenRef.current = changesPanelOpen;
+      if (!changesPanelOpen || wasOpen) return;
+      const grid = detailRef.current;
+      if (!grid || !panelWrapRef.current) return;
+      lockInner();
+      grid.style.gridTemplateColumns = PANEL_CLOSED_TPL;
+      tweenPanel(1, splitRatioRef.current, true, () => {
+        grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
+      });
+    }, [changesPanelOpen]);
     const startListDrag = (e) => {
       e.preventDefault();
-      const main = e.currentTarget.parentElement;
+      const grip = e.currentTarget;
+      const main = grip.parentElement;
       if (!main) return;
-      const left = main.getBoundingClientRect().left;
+      grip.classList.add("drag");
       const move = (ev) => {
-        const w = Math.max(210, Math.min(440, ev.clientX - left - 3));
-        main.style.gridTemplateColumns = w + "px 6px minmax(0, 1fr)";
+        const rect = main.getBoundingClientRect();
+        const r = Math.max(0.14, Math.min(0.45, (ev.clientX - rect.left - 3) / rect.width));
+        main.style.gridTemplateColumns = `minmax(210px, ${r.toFixed(4)}fr) 6px minmax(0, ${(1 - r).toFixed(4)}fr)`;
       };
       const up = () => {
+        grip.classList.remove("drag");
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
-        const m = main.style.gridTemplateColumns.match(/^([0-9]+)px/);
+        const m = main.style.gridTemplateColumns.match(/([0-9.]+)fr/);
         if (m) {
-          setListWidth(Number(m[1]));
-          localStorage.setItem("gitter.taskListWidth", m[1]);
+          const r = Number(m[1]);
+          setListRatio(r);
+          localStorage.setItem("gitter.taskListRatio", String(r));
         }
       };
       window.addEventListener("pointermove", move);
@@ -2198,20 +2457,25 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     };
     const startSplitDrag = (e) => {
       e.preventDefault();
-      const split = e.currentTarget.parentElement;
+      const grip = e.currentTarget;
+      const split = grip.parentElement;
       if (!split) return;
-      const rect = split.getBoundingClientRect();
+      grip.classList.add("drag");
+      cancelPanelTween();
       const move = (ev) => {
-        const w = Math.max(340, Math.min(rect.width - 340, ev.clientX - rect.left - 3));
-        split.style.gridTemplateColumns = w + "px 6px minmax(280px, 1fr)";
+        const rect = split.getBoundingClientRect();
+        const r = Math.max(0.2, Math.min(0.8, (ev.clientX - rect.left - 3) / rect.width));
+        split.style.gridTemplateColumns = `minmax(340px, ${r.toFixed(4)}fr) 6px minmax(280px, ${(1 - r).toFixed(4)}fr)`;
       };
       const up = () => {
+        grip.classList.remove("drag");
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
-        const m = split.style.gridTemplateColumns.match(/^([0-9]+)px/);
+        const m = split.style.gridTemplateColumns.match(/([0-9.]+)fr/);
         if (m) {
-          setSplitChatW(Number(m[1]));
-          localStorage.setItem("gitter.taskSplitChatW", m[1]);
+          const r = Number(m[1]);
+          setSplitRatio(r);
+          localStorage.setItem("gitter.taskSplitRatio", String(r));
         }
       };
       window.addEventListener("pointermove", move);
@@ -2221,7 +2485,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     const previewFile = react.useCallback((path) => {
       setPanelReq({ path, mode: "preview", ts: Date.now() });
       setTab("chat");
-      setChangesPanelOpen(true);
+      animatePanel(true);
     }, []);
     const [cpCount, setCpCount] = react.useState(0);
     const [diffCount, setDiffCount] = react.useState(0);
@@ -2966,7 +3230,7 @@ ${target.instructions}
           setPendingFile(path);
           setPanelReq({ path, mode: "diff", ts: Date.now() });
           setTab("chat");
-          setChangesPanelOpen(true);
+          animatePanel(true);
         },
         previewFile,
         contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : void 0,
@@ -3051,7 +3315,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
     const activeProfile = resolveRefProfile(selected == null ? void 0 : selected.modelRef) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
     const visionOk = resolveRefVision((selected == null ? void 0 : selected.modelRef) ?? (activeProfile == null ? void 0 : activeProfile.id));
     const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "grid", gridTemplateColumns: `${listWidth}px 6px minmax(0, 1fr)`, flex: 1, minHeight: 0, height: "100%" }, children: [
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "grid", gridTemplateColumns: `minmax(210px, ${listRatio.toFixed(4)}fr) 6px minmax(0, ${(1 - listRatio).toFixed(4)}fr)`, flex: 1, minHeight: 0, height: "100%" }, children: [
       /* @__PURE__ */ jsxRuntime.jsx(
         "input",
         {
@@ -3072,7 +3336,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
           }
         }
       ),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderRight: "1px solid var(--c-border)", display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "new-task-btn", style: { margin: "10px 10px 6px", width: "calc(100% - 20px)" }, onClick: startNewTask, children: "＋ 新任务（描述目标，Ctrl+N）" }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 10px 10px", display: "flex", flexDirection: "column", gap: 8 }, children: [
           ((agentTasks == null ? void 0 : agentTasks.length) ?? 0) === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, color: "var(--c-text3)", padding: "4px 2px" }, children: t("Agents_EmptyHint") }),
@@ -3080,349 +3344,360 @@ ${stateChip(task.state).label} · ${task.branch}`,
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", title: "拖拽调整任务列表宽度", onPointerDown: startListDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-tabs", children: [["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tab" + (tab === id ? " on" : ""), onClick: () => setTab(id), children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: detailRef, style: { display: "grid", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-tabs", style: { gridColumn: "1", gridRow: "1" }, children: [["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tab" + (tab === id ? " on" : ""), onClick: () => setTab(id), children: [
           label,
           n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-tab-n", children: n }) : null
         ] }, id)) }),
-        selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: tab === "chat" ? changesPanelOpen ? "grid" : "flex" : "none", flexDirection: "column", gridTemplateColumns: splitChatW > 0 ? `${splitChatW}px 6px minmax(280px, 1fr)` : "minmax(0, 4fr) 6px minmax(280px, 3fr)", gridTemplateRows: "auto minmax(0, 1fr) auto", overflow: "hidden" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-pagehead", style: { gridColumn: "1", gridRow: "1" }, children: [
-            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill", style: { color: stateChip(selected.state).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state).color} 9%, transparent)` }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-pill-dot" }),
-              stateChip(selected.state).label,
-              busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1e3)) + "s" : ""
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { gridColumn: "1", gridRow: "2", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }, children: [
+          selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto minmax(0, 1fr) auto", overflow: "hidden" }, children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-pagehead", style: { gridColumn: "1", gridRow: "1" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill", style: { color: stateChip(selected.state).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state).color} 9%, transparent)` }, children: [
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-pill-dot" }),
+                stateChip(selected.state).label,
+                busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1e3)) + "s" : ""
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-monochip", children: selected.branch }),
+              runningTool ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill amber", children: [
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-pill-dot", style: { animation: "tk-pulse 1.2s infinite" } }),
+                TOOL_LABELS[runningTool.name] ?? runningTool.name,
+                " ",
+                ((Date.now() - runningTool.startTs) / 1e3).toFixed(1),
+                "s"
+              ] }) : null,
+              (((_b2 = selected.queued) == null ? void 0 : _b2.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill amber", children: [
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "clock", size: 11 }),
+                "排队 ",
+                selected.queued.length
+              ] }) : null,
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill dim", children: [
+                "子代理 ",
+                runningSubs,
+                "/",
+                maxSubagents
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } })
             ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-monochip", children: selected.branch }),
-            runningTool ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill amber", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-pill-dot", style: { animation: "tk-pulse 1.2s infinite" } }),
-              TOOL_LABELS[runningTool.name] ?? runningTool.name,
-              " ",
-              ((Date.now() - runningTool.startTs) / 1e3).toFixed(1),
-              "s"
-            ] }) : null,
-            (((_b2 = selected.queued) == null ? void 0 : _b2.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill amber", children: [
-              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "clock", size: 11 }),
-              "排队 ",
-              selected.queued.length
-            ] }) : null,
-            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill dim", children: [
-              "子代理 ",
-              runningSubs,
-              "/",
-              maxSubagents
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "2" }, children: [
+              error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "calc(100% - 292px)", go: errorGo, onGo: (s) => {
+                openSettings(s);
+                setError(null);
+              }, onClose: () => setError(null) }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "div",
+                {
+                  ref: timelineRef,
+                  className: "tl-scroll",
+                  style: { height: "100%", overflowY: "auto", overflowX: "hidden" },
+                  onScroll: onTimelineScroll,
+                  onDoubleClick: (e) => {
+                    var _a3;
+                    const pre = e.target.closest("pre");
+                    if (pre) void ((_a3 = navigator.clipboard) == null ? void 0 : _a3.writeText(pre.textContent ?? ""));
+                  },
+                  children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", padding: "18px 20px 26px", display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }, children: [
+                    loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11 }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-pulse", children: "加载中…" }) }),
+                    hasMoreHistory && !loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11, opacity: 0.6 }, children: "↑ 上滚加载更早" }),
+                    timeline.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12 }, children: t("Agents_TimelineEmpty") }),
+                    groupTurns(timeline).map((g, gi) => {
+                      const ended = !!g.turn;
+                      const expanded = !ended || expandedTurns.has(g.anchor);
+                      const tools = g.process.filter((b) => b.kind === "tool").length;
+                      const subs = g.process.filter((b) => b.kind === "subtask").length;
+                      return /* @__PURE__ */ jsxRuntime.jsxs(react.Fragment, { children: [
+                        g.human ? renderBlock(g.human, `g${gi}-h`) : null,
+                        ended && g.process.length > 0 ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                          /* @__PURE__ */ jsxRuntime.jsxs(
+                            "div",
+                            {
+                              className: "tl-turn",
+                              onClick: () => toggleTurn(g.anchor),
+                              role: "button",
+                              tabIndex: 0,
+                              "aria-expanded": expanded,
+                              onKeyDown: (e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  toggleTurn(g.anchor);
+                                }
+                              },
+                              children: [
+                                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, className: "tl-chev" + (expanded ? " open" : "") }),
+                                /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontWeight: 600 }, children: "执行过程" }),
+                                tools > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                                  "工具 ",
+                                  tools
+                                ] }) : null,
+                                subs > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                                  "子代理 ",
+                                  subs
+                                ] }) : null,
+                                tools === 0 && subs === 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                                  g.process.length,
+                                  " 条"
+                                ] }) : null
+                              ]
+                            }
+                          ),
+                          expanded && renderProcess(`g${gi}-p`, g.process)
+                        ] }) : renderProcess(`g${gi}-p`, g.process),
+                        g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null,
+                        g.turn ? renderBlock(g.turn, `g${gi}-t`) : null
+                      ] }, gi);
+                    })
+                  ] })
+                }
+              ),
+              (() => {
+                const todoBlock = [...timeline].reverse().find((b) => b.kind === "todo");
+                if (!todoBlock) return null;
+                return /* @__PURE__ */ jsxRuntime.jsx(
+                  "div",
+                  {
+                    style: {
+                      position: "absolute",
+                      top: 8,
+                      right: 8,
+                      width: 260,
+                      maxWidth: "calc(100% - 16px)",
+                      background: "var(--c-panel2)",
+                      border: "1px solid var(--c-border-strong)",
+                      borderRadius: 10,
+                      boxShadow: "0 2px 8px rgba(0,0,0,.22)",
+                      zIndex: 10,
+                      overflow: "hidden"
+                    },
+                    children: /* @__PURE__ */ jsxRuntime.jsx(TodoList, { todos: todoBlock.todos })
+                  }
+                );
+              })(),
+              awayFromBottom && /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "tool-btn icon",
+                  "data-tip": "返回底部",
+                  "aria-label": "返回底部",
+                  style: {
+                    position: "absolute",
+                    left: "50%",
+                    bottom: 10,
+                    transform: "translateX(-50%)",
+                    width: 28,
+                    height: 28,
+                    padding: 0,
+                    borderRadius: 999,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "var(--c-panel2)",
+                    border: "1px solid var(--c-border-strong)",
+                    color: "var(--c-text2)",
+                    boxShadow: "0 2px 8px rgba(0,0,0,.22)"
+                  },
+                  onClick: () => scrollTimelineToBottom(false),
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 14 })
+                }
+              )
             ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tk-ibtn" + (changesPanelOpen ? " on" : ""), title: changesPanelOpen ? "关闭右侧变更分栏" : "打开右侧变更分栏", onClick: () => setChangesPanelOpen((v) => !v), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "splitpane", size: 15 }) }),
-            /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn", onClick: () => void call("app.newWindow", { path: selected.worktreePath }), children: [
-              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "external", size: 12 }),
-              "新窗口"
-            ] })
+            /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "3" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
+              busy && !pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 7, padding: "0 2px 7px", fontSize: 12 }, children: [
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 12, color: "var(--c-amber)", className: "tl-pulse" }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "shimmer-text", children: busyHint })
+              ] }),
+              pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)", display: "flex", alignItems: "center", gap: 6 }, children: [
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 12, className: "tl-pulse" }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { children: "等待授权（↑↓+Enter 或数字直选上方卡片选项）" })
+              ] }),
+              pendingImages.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
+                pendingImages.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
+                  /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
+                  /* @__PURE__ */ jsxRuntime.jsx(
+                    "button",
+                    {
+                      className: "tool-btn",
+                      title: "移除",
+                      style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 },
+                      onClick: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)),
+                      children: "✕"
+                    }
+                  )
+                ] }, `${img.name}:${i}`)),
+                /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", style: { alignSelf: "center" }, children: [
+                  "图片 ",
+                  pendingImages.length,
+                  "/4",
+                  !visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                Composer,
+                {
+                  ref: inputRef,
+                  value: inputText,
+                  onChange: (v) => onComposeChange(v, setInputText),
+                  maxH: 240,
+                  placeholder: busy ? "agent 正在工作——输入将排队，本轮结束后自动注入（Esc 中断 / Esc×2 回滚）" : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式",
+                  busy,
+                  sending,
+                  canSend: !!inputText.trim(),
+                  sendTitle: busy ? "停止（Esc 同效）" : "发送（Enter）",
+                  onStop: () => void stopTask(selected.taskId),
+                  onSend: () => void sendInput(),
+                  mode: selected.permissionMode ?? "default",
+                  modeLabel: MODE_META[selected.permissionMode ?? "default"].label.replace(/^[●◆◇⚡]\s*/, ""),
+                  onMode: (m) => void setTaskMode(selected.taskId, m).then(() => setMode(m)),
+                  groups: modelGroups,
+                  model: selected.modelRef ?? "",
+                  modelDisabled: busy && selected.state !== "awaiting-input",
+                  onModel: (id) => void (async () => {
+                    try {
+                      await call("agent.task.setModel", { taskId: selected.taskId, model: id });
+                      await reloadAgents();
+                      setThinking(resolveRefThinking(id));
+                    } catch (err) {
+                      setError(err.message);
+                    }
+                  })(),
+                  thinking,
+                  onThinking: (v) => {
+                    setThinking(v);
+                  },
+                  stats,
+                  attachments: pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) })),
+                  attachmentHint: `图片 ${pendingImages.length}/4${!visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""}`,
+                  onAttachImage: () => {
+                    var _a3;
+                    return (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
+                  },
+                  slash: slashItems,
+                  onPickSlash: (insert) => {
+                    setInputText((cur) => cur ? `${cur} ${insert}` : insert);
+                    setTimeout(() => {
+                      var _a3;
+                      return (_a3 = inputRef.current) == null ? void 0 : _a3.focus();
+                    }, 0);
+                  },
+                  onKeyDown: chatKeyDown,
+                  children: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                    mention ? /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, selectedIndex: mentionSel, onSelect: setMentionSel, onPick: (x) => insertMention(x, setInputText, inputText) }) : null,
+                    slashQuery !== null && /* @__PURE__ */ jsxRuntime.jsx(SlashPopover, { open: true, items: slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8), selectedIndex: slashSel, onSelect: setSlashSel, onPick: (insert) => pickSlash(insert, setInputText, inputText) })
+                  ] })
+                }
+              )
+            ] }) })
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "2" }, children: [
-            error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "calc(100% - 292px)", go: errorGo, onGo: (s) => {
+          tab === "chat" && !selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }, children: [
+            error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "min(680px, 92%)", go: errorGo, onGo: (s) => {
               openSettings(s);
               setError(null);
             }, onClose: () => setError(null) }),
-            /* @__PURE__ */ jsxRuntime.jsx(
-              "div",
-              {
-                ref: timelineRef,
-                style: { height: "100%", overflowY: "auto", overflowX: "hidden" },
-                onScroll: onTimelineScroll,
-                onDoubleClick: (e) => {
-                  var _a3;
-                  const pre = e.target.closest("pre");
-                  if (pre) void ((_a3 = navigator.clipboard) == null ? void 0 : _a3.writeText(pre.textContent ?? ""));
-                },
-                children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", padding: "18px 20px 26px", display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }, children: [
-                  loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11 }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-pulse", children: "加载中…" }) }),
-                  hasMoreHistory && !loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11, opacity: 0.6 }, children: "↑ 上滚加载更早" }),
-                  timeline.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12 }, children: t("Agents_TimelineEmpty") }),
-                  groupTurns(timeline).map((g, gi) => {
-                    const ended = !!g.turn;
-                    const expanded = !ended || expandedTurns.has(g.anchor);
-                    const tools = g.process.filter((b) => b.kind === "tool").length;
-                    const subs = g.process.filter((b) => b.kind === "subtask").length;
-                    return /* @__PURE__ */ jsxRuntime.jsxs(react.Fragment, { children: [
-                      g.human ? renderBlock(g.human, `g${gi}-h`) : null,
-                      ended && g.process.length > 0 ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-                        /* @__PURE__ */ jsxRuntime.jsxs(
-                          "div",
-                          {
-                            className: "tl-turn",
-                            onClick: () => toggleTurn(g.anchor),
-                            role: "button",
-                            tabIndex: 0,
-                            "aria-expanded": expanded,
-                            onKeyDown: (e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                toggleTurn(g.anchor);
-                              }
-                            },
-                            children: [
-                              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, className: "tl-chev" + (expanded ? " open" : "") }),
-                              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontWeight: 600 }, children: "执行过程" }),
-                              tools > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-                                "工具 ",
-                                tools
-                              ] }) : null,
-                              subs > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-                                "子代理 ",
-                                subs
-                              ] }) : null,
-                              tools === 0 && subs === 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-                                g.process.length,
-                                " 条"
-                              ] }) : null
-                            ]
-                          }
-                        ),
-                        expanded && renderProcess(`g${gi}-p`, g.process)
-                      ] }) : renderProcess(`g${gi}-p`, g.process),
-                      g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null,
-                      g.turn ? renderBlock(g.turn, `g${gi}-t`) : null
-                    ] }, gi);
-                  })
-                ] })
-              }
-            ),
-            (() => {
-              const todoBlock = [...timeline].reverse().find((b) => b.kind === "todo");
-              if (!todoBlock) return null;
-              return /* @__PURE__ */ jsxRuntime.jsx(
-                "div",
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { width: 680, maxWidth: "90%" }, children: [
+              modelInfo && !modelInfo.available ? /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn", style: { color: "var(--c-amber)", borderColor: "var(--c-amber)", marginBottom: 10 }, onClick: () => openSettings("models"), children: [
+                "● ",
+                t("Agents_ModelMissing"),
+                " → ",
+                t("Agents_OpenSettings")
+              ] }) : null,
+              /* @__PURE__ */ jsxRuntime.jsx(
+                Composer,
                 {
-                  style: {
-                    position: "absolute",
-                    top: 8,
-                    right: 8,
-                    width: 260,
-                    maxWidth: "calc(100% - 16px)",
-                    background: "var(--c-panel2)",
-                    border: "1px solid var(--c-border-strong)",
-                    borderRadius: 10,
-                    boxShadow: "0 2px 8px rgba(0,0,0,.22)",
-                    zIndex: 10,
-                    overflow: "hidden"
+                  ref: composeRef,
+                  value: composeText,
+                  onChange: (v) => onComposeChange(v, setComposeText),
+                  maxH: 208,
+                  minH: 42,
+                  autoFocus: true,
+                  placeholder: `${t("Agents_ComposePlaceholder")}
+支持 @文件 提及；调研类任务先切「◇ 计划」模式（Shift+Tab）`,
+                  busy: false,
+                  sending,
+                  canSend: !!composeText.trim(),
+                  sendTitle: "创建任务（Enter）",
+                  onStop: () => {
                   },
-                  children: /* @__PURE__ */ jsxRuntime.jsx(TodoList, { todos: todoBlock.todos })
-                }
-              );
-            })(),
-            awayFromBottom && /* @__PURE__ */ jsxRuntime.jsx(
-              "button",
-              {
-                className: "tool-btn icon",
-                "data-tip": "返回底部",
-                "aria-label": "返回底部",
-                style: {
-                  position: "absolute",
-                  left: "50%",
-                  bottom: 10,
-                  transform: "translateX(-50%)",
-                  width: 28,
-                  height: 28,
-                  padding: 0,
-                  borderRadius: 999,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "var(--c-panel2)",
-                  border: "1px solid var(--c-border-strong)",
-                  color: "var(--c-text2)",
-                  boxShadow: "0 2px 8px rgba(0,0,0,.22)"
-                },
-                onClick: () => scrollTimelineToBottom(false),
-                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 14 })
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "3" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
-            busy && !pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 7, padding: "0 2px 7px", fontSize: 12 }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 12, color: "var(--c-amber)", className: "tl-pulse" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "shimmer-text", children: busyHint })
-            ] }),
-            pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)", display: "flex", alignItems: "center", gap: 6 }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 12, className: "tl-pulse" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "等待授权（↑↓+Enter 或数字直选上方卡片选项）" })
-            ] }),
-            pendingImages.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
-              pendingImages.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
-                /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
-                /* @__PURE__ */ jsxRuntime.jsx(
-                  "button",
-                  {
-                    className: "tool-btn",
-                    title: "移除",
-                    style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 },
-                    onClick: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)),
-                    children: "✕"
-                  }
-                )
-              ] }, `${img.name}:${i}`)),
-              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", style: { alignSelf: "center" }, children: [
-                "图片 ",
-                pendingImages.length,
-                "/4",
-                !visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsx(
-              Composer,
-              {
-                ref: inputRef,
-                value: inputText,
-                onChange: (v) => onComposeChange(v, setInputText),
-                maxH: 240,
-                placeholder: busy ? "agent 正在工作——输入将排队，本轮结束后自动注入（Esc 中断 / Esc×2 回滚）" : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式",
-                busy,
-                sending,
-                canSend: !!inputText.trim(),
-                sendTitle: busy ? "停止（Esc 同效）" : "发送（Enter）",
-                onStop: () => void stopTask(selected.taskId),
-                onSend: () => void sendInput(),
-                mode: selected.permissionMode ?? "default",
-                modeLabel: MODE_META[selected.permissionMode ?? "default"].label.replace(/^[●◆◇⚡]\s*/, ""),
-                onMode: (m) => void setTaskMode(selected.taskId, m).then(() => setMode(m)),
-                groups: modelGroups,
-                model: selected.modelRef ?? "",
-                modelDisabled: busy && selected.state !== "awaiting-input",
-                onModel: (id) => void (async () => {
-                  try {
-                    await call("agent.task.setModel", { taskId: selected.taskId, model: id });
-                    await reloadAgents();
-                    setThinking(resolveRefThinking(id));
-                  } catch (err) {
-                    setError(err.message);
-                  }
-                })(),
-                thinking,
-                onThinking: (v) => {
-                  setThinking(v);
-                },
-                stats,
-                attachments: pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) })),
-                attachmentHint: `图片 ${pendingImages.length}/4${!visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""}`,
-                onAttachImage: () => {
-                  var _a3;
-                  return (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
-                },
-                slash: slashItems,
-                onPickSlash: (insert) => {
-                  setInputText((cur) => cur ? `${cur} ${insert}` : insert);
-                  setTimeout(() => {
+                  onSend: () => void createFromCompose(),
+                  mode,
+                  modeLabel: MODE_META[mode].label.replace(/^[●◆◇⚡]\s*/, ""),
+                  onMode: setMode,
+                  groups: modelGroups,
+                  model: modelId || (((_c = modelProfiles.find((m) => m.isDefault)) == null ? void 0 : _c.id) ?? ""),
+                  onModel: setModelId,
+                  thinking,
+                  onThinking: setThinking,
+                  stats: null,
+                  attachments: pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) })),
+                  attachmentHint: `图片 ${pendingImages.length}/4（随首条消息发送）`,
+                  onAttachImage: () => {
                     var _a3;
-                    return (_a3 = inputRef.current) == null ? void 0 : _a3.focus();
-                  }, 0);
-                },
-                onKeyDown: chatKeyDown,
-                children: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-                  mention ? /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, selectedIndex: mentionSel, onSelect: setMentionSel, onPick: (x) => insertMention(x, setInputText, inputText) }) : null,
-                  slashQuery !== null && /* @__PURE__ */ jsxRuntime.jsx(SlashPopover, { open: true, items: slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8), selectedIndex: slashSel, onSelect: setSlashSel, onPick: (insert) => pickSlash(insert, setInputText, inputText) })
-                ] })
-              }
-            )
-          ] }) }),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", style: { gridColumn: "2", gridRow: "2 / 4" }, title: "拖拽调整分栏比例", onPointerDown: startSplitDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
-          changesPanelOpen && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { gridColumn: "3", gridRow: "2 / 4", minHeight: 0, minWidth: 0, display: "flex" }, children: /* @__PURE__ */ jsxRuntime.jsx(
+                    return (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
+                  },
+                  slash: slashItems,
+                  onPickSlash: (insert) => {
+                    setComposeText((cur) => cur ? `${cur} ${insert}` : insert);
+                    setTimeout(() => {
+                      var _a3;
+                      return (_a3 = composeRef.current) == null ? void 0 : _a3.focus();
+                    }, 0);
+                  },
+                  onKeyDown: composeKeyDown,
+                  children: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                    mention ? /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, selectedIndex: mentionSel, onSelect: setMentionSel, onPick: (x) => insertMention(x, setComposeText, composeText) }) : null,
+                    slashQuery !== null && /* @__PURE__ */ jsxRuntime.jsx(SlashPopover, { open: true, items: slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8), selectedIndex: slashSel, onSelect: setSlashSel, onPick: (insert) => pickSlash(insert, setComposeText, composeText) })
+                  ] })
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 6 }, children: [
+                "Enter 发送 · Shift+Enter 换行 · ",
+                t("Agents_TargetHint"),
+                " · 计划模式：先调研出计划，批准后自动执行"
+              ] })
+            ] })
+          ] }),
+          tab === "diff" && selected && /* @__PURE__ */ jsxRuntime.jsx(
+            ChangesTab,
+            {
+              taskId: selected.taskId,
+              worktreePath: selected.worktreePath,
+              baselineSha: selected.baselineSha,
+              initialFile: pendingFile,
+              branch: selected.branch,
+              onCount: setDiffCount,
+              tick: changesTick,
+              onReloadAgents: reloadAgents,
+              setError,
+              onMutate: () => setChangesTick((n) => n + 1)
+            }
+          ),
+          tab === "cp" && selected && /* @__PURE__ */ jsxRuntime.jsx(CheckpointsTab, { taskId: selected.taskId, branch: selected.branch, tick: changesTick, setError, onCount: setCpCount, onViewDiff: () => setTab("diff"), onMutate: () => setChangesTick((n) => n + 1) })
+        ] }),
+        selected && changesPanelOpen && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", style: { gridColumn: "2", gridRow: "1 / 3" }, title: "拖拽调整分栏比例", onPointerDown: startSplitDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { ref: panelWrapRef, style: { gridColumn: "3", gridRow: "1 / 3", minHeight: 0, minWidth: 0, display: "flex", overflow: "hidden" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { ref: panelInnerRef, style: { flex: 1, minWidth: 0, minHeight: 0, display: "flex" }, children: /* @__PURE__ */ jsxRuntime.jsx(
             TaskChangesPanel,
             {
               taskId: selected.taskId,
               worktreePath: selected.worktreePath,
               tick: changesTick,
               request: panelReq,
-              onCollapse: () => setChangesPanelOpen(false),
+              onCollapse: closePanel,
               onEditInFilesPage: (path) => {
                 pageSdk.requestFileFocus(path);
                 pageSdk.navigate("files");
               }
             }
-          ) })
+          ) }) })
         ] }),
-        tab === "chat" && !selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }, children: [
-          error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "min(680px, 92%)", go: errorGo, onGo: (s) => {
-            openSettings(s);
-            setError(null);
-          }, onClose: () => setError(null) }),
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { width: 680, maxWidth: "90%" }, children: [
-            modelInfo && !modelInfo.available ? /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn", style: { color: "var(--c-amber)", borderColor: "var(--c-amber)", marginBottom: 10 }, onClick: () => openSettings("models"), children: [
-              "● ",
-              t("Agents_ModelMissing"),
-              " → ",
-              t("Agents_OpenSettings")
-            ] }) : null,
-            /* @__PURE__ */ jsxRuntime.jsx(
-              Composer,
-              {
-                ref: composeRef,
-                value: composeText,
-                onChange: (v) => onComposeChange(v, setComposeText),
-                maxH: 208,
-                minH: 42,
-                autoFocus: true,
-                placeholder: `${t("Agents_ComposePlaceholder")}
-支持 @文件 提及；调研类任务先切「◇ 计划」模式（Shift+Tab）`,
-                busy: false,
-                sending,
-                canSend: !!composeText.trim(),
-                sendTitle: "创建任务（Enter）",
-                onStop: () => {
-                },
-                onSend: () => void createFromCompose(),
-                mode,
-                modeLabel: MODE_META[mode].label.replace(/^[●◆◇⚡]\s*/, ""),
-                onMode: setMode,
-                groups: modelGroups,
-                model: modelId || (((_c = modelProfiles.find((m) => m.isDefault)) == null ? void 0 : _c.id) ?? ""),
-                onModel: setModelId,
-                thinking,
-                onThinking: setThinking,
-                stats: null,
-                attachments: pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) })),
-                attachmentHint: `图片 ${pendingImages.length}/4（随首条消息发送）`,
-                onAttachImage: () => {
-                  var _a3;
-                  return (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
-                },
-                slash: slashItems,
-                onPickSlash: (insert) => {
-                  setComposeText((cur) => cur ? `${cur} ${insert}` : insert);
-                  setTimeout(() => {
-                    var _a3;
-                    return (_a3 = composeRef.current) == null ? void 0 : _a3.focus();
-                  }, 0);
-                },
-                onKeyDown: composeKeyDown,
-                children: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-                  mention ? /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, selectedIndex: mentionSel, onSelect: setMentionSel, onPick: (x) => insertMention(x, setComposeText, composeText) }) : null,
-                  slashQuery !== null && /* @__PURE__ */ jsxRuntime.jsx(SlashPopover, { open: true, items: slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8), selectedIndex: slashSel, onSelect: setSlashSel, onPick: (insert) => pickSlash(insert, setComposeText, composeText) })
-                ] })
-              }
-            ),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 6 }, children: [
-              "Enter 发送 · Shift+Enter 换行 · ",
-              t("Agents_TargetHint"),
-              " · 计划模式：先调研出计划，批准后自动执行"
-            ] })
-          ] })
-        ] }),
-        tab === "diff" && selected && /* @__PURE__ */ jsxRuntime.jsx(
-          ChangesTab,
-          {
-            taskId: selected.taskId,
-            worktreePath: selected.worktreePath,
-            baselineSha: selected.baselineSha,
-            initialFile: pendingFile,
-            branch: selected.branch,
-            onCount: setDiffCount,
-            tick: changesTick,
-            onReloadAgents: reloadAgents,
-            setError,
-            onMutate: () => setChangesTick((n) => n + 1)
-          }
-        ),
-        tab === "cp" && selected && /* @__PURE__ */ jsxRuntime.jsx(CheckpointsTab, { taskId: selected.taskId, branch: selected.branch, tick: changesTick, setError, onCount: setCpCount, onViewDiff: () => setTab("diff"), onMutate: () => setChangesTick((n) => n + 1) })
+        (() => {
+          const slot = document.getElementById("tbPageActions");
+          if (!slot || !pageVisible || !selected) return null;
+          return reactDom.createPortal(
+            /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tb-pact" + (changesPanelOpen ? " on" : ""), title: changesPanelOpen ? "关闭右侧变更分栏" : "打开右侧变更分栏", onClick: togglePanel, children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "splitpane", size: 15 }) }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tb-pact", title: "在新窗口打开当前任务", onClick: () => void call("app.newWindow", { path: selected.worktreePath }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "external", size: 13 }) })
+            ] }),
+            slot
+          );
+        })()
       ] })
     ] });
   }
@@ -3443,4 +3718,4 @@ ${stateChip(task.state).label} · ${task.branch}`,
       root.unmount();
     };
   });
-})(window.GITTER_KIT.ReactJSXRuntime, window.GITTER_KIT.React);
+})(window.GITTER_KIT.ReactJSXRuntime, window.GITTER_KIT.React, window.GITTER_KIT.ReactDOM);

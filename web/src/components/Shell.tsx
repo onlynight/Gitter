@@ -34,6 +34,9 @@ export function TitleBar() {
       <button className="tb-palette" onClick={() => window.dispatchEvent(new CustomEvent("gitter:palette"))}>
         {t("Palette_Title")} <kbd>Ctrl+Shift+P</kbd>
       </button>
+      {/* 页面动作槽（v3.2 任务页设计稿）：活动页经 portal 注入按钮（任务页=分屏开关/新窗口），
+          页面切走/隐藏由页面侧门控摘除；槽本身常驻空节点，不参与 drag 区（按钮自带 no-drag） */}
+      <div className="tb-page-actions" id="tbPageActions" />
       <button className="tb-btn" onClick={() => winAction("min")}>─</button>
       <button className="tb-btn" onClick={() => winAction("max")}>{maxed ? "❐" : "☐"}</button>
       <button className="tb-btn close" onClick={() => winAction("close")}>✕</button>

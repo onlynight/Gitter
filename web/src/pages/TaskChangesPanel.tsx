@@ -12,8 +12,17 @@ import type { AgentCheckpointDTO, AgentTaskFileDTO, DiffDTO } from "../bridge/ty
 import { DiffView } from "../kit";
 import { taskPanels, useAgentUIVersion } from "../external/agentUIShim";
 import { TlIcon } from "./taskIcons";
+import { ExternalFilePreview, isMdPath } from "./externalPreview";
 
 const IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i;
+/** 扩展名 → data URL MIME（jpg/svg/ico 规范写法；「image/svg」非法，缺 +xml 渲染不出） */
+function imgMime(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "png";
+  if (ext === "jpg") return "jpeg";
+  if (ext === "svg") return "svg+xml";
+  if (ext === "ico") return "x-icon";
+  return ext || "png";
+}
 const MAX_TEXT_BYTES = 2_000_000;
 const TURNS_TAB = "turns";
 
@@ -24,6 +33,7 @@ type ViewState =
   | { kind: "loading" }
   | { kind: "text"; lines: SyntaxRun[][]; plain: string[]; syntaxColors: Record<string, string> }
   | { kind: "image"; url: string }
+  | { kind: "external" }
   | { kind: "binary" }
   | { kind: "toolarge" }
   | { kind: "error"; message: string };
@@ -145,10 +155,15 @@ export function TaskChangesPanel(props: {
       void call<{ base64?: string }>("file.readBinary", { path: activePath })
         .then((r) => {
           if (cancelled) return;
-          const ext = activePath.split(".").pop()?.toLowerCase() ?? "png";
-          setView({ kind: "image", url: `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${r?.base64 ?? ""}` });
+          setView({ kind: "image", url: `data:image/${imgMime(activePath)};base64,${r?.base64 ?? ""}` });
         })
         .catch((e) => { if (!cancelled) setView({ kind: "error", message: (e as Error).message }); });
+      return () => { cancelled = true; };
+    }
+    // Markdown 族：外部预览插件接管（file.preview previewProviders 接缝，组件自管
+    // 加载/回退——无插件时回退卡内可直接跳内置编辑器），文本高亮通道不参与
+    if (isMdPath(activePath)) {
+      setView({ kind: "external" });
       return () => { cancelled = true; };
     }
     setView({ kind: "loading" });
@@ -288,6 +303,12 @@ export function TaskChangesPanel(props: {
               <div className="lc-loading">加载中…</div>
             ) : view.kind === "image" ? (
               <img className="lc-img" src={view.url} alt={activePath ?? ""} />
+            ) : view.kind === "external" ? (
+              <ExternalFilePreview
+                path={activePath ?? ""}
+                fallbackBody="未安装 Markdown 预览插件，或未在 设置 → 扩展 打开「允许代码插件」"
+                onEditText={() => activePath && props.onEditInFilesPage(activePath)}
+              />
             ) : view.kind === "text" ? (
               <pre className="lc-code">
                 {view.lines.length > 0

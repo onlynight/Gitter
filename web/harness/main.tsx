@@ -322,3 +322,19 @@ for (const b of ["dark", "light"]) {
   bar.appendChild(btn);
 }
 document.body.appendChild(bar);
+
+// 仿 app TitleBar 的页面动作槽（验证任务页 portal 注入的分屏/新窗口按钮）：真实宿主由
+// Shell.TitleBar 渲染 #tbPageActions，harness 里等价提供一个固定条
+const fakeBar = document.createElement("div");
+fakeBar.className = "titlebar";
+fakeBar.style.cssText = "position:sticky;top:0;z-index:50;gap:6px;padding:0 10px 0 12px";
+const fakeLogo = document.createElement("span");
+fakeLogo.textContent = "Gitter 任务 · harness";
+fakeLogo.style.cssText = "font-size:12px;font-weight:600;color:var(--c-text2)";
+const fakeSp = document.createElement("span");
+fakeSp.style.flex = "1";
+const slot = document.createElement("div");
+slot.className = "tb-page-actions";
+slot.id = "tbPageActions";
+fakeBar.append(fakeLogo, fakeSp, slot, bar);
+document.body.insertBefore(fakeBar, document.body.firstChild);

@@ -1,4 +1,5 @@
 import { Fragment, forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { DiffView, renderMarkdown, Select } from "../kit";
 import type {
   AgentCheckpointDTO, AgentContextStatsDTO, AgentEventDTO, AgentHarnessDTO, AgentTaskDTO,
@@ -235,48 +236,208 @@ export function TasksPage() {
   // v3.1 实时变更面板（docs/task-page-live-changes.md）：对话 4/7 + 变更 3/7 分栏；
   // 对话流 查看/预览 一律驱动面板（右侧 = 主预览面），不再开 Modal / 跳改动页
   const [changesPanelOpen, setChangesPanelOpen] = useState(true);
-  // 分栏布局：任务列表宽度 / 分栏比例（localStorage 持久化，拖拽实时调整）
-  const [listWidth, setListWidth] = useState(() => {
-    const v = Number(localStorage.getItem("gitter.taskListWidth"));
-    return Number.isFinite(v) && v >= 210 && v <= 440 ? v : 300;
+  // 标题栏页动作（v3.2 设计稿：分屏/新窗口在 app titlebar）：页面被 keep-alive 隐藏时经
+  // IntersectionObserver 感知并摘除 portal 按钮；slot 容器由宿主 TitleBar 渲染，晚于页面
+  // 挂载时轮询补一帧渲染（harness 无 TitleBar 时自然不渲染按钮）。
+  const detailRef = useRef<HTMLDivElement | null>(null);
+  const [pageVisible, setPageVisible] = useState(true);
+  const [, setTitlebarTick] = useState(0);
+  useEffect(() => {
+    const el = detailRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => setPageVisible(entries[entries.length - 1]?.isIntersecting ?? true));
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    if (document.getElementById("tbPageActions")) { setTitlebarTick((x) => x + 1); return; }
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      if (document.getElementById("tbPageActions") || ++tries > 50) { window.clearInterval(timer); setTitlebarTick((x) => x + 1); }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, []);
+  // 分栏布局：任务列表 / 对话分栏都记比例（fr 份额），窗口缩放比例不变；拖拽实时调、松手落 localStorage。
+  // minmax 下限兜底窄窗（列表 ≥210px，对话 ≥340px，面板 ≥280px），比例再小也不得挤破下限。
+  const [listRatio, setListRatio] = useState(() => {
+    localStorage.removeItem("gitter.taskListWidth"); // 旧绝对值键清理
+    const v = Number(localStorage.getItem("gitter.taskListRatio"));
+    return Number.isFinite(v) && v >= 0.12 && v <= 0.5 ? v : 0.23;
   });
-  const [splitChatW, setSplitChatW] = useState(() => {
-    const v = Number(localStorage.getItem("gitter.taskSplitChatW"));
-    return Number.isFinite(v) && v >= 340 ? v : 0; // 0 = 默认 4fr/3fr 比例
+  const [splitRatio, setSplitRatio] = useState(() => {
+    localStorage.removeItem("gitter.taskSplitChatW");
+    const v = Number(localStorage.getItem("gitter.taskSplitRatio"));
+    return Number.isFinite(v) && v >= 0.2 && v <= 0.85 ? v : 4 / 7; // 默认 4fr/3fr
   });
-  // 分割线拖拽：拖拽中直写 grid 列（不经 React 渲染，无抖动），松手落 localStorage
+  // ── 面板展开/收起动画（400ms，v3.2 设计稿）：JS 逐帧补间 grid 列模板。
+  // 不用 CSS transition——Chromium 对 minmax(px,fr) 轨道列表的过渡在部分环境按离散跳变
+  // 处理（实测内嵌浏览器/自动化上下文），逐帧直写（与分割线拖拽同机制）在所有环境可靠。
+  // 进入 = 从右往左滑入（对话 fr 从 1 收敛到 splitRatio、面板轨道从 0 展开），
+  // 退出 = 向右滑出（面板轨道收敛到 0），min 280px 同步收敛到 0 避免 280px 处的终态跳变。
+  // 内容锁宽（容器 overflow hidden 裁剪）保证滑动而非回流挤压；收起结束才卸载面板。
+  const PANEL_CLOSED_TPL = "minmax(0px, 1fr) 6px minmax(0px, 0fr)";
+  const panelTemplate = (r: number) => `minmax(280px, ${r.toFixed(4)}fr) 6px minmax(280px, ${(1 - r).toFixed(4)}fr)`;
+  const panelWrapRef = useRef<HTMLDivElement | null>(null);
+  const panelInnerRef = useRef<HTMLDivElement | null>(null);
+  const panelAnimRef = useRef<{ cancelled: boolean } | null>(null);
+  // 动画目标态：点击即翻转（不等 React 提交），快速连点时 toggle 按意图取反而非按
+  // 仍在动画中的旧状态；不随渲染回写（动画期间 changesPanelOpen 尚未提交）。
+  const panelTargetRef = useRef(true);
+  const splitRatioRef = useRef(splitRatio);
+  splitRatioRef.current = splitRatio;
+  // 动画期间锁面板内容宽（容器 overflow hidden 裁剪）——列宽收缩时内容平移而非回流挤压。
+  // 宽度按「目标模板」测量（临时换上目标模板量完立即换回，同帧无绘制）：中断续动时当前
+  // 轨道 ≠ 目标，锁当前宽会让内容全程被压小、结束瞬间弹开；锁目标宽则滑动期间内容全尺寸、
+  // 由裁剪窗逐步揭示，结束时锁宽 == 轨道宽。已锁时也更新（中断重入按新目标重锁）。
+  const lockInner = () => {
+    const grid = detailRef.current, wrap = panelWrapRef.current, inner = panelInnerRef.current;
+    if (!grid || !wrap || !inner) return;
+    const saved = grid.style.gridTemplateColumns;
+    grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
+    const w = Math.round(wrap.getBoundingClientRect().width);
+    grid.style.gridTemplateColumns = saved;
+    if (w > 4) { inner.style.width = w + "px"; inner.style.flex = "none"; }
+    // 锁是常驻的（见下），锁定的元素随挂载更换，这里换观察目标
+    const ro = ensurePanelRO();
+    if (ro && observedWrapRef.current !== wrap) { ro.disconnect(); ro.observe(wrap); observedWrapRef.current = wrap; }
+  };
+  // 锁一旦加上就不再解锁（解锁 = 一次额外的布局变更 = mica/acrylic 透明窗口上可复现的
+  // 结束闪烁）。动画结束后零写入：锁宽与轨道的亚像素差、窗口缩放、分割线拖拽均由
+  // ResizeObserver 在同一帧的布局后回调里被动追平（补间进行中除外——那时内容宽由锁保证）。
+  const panelRORef = useRef<ResizeObserver | null>(null);
+  const observedWrapRef = useRef<HTMLDivElement | null>(null);
+  const ensurePanelRO = () => {
+    if (panelRORef.current || typeof ResizeObserver !== "function") return panelRORef.current;
+    panelRORef.current = new ResizeObserver(() => {
+      if (panelAnimRef.current) return; // 补间帧内不追，防挤压
+      const wrap = panelWrapRef.current, inner = panelInnerRef.current;
+      if (!wrap || !inner || !inner.style.width) return;
+      const w = wrap.getBoundingClientRect().width;
+      if (w > 4) inner.style.width = w + "px"; // keep-alive 隐藏（w=0）时保持原锁
+    });
+    return panelRORef.current;
+  };
+  // 取消在途补间（中断/拖拽抢占）
+  const cancelPanelTween = () => {
+    if (panelAnimRef.current) { panelAnimRef.current.cancelled = true; panelAnimRef.current = null; }
+  };
+  // 当前对话列份额（解析计算后的轨道像素，中断时从实时位置续动）
+  const currentChatRatio = () => {
+    const grid = detailRef.current;
+    if (!grid) return panelTargetRef.current ? splitRatioRef.current : 1;
+    const nums = getComputedStyle(grid).gridTemplateColumns.split(" ").map((v) => parseFloat(v)).filter((n) => Number.isFinite(n));
+    if (nums.length >= 3 && nums[0] + nums[2] > 1) return nums[0] / (nums[0] + nums[2]);
+    return panelTargetRef.current ? splitRatioRef.current : 1;
+  };
+  // rAF 驱动逐帧；rAF 被挂起的环境（部分自动化/嵌入上下文）由 setTimeout 看门狗兜底，
+  // 牺牲帧率保证动画可见
+  const schedulePanelFrame = (fn: () => void) => {
+    if (typeof requestAnimationFrame !== "function") { window.setTimeout(fn, 16); return; }
+    let fired = false;
+    const h = requestAnimationFrame(() => { fired = true; fn(); });
+    window.setTimeout(() => { if (!fired) { cancelAnimationFrame(h); fn(); } }, 50);
+  };
+  // from/to = 对话列份额（1=全宽对话，splitRatio=分栏）；opening 决定 min 280px 的收敛方向
+  const tweenPanel = (from: number, to: number, opening: boolean, done: () => void) => {
+    const grid = detailRef.current;
+    if (!grid) { done(); return; }
+    const token = { cancelled: false };
+    panelAnimRef.current = token;
+    const t0 = performance.now();
+    const DUR = 400;
+    const ease = (t: number) => 1 - Math.pow(1 - t, 3); // easeOutCubic
+    const step = () => {
+      if (token.cancelled || panelAnimRef.current !== token) return;
+      const p = Math.min(1, (performance.now() - t0) / DUR);
+      const e = ease(p);
+      const chatFr = from + (to - from) * e;
+      const min = 280 * (opening ? e : 1 - e);
+      grid.style.gridTemplateColumns = `minmax(${min.toFixed(1)}px, ${chatFr.toFixed(4)}fr) 6px minmax(${min.toFixed(1)}px, ${(1 - chatFr).toFixed(4)}fr)`;
+      if (p < 1) schedulePanelFrame(step);
+      else { panelAnimRef.current = null; done(); }
+    };
+    schedulePanelFrame(step);
+  };
+  const animatePanel = (open: boolean) => {
+    if (open === panelTargetRef.current && panelAnimRef.current == null) return; // 稳态无操作
+    panelTargetRef.current = open;
+    cancelPanelTween(); // 中断在途补间，从实时位置续动
+    const grid = detailRef.current;
+    if (!grid) { setChangesPanelOpen(open); return; }
+    if (open && !panelWrapRef.current) { setChangesPanelOpen(true); return; } // 未挂载路径交 layout effect 入场
+    if (open) lockInner();
+    const from = currentChatRatio();
+    const to = open ? splitRatioRef.current : 1;
+    tweenPanel(from, to, open, () => {
+      // 结束零布局变更：锁不解除（RO 已在末帧同帧追平亚像素），只把模板落成与 React vdom
+      // 一致的精确串；收起路径卸载面板
+      if (open) {
+        grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
+      } else {
+        grid.style.gridTemplateColumns = PANEL_CLOSED_TPL;
+        setChangesPanelOpen(false);
+      }
+    });
+  };
+  const openPanel = () => animatePanel(true);
+  const closePanel = () => animatePanel(false);
+  const togglePanel = () => animatePanel(!panelTargetRef.current);
+  // 入场动画：面板从未挂载 → 挂载。本帧渲染即目标模板——必须同步先写收起态再进补间：
+  // 若提交落在当帧 rAF 阶段之后，会先绘制一帧「全开面板」再塌缩起滑（用户实测展开首/尾闪烁）。
+  const prevOpenRef = useRef(changesPanelOpen);
+  useLayoutEffect(() => {
+    const wasOpen = prevOpenRef.current;
+    prevOpenRef.current = changesPanelOpen;
+    if (!changesPanelOpen || wasOpen) return;
+    const grid = detailRef.current;
+    if (!grid || !panelWrapRef.current) return;
+    lockInner(); // 按目标模板量目标宽（本帧渲染即目标模板）
+    grid.style.gridTemplateColumns = PANEL_CLOSED_TPL; // 同步塌缩，首帧即收起态
+    tweenPanel(1, splitRatioRef.current, true, () => {
+      grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changesPanelOpen]);
+  // 分割线拖拽：拖拽中直写 grid 列（不经 React 渲染，无抖动），松手落比例
   const startListDrag = (e: { currentTarget: HTMLElement; preventDefault(): void }) => {
     e.preventDefault();
-    const main = e.currentTarget.parentElement;
+    const grip = e.currentTarget;
+    const main = grip.parentElement;
     if (!main) return;
-    const left = main.getBoundingClientRect().left;
+    grip.classList.add("drag");
     const move = (ev: PointerEvent) => {
-      const w = Math.max(210, Math.min(440, ev.clientX - left - 3));
-      main.style.gridTemplateColumns = w + "px 6px minmax(0, 1fr)";
+      const rect = main.getBoundingClientRect();
+      const r = Math.max(0.14, Math.min(0.45, (ev.clientX - rect.left - 3) / rect.width));
+      main.style.gridTemplateColumns = `minmax(210px, ${r.toFixed(4)}fr) 6px minmax(0, ${(1 - r).toFixed(4)}fr)`;
     };
     const up = () => {
+      grip.classList.remove("drag");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      const m = main.style.gridTemplateColumns.match(/^([0-9]+)px/);
-      if (m) { setListWidth(Number(m[1])); localStorage.setItem("gitter.taskListWidth", m[1]); }
+      const m = main.style.gridTemplateColumns.match(/([0-9.]+)fr/);
+      if (m) { const r = Number(m[1]); setListRatio(r); localStorage.setItem("gitter.taskListRatio", String(r)); }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
   const startSplitDrag = (e: { currentTarget: HTMLElement; preventDefault(): void }) => {
     e.preventDefault();
-    const split = e.currentTarget.parentElement;
+    const grip = e.currentTarget;
+    const split = grip.parentElement;
     if (!split) return;
-    const rect = split.getBoundingClientRect();
+    grip.classList.add("drag");
+    cancelPanelTween(); // 拖拽抢占：停在途补间，避免逐帧模板互踩（内容宽由 RO 被动跟随）
     const move = (ev: PointerEvent) => {
-      const w = Math.max(340, Math.min(rect.width - 340, ev.clientX - rect.left - 3));
-      split.style.gridTemplateColumns = w + "px 6px minmax(280px, 1fr)";
+      const rect = split.getBoundingClientRect();
+      const r = Math.max(0.2, Math.min(0.8, (ev.clientX - rect.left - 3) / rect.width));
+      split.style.gridTemplateColumns = `minmax(340px, ${r.toFixed(4)}fr) 6px minmax(280px, ${(1 - r).toFixed(4)}fr)`;
     };
     const up = () => {
+      grip.classList.remove("drag");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      const m = split.style.gridTemplateColumns.match(/^([0-9]+)px/);
-      if (m) { setSplitChatW(Number(m[1])); localStorage.setItem("gitter.taskSplitChatW", m[1]); }
+      const m = split.style.gridTemplateColumns.match(/([0-9.]+)fr/);
+      if (m) { const r = Number(m[1]); setSplitRatio(r); localStorage.setItem("gitter.taskSplitRatio", String(r)); }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -285,7 +446,8 @@ export function TasksPage() {
   const previewFile = useCallback((path: string) => {
     setPanelReq({ path, mode: "preview", ts: Date.now() });
     setTab("chat");
-    setChangesPanelOpen(true);
+    animatePanel(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [cpCount, setCpCount] = useState(0);
   const [diffCount, setDiffCount] = useState(0);
@@ -950,7 +1112,7 @@ export function TasksPage() {
     if (!renderer) return null;
     const ctx: TimelineCardCtx = {
       taskId: selectedTask ?? "",
-      viewFile: (path) => { setPendingFile(path); setPanelReq({ path, mode: "diff", ts: Date.now() }); setTab("chat"); setChangesPanelOpen(true); },
+      viewFile: (path) => { setPendingFile(path); setPanelReq({ path, mode: "diff", ts: Date.now() }); setTab("chat"); animatePanel(true); },
       previewFile,
       contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : undefined,
       showCopy: !process && copyBlocks.has(b),
@@ -1017,7 +1179,7 @@ export function TasksPage() {
   const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `${listWidth}px 6px minmax(0, 1fr)`, flex: 1, minHeight: 0, height: "100%" }}>
+    <div style={{ display: "grid", gridTemplateColumns: `minmax(210px, ${listRatio.toFixed(4)}fr) 6px minmax(0, ${(1 - listRatio).toFixed(4)}fr)`, flex: 1, minHeight: 0, height: "100%" }}>
       {/* 图片附加：粘贴/拖拽之外提供点击入口（视觉能力门控在选择时校验） */}
       <input ref={imageInputRef} type="file" accept="image/*" multiple style={{ display: "none" }}
         onChange={(e) => {
@@ -1032,7 +1194,7 @@ export function TasksPage() {
           grid 根元素的直接子元素会抢占 300px 侧栏列把排版挤乱，侧栏内联则常驻占一行 */}
 
       {/* ═══ 左：会话列表（任务卡）═══ */}
-      <div style={{ borderRight: "1px solid var(--c-border)", display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
         <button className="new-task-btn" style={{ margin: "10px 10px 6px", width: "calc(100% - 20px)" }} onClick={startNewTask}>
           ＋ 新任务（描述目标，Ctrl+N）
         </button>
@@ -1047,9 +1209,11 @@ export function TasksPage() {
       <div className="tk-vdiv" title="拖拽调整任务列表宽度" onPointerDown={startListDrag}><span className="tk-vdiv-grip" /></div>
 
       {/* ═══ 右：详情（页签 = 全局导航；三页互斥独立）═══ */}
-      {/* minWidth: 0 = grid item 自动最小尺寸回收：对话内容的 min-content 宽度不再把 1fr 轨道撑破窗口 */}
-      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}>
-        <div className="tk-tabs">
+      {/* v3.2 设计稿 detail 级 grid：页签行只跨对话列，变更面板 + 分割线从页签行 band 起全高、
+          三页签常驻（切换改动/检查点不卸面板）；minWidth: 0 = grid item 自动最小尺寸回收，
+          对话内容的 min-content 宽度不再把 1fr 轨道撑破窗口 */}
+      <div ref={detailRef} style={{ display: "grid", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }}>
+        <div className="tk-tabs" style={{ gridColumn: "1", gridRow: "1" }}>
           {([["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount]] as const).map(([id, label, n]) => (
             <div key={id} className={"tk-tab" + (tab === id ? " on" : "")} onClick={() => setTab(id)}>
               {label}{n > 0 ? <span className="tk-tab-n">{n}</span> : null}
@@ -1057,9 +1221,11 @@ export function TasksPage() {
           ))}
         </div>
 
+        {/* 页内容区（c1 r2）：对话 / 新任务空态 / 改动 / 检查点 */}
+        <div style={{ gridColumn: "1", gridRow: "2", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
         {/* ═══ 对话页（保持挂载：切改动/检查点不重新加载历史、不丢滚动位置） ═══ */}
         {selected && (
-          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? (changesPanelOpen ? "grid" : "flex") : "none", flexDirection: "column", gridTemplateColumns: splitChatW > 0 ? `${splitChatW}px 6px minmax(280px, 1fr)` : "minmax(0, 4fr) 6px minmax(280px, 3fr)", gridTemplateRows: "auto minmax(0, 1fr) auto", overflow: "hidden" }}>
+          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto minmax(0, 1fr) auto", overflow: "hidden" }}>
             <div className="tk-pagehead" style={{ gridColumn: "1", gridRow: "1" }}>
               <span className="tk-pill" style={{ color: stateChip(selected.state).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state).color} 9%, transparent)` }}>
                 <span className="tk-pill-dot" />
@@ -1077,18 +1243,11 @@ export function TasksPage() {
               ) : null}
               <span className="tk-pill dim">子代理 {runningSubs}/{maxSubagents}</span>
               <span style={{ flex: 1 }} />
-              <button className={"tk-ibtn" + (changesPanelOpen ? " on" : "")} title={changesPanelOpen ? "关闭右侧变更分栏" : "打开右侧变更分栏"} onClick={() => setChangesPanelOpen((v) => !v)}>
-                <TlIcon name="splitpane" size={15} />
-              </button>
-              <button className="tool-btn" onClick={() => void call("app.newWindow", { path: selected.worktreePath })}>
-                <TlIcon name="external" size={12} />
-                新窗口
-              </button>
             </div>
             <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "2" }}>
               {/* 错误浮层：悬于时间线之上、顶部状态条正下方；不打断版面流 */}
               {error && <ErrorFloat text={error} maxWidth="calc(100% - 292px)" go={errorGo} onGo={(s) => { openSettings(s); setError(null); }} onClose={() => setError(null)} />}
-              <div ref={timelineRef} style={{ height: "100%", overflowY: "auto", overflowX: "hidden" }}
+              <div ref={timelineRef} className="tl-scroll" style={{ height: "100%", overflowY: "auto", overflowX: "hidden" }}
                 onScroll={onTimelineScroll}
                 onDoubleClick={(e) => {
                   const pre = (e.target as HTMLElement).closest("pre");
@@ -1240,21 +1399,7 @@ export function TasksPage() {
                 />
               </div>
             </div>
-            {/* 对话|变更面板 分割线：拖拽调比例（localStorage 持久化） */}
-            <div className="tk-vdiv" style={{ gridColumn: "2", gridRow: "2 / 4" }} title="拖拽调整分栏比例" onPointerDown={startSplitDrag}><span className="tk-vdiv-grip" /></div>
-            {changesPanelOpen && (
-              <div style={{ gridColumn: "3", gridRow: "2 / 4", minHeight: 0, minWidth: 0, display: "flex" }}>
-                <TaskChangesPanel
-                  taskId={selected.taskId}
-                  worktreePath={selected.worktreePath}
-                  tick={changesTick}
-                  request={panelReq}
-                  onCollapse={() => setChangesPanelOpen(false)}
-                  onEditInFilesPage={(path) => { pageSdk.requestFileFocus(path); pageSdk.navigate("files"); }}
-                />
-              </div>
-            )}
-          </div>
+        </div>
         )}
 
         {/* ═══ 对话页：未选中任务 = 新任务 composer ═══ */}
@@ -1319,6 +1464,44 @@ export function TasksPage() {
         {tab === "cp" && selected && (
           <CheckpointsTab taskId={selected.taskId} branch={selected.branch} tick={changesTick} setError={setError} onCount={setCpCount} onViewDiff={() => setTab("diff")} onMutate={() => setChangesTick((n) => n + 1)} />
         )}
+        </div>
+
+        {/* 对话|变更面板 分割线 + 面板：detail 级全高（页签行 band 起），三页签常驻；拖拽调比例（localStorage 持久化）。
+            wrap overflow hidden + inner 锁宽 = 收起/展开动画期间内容平移裁剪而非回流挤压 */}
+        {selected && changesPanelOpen && (
+          <>
+            <div className="tk-vdiv" style={{ gridColumn: "2", gridRow: "1 / 3" }} title="拖拽调整分栏比例" onPointerDown={startSplitDrag}><span className="tk-vdiv-grip" /></div>
+            <div ref={panelWrapRef} style={{ gridColumn: "3", gridRow: "1 / 3", minHeight: 0, minWidth: 0, display: "flex", overflow: "hidden" }}>
+              <div ref={panelInnerRef} style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex" }}>
+                <TaskChangesPanel
+                  taskId={selected.taskId}
+                  worktreePath={selected.worktreePath}
+                  tick={changesTick}
+                  request={panelReq}
+                  onCollapse={closePanel}
+                  onEditInFilesPage={(path) => { pageSdk.requestFileFocus(path); pageSdk.navigate("files"); }}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* 标题栏页动作槽：分栏开关 / 新窗口经 portal 注入 app TitleBar（页面 keep-alive 隐藏时门控摘除） */}
+        {(() => {
+          const slot = document.getElementById("tbPageActions");
+          if (!slot || !pageVisible || !selected) return null;
+          return createPortal(
+            <>
+              <button className={"tb-pact" + (changesPanelOpen ? " on" : "")} title={changesPanelOpen ? "关闭右侧变更分栏" : "打开右侧变更分栏"} onClick={togglePanel}>
+                <TlIcon name="splitpane" size={15} />
+              </button>
+              <button className="tb-pact" title="在新窗口打开当前任务" onClick={() => void call("app.newWindow", { path: selected.worktreePath })}>
+                <TlIcon name="external" size={13} />
+              </button>
+            </>,
+            slot,
+          );
+        })()}
       </div>
     </div>
   );

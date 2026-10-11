@@ -92,12 +92,21 @@
   .main > .detail{grid-column:3;grid-row:1}
   /* 可拖拽分割线：任务列表|对话、对话|变更面板（拖拽时实时调列宽，松手记忆比例） */
   .vdiv{position:relative;cursor:col-resize;background:transparent;flex:none}
+  /* 命中区加宽（视觉线仍是 1px 中缝）：::before 透明层向两侧各扩 6px，抓取容易 */
+  .vdiv::before{content:"";position:absolute;top:0;bottom:0;left:-7px;right:-7px;cursor:col-resize}
+  .vdiv{z-index:5;overflow:visible}
   .vdiv::after{content:"";position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--border-strong);transform:translateX(-50%)}
   .vdiv:hover::after,.vdiv.drag::after{width:2px;background:var(--sel)}
   .vdiv .grip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:34px;border-radius:4px;background:var(--border2);opacity:.6;transition:opacity .15s}
   .vdiv:hover .grip,.vdiv.drag .grip{opacity:1;background:var(--sel)}
   .list{border-right:none;display:flex;flex-direction:column;min-height:0;background:var(--bg)}
-  .detail{display:flex;flex-direction:column;min-height:0;background:transparent}
+  .detail{display:grid;grid-template-columns:minmax(0,1fr) 6px minmax(300px,3fr);grid-template-rows:43px minmax(0,1fr);min-height:0;min-width:0;background:transparent}
+  .detail > .tabs{grid-column:1;grid-row:1}
+  .detail > .vdiv{grid-column:2;grid-row:1/3}
+  .detail > .liveside{grid-column:3;grid-row:1/3;display:flex;flex-direction:column;min-width:0;min-height:0}
+  .detail > .chat-area{grid-column:1;grid-row:2/3;display:flex;flex-direction:column;min-height:0;min-width:0}
+  .detail > .chat-area > .page.on{display:flex;flex-direction:column;overflow:hidden}
+  .detail > .chat-area > .page{display:none}
 
   /* ============ 任务列表 ============ */
   /* 左侧任务列表（极简）：顶部通栏新建按钮 + 状态点×标题行；详情悬停可读，分叉/归档悬停行尾 */
@@ -383,13 +392,17 @@
   .chat-col{display:flex;flex-direction:column;min-width:0;min-height:0}
   .liveside{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel)}
   /* 轮次 tab 条：每个打开的轮次一个 tab（可关闭），＋ 打开其他轮次 */
-  .ls-tabs{display:flex;align-items:center;gap:3px;padding:7px 10px 6px;border-bottom:1px solid var(--border);overflow-x:auto;flex:none}
-  .lstab{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--dim);border:1px solid var(--border2);border-radius:7px;padding:2.5px 9px;cursor:pointer;white-space:nowrap;user-select:none;flex:none}
-  .lstab:hover{color:var(--text);border-color:var(--dim2)}
-  .lstab.on{background:var(--sel);border-color:var(--sel);color:var(--sel-fg)}
-  .lstab .x{opacity:.55;font-size:11px;line-height:1}
+  /* 面板头行：43px 固定高，与左页签行同一水平线（同一 grid 行内两列各自的面板头） */
+  .ls-pagehead{display:flex;align-items:center;gap:8px;height:43px;flex:none;padding:0 14px;border-bottom:1px solid var(--border);background:var(--bg)}
+  .ls-pagehead .ph-title{font-size:12.5px;font-weight:600;color:var(--text)}
+  .ls-tabs{display:flex;align-items:center;gap:4px;padding:0 4px;overflow-x:auto;flex:none}
+  .lstab{position:relative;display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dim);cursor:pointer;white-space:nowrap;user-select:none;padding:8px 2px 7px}
+  .lstab:hover{color:var(--text)}
+  .lstab.on{color:var(--text);font-weight:600}
+  .lstab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px 2px 0 0;background:var(--sel)}
+  .lstab .x{opacity:.55;font-size:11px;line-height:1;margin-left:2px}
   .lstab .x:hover{color:var(--red);opacity:1}
-  .lstab.add{color:var(--dim);border-style:dashed}
+  .lstab.add{color:var(--dim);border:1px dashed var(--border2);border-radius:7px;padding:2px 9px}
   /* 外部应用分裂按钮（ZCode 式）：主钮=内置编辑器，下拉=外部应用列表（非系统选择器） */
   .splitbtn{display:inline-flex;flex:none;position:relative}
   .sb-main{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-family:inherit;color:var(--text);border:1px solid var(--border-strong);border-right:none;border-radius:7px 0 0 7px;padding:2px 9px;cursor:pointer;background:var(--panel)}
@@ -439,6 +452,8 @@
   <span class="logo"><span class="mark">⚡</span>Gitter 任务</span>
   <span class="crumb">任务页 v3.1 设计稿 · 分栏变更面板 · 分割线均可拖拽（任务列表|对话、对话|面板）· 变更按轮 tab 查看 · 对话内 查看/预览 驱动右侧 · 外部应用=分裂按钮下拉</span>
   <span class="sp"></span>
+  <button class="ibtn svg framed" id="tbSplit" title="打开/关闭右侧变更分栏" onclick="toggleSide()"></button>
+  <button class="ibtn svg framed" title="在新窗口打开当前任务（Changes）" onclick="toast('设计稿示意：在新窗口打开当前任务（Changes）')"></button>
   <button class="ibtn svg" title="搜索任务（Ctrl+K）" onclick="toast('设计稿示意：全局任务搜索')"></button>
   <button class="ibtn svg" title="设置" onclick="toast('设计稿示意：任务设置')"></button>
   <span class="chip" id="modechip" title="Shift+Tab 循环">● 默认</span>
@@ -476,8 +491,7 @@
           <span class="mono-chip">task/fix-diff-lag</span>
           <span class="meta" style="display:inline-flex;align-items:center;gap:5px;color:var(--amber)"><span id="ico-q1"></span>排队 1</span>
           <span class="sp"></span>
-          <button class="ibtn framed" id="splitToggle" title="打开/关闭右侧变更分栏" onclick="toggleSide()"><span id="ico-split1"></span></button>
-          <button class="tbtn"><span id="ico-ext1"></span>新窗口</button>
+
         </div>
         <div class="stream">
           <div class="stream-inner">
@@ -645,7 +659,13 @@ PASS src/kit/DiffView.cache.test.ts  ◂ 等待退出码…</div>
 
         <!-- ===== 实时变更面板（3/7 · 按轮 tab 查看 · 预览/内置编辑器/外部应用）===== -->
         <div class="liveside" id="liveSide">
-          <div class="ls-tabs" id="lsTabs"></div>
+          <div class="ls-pagehead">
+            <span class="ph-title">变更</span>
+            <span class="mono-chip">task/fix-diff-lag</span>
+            <div class="ls-tabs" id="lsTabs"></div>
+            <span style="flex:1"></span>
+            <button class="tbtn" title="收起面板，回到纯对话" onclick="toggleSide()">收起</button>
+          </div>
           <!-- 固定 tab「按轮」：上=轮次列表，下=该轮变更文件；点击文件 → 新开文件 tab 预览 -->
           <div class="ls-turnspage" id="lsTurnsPage">
             <div class="ls-turns" id="lsTurns"></div>
@@ -834,7 +854,7 @@ function ico(name, size){
     "ic1":["chevron-down",12],"ic2":["chevron-down",12],"ic3":["chevron-down",12],
     "ico-list1":["list",12],"ico-todo-done1":["check-circle",13],"ico-todo-done2":["check-circle",13],
     "ico-todo-now":["circle-dot",13],"ico-todo-todo":["circle",13],
-    "ico-sys1":["diff",12],"ico-shield1":["shield",13],"ico-ext1":["external",12],
+    "ico-sys1":["diff",12],"ico-shield1":["shield",13],"ico-ext1":["external",12],"ico-tbSplit":["splitpane",15],"ico-tbNew":["external",12],
     "ico-cp1":["check-circle",12],"ico-usage1":["usage",11],"ico-clock1":["clock",12],
     "ico-send1":["stop",13],"ico-ext2":["external",12],"ico-copy2":["copy",12],"ico-copy3":["copy",12],
     "ico-plusb":["plus",14],"ico-file1":["file",13],"ico-modelb":["sparkle",13],"ico-thinkb":["bulb",13],
@@ -1454,8 +1474,7 @@ function renderLsTabs(){
       + bn
       + " <span class='x' title='关闭' onclick=\"event.stopPropagation();lsCloseTab('" + id + "')\">✕</span></div>";
   });
-  document.getElementById("lsTabs").innerHTML = html + "<span style='flex:1'></span>"
-    + "<button class='tbtn' title='收起面板，回到纯对话' onclick='toggleSide()'>收起</button>";
+  document.getElementById("lsTabs").innerHTML = html;
   document.querySelectorAll("#lsTabs .lstab").forEach(function(t){
     t.onclick = function(e){
       if (e.target.classList.contains("x")) return;
