@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import { TreePane, type TreeEntry } from "./FilesTreePane";
-import { EditorPane, type EditorTab } from "./FilesEditorPane";
+import { EditorPane, type EditorPaneHandle, type EditorTab } from "./FilesEditorPane";
 import { QuickOpen } from "./FilesQuickOpen";
 
 /**
@@ -40,6 +40,8 @@ export function FilesPage() {
   tabsRef.current = tabs;
   const quickOpenRef = useRef(quickOpen);
   quickOpenRef.current = quickOpen;
+  // 编辑器 imperative 面（文件树重命名/删除/剪切后同步标签与 model）
+  const editorRef = useRef<EditorPaneHandle | null>(null);
 
   // 加载文件树
   const loadTree = useCallback(async () => {
@@ -113,6 +115,85 @@ export function FilesPage() {
       return false;
     }
   }, [repo, loadTree, openFile]);
+
+  // 打开的标签/激活位随文件系统操作迁移（目录按前缀整体改写）
+  const remapTabs = useCallback((oldPath: string, newPath: string, isDir: boolean) => {
+    const remap = (p: string) =>
+      p === oldPath ? newPath : (isDir && p.startsWith(oldPath + "/") ? newPath + p.slice(oldPath.length) : p);
+    setTabs((prev) => prev.map((tb) => ({ ...tb, path: remap(tb.path) })));
+    setActiveTab((a) => (a ? remap(a) : a));
+    editorRef.current?.handleFsRenamed(oldPath, newPath, isDir);
+  }, []);
+
+  // 右键/键盘重命名（同目录单段名）：主进程改名 → 标签迁移 → 刷树
+  const renameEntry = useCallback(async (oldPath: string, newName: string, isDir: boolean): Promise<boolean> => {
+    try {
+      const r = await pageSdk.call<{ ok: boolean; error?: string }>("file.rename", { path: oldPath, name: newName });
+      if (!r.ok) {
+        const key = r.error === "exists" ? "Files_CreateExists"
+          : r.error === "invalid_name" ? "Files_InvalidName"
+          : r.error === "not_found" ? "Files_Missing" : "Files_RenameFailed";
+        pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t(key));
+        return false;
+      }
+      const parent = oldPath.includes("/") ? oldPath.slice(0, oldPath.lastIndexOf("/")) : "";
+      remapTabs(oldPath, `${parent ? `${parent}/` : ""}${newName}`, isDir);
+      await loadTree();
+      return true;
+    } catch (e) {
+      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
+      return false;
+    }
+  }, [loadTree, remapTabs]);
+
+  // 右键/键盘删除（目录递归、不可恢复，树内已 Modal 确认）：关闭受影响标签 → 刷树
+  const deleteEntry = useCallback(async (path: string, isDir: boolean): Promise<boolean> => {
+    const affected = (p: string) => p === path || (isDir && p.startsWith(path + "/"));
+    try {
+      const r = await pageSdk.call<{ ok: boolean; error?: string }>("file.delete", { path });
+      if (!r.ok) {
+        const key = r.error === "not_found" ? "Files_Missing" : "Files_DeleteFailed";
+        pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t(key));
+        return false;
+      }
+      // 激活位顺移邻位（与 closeTab 同语义）；被删文件的脏标签直接丢弃——文件已不存在
+      const old = tabsRef.current;
+      setTabs((prev) => prev.filter((tb) => !affected(tb.path)));
+      setActiveTab((a) => {
+        if (!a || !affected(a)) return a;
+        const rest = old.filter((tb) => !affected(tb.path));
+        const i = old.findIndex((tb) => tb.path === a);
+        return rest[Math.min(i, rest.length - 1)]?.path ?? null;
+      });
+      editorRef.current?.handleFsDeleted(path, isDir);
+      await loadTree();
+      return true;
+    } catch (e) {
+      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
+      return false;
+    }
+  }, [loadTree]);
+
+  // 右键粘贴（复制/剪切）：剪切 = 移动，打开的标签随路径迁移；复制重名由主进程自动「copy」序号
+  const pasteEntry = useCallback(async (from: string, toDir: string, cut: boolean, fromIsDir: boolean): Promise<string | boolean> => {
+    try {
+      const r = await pageSdk.call<{ ok: boolean; path: string; error?: string }>("file.paste", { from, toDir, cut });
+      if (!r.ok) {
+        const key = r.error === "exists" ? "Files_CreateExists"
+          : r.error === "not_found" ? "Files_Missing"
+          : r.error === "invalid_name" ? "Files_InvalidName"
+          : cut ? "Files_MoveFailed" : "Files_PasteFailed";
+        pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t(key));
+        return false;
+      }
+      await loadTree();
+      if (cut) remapTabs(from, r.path, fromIsDir);
+      return r.path;
+    } catch (e) {
+      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
+      return false;
+    }
+  }, [loadTree, remapTabs]);
 
   // 关闭标签（EditorPane 确认无未保存更改后回调）：激活位顺移邻位
   const closeTab = useCallback((path: string) => {
@@ -199,6 +280,9 @@ export function FilesPage() {
             activePath={activeTab}
             onOpenFile={openFile}
             onCreate={createEntry}
+            onRename={renameEntry}
+            onDelete={deleteEntry}
+            onPaste={pasteEntry}
             loading={loading}
             onRefresh={() => void loadTree()}
             onModeChange={setTreeMode}
@@ -221,6 +305,7 @@ export function FilesPage() {
       />
       <div className="files-main">
         <EditorPane
+          ref={editorRef}
           tabs={tabs}
           activeTab={activeTab}
           statusByPath={statusByPath}

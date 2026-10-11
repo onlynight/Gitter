@@ -462,3 +462,139 @@ export async function createEntry(
     return { ok: false, path: rel, error: "create_failed" };
   }
 }
+
+// ---- 重命名 / 删除 / 复制剪切粘贴（files 页资源管理器右键菜单）----
+
+export type FileMutateError = "invalid_name" | "path_locked" | "exists" | "not_found" | "failed";
+
+export interface FileMutateResult {
+  ok: boolean;
+  /** 操作落定的相对路径（POSIX 分隔符；粘贴重名冲突时 = 请求路径） */
+  path: string;
+  error?: FileMutateError;
+}
+
+/** 路径锁 + realpath 双重校验（与 createEntry 同规则），返回绝对路径或 null（越界）。 */
+async function resolveInside(workDir: string, rel: string): Promise<string | null> {
+  const abs = path.resolve(workDir, rel);
+  const realWt = await fsp.realpath(workDir).catch(() => workDir);
+  const relCheck = path.relative(realWt, abs);
+  if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) return null;
+  return abs;
+}
+
+/** 源/目标路径任一段命中 .git（大小写不敏感）即拒绝——重命名/删除/粘贴不得触碰仓库元数据 */
+function touchesGit(...rels: string[]): boolean {
+  return rels.some((r) => r.split(/[\\/]/).some((seg) => seg.toLowerCase() === ".git"));
+}
+
+/** 相对路径 POSIX 归一（供回传前端与再拼接）。 */
+function toPosixRel(abs: string, workDir: string): string {
+  return path.relative(workDir, abs).split(path.sep).join("/");
+}
+
+export async function renameEntry(
+  workDir: string,
+  rel: string,
+  newName: string,
+): Promise<FileMutateResult> {
+  // 重命名只接受单段名（跨目录移动走 file.paste 剪切），校验规则与新建共用
+  if (!newName || newName.includes("/")) return { ok: false, path: rel, error: "invalid_name" };
+  const invalid = validateCreatePath(newName);
+  if (invalid) return { ok: false, path: rel, error: invalid };
+  if (touchesGit(rel, newName)) return { ok: false, path: rel, error: "invalid_name" };
+
+  const abs = await resolveInside(workDir, rel);
+  if (!abs) return { ok: false, path: rel, error: "path_locked" };
+  const target = path.join(path.dirname(abs), newName);
+  const targetIn = await resolveInside(workDir, toPosixRel(target, workDir));
+  if (!targetIn) return { ok: false, path: rel, error: "path_locked" };
+
+  try {
+    if (!(await fsp.lstat(abs).catch(() => null))) return { ok: false, path: rel, error: "not_found" };
+    if (await fsp.lstat(target).catch(() => null)) return { ok: false, path: rel, error: "exists" };
+    await fsp.rename(abs, target);
+    return { ok: true, path: toPosixRel(target, workDir) };
+  } catch {
+    // Windows 下文件被占用（EPERM/EBUSY）等一律归为失败
+    return { ok: false, path: rel, error: "failed" };
+  }
+}
+
+export async function deleteEntry(
+  workDir: string,
+  rel: string,
+): Promise<FileMutateResult> {
+  if (!rel || touchesGit(rel)) return { ok: false, path: rel, error: "invalid_name" };
+  const abs = await resolveInside(workDir, rel);
+  if (!abs) return { ok: false, path: rel, error: "path_locked" };
+  try {
+    const st = await fsp.lstat(abs);
+    if (st.isDirectory()) {
+      await fsp.rm(abs, { recursive: true });
+    } else {
+      await fsp.unlink(abs);
+    }
+    return { ok: true, path: rel };
+  } catch {
+    return { ok: false, path: rel, error: "failed" };
+  }
+}
+
+/**
+ * 复制 / 剪切粘贴（files 页资源管理器右键）：from 复制/移动到 toDir 下（保留原名）。
+ * 复制 = cp recursive，重名按 VSCode 风格自动序号「xxx copy.ext」「xxx copy 2.ext」；
+ * 剪切 = rename（跨卷 EXDEV 回退 cp+rm），重名不自动改名——返回 exists 由前端提示。
+ */
+export async function pasteEntry(
+  workDir: string,
+  fromRel: string,
+  toDirRel: string,
+  cut: boolean,
+): Promise<FileMutateResult> {
+  if (!fromRel || touchesGit(fromRel)) return { ok: false, path: fromRel, error: "invalid_name" };
+  const base = fromRel.split("/").pop() ?? fromRel;
+  let targetRel = toDirRel ? `${toDirRel}/${base}` : base;
+  if (touchesGit(targetRel)) return { ok: false, path: targetRel, error: "invalid_name" };
+  const invalid = validateCreatePath(targetRel);
+  if (invalid) return { ok: false, path: targetRel, error: invalid };
+
+  const from = await resolveInside(workDir, fromRel);
+  if (!from) return { ok: false, path: fromRel, error: "path_locked" };
+  let target = await resolveInside(workDir, targetRel);
+  if (!target) return { ok: false, path: targetRel, error: "path_locked" };
+
+  try {
+    if (from === target) return { ok: false, path: targetRel, error: "exists" };
+    if (!(await fsp.lstat(from).catch(() => null))) return { ok: false, path: fromRel, error: "not_found" };
+    if (await fsp.lstat(target).catch(() => null)) {
+      if (cut) return { ok: false, path: targetRel, error: "exists" };
+      // 复制重名：自动序号（有扩展名时插在扩展名前）
+      const dir = path.dirname(target);
+      const ext = path.extname(base);
+      const stem = base.slice(0, base.length - ext.length);
+      let final: string | null = null;
+      for (let i = 1; i <= 99; i++) {
+        const cand = path.join(dir, `${stem} copy${i > 1 ? ` ${i}` : ""}${ext}`);
+        if (!(await fsp.lstat(cand).catch(() => null))) { final = cand; break; }
+      }
+      if (!final) return { ok: false, path: targetRel, error: "exists" };
+      target = final;
+      targetRel = toPosixRel(final, workDir);
+    }
+    if (cut) {
+      try {
+        await fsp.rename(from, target);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EXDEV") throw e;
+        await fsp.cp(from, target, { recursive: true, errorOnExist: true, force: false });
+        await fsp.rm(from, { recursive: true });
+      }
+    } else {
+      await fsp.cp(from, target, { recursive: true, errorOnExist: true, force: false });
+    }
+    return { ok: true, path: targetRel };
+  } catch {
+    return { ok: false, path: targetRel, error: "failed" };
+  }
+}

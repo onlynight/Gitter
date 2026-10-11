@@ -17,6 +17,7 @@ import {
   type Payload, type PreviewPhase, type PreviewRenderer,
 } from "./officeDocPreview";
 import { RefreshIcon } from "./filesIcons";
+import { absPathOf } from "./filesPaths";
 
 const SIDEBAR_KEY = "gitter.office.sidebar";
 const SIDEBAR_DEFAULT = 248;
@@ -165,7 +166,7 @@ export function OfficePage() {
     return i >= 0 ? p.slice(0, i) : "";
   }, []);
   const openExternal = useCallback(() => {
-    if (active && repo) void pageSdk.call("shell.openPath", { path: `${repo.workDir}/${active}`, editor: true });
+    if (active && repo) void pageSdk.call("shell.openPath", { path: absPathOf(repo.workDir, active), editor: true });
   }, [active, repo]);
 
   if (!repo) {

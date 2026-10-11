@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { pageSdk } from "../pageSdk";
 import { formatSize } from "./officeShared";
 import { ZOOM_STEPS, zoomStep } from "./officeDocPreview";
+import { absPathOf } from "./filesPaths";
 
 /** 图片扩展名白名单（全小写含点）——与 treex BINARY_IMAGE_EXTS、任务面板 IMG_RE 同集 */
 export const IMAGE_EXTS = [
@@ -113,7 +114,7 @@ export function ImageFileViewer(props: { path: string }) {
   }, []);
 
   const openExternal = useCallback(() => {
-    if (repo) void pageSdk.call("shell.openPath", { path: `${repo.workDir}/${props.path}` });
+    if (repo) void pageSdk.call("shell.openPath", { path: absPathOf(repo.workDir, props.path) });
   }, [repo, props.path]);
 
   // 显式像素尺寸（未测得前先按 CSS max 双向 100% 适配，测到即换算——避免首帧塌陷）

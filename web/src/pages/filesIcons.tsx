@@ -105,6 +105,28 @@ export const CopyIcon = () => (
   <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2" {...S} /><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" {...S} /></svg>
 );
 export const RevealIcon = () => <FolderIcon size={13} />;
+/** 删除：垃圾桶形 */
+export const TrashIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M2.8 4.2h10.4M6.2 4.2V2.8c0-.44.36-.8.8-.8h2c.44 0 .8.36.8.8v1.4M4.2 4.2l.6 8.6c.03.44.4.8.8.8h4.8c.4 0 .77-.36.8-.8l.6-8.6" {...S} strokeWidth="1.1" />
+    <path d="M6.6 6.8v4.4M9.4 6.8v4.4" {...S} strokeWidth="1.1" />
+  </svg>
+);
+/** 剪切：剪刀形 */
+export const CutIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+    <circle cx="4" cy="12" r="1.7" {...S} strokeWidth="1.1" />
+    <circle cx="12" cy="12" r="1.7" {...S} strokeWidth="1.1" />
+    <path d="M5.2 10.8 12 1.8M10.8 10.8 4 1.8" {...S} strokeWidth="1.1" />
+  </svg>
+);
+/** 粘贴：剪贴板形 */
+export const PasteIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M5.5 3.2H4.2c-.66 0-1.2.54-1.2 1.2v8.4c0 .66.54 1.2 1.2 1.2h7.6c.66 0 1.2-.54 1.2-1.2V4.4c0-.66-.54-1.2-1.2-1.2h-1.3" {...S} strokeWidth="1.1" />
+    <rect x="5.5" y="1.8" width="5" height="2.8" rx="0.7" {...S} strokeWidth="1.1" />
+  </svg>
+);
 /** 新建文件：文档折角形 + 内嵌加号 */
 export const NewFileIcon = () => (
   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">

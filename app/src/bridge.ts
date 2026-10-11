@@ -467,6 +467,13 @@ export class Bridge {
     // 新建文件/文件夹（files 页资源管理器行内新建）：Windows 段名校验+路径锁+独占创建
     R("file.create", async (args: { path: string; kind: "file" | "dir" }) =>
       treex.createEntry(this.needRepo(), args.path, args.kind === "dir" ? "dir" : "file"));
+    // 重命名（同目录单段名）/ 删除（目录递归）/ 复制剪切粘贴（files 页右键菜单）
+    R("file.rename", async (args: { path: string; name: string }) =>
+      treex.renameEntry(this.needRepo(), args.path, args.name));
+    R("file.delete", async (args: { path: string }) =>
+      treex.deleteEntry(this.needRepo(), args.path));
+    R("file.paste", async (args: { from: string; toDir?: string; cut?: boolean }) =>
+      treex.pasteEntry(this.needRepo(), args.from, args.toDir ?? "", !!args.cut));
 
     // ---- Office 文档二进制读写（office-integration-plan.md §5 OOXML 白名单通道）----
     // stat：office 页保存前 mtime 冲突检测（免拉全量 base64）
@@ -933,10 +940,14 @@ export class Bridge {
       return r.canceled ? null : r.filePaths[0];
     });
     R("shell.openPath", async (args: { path: string; editor?: boolean }) => {
+      // 相对路径按当前仓库根解析（页面/扩展命令模板传 ${file.path} 为仓库相对路径）；
+      // Electron 的 openPath/showItemInFolder 相对基准是主进程 CWD，与仓库无关
+      const p = path.isAbsolute(args.path) ? args.path
+        : this.repo ? path.resolve(this.repo, args.path) : args.path;
       if (args.editor && settings.current.externalEditor) {
         const cp = await import("child_process");
         const r = await new Promise<{ code: number; stderr: string }>((resolve) => {
-          const child = cp.spawn(settings.current.externalEditor!, [args.path], { shell: true, windowsHide: true });
+          const child = cp.spawn(settings.current.externalEditor!, [p], { shell: true, windowsHide: true });
           let err = "";
           child.stderr.on("data", (d) => (err += d));
           child.on("close", (code) => resolve({ code: code ?? -1, stderr: err }));
@@ -945,11 +956,13 @@ export class Bridge {
         if (r.code !== 0) throw new BridgeError("外部编辑器启动失败", r.stderr);
         return {};
       }
-      await shell.openPath(args.path);
+      await shell.openPath(p);
       return {};
     });
     R("shell.reveal", (args: { path: string }) => {
-      shell.showItemInFolder(args.path);
+      const p = path.isAbsolute(args.path) ? args.path
+        : this.repo ? path.resolve(this.repo, args.path) : args.path;
+      shell.showItemInFolder(p);
       return {};
     });
     // markdown 链接（agent 输出）→ 系统浏览器；webview 内不跳转
@@ -1620,24 +1633,26 @@ export class Bridge {
       if (typeof a.path !== "string" || !a.path.trim()) {
         throw new BridgeError("shell.openPath 需要 path 参数");
       }
+      const p = path.isAbsolute(a.path) ? a.path : this.repo ? path.resolve(this.repo, a.path) : a.path;
       if (a.editor === true && this.shared.settings.current.externalEditor) {
         await new Promise<void>((resolve, reject) => {
           import("child_process").then((cp) => {
-            const child = cp.spawn(this.shared.settings.current.externalEditor!, [a.path as string], { shell: true, windowsHide: true });
+            const child = cp.spawn(this.shared.settings.current.externalEditor!, [p], { shell: true, windowsHide: true });
             child.on("close", (code) => (code === 0 ? resolve() : reject(new BridgeError("外部编辑器启动失败", `exit ${code}`))));
             child.on("error", (e) => reject(new BridgeError("外部编辑器启动失败", String(e))));
           });
         });
         return;
       }
-      await shell.openPath(a.path);
+      await shell.openPath(p);
       return;
     }
     if (action === "shell.reveal") {
       if (typeof a.path !== "string" || !a.path.trim()) {
         throw new BridgeError("shell.reveal 需要 path 参数");
       }
-      shell.showItemInFolder(a.path);
+      const p = path.isAbsolute(a.path) ? a.path : this.repo ? path.resolve(this.repo, a.path) : a.path;
+      shell.showItemInFolder(p);
       return;
     }
     if (action === "repo.refresh") {

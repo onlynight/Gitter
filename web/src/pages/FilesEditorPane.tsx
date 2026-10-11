@@ -8,7 +8,7 @@
  * 磁盘 mtime 与编辑器记录不一致时弹冲突对话框（重新加载/取消/覆盖）。
  * 关闭含未保存更改的标签弹三选一确认（保存/不保存/取消）。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useContextMenu } from "../kit";
 import { pageSdk, useAppState } from "../pageSdk";
 import { CheckIcon, ChevronSepIcon, CloseIcon, FileIcon, FolderIcon, SearchIcon } from "./filesIcons";
@@ -44,7 +44,7 @@ interface EditorState {
 const STATUS_CLS: Record<string, string> = { M: "gs-M", A: "gs-A", D: "gs-D", R: "gs-R", U: "gs-U", "?": "gs-Q" };
 const STATUS_LETTER: Record<string, string> = { M: "M", A: "A", D: "D", R: "R", U: "U", "?": "?" };
 
-export function EditorPane(props: {
+export interface EditorPaneProps {
   tabs: EditorTab[];
   activeTab: string | null;
   /** path → git 状态码（标签名着色 + 页脚徽标） */
@@ -60,7 +60,27 @@ export function EditorPane(props: {
   onReveal?: () => void;
   /** 保存成功 → FilesPage 重拉 repo.tree（树状态色 + 页脚 git 字母实时化） */
   onSaved?: () => void;
-}) {
+}
+
+/** 文件树侧文件系统操作（重命名/删除/剪切移动）发生后，FilesPage 经 ref 调用同步编辑器 */
+export interface EditorPaneHandle {
+  /** 文件/目录重命名（含剪切粘贴的移动）：标签、model（脏内容保留）、LSP 会话、定时器随路径迁移 */
+  handleFsRenamed(oldPath: string, newPath: string, isDir: boolean): void;
+  /** 文件/目录删除：清理受影响标签的 model、LSP 会话与定时器（标签移除归 FilesPage） */
+  handleFsDeleted(path: string, isDir: boolean): void;
+}
+
+/** 受影响路径判定：精确命中，或目录前缀下的全部后代 */
+function fsAffected(root: string, isDir: boolean, p: string): boolean {
+  return p === root || (isDir && p.startsWith(root + "/"));
+}
+
+/** 路径迁移映射：目录按前缀整体改写，文件精确替换 */
+function fsRemap(p: string, oldPath: string, newPath: string, isDir: boolean): string {
+  return isDir ? newPath + p.slice(oldPath.length) : newPath;
+}
+
+export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function EditorPane(props, ref) {
   const [editors, setEditors] = useState<Map<string, EditorState>>(new Map());
   const [saving, setSaving] = useState(false);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
@@ -305,6 +325,61 @@ export function EditorPane(props: {
     if (editors.get(path)?.dirty) { setConfirmClose(path); return; }
     closeTabImpl(path);
   }, [editors, closeTabImpl]);
+
+  // ---- 文件系统操作同步（FilesPage 经 ref 调用；树内右键/键盘的重命名/删除/剪切）----
+
+  /** 重命名/移动：新 model 以当前值（含未保存内容）建在新 URI 下，旧 model 才 dispose；
+   *  LSP 走 didClose→didOpen 换档；自动保存定时器与文本模式覆盖随路径迁移。 */
+  const handleFsRenamed = useCallback((oldPath: string, newPath: string, isDir: boolean) => {
+    for (const p of [...models.current.keys()]) {
+      if (!fsAffected(oldPath, isDir, p)) continue;
+      const np = fsRemap(p, oldPath, newPath, isDir);
+      const model = models.current.get(p)!;
+      const value = model.getValue();
+      const nModel = createTextModel(np, value);
+      models.current.set(np, nModel);
+      models.current.delete(p);
+      documentClosed(p);
+      documentOpened(np, languageForPath(np), value, nModel);
+      const timer = saveTimers.current.get(p);
+      if (timer !== undefined) { saveTimers.current.delete(p); saveTimers.current.set(np, timer); }
+      setEditors((prev) => {
+        const ed = prev.get(p);
+        if (!ed) return prev;
+        const next = new Map(prev);
+        next.delete(p);
+        next.set(np, { ...ed, path: np });
+        return next;
+      });
+    }
+    const nextTextMode = new Set<string>();
+    for (const p of textModeRef.current) nextTextMode.add(fsAffected(oldPath, isDir, p) ? fsRemap(p, oldPath, newPath, isDir) : p);
+    textModeRef.current = nextTextMode;
+    setTextMode(nextTextMode);
+  }, []);
+
+  /** 删除：清定时器 + LSP didClose + dispose model + 清编辑态（标签移除由 FilesPage 做） */
+  const handleFsDeleted = useCallback((path: string, isDir: boolean) => {
+    for (const p of [...models.current.keys()]) {
+      if (!fsAffected(path, isDir, p)) continue;
+      const timer = saveTimers.current.get(p);
+      if (timer !== undefined) { window.clearTimeout(timer); saveTimers.current.delete(p); }
+      documentClosed(p);
+      disposeTextModel(models.current.get(p) ?? null);
+      models.current.delete(p);
+      setEditors((prev) => {
+        if (!prev.has(p)) return prev;
+        const next = new Map(prev);
+        next.delete(p);
+        return next;
+      });
+    }
+    const nextTextMode = new Set<string>([...textModeRef.current].filter((p) => !fsAffected(path, isDir, p)));
+    textModeRef.current = nextTextMode;
+    setTextMode(nextTextMode);
+  }, []);
+
+  useImperativeHandle(ref, () => ({ handleFsRenamed, handleFsDeleted }), [handleFsRenamed, handleFsDeleted]);
 
   // 记录最后一个就绪的 model：新文件加载期保留其画面（Monaco 不卸载，防闪黑）；
   // 已关闭标签的 model 被 dispose，不再作为保底
@@ -612,4 +687,4 @@ export function EditorPane(props: {
       {menuElement}
     </div>
   );
-}
+});

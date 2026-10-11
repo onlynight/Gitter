@@ -13,6 +13,7 @@ import { DiffView } from "../kit";
 import { taskPanels, useAgentUIVersion } from "../external/agentUIShim";
 import { TlIcon } from "./taskIcons";
 import { ExternalFilePreview, isMdPath } from "./externalPreview";
+import { absPathOf } from "./filesPaths";
 
 const IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i;
 /** 扩展名 → data URL MIME（jpg/svg/ico 规范写法；「image/svg」非法，缺 +xml 渲染不出） */
@@ -200,7 +201,7 @@ export function TaskChangesPanel(props: {
 
   const openExternal = useCallback((useExternalEditor: boolean) => {
     if (!activePath) return;
-    const full = `${props.worktreePath.replace(/[\\/]+$/, "")}/${activePath.replace(/\\/g, "/")}`;
+    const full = absPathOf(props.worktreePath, activePath);
     void call("shell.openPath", { path: full, editor: useExternalEditor || undefined }).catch((e) => setErr((e as Error).message));
   }, [activePath, props.worktreePath]);
 
