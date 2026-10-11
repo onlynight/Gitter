@@ -142,6 +142,8 @@
   .cbx:checked{background:var(--sel);border-color:var(--sel)}
   .cbx:checked::after{content:"";position:absolute;left:3.5px;top:1px;width:4.5px;height:8px;
     border:solid var(--sel-fg);border-width:0 1.6px 1.6px 0;transform:rotate(43deg)}
+  .cbx:indeterminate{background:var(--sel);border-color:var(--sel)}
+  .cbx:indeterminate::after{content:"";position:absolute;left:3px;top:6.2px;width:8px;height:1.6px;background:var(--sel-fg)}
 
   /* 状态徽标：单色字母，语义着色，等宽 */
   .st{width:15px;text-align:center;font-family:var(--mono);font-size:10.5px;font-weight:700;flex:none;line-height:1}
@@ -326,7 +328,7 @@
 </div>
 
 <div class="legend">
-  设计要点：<b>①</b> 分支上下文 + 抓取/拉取/推送/建分支收进侧栏头（原页面级图标工具栏除名，动作离使用处更近）；<b>②</b> 筛选框：大变更集快速定位；<b>③</b> 分组头 = 微型大写标签 + 计数药丸，悬停出现组级动作（全部暂存/全部取消暂存）；<b>④</b> 文件行：路径分层（目录淡化左截断、文件名全亮）+ 状态字母徽标（A 绿 / M 琥珀 / D·U 红 / ? 灰）+ 行尾 +/− 统计，悬停统计让位给「暂存/取消暂存」动作；<b>⑤</b> 冲突行红色左轨 + 组头红色计数；<b>⑥</b> 提交框：前缀 chips + AI 生成/解释分离（解释审查针对右侧所选文件）、提交按钮带文字主按钮 + 推送为幽灵图标、左侧实时汇总「已暂存 N · +a −d」；选中一律黑白灰，语义色只做徽标/统计。双主题 · Esc 清筛选
+  设计要点：<b>①</b> 分支上下文 + 抓取/拉取/推送/建分支收进侧栏头（原页面级图标工具栏除名，动作离使用处更近）；<b>②</b> 筛选框：大变更集快速定位；<b>③</b> 分组头 = 三态复选框（全选/全不选该组参与提交）+ 微型大写标签 + 计数药丸，悬停出现组级动作（全部暂存/全部取消暂存）；<b>④</b> 文件行：路径分层（目录淡化左截断、文件名全亮）+ 状态字母徽标（A 绿 / M 琥珀 / D·U 红 / ? 灰）+ 行尾 +/− 统计，悬停统计让位给「暂存/取消暂存」动作；<b>⑤</b> 冲突行红色左轨 + 组头红色计数；<b>⑥</b> 提交框：前缀 chips + AI 生成/解释分离（解释审查针对右侧所选文件）、提交按钮带文字主按钮 + 推送为幽灵图标、左侧实时汇总「已暂存 N · +a −d」；选中一律黑白灰，语义色只做徽标/统计。双主题 · Esc 清筛选
 </div>
 <div class="toast" id="toastEl"></div>
 
@@ -366,6 +368,9 @@ function render(){
   GROUPS.forEach(function(g){
     html += "<div class='grp"+(closedGrp.has(g.id)?" closed":"")+"' data-g='"+g.id+"'>";
     html += "<div class='grp-h"+(g.warn?" warn":"")+"' onclick='toggleGroup(\""+g.id+"\")'>";
+    if (!g.warn) {
+      html += "<input type='checkbox' class='cbx gcbx' data-g='"+g.id+"'"+(g.files.every(function(f){return !!f.checked;})?" checked":"")+" onchange='gAll(\""+g.id+"\",this.checked)' onclick='event.stopPropagation()'>";
+    }
     html += icoChev();
     html += "<span>"+g.label+"</span><span class='cnt'>"+g.files.length+"</span><span class='sp'></span>";
     if (g.gact === "stage")
@@ -377,7 +382,7 @@ function render(){
       var isCon = f.st === "U";
       html += "<div class='frow"+(f.sel?" sel":"")+(isCon?" conflict":"")+"' data-path='"+f.dir+f.base+"' onclick='pick(this)'>"
         + (isCon ? "<span style='width:21px;flex:none'></span>"
-                 : "<input type='checkbox' class='cbx'"+(f.checked?" checked":"")+" onclick='cg(event,this)' data-tip='勾选后可批量暂存'>")
+                 : "<input type='checkbox' class='cbx'"+(f.checked?" checked":"")+" onclick='cg(event,this)' data-tip='参与本次提交'>")
         + "<span class='st "+stClass(f.st)+"'>"+f.st+"</span>"
         + "<span class='path'><span class='dir'>"+f.dir.replace(/\/$/,"")+"</span><span class='sep'>/</span><span class='base'>"+f.base+"</span></span>"
         + "<span class='tail'>"
@@ -393,6 +398,9 @@ function render(){
     html += "</div>";
   });
   document.getElementById("scroll").innerHTML = html;
+  document.querySelectorAll(".gcbx").forEach(function(cb){
+    syncHead(cb.dataset.g);
+  });
   updCommitSum();
 }
 
@@ -414,7 +422,39 @@ function pick(row){
   document.getElementById("fhPath").innerHTML = "<span class='dir'>"+p.slice(0,i).replace(/\/$/,"")+"</span><span class='sep'>/</span><span class='base'>"+p.slice(i)+"</span>";
   renderDiffPane(p);
 }
-function cg(e, cb){ e.stopPropagation(); updCommitSum(); }
+function cg(e, cb){
+  e.stopPropagation();
+  var row = cb.closest(".frow");
+  var f = findByPath(row.dataset.path);
+  if (f) f.checked = cb.checked;
+  syncHead(row.closest(".grp").dataset.g);
+  updCommitSum();
+}
+function findByPath(p){
+  for (var i=0;i<GROUPS.length;i++){
+    var fs=GROUPS[i].files;
+    for (var j=0;j<fs.length;j++) if (fs[j].dir+fs[j].base===p) return fs[j];
+  }
+  return null;
+}
+function syncHead(gid){
+  var g = GROUPS.find(function(x){return x.id===gid;});
+  var cb = document.querySelector(".gcbx[data-g='"+gid+"']");
+  if (!g || !cb) return;
+  var allOn = g.files.length>0 && g.files.every(function(f){return !!f.checked;});
+  var someOn = g.files.some(function(f){return !!f.checked;});
+  cb.checked = allOn; cb.indeterminate = someOn && !allOn;
+}
+function gAll(gid, on){
+  var g = GROUPS.find(function(x){return x.id===gid;});
+  g.files.forEach(function(f){ f.checked = on; });
+  document.querySelectorAll(".grp[data-g='"+gid+"'] .frow").forEach(function(row){
+    var cb = row.querySelector("input[type=checkbox]");
+    if (cb) cb.checked = on;
+  });
+  syncHead(gid);
+  updCommitSum();
+}
 function ract(e, act, name){
   e.stopPropagation();
   toast(act === "stage" ? "设计稿：git add "+name : "设计稿：git restore --staged "+name);
@@ -442,16 +482,14 @@ document.addEventListener("keydown", function(e){
   }
 });
 
-function stagedAggr(){
-  var st = GROUPS.find(function(g){return g.id==="staged";});
-  var a=0,d=0,n=0;
-  st.files.forEach(function(f){ if(f.checked!==false){ a+=f.a; d+=f.d; n++; } });
-  return {n:n,a:a,d:d};
-}
 function updCommitSum(){
-  var s = stagedAggr();
+  var a=0,d=0,n=0;
+  GROUPS.forEach(function(g){
+    if (g.id==="conflicts") return;
+    g.files.forEach(function(f){ if(f.checked){ a+=f.a; d+=f.d; n++; } });
+  });
   document.getElementById("commitSum").innerHTML =
-    "已暂存 <b>"+s.n+"</b> 个文件 · <span class='add'>+"+s.a+"</span> <span class='del'>−"+s.d+"</span>";
+    "将提交 <b>"+n+"</b> 个文件 · <span class='add'>+"+a+"</span> <span class='del'>−"+d+"</span>";
 }
 function prefill(p){
   var el = document.getElementById("msgBox");

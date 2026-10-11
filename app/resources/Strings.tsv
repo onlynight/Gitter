@@ -985,6 +985,7 @@ Changes_UnstageGroup	Unstage all in group	全部取消暂存
 Changes_AheadBehind	{0} ahead, {1} behind	领先 {0} 个提交，落后 {1} 个提交
 Changes_Ahead	{0} ahead	领先 {0} 个提交
 Changes_StagedFiles	{0} files staged	已暂存 {0} 个文件
+Changes_CommitStat	{0} files to commit	将提交 {0} 个文件
 Changes_BranchSwitch	Switch branch	切换分支
 Settings_AgentRules	Agent permission rules	Agent 权限规则
 Settings_AgentCompaction	Context compaction	上下文压缩

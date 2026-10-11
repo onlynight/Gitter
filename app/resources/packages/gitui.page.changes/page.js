@@ -609,6 +609,27 @@
       const visible = q ? files.filter((f) => f.path.toLowerCase().includes(q)) : files;
       if (visible.length === 0) return null;
       const collapsed = collapsedGroups.has(gkey);
+      const eligible = files.filter((f) => !f.isConflict);
+      const includeOf = (f) => f.category === "staged" ? !excludedStaged.has(f.path) : checked.has(f.path);
+      const allOn = eligible.length > 0 && eligible.every(includeOf);
+      const someOn = eligible.some(includeOf);
+      const toggleAllInclude = () => {
+        const targetOn = !allOn;
+        const setter = stagedView ? setExcludedStaged : setChecked;
+        setter((prev) => {
+          const next = new Set(prev);
+          for (const f of eligible) {
+            if (stagedView) {
+              if (targetOn) next.delete(f.path);
+              else next.add(f.path);
+            } else {
+              if (targetOn) next.add(f.path);
+              else next.delete(f.path);
+            }
+          }
+          return next;
+        });
+      };
       const actAll = () => {
         const paths = visible.map((f) => f.path);
         if (opts.act === "stage") {
@@ -625,6 +646,19 @@
       };
       return /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-group-h" + (gkey === "conflicts" ? " warn" : ""), onClick: () => toggleGroup(gkey), children: [
+          opts.checkable && eligible.length > 0 && /* @__PURE__ */ jsxRuntime.jsx(
+            "input",
+            {
+              type: "checkbox",
+              checked: allOn,
+              ref: (el) => {
+                if (el) el.indeterminate = someOn && !allOn;
+              },
+              onChange: toggleAllInclude,
+              onClick: (e) => e.stopPropagation(),
+              "data-tip": t("Changes_IncludeCommit")
+            }
+          ),
           /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 11, className: collapsed ? "cv-closed" : void 0 }),
           /* @__PURE__ */ jsxRuntime.jsx("span", { children: title }),
           /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chg-cnt", children: visible.length }),
@@ -845,7 +879,7 @@
           ),
           /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "commit-actions", style: { alignItems: "center", justifyContent: "flex-start" }, children: [
             /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sum", children: [
-              t("Changes_StagedFiles", commitStat.n),
+              t("Changes_CommitStat", commitStat.n),
               (commitStat.added > 0 || commitStat.deleted > 0) && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
                 " · ",
                 /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "diff-stats-add", children: [
