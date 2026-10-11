@@ -10,9 +10,10 @@ const CONFLICT_CODES = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
 
 export async function getStatus(workDir: string): Promise<ChangesStateDTO> {
   const out = await git(workDir, ["status", "--porcelain=v1", "-z", "--untracked-files=normal"]);
-  const [numstatWt, numstatIdx] = await Promise.all([
+  const [numstatWt, numstatIdx, head] = await Promise.all([
     tryGit(workDir, ["diff", "--numstat"]),
     tryGit(workDir, ["diff", "--cached", "--numstat"]),
+    headInfo(workDir),
   ]);
   const wtCounts = parseNumstat(numstatWt.stdout);
   const idxCounts = parseNumstat(numstatIdx.stdout);
@@ -40,24 +41,36 @@ export async function getStatus(workDir: string): Promise<ChangesStateDTO> {
     const isConflict = CONFLICT_CODES.has(`${x}${y}`) || x === "U" || y === "U";
 
     if (isUntracked) {
-      unversioned.push({ path: p, category: "unversioned", isConflict: false, added: null, deleted: null });
+      unversioned.push({ path: p, category: "unversioned", isConflict: false, added: null, deleted: null, code: "?" });
       continue;
     }
     if (isConflict) {
-      conflicts.push({ path: p, category: "conflicts", isConflict: true, added: null, deleted: null });
+      conflicts.push({ path: p, category: "conflicts", isConflict: true, added: null, deleted: null, code: `${x}${y}` });
       continue;
     }
     if (x !== " " && x !== "?") {
       const c = idxCounts.get(p);
-      staged.push({ path: p, category: "staged", isConflict: false, added: c?.added ?? null, deleted: c?.deleted ?? null });
+      staged.push({ path: p, category: "staged", isConflict: false, added: c?.added ?? null, deleted: c?.deleted ?? null, code: x });
     }
     if (y !== " " && y !== "?") {
       const c = wtCounts.get(p);
-      changes.push({ path: p, category: "changes", isConflict: false, added: c?.added ?? null, deleted: c?.deleted ?? null });
+      changes.push({ path: p, category: "changes", isConflict: false, added: c?.added ?? null, deleted: c?.deleted ?? null, code: y });
     }
   }
 
-  return { workDir, changes, staged, unversioned, conflicts };
+  return { workDir, changes, staged, unversioned, conflicts, branch: head.branch, ahead: head.ahead, behind: head.behind };
+}
+
+/** 当前分支 + 领先/落后 upstream（两次轻量调用；无 upstream / detached 时计数为 null 不显示）。 */
+async function headInfo(workDir: string): Promise<{ branch: string | null; ahead: number | null; behind: number | null }> {
+  const r = await tryGit(workDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (r.code !== 0) return { branch: null, ahead: null, behind: null };
+  const branch = r.stdout.trim() || null;
+  const ab = await tryGit(workDir, ["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]);
+  if (ab.code !== 0) return { branch, ahead: null, behind: null };
+  // --left-right --count 输出「左\t右」：左 = HEAD 独有（领先），右 = upstream 独有（落后）
+  const [ahead, behind] = ab.stdout.trim().split(/\s+/).map(Number);
+  return { branch, ahead: ahead || 0, behind: behind || 0 };
 }
 
 function parseNumstat(out: string): Map<string, { added: number | null; deleted: number | null }> {

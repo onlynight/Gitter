@@ -226,6 +226,8 @@ const DiffViewImpl = function DiffView(props: {
   rich?: boolean;
   /** 定位到新增行号（安全网发现跳转）：滚动到该行并短暂高亮；ts 变化即重复触发 */
   focusLine?: { line: number; ts: number } | null;
+  /** 隐藏内置文件头（宿主已有自己的文件头时避免双头，如变更页右侧 chg-filehead） */
+  hideHeader?: boolean;
 }) {
   const { diff } = props;
   const rich = props.rich ?? true;
@@ -491,10 +493,12 @@ const DiffViewImpl = function DiffView(props: {
   if (diff.isBinary) {
     return (
       <div className="diff" ref={rootRef}>
-        <div className="diff-file-header">
-          <span className="path">{diff.path}</span>
-          <span className="diff-stats-del">{t("Diff_BinaryFile")}</span>
-        </div>
+        {!props.hideHeader && (
+          <div className="diff-file-header">
+            <span className="path">{diff.path}</span>
+            <span className="diff-stats-del">{t("Diff_BinaryFile")}</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -526,7 +530,7 @@ const DiffViewImpl = function DiffView(props: {
   if (diff.hunks.length === 0 && !diff.isBinary) {
     return (
       <div className="diff" ref={rootRef}>
-        {header}
+        {!props.hideHeader && header}
         {noteStrip}
         <div className="empty-state">{t("Diff_NoContentChange")}</div>
       </div>
@@ -591,7 +595,7 @@ const DiffViewImpl = function DiffView(props: {
 
   return (
     <div className="diff" ref={rootRef}>
-      {header}
+      {!props.hideHeader && header}
       {noteStrip}
       {truncatedStrip}
       <div className={"diff-grid" + (props.inline ? " inline" : "")} ref={gridRef}>

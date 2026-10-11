@@ -975,6 +975,17 @@ Common_Expand	Expand	展开
 Common_Collapse	Collapse	收起
 Common_OpenDetails	Open	点击打开
 Changes_JumpToFinding	Jump to line	跳转到问题行
+Changes_FilterPlaceholder	Filter files	筛选文件…
+Changes_NoMatch	No matching files	没有匹配的文件
+Changes_CheckAll	Check all	全选
+Changes_UncheckAll	Uncheck all	取消全选
+Changes_IncludeCommit	Include in commit	参与本次提交
+Changes_StageGroup	Stage all in group	全部暂存
+Changes_UnstageGroup	Unstage all in group	全部取消暂存
+Changes_AheadBehind	{0} ahead, {1} behind	领先 {0} 个提交，落后 {1} 个提交
+Changes_Ahead	{0} ahead	领先 {0} 个提交
+Changes_StagedFiles	{0} files staged	已暂存 {0} 个文件
+Changes_BranchSwitch	Switch branch	切换分支
 Settings_AgentRules	Agent permission rules	Agent 权限规则
 Settings_AgentCompaction	Context compaction	上下文压缩
 Files_Title	Files	项目文件

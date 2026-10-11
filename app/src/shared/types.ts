@@ -69,6 +69,8 @@ export interface FileStatusDTO {
   isConflict: boolean;
   added: number | null;
   deleted: number | null;
+  /** git 状态字母：staged 取 index 位（A/M/D/R…）、changes 取 worktree 位、untracked "?"、冲突取原 XY（如 UU） */
+  code?: string;
 }
 
 export interface ChangesStateDTO {
@@ -77,6 +79,11 @@ export interface ChangesStateDTO {
   staged: FileStatusDTO[];
   unversioned: FileStatusDTO[];
   conflicts: FileStatusDTO[];
+  /** 当前分支名；detached HEAD 时为 "HEAD" */
+  branch: string | null;
+  /** 领先/落后 upstream 的提交数；无 upstream 为 null（不显示） */
+  ahead: number | null;
+  behind: number | null;
 }
 
 export interface BranchItemDTO {

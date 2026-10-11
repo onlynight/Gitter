@@ -354,6 +354,16 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 }
 .tool-btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--c-link) 85%, var(--c-text)); border-color: var(--c-link); }
 .tool-btn.primary:active:not(:disabled) { background: var(--c-accent-pressed); }
+/* 反白实心主按钮（近单色）：页面级终点动作（变更页「提交」）——按设计稿规范用黑白反白，
+   不吃 .primary 的链接蓝。禁用态不走通用 0.6 透明（实心钮透明会透出底色显脏），改去饱和填充 */
+.tool-btn.solid {
+  background: var(--c-text); border-color: var(--c-text); color: var(--c-on-accent); font-weight: 600;
+}
+.tool-btn.solid:hover:not(:disabled) { background: color-mix(in srgb, var(--c-text) 82%, var(--c-base)); border-color: var(--c-text); }
+.tool-btn.solid:active:not(:disabled) { background: var(--c-text2); }
+.tool-btn.solid:disabled {
+  background: var(--c-panel2); border-color: var(--c-border); color: var(--c-text3); opacity: 1;
+}
 .tool-btn.danger { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 40%, transparent); }
 .tool-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 12%, transparent); }
 /* 图标按钮（无边框小方钮：任务卡 分叉/归档 等） */
@@ -643,6 +653,103 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .status-letter { font-family: var(--mono); font-weight: 700; width: 12px; text-align: center; flex: none; }
 .st-M { color: var(--c-amber); } .st-A { color: var(--c-green); } .st-D { color: var(--c-red); }
 .st-R { color: var(--c-chip-blue-fg); } .st-U { color: var(--c-text3); }
+
+/* ---- 变更页左侧 v2（changes-left-v2-mockup.html）----
+   侧栏头（分支+同步动作收编页面工具栏）/ 筛选 / 微型大写分组头 / 文件行（分层路径+悬停暂存）。
+   不复用 .list-row/.group-header——那是 Log/Branches 的布局。 */
+.chg-left { overflow: hidden; }
+
+/* 侧栏头 */
+.chg-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 4px; flex: none; }
+.chg-branch {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
+  border: 1px solid var(--c-border-strong); border-radius: 7px; background: var(--c-panel);
+  color: var(--c-text); font-family: inherit; font-size: 11.5px; cursor: pointer; min-width: 0; max-width: 55%;
+  transition: background var(--dur-fast) var(--ease-std), border-color var(--dur-fast) var(--ease-std);
+}
+.chg-branch:hover { background: var(--c-hover); border-color: var(--c-text3); }
+.chg-branch .mono { font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chg-sync { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 10.5px; flex: none; margin-left: 2px; }
+.chg-sync .up { color: var(--c-green); } .chg-sync .dn { color: var(--c-red); }
+.chg-sync svg { flex: none; }
+
+/* 筛选行 */
+.chg-filter { position: relative; margin: 4px 10px 6px; flex: none; }
+.chg-filter > svg { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--c-text3); pointer-events: none; }
+.chg-filter input {
+  width: 100%; height: 27px; padding: 0 26px;
+  border: 1px solid var(--c-border); border-radius: 8px;
+  background: var(--c-panel); color: var(--c-text); font-family: inherit; font-size: 12px; outline: none;
+  transition: border-color var(--dur-fast) var(--ease-std), box-shadow var(--dur-fast) var(--ease-std);
+}
+.chg-filter input::placeholder { color: var(--c-text3); }
+.chg-filter input:focus { border-color: var(--c-text3); background: var(--c-panel2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-link) 18%, transparent); }
+.chg-clr {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; padding: 0; border: none; border-radius: 5px;
+  background: transparent; color: var(--c-text3); cursor: pointer;
+}
+.chg-clr:hover { color: var(--c-text); background: var(--c-hover); }
+.chg-clr { display: none; }
+.chg-filter.has .chg-clr { display: inline-flex; }
+
+/* 分组头：微型大写标签 + 计数药丸，sticky 悬浮；悬停浮现组级动作（全部暂存/取消暂存） */
+.chg-group-h {
+  display: flex; align-items: center; gap: 7px; height: 27px; padding: 0 7px; margin-top: 5px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--c-text3); cursor: pointer; user-select: none;
+  position: sticky; top: 0; z-index: 1; border-radius: 7px;
+  background-color: var(--c-base);
+  background-image: linear-gradient(var(--c-panel2, var(--c-panel)), var(--c-panel2, var(--c-panel))),
+    linear-gradient(var(--c-base), var(--c-base)), linear-gradient(var(--c-base), var(--c-base));
+  border-bottom: 1px solid var(--c-border);
+}
+.chg-group-h svg { flex: none; transition: transform var(--dur-fast) var(--ease-std); }
+.chg-group-h svg.cv-closed { transform: rotate(-90deg); }
+.chg-group-h .chg-cnt {
+  font-size: 10px; font-weight: 500; font-family: var(--mono); color: var(--c-text3);
+  background: var(--c-panel2); border: 1px solid var(--c-border); border-radius: 999px;
+  padding: 0 6px; line-height: 15px; flex: none;
+}
+.chg-group-h.warn { color: var(--c-red); }
+.chg-group-h.warn .chg-cnt { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 32%, transparent); }
+.chg-gacts { display: none; align-items: center; gap: 2px; }
+.chg-group-h:hover .chg-gacts { display: inline-flex; }
+
+/* 文件行 */
+.chg-row {
+  display: flex; align-items: center; gap: 7px; height: 29px; padding: 0 7px 0 9px;
+  border: 1px solid transparent; border-radius: 8px; cursor: default;
+  transition: background var(--dur-fast) var(--ease-std), border-color var(--dur-fast) var(--ease-std);
+}
+.chg-row:hover { background: var(--c-hover); }
+.chg-row.selected { background: var(--c-selected); border-color: var(--c-border-strong); }
+.chg-row.conflict { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--c-red) 65%, transparent); }
+.chg-row.conflict .status-letter { color: var(--c-red); }
+.chg-path { flex: 1; min-width: 0; display: flex; align-items: baseline; font-family: var(--mono); font-size: 11.5px; line-height: 1.2; white-space: nowrap; }
+.chg-path .dir { color: var(--c-text3); overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; flex: 0 1 auto; min-width: 0; }
+.chg-path .sep { color: var(--c-text3); flex: none; }
+.chg-path .base { color: var(--c-text); font-weight: 500; flex: none; max-width: 75%; overflow: hidden; text-overflow: ellipsis; }
+.chg-row.conflict .chg-path .base { color: var(--c-red); }
+.chg-tail { flex: none; display: inline-flex; align-items: center; }
+.chg-stats { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
+.chg-act { display: none; align-items: center; }
+.chg-row:hover .chg-stats { display: none; }
+.chg-row:hover .chg-act { display: inline-flex; }
+.chg-noresult { padding: 18px 10px; color: var(--c-text3); font-size: 11.5px; text-align: center; }
+
+/* 右侧文件头（所选文件：徽标 + 分层路径 + 统计 + 暂存动作 + AI 解释/审查） */
+.chg-filehead {
+  display: flex; align-items: center; gap: 9px; padding: 6px 14px; flex: none;
+  border-bottom: 1px solid var(--c-border); background: var(--c-panel);
+}
+.chg-filehead .chg-path { flex: 0 1 auto; font-size: 12.5px; }
+.chg-filehead .chg-stats { flex: none; }
+
+/* 提交框底部行：左汇总 + 右动作（旧版纯图标按钮 → 文字主按钮 + 推送图标） */
+.chg-sum { font-size: 10.5px; font-family: var(--mono); color: var(--c-text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chg-sum .diff-stats-add, .chg-sum .diff-stats-del { font-size: 10.5px; }
 
 /* ---- Diff（行距 1.7 规格；性能红线区：滚动无动画） ---- */
 .diff { font-family: var(--mono); font-size: 12px; line-height: 20px; user-select: text; }

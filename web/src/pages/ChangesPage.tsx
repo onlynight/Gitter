@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Banner, DiffView, Modal, ScrollArea, Select, SplitPane, SyncBar, useSyncProgress, useContextMenu, type CtxMenuItem } from "../kit";
+import { Banner, DiffView, Modal, ScrollArea, SplitPane, SyncBar, useSyncProgress, useContextMenu, type CtxMenuItem } from "../kit";
+import { TlIcon } from "./taskIcons";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -54,6 +55,12 @@ export function ChangesPage() {
   const [diff, setDiff] = useState<DiffDTO | null>(null);
   const [preview, setPreview] = useState<PreviewDTO | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  // 提交勾选语义（v2 重构）：勾选 = 参与本次提交。已暂存行默认参与（勾选态），
+  // 用反向集合记录「用户显式排除」的暂存路径——修复旧版默认全不勾选、
+  // 提交时把整个暂存区 unstage 导致必失败的倒置语义。未暂存行保持正向勾选（提交时暂存）。
+  const [excludedStaged, setExcludedStaged] = useState<Set<string>>(new Set());
+  // 文件筛选（路径包含匹配；Esc 清空）
+  const [filter, setFilter] = useState("");
   // 分组折叠（组键 = 稳定 id，与语言无关；localStorage 持久化——跨页导航/重启保留）
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     try {
@@ -154,6 +161,9 @@ export function ChangesPage() {
     setSelected(null);
     setDiff(null);
     setMessage("");
+    setChecked(new Set());
+    setExcludedStaged(new Set());
+    setFilter("");
   }, [repo, app.refreshTick]);
 
   const showTransient = (text: string) => {
@@ -239,14 +249,6 @@ export function ChangesPage() {
     void loadDiff(sel);
   };
 
-  const toggleCheck = (path: string) =>
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-
   const allFiles = useMemo(
     () => (state ? [...state.staged, ...state.changes, ...state.unversioned, ...state.conflicts] : []),
     [state],
@@ -256,11 +258,26 @@ export function ChangesPage() {
     () => allFiles.filter((f) => checked.has(f.path) && f.category !== "staged" && f.category !== "conflicts").map((f) => f.path),
     [allFiles, checked],
   );
-  const unstagedPaths = useMemo(
-    () => allFiles.filter((f) => !checked.has(f.path) && f.category === "staged").map((f) => f.path),
-    [allFiles, checked],
-  );
-  const canCommit = !!state && (state.staged.length > 0 || stagedPaths.length > 0) && message.trim().length > 0 && !busy;
+  // 本次提交将包含的文件 = 暂存区（未被显式排除的） + 勾选的未暂存文件；附行数汇总供提交框展示
+  const commitStat = useMemo(() => {
+    if (!state) return { n: 0, added: 0, deleted: 0 };
+    const files = [
+      ...state.staged.filter((f) => !excludedStaged.has(f.path)),
+      ...allFiles.filter((f) => checked.has(f.path) && f.category !== "staged" && f.category !== "conflicts"),
+    ];
+    let added = 0;
+    let deleted = 0;
+    for (const f of files) {
+      added += f.added ?? 0;
+      deleted += f.deleted ?? 0;
+    }
+    return { n: files.length, added, deleted };
+  }, [state, allFiles, checked, excludedStaged]);
+  const canCommit =
+    !!state &&
+    (state.staged.some((f) => !excludedStaged.has(f.path)) || stagedPaths.length > 0) &&
+    message.trim().length > 0 &&
+    !busy;
 
   const doCommit = async (push: boolean) => {
     if (!canCommit) return;
@@ -270,7 +287,7 @@ export function ChangesPage() {
         message: message.trim(),
         push,
         toStage: stagedPaths,
-        toUnstage: unstagedPaths,
+        toUnstage: [...excludedStaged],
       });
       setMessage("");
       setChecked(new Set());
@@ -386,110 +403,142 @@ export function ChangesPage() {
     return <div className="empty-state"><div className="big">◇</div>{t("Common_NoProjectSelected")}</div>;
   }
 
-  const group = (gkey: string, title: string, files: FileStatusDTO[], stagedView: boolean, allowCheck: boolean) => {
-    if (files.length === 0) return null;
-    const eligible = files.filter((f) => !f.isConflict);
-    const allChecked = allowCheck && eligible.length > 0 && eligible.every((f) => checked.has(f.path));
-    const someChecked = eligible.some((f) => checked.has(f.path));
-    // 勾选（含组头全选）后可一键批量暂存，无需逐个右键
-    const checkedPaths = eligible.filter((f) => checked.has(f.path)).map((f) => f.path);
-    const toggleAll = () =>
-      setChecked((prev) => {
+  const q = filter.trim().toLowerCase();
+
+  /** 文件行（v2）：复选框 + 状态徽标 + 分层路径（目录淡化/文件名全亮）+ 行尾统计，悬停统计让位给暂存动作。 */
+  const renderRow = (f: FileStatusDTO, stagedView: boolean, checkable: boolean) => {
+    const letter = letterOf(f);
+    const { dir, base } = splitPath(f.path);
+    const isConflict = f.isConflict;
+    const include = f.category === "staged" ? !excludedStaged.has(f.path) : checked.has(f.path);
+    const toggleInclude = () => {
+      // 两个集合翻转语义一致：已暂存集合存「排除」、其余存「勾选」，都是 has?删:加
+      const setter = f.category === "staged" ? setExcludedStaged : setChecked;
+      setter((prev) => {
         const next = new Set(prev);
-        for (const f of eligible) {
-          if (allChecked) next.delete(f.path);
-          else next.add(f.path);
-        }
+        if (next.has(f.path)) next.delete(f.path);
+        else next.add(f.path);
         return next;
       });
-    const collapsed = collapsedGroups.has(gkey);
+    };
+    const stageOne = () =>
+      void run(async () => { await call("changes.stage", { paths: [f.path] }); return t("Changes_Staged"); });
+    const unstageOne = () =>
+      void run(async () => { await call("changes.unstage", { paths: [f.path] }); return t("Changes_Unstaged"); });
     return (
-      <div>
-        <div className="group-header solid" style={{ cursor: "pointer", userSelect: "none" }} onClick={() => toggleGroup(gkey)}>
-          {allowCheck && eligible.length > 0 && (
-            <input
-              type="checkbox"
-              checked={allChecked}
-              ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
-              onChange={toggleAll}
-              onClick={(e) => e.stopPropagation()}
-              title={allChecked ? t("Changes_UncheckAll") : t("Changes_CheckAll")}
-            />
-          )}
-          <span style={{ width: 12, color: "var(--c-text3)", fontSize: 10 }}>{collapsed ? "▸" : "▾"}</span>
-          <span>{title}</span>
-          <span style={{ color: "var(--c-text3)", fontWeight: 400 }}>{files.length}</span>
-          <span className="grow" style={{ flex: 1 }} />
-          {!stagedView && someChecked && (
-            <button
-              className="tool-btn icon sm"
-              data-tip={t("Changes_StageChecked", checkedPaths.length)}
-              style={{ width: 22, height: 20 }}
-              disabled={busy}
-              onClick={(e) => {
-                e.stopPropagation();
-                void run(async () => { await call("changes.stage", { paths: checkedPaths }); return t("Changes_Staged"); });
-              }}
-            >
-              <span className="glyph" style={{ fontSize: 11 }}>{""}</span>
-            </button>
-          )}
-        </div>
-        {!collapsed && files.map((f) => (
-          <div
-            key={f.category + f.path}
-            className={"list-row" + (selected?.path === f.path && selected?.staged === stagedView ? " selected" : "")}
-            onClick={() => select(f, stagedView)}
-            onContextMenu={(e) => {
-              // menus 接缝（extension-system-v2.md §16.5）：本地动作 + 内置文件菜单（走接缝） + 包菜单
-              void (async () => {
-                const local: CtxMenuItem[] = [
-                  stagedView
-                    ? { label: t("Changes_UnstageFile"), action: () => void run(async () => { await call("changes.unstage", { paths: [f.path] }); return t("Changes_Unstaged"); }) }
-                    : { label: t("Changes_StageFile"), action: () => void run(async () => { await call("changes.stage", { paths: [f.path] }); return t("Changes_Staged"); }) },
-                  ...(f.isConflict ? [{ label: t("Changes_MarkResolved"), action: () => void run(async () => { await call("changes.stage", { paths: [f.path] }); return t("Changes_MarkedResolved"); }) }] : []),
-                  { sep: true, label: "", action: () => {} },
-                ];
-                showMenu(e, [...local, ...(await seamMenuItems("changesFile", f.path))]);
-              })();
-            }}
-          >
-            {allowCheck && !f.isConflict && (
-              <input type="checkbox" checked={checked.has(f.path)} onChange={() => toggleCheck(f.path)} />
-            )}
-            <span className={"status-letter st-" + statusLetter(f)}>{statusLetter(f)}</span>
-            <span className="trim" style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 12 }}>{f.path}</span>
+      <div
+        key={f.category + f.path}
+        className={"chg-row" + (selected?.path === f.path && selected?.staged === stagedView ? " selected" : "") + (isConflict ? " conflict" : "")}
+        onClick={() => select(f, stagedView)}
+        onContextMenu={(e) => {
+          // menus 接缝（extension-system-v2.md §16.5）：本地动作 + 内置文件菜单（走接缝） + 包菜单
+          void (async () => {
+            const local: CtxMenuItem[] = [
+              stagedView
+                ? { label: t("Changes_UnstageFile"), action: unstageOne }
+                : { label: t("Changes_StageFile"), action: stageOne },
+              ...(isConflict ? [{ label: t("Changes_MarkResolved"), action: stageOne }] : []),
+              { sep: true, label: "", action: () => {} },
+            ];
+            showMenu(e, [...local, ...(await seamMenuItems("changesFile", f.path))]);
+          })();
+        }}
+      >
+        {checkable && !isConflict && (
+          <input
+            type="checkbox"
+            checked={include}
+            onChange={toggleInclude}
+            onClick={(e) => e.stopPropagation()}
+            data-tip={t("Changes_IncludeCommit")}
+          />
+        )}
+        <span className={"status-letter " + (letter === "?" ? "st-U" : "st-" + letter)}>{letter}</span>
+        <span className="chg-path" title={f.path}>
+          {dir && <><span className="dir">{dir}</span><span className="sep">/</span></>}
+          <span className="base">{base}</span>
+        </span>
+        <span className="chg-tail">
+          <span className="chg-stats">
             {f.added !== null && <span className="diff-stats-add">+{f.added}</span>}
             {f.deleted !== null && <span className="diff-stats-del">−{f.deleted}</span>}
-          </div>
-        ))}
+          </span>
+          {!isConflict && (
+            <span className="chg-act">
+              {stagedView ? (
+                <button className="icon-btn" data-tip={t("Changes_UnstageFile")} disabled={busy}
+                  onClick={(e) => { e.stopPropagation(); unstageOne(); }}>
+                  <TlIcon name="down" size={12} />
+                </button>
+              ) : (
+                <button className="icon-btn" data-tip={t("Changes_StageFile")} disabled={busy}
+                  onClick={(e) => { e.stopPropagation(); stageOne(); }}>
+                  <TlIcon name="up" size={12} />
+                </button>
+              )}
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  };
+
+  const group = (
+    gkey: string,
+    title: string,
+    files: FileStatusDTO[],
+    stagedView: boolean,
+    opts: { checkable: boolean; act: "stage" | "unstage" | null },
+  ) => {
+    const visible = q ? files.filter((f) => f.path.toLowerCase().includes(q)) : files;
+    if (visible.length === 0) return null;
+    const collapsed = collapsedGroups.has(gkey);
+    const actAll = () => {
+      const paths = visible.map((f) => f.path);
+      if (opts.act === "stage") {
+        void run(async () => { await call("changes.stage", { paths }); return t("Changes_Staged"); });
+      } else {
+        void run(async () => { await call("changes.unstage", { paths }); return t("Changes_Unstaged"); });
+      }
+    };
+    return (
+      <div key={gkey}>
+        <div className={"chg-group-h" + (gkey === "conflicts" ? " warn" : "")} onClick={() => toggleGroup(gkey)}>
+          <TlIcon name="chevron-down" size={11} className={collapsed ? "cv-closed" : undefined} />
+          <span>{title}</span>
+          <span className="chg-cnt">{visible.length}</span>
+          <span style={{ flex: 1 }} />
+          {opts.act && (
+            <span className="chg-gacts" onClick={(e) => e.stopPropagation()}>
+              <button
+                className="icon-btn"
+                data-tip={opts.act === "stage" ? t("Changes_StageGroup") : t("Changes_UnstageGroup")}
+                disabled={busy}
+                onClick={actAll}
+              >
+                <TlIcon name={opts.act === "stage" ? "plus" : "down"} size={12} />
+              </button>
+            </span>
+          )}
+        </div>
+        {!collapsed && visible.map((f) => renderRow(f, stagedView, opts.checkable))}
       </div>
     );
   };
 
   const hasSelectedHunks = selectedHunks.size > 0 && diff && !diff.isBinary;
 
+  // 右侧文件头数据：在对应分组里找回所选文件（拿 code 与行数统计）
+  const selectedFile = useMemo(() => {
+    if (!selected || !state) return null;
+    const list = selected.staged ? state.staged : selected.isConflict ? state.conflicts : selected.isNew ? state.unversioned : state.changes;
+    return list.find((f) => f.path === selected.path) ?? null;
+  }, [selected, state]);
+  const selLetter = selectedFile ? letterOf(selectedFile) : "";
+  const selSplit = selected ? splitPath(selected.path) : { dir: "", base: "" };
+
   return (
     <>
-      <div className="toolbar">
-        <button className="tool-btn icon" data-tip="抓取" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.fetch", {}); return t("Changes_Fetched"); })}>
-          <span className="glyph">{""}</span>
-        </button>
-        <button className="tool-btn icon" data-tip="拉取" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: false }); return t("Changes_Pulled"); })}>
-          <span className="glyph">{""}</span>
-        </button>
-        <button className="tool-btn icon" data-tip="拉取（变基）" disabled={!repo || busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: true }); return t("Changes_PulledRebase"); })}>
-          <span className="glyph">{""}</span>
-        </button>
-        <button className="tool-btn icon" data-tip="推送" disabled={!repo || busy} onClick={() => void doPush()}>
-          <span className="glyph">{""}</span>
-        </button>
-        <span className="grow" />
-        <button className="tool-btn icon" data-tip="创建分支" onClick={() => setCreateBranch("")}>
-          <span className="glyph">{""}</span>
-        </button>
-      </div>
-
       {error && (
         <Banner
           text={error}
@@ -587,38 +636,93 @@ export function ChangesPage() {
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px 12px 12px" }}>
       <SplitPane settingKey="changesSplitterFraction" initial={0.38} a={
-        <div className="split-pane" style={{ display: "flex", flexDirection: "column" }}>
+        <div className="split-pane chg-left" style={{ display: "flex", flexDirection: "column" }}>
+          {/* 侧栏头：分支上下文 + 同步动作（原页面级工具栏收编于此，changes-left-v2-mockup ①） */}
+          <div className="chg-head">
+            <button className="chg-branch" data-tip={t("Changes_BranchSwitch")} onClick={() => navigate("branches")}>
+              <TlIcon name="branch" size={12} />
+              <span className="mono">{state?.branch ?? "—"}</span>
+            </button>
+            {state && !!state.ahead && !!state.behind && (
+              <span className="chg-sync" data-tip={t("Changes_AheadBehind", state.ahead, state.behind)}>
+                <TlIcon name="up" size={10} className="up" /><span className="up">{state.ahead}</span>
+                <TlIcon name="down" size={10} className="dn" /><span className="dn">{state.behind}</span>
+              </span>
+            )}
+            {state && !!state.ahead && !state.behind && (
+              <span className="chg-sync" data-tip={t("Changes_Ahead", state.ahead)}>
+                <TlIcon name="up" size={10} className="up" /><span className="up">{state.ahead}</span>
+              </span>
+            )}
+            {state && !state.ahead && !!state.behind && (
+              <span className="chg-sync" data-tip={t("Changes_AheadBehind", 0, state.behind)}>
+                <TlIcon name="down" size={10} className="dn" /><span className="dn">{state.behind}</span>
+              </span>
+            )}
+            <span style={{ flex: 1 }} />
+            <button className="icon-btn" data-tip={t("Changes_Fetch")} disabled={busy} onClick={() => void run(async () => { await call("changes.fetch", {}); return t("Changes_Fetched"); })}>
+              <TlIcon name="sync" size={13} />
+            </button>
+            <button className="icon-btn" data-tip={t("Changes_Pull")} disabled={busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: false }); return t("Changes_Pulled"); })}>
+              <TlIcon name="download" size={13} />
+            </button>
+            <button className="icon-btn" data-tip={t("Changes_PullRebase")} disabled={busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: true }); return t("Changes_PulledRebase"); })}>
+              <TlIcon name="down" size={13} />
+            </button>
+            <button className="icon-btn" data-tip={t("Changes_Push")} disabled={busy} onClick={() => void doPush()}>
+              <TlIcon name="up" size={13} />
+            </button>
+            <button className="icon-btn" data-tip={t("Branches_CreateTitle")} onClick={() => setCreateBranch("")}>
+              <TlIcon name="plus" size={13} />
+            </button>
+          </div>
+
+          {/* 筛选（大变更集快速定位） */}
+          <div className={"chg-filter" + (filter ? " has" : "")}>
+            <TlIcon name="search" size={12} />
+            <input
+              value={filter}
+              placeholder={t("Changes_FilterPlaceholder")}
+              spellCheck={false}
+              onChange={(e) => setFilter(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") setFilter(""); }}
+            />
+            {filter && (
+              <button className="chg-clr" onClick={() => setFilter("")}>
+                <TlIcon name="x" size={11} />
+              </button>
+            )}
+          </div>
+
           <ScrollArea className="file-scroll" style={{ flex: 1 }}>
             {state && (
               <>
-                {group("conflicts", t("Changes_Conflicts"), state.conflicts, false, false)}
-                {group("staged", t("Changes_StagedGroup"), state.staged, true, true)}
-                {group("changes", t("Changes_ChangesGroup"), state.changes, false, true)}
-                {group("unversioned", t("Changes_UnversionedGroup"), state.unversioned, false, true)}
+                {group("conflicts", t("Changes_Conflicts"), state.conflicts, false, { checkable: false, act: null })}
+                {group("staged", t("Changes_StagedGroup"), state.staged, true, { checkable: true, act: "unstage" })}
+                {group("changes", t("Changes_ChangesGroup"), state.changes, false, { checkable: true, act: "stage" })}
+                {group("unversioned", t("Changes_UnversionedGroup"), state.unversioned, false, { checkable: true, act: "stage" })}
                 {allFiles.length === 0 && (
                   <div className="empty-state">
                     {t("Changes_WorktreeClean")}
                     <EmptyHints slot="changes.empty" />
                   </div>
                 )}
+                {allFiles.length > 0 && q && !allFiles.some((f) => f.path.toLowerCase().includes(q)) && (
+                  <div className="chg-noresult">{t("Changes_NoMatch")}</div>
+                )}
               </>
             )}
           </ScrollArea>
 
+          {/* 提交框：前缀 chips + AI 生成；底部实时汇总 + 文字主按钮 */}
           <div className="commit-box">
             <div className="prefix-row">
               {PREFIXES.map((p) => (
                 <button key={p} className="prefix-chip" onClick={() => setMessage((m) => (m.trim() ? m : p + " "))}>{p}</button>
               ))}
               <span className="grow" style={{ flex: 1 }} />
-              <button className="tool-btn icon" data-tip={aiBusy ? t("Common_Loading") : t("Changes_AiGenerate")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void generateMessage()}>
-                <span className="glyph">{""}</span>
-              </button>
-              <button className="tool-btn icon" data-tip={t("Changes_AiExplain")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("explain")}>
-                <span className="glyph">{""}</span>
-              </button>
-              <button className="tool-btn icon" data-tip={t("Changes_AiReview")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("review")}>
-                <span className="glyph">{""}</span>
+              <button className="icon-btn" data-tip={aiBusy ? t("Common_Loading") : t("Changes_AiGenerate")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void generateMessage()}>
+                <TlIcon name="sparkle" size={13} />
               </button>
             </div>
             <CommitBlocks fileCount={state?.staged.length ?? 0} />
@@ -630,61 +734,79 @@ export function ChangesPage() {
                 if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); void doCommit(false); }
               }}
             />
-            <div className="commit-actions">
-              <button className="tool-btn primary icon" data-tip={t("Changes_Commit")} disabled={!canCommit} onClick={() => void doCommit(false)}>
-                <span className="glyph">{""}</span>
+            <div className="commit-actions" style={{ alignItems: "center", justifyContent: "flex-start" }}>
+              <span className="chg-sum">
+                {t("Changes_StagedFiles", commitStat.n)}
+                {(commitStat.added > 0 || commitStat.deleted > 0) && (
+                  <>
+                    {" · "}
+                    <span className="diff-stats-add">+{commitStat.added}</span>{" "}
+                    <span className="diff-stats-del">−{commitStat.deleted}</span>
+                  </>
+                )}
+              </span>
+              <span style={{ flex: 1 }} />
+              <button className="tool-btn solid" data-tip={t("Changes_Commit")} disabled={!canCommit} onClick={() => void doCommit(false)}>
+                <TlIcon name="check" size={12} />
+                {t("Changes_Commit")}
               </button>
               <button className="tool-btn icon" data-tip={t("Changes_CommitAndPush")} disabled={!canCommit} onClick={() => void doCommit(true)}>
-                <span className="glyph">{""}</span>
+                <TlIcon name="up" size={13} />
               </button>
             </div>
           </div>
         </div>} b={
         <div className="split-pane" style={{ display: "flex", flexDirection: "column" }}>
           {selected && (
-            <div className="toolbar" style={{ borderBottom: "none" }}>
+            <div className="chg-filehead">
+              <span className={"status-letter " + (selLetter === "?" ? "st-U" : "st-" + selLetter)}>{selLetter}</span>
+              <span className="chg-path" title={selected.path}>
+                {selSplit.dir && <><span className="dir">{selSplit.dir}</span><span className="sep">/</span></>}
+                <span className="base">{selSplit.base}</span>
+              </span>
+              {selectedFile?.added != null && (
+                <span className="chg-stats">
+                  <span className="diff-stats-add">+{selectedFile.added}</span>{" "}
+                  <span className="diff-stats-del">−{selectedFile.deleted}</span>
+                </span>
+              )}
+              <span style={{ flex: 1 }} />
+              {/* AI 解释 / 审查：针对右侧所选文件（v2 从提交框移入） */}
+              <button className="icon-btn" data-tip={t("Changes_AiExplain")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("explain")}>
+                <TlIcon name="chat" size={13} />
+              </button>
+              <button className="icon-btn" data-tip={t("Changes_AiReview")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void explain("review")}>
+                <TlIcon name="shield" size={13} />
+              </button>
               {selected.staged ? (
                 <>
-                  <button
-                    className="tool-btn"
-                    disabled={busy}
-                    onClick={() => void run(async () => { await call("changes.unstage", { paths: [selected.path] }); setSelected(null); setDiff(null); return t("Changes_Unstaged"); })}
-                  >
+                  <button className="tool-btn" disabled={busy}
+                    onClick={() => void run(async () => { await call("changes.unstage", { paths: [selected.path] }); setSelected(null); setDiff(null); return t("Changes_Unstaged"); })}>
+                    <TlIcon name="down" size={12} />
                     {t("Changes_UnstageFile")}
                   </button>
                   {hasSelectedHunks && (
-                    <button
-                      className="tool-btn primary"
-                      disabled={busy}
-                      onClick={() => void run(async () => { await call("changes.unstageHunks", { path: selected.path, indices: [...selectedHunks] }); return t("Changes_UnstagedHunks"); })}
-                    >
+                    <button className="tool-btn primary" disabled={busy}
+                      onClick={() => void run(async () => { await call("changes.unstageHunks", { path: selected.path, indices: [...selectedHunks] }); return t("Changes_UnstagedHunks"); })}>
                       {t("Changes_UnstageHunkSelected", selectedHunks.size)}
                     </button>
                   )}
                 </>
               ) : (
                 <>
-                  <button
-                    className="tool-btn icon"
-                    data-tip={t("Changes_StageFile")}
-                    disabled={busy}
-                    onClick={() => void run(async () => { await call("changes.stage", { paths: [selected.path] }); setSelected(null); setDiff(null); return t("Changes_Staged"); })}
-                  >
-                    <span className="glyph">{""}</span>
+                  <button className="tool-btn icon" data-tip={t("Changes_StageFile")} disabled={busy}
+                    onClick={() => void run(async () => { await call("changes.stage", { paths: [selected.path] }); setSelected(null); setDiff(null); return t("Changes_Staged"); })}>
+                    <TlIcon name="up" size={13} />
                   </button>
                   {hasSelectedHunks && (
-                    <button
-                      className="tool-btn icon"
-                      data-tip={t("Changes_StageHunkSelected", selectedHunks.size)}
-                      disabled={busy}
-                      onClick={() => void run(async () => { await call("changes.stageHunks", { path: selected.path, indices: [...selectedHunks] }); return t("Changes_StagedHunks"); })}
-                    >
-                      <span className="glyph">{""}</span>
+                    <button className="tool-btn icon" data-tip={t("Changes_StageHunkSelected", selectedHunks.size)} disabled={busy}
+                      onClick={() => void run(async () => { await call("changes.stageHunks", { path: selected.path, indices: [...selectedHunks] }); return t("Changes_StagedHunks"); })}>
+                      <TlIcon name="up" size={13} />
+                      <span style={{ fontSize: 11 }}>{selectedHunks.size}</span>
                     </button>
                   )}
                 </>
               )}
-              <span className="grow" />
             </div>
           )}
           {selected?.isConflict && (
@@ -696,7 +818,6 @@ export function ChangesPage() {
             {selected && preview ? (
               <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
                 <div className="diff-file-header">
-                  <span className="path">{selected.path}</span>
                   <span style={{ marginLeft: "auto", color: "var(--c-text3)", fontSize: 11 }}>
                     {preview.fromIndex ? t("Changes_PreviewStaged") : t("Changes_PreviewWorktree")}
                   </span>
@@ -716,6 +837,7 @@ export function ChangesPage() {
             ) : selected && diff ? (
               <DiffView
                 diff={diff}
+                hideHeader
                 focusLine={focusLine}
                 inline={app.settings?.diffMode === "inline"}
                 selectedHunks={selected.staged || selected.isNew ? undefined : selectedHunks}
@@ -762,11 +884,20 @@ export function ChangesPage() {
   );
 }
 
-function statusLetter(f: FileStatusDTO): string {
+/** 状态徽标字母：优先 git 原生 code（staged=index 位 / changes=worktree 位 / untracked ? / 冲突 XY），
+ * 旧数据无 code 时按 category 兜底。 */
+function letterOf(f: FileStatusDTO): string {
   if (f.isConflict) return "U";
-  if (f.category === "unversioned") return "U";
+  if (f.code) return f.code[0];
+  if (f.category === "unversioned") return "?";
   if (f.category === "staged") return "A";
   return "M";
+}
+
+/** 路径分层：目录段（淡显、左截断）+ 文件名（全亮）。 */
+function splitPath(p: string): { dir: string; base: string } {
+  const i = p.lastIndexOf("/");
+  return i < 0 ? { dir: "", base: p } : { dir: p.slice(0, i), base: p.slice(i + 1) };
 }
 
 /** 提交对话框区块接缝（E 阶段收尾：L2 数据供给，只能提示不能阻断——阻断走门禁）。 */
