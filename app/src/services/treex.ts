@@ -264,9 +264,19 @@ const BINARY_DOC_EXTS = new Set([
   ".pdf", ".ods",
 ]);
 
+/** 图片族（与任务面板 IMG_RE 同集）：file.readBinary 通道放行只读预览，写入仍限 OOXML */
+const BINARY_IMAGE_EXTS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif", ".ico",
+]);
+
 export function isBinaryDocPath(rel: string): boolean {
   const i = rel.lastIndexOf(".");
   return i >= 0 && BINARY_DOC_EXTS.has(rel.slice(i).toLowerCase());
+}
+
+export function isBinaryImagePath(rel: string): boolean {
+  const i = rel.lastIndexOf(".");
+  return i >= 0 && BINARY_IMAGE_EXTS.has(rel.slice(i).toLowerCase());
 }
 
 export const MAX_BINARY_READ_BYTES = 50 * 1024 * 1024;
@@ -303,7 +313,7 @@ export async function readBinaryContent(
   workDir: string,
   rel: string,
 ): Promise<BinaryContentResult | null> {
-  if (!isBinaryDocPath(rel)) return null; // 白名单外不走二进制通道（防绕过文本嗅探）
+  if (!isBinaryDocPath(rel) && !isBinaryImagePath(rel)) return null; // 白名单外不走二进制通道（防绕过文本嗅探）
   const abs = path.resolve(workDir, rel);
   const realWt = await fsp.realpath(workDir).catch(() => workDir);
   const relCheck = path.relative(realWt, abs);
@@ -328,6 +338,7 @@ export async function writeBinaryContent(
   base64: string,
 ): Promise<FileWriteResult> {
   if (!isBinaryDocPath(rel)) {
+    // 写入仍限 OOXML 文档——图片族只进只读预览通道，页内不回写
     return { ok: false, size: 0, mtime: 0, error: "binary" };
   }
   const abs = path.resolve(workDir, rel);

@@ -56,7 +56,8 @@ export type GatePoint = "commit" | "push";
 export type GateHook = (info: Record<string, unknown>) => Promise<string | null> | string | null;
 
 export type PreviewResult = { kind: "text" | "html"; content: string } | null;
-export type PreviewProvider = (filePath: string, maxBytes?: number) => Promise<PreviewResult> | PreviewResult;
+/** opts.repo = 当前仓库根（bridge file.preview 传入）：provider 收到的 filePath 是仓库相对路径，读文件自行拼绝对路径并做越界防护。 */
+export type PreviewProvider = (filePath: string, opts: { maxBytes?: number; repo: string | null }) => Promise<PreviewResult> | PreviewResult;
 
 export type PluginScanner = (file: ScannableFile) => RuleFinding[] | null;
 

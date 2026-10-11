@@ -46,6 +46,28 @@ const EXT_TO_GRAMMAR: Record<string, string> = {
   ".zig": "zig", ".nim": "nim", ".sol": "solidity", ".asm": "asm", ".f90": "fortran",
 };
 
+/**
+ * fenced code block 语言名（```ts / ```python …）→ 语法选择用扩展名：
+ * highlight.snippet 用假文件名走 entryFor，语言名先经此表归一（常见别名/全名 →
+ * EXT_TO_GRAMMAR 已覆盖的扩展名）；未收录的语言名原样当扩展名试一次，再不中走降级链。
+ */
+export const SNIPPET_LANG_EXT: Record<string, string> = {
+  typescript: ".ts", ts: ".ts", tsx: ".tsx", javascript: ".js", js: ".js", jsx: ".jsx",
+  python: ".py", py: ".py", ruby: ".rb", rb: ".rb", golang: ".go", go: ".go",
+  rust: ".rs", rs: ".rs", java: ".java", kotlin: ".kt", kt: ".kt", scala: ".scala",
+  swift: ".swift", c: ".c", cpp: ".cpp", "c++": ".cpp", csharp: ".cs", "c#": ".cs", cs: ".cs",
+  php: ".php", bash: ".sh", sh: ".sh", shell: ".sh", shellscript: ".sh", zsh: ".sh",
+  powershell: ".ps1", ps1: ".ps1", bat: ".bat", batch: ".bat", cmd: ".bat",
+  yaml: ".yaml", yml: ".yml", toml: ".toml", json: ".json", jsonc: ".jsonc", json5: ".jsonc",
+  html: ".html", xml: ".xml", css: ".css", scss: ".scss", less: ".less",
+  vue: ".vue", svelte: ".svelte", markdown: ".md", md: ".md", sql: ".sql", lua: ".lua",
+  perl: ".pl", r: ".r", haskell: ".hs", hs: ".hs", elixir: ".ex", erlang: ".erl",
+  clojure: ".clj", ini: ".ini", cfg: ".ini", diff: ".diff", patch: ".patch",
+  dockerfile: ".dockerfile", docker: ".dockerfile", makefile: "makefile", mk: "makefile",
+  graphql: ".graphql", gql: ".graphql", zig: ".zig", dart: ".dart", groovy: ".groovy",
+  objectivec: ".m", "objective-c": ".m", fortran: ".f90", solidity: ".sol",
+};
+
 /** 主题 legacy syntax 语义键 → TextMate scope 选择器（extension-system-v2.md §七）。 */
 const LEGACY_SCOPES: Record<string, string> = {
   keyword: "keyword",

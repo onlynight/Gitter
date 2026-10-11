@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "id": "com.gitter.markdown-preview",
+  "name": "Markdown 预览",
+  "version": "0.1.0",
+  "description": "外部 L2 插件：markdown-it 渲染 .md/.markdown 只读预览。经 file.preview previewProviders 接缝生效（插件优先，未启用时文件页/任务面板回退文本模式）。",
+  "engines": { "gitter": ">=0.1.0" },
+  "entry": "main.js",
+  "entrySandbox": "host",
+  "permissions": ["git.read"],
+  "contributes": {}
+}

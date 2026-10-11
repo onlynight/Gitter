@@ -44,7 +44,7 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "terminal.profiles": "open", "terminal.list": "open",
   "tasks.list": "open", "projects.list": "open",
   "app.gitVersion": "open", "agent.task.history": "open", "api.info": "open",
-  "agent.tasks": "git.read", "highlight.file": "open", "extensions.pages": "open",
+  "agent.tasks": "git.read", "highlight.file": "open", "highlight.snippet": "open", "extensions.pages": "open",
   "agent.context.stats": "open",
   "agent.task.shells": "open", "agent.seams.audit": "open",
   "remote.list": "git.read",

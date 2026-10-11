@@ -17,7 +17,7 @@ import { runRegisteredLoop, registeredLoops } from "./services/extensions/agentL
 import { PackageStore, type PackageLedgerEntry } from "./services/extensions/store";
 import { CommandRegistry } from "./services/extensions/commands";
 import { importGpkFile, uninstallPackageDir } from "./services/extensions/gpk";
-import { buildRawTheme } from "./services/extensions/grammar";
+import { buildRawTheme, SNIPPET_LANG_EXT } from "./services/extensions/grammar";
 import { AgentSessionManager } from "./services/agents/session";
 import { pickRepairTarget } from "./services/agents/session";
 import { registerAgentTool, unregisterAgentToolsBySource } from "./services/agents/registry";
@@ -200,6 +200,12 @@ export class Bridge {
       },
     });
     this.registerAll();
+    // 启动即装载 L2 entry 包（信任门开时）——此前 activateAll 仅由扩展管理动作
+    // （启停/装包/切信任门开关）触发，重启后已允许的代码插件不会装载，
+    // file.preview 等运行时 provider 全部失效（markdown 预览等回退卡）
+    void this.shared.host.activateAll(this.shared.pkgStore, {
+      allowCode: this.shared.settings.current.allowCodePlugins,
+    });
   }
 
   dispose() {
@@ -465,7 +471,7 @@ export class Bridge {
     // ---- Office 文档二进制读写（office-integration-plan.md §5 OOXML 白名单通道）----
     // stat：office 页保存前 mtime 冲突检测（免拉全量 base64）
     R("file.stat", async (args: { path: string }) => treex.statFile(this.needRepo(), args.path));
-    // 读：base64 + mtime；超 50MB 返回 truncated（zip 半包无意义）
+    // 读：base64 + mtime（OOXML 文档 + 图片族只读预览）；超 50MB 返回 truncated（zip 半包无意义）
     R("file.readBinary", async (args: { path: string }) =>
       treex.readBinaryContent(this.needRepo(), args.path));
     // 写：base64 进（OOXML 白名单内，20MB 护栏）；与文本写同路刷新 readLog
@@ -1085,6 +1091,27 @@ export class Bridge {
       const { lines: runs } = this.shared.highlight.highlightLines(h, lines);
       return { language: h.language, lines: runs, syntaxColors };
     });
+    // 代码块片段高亮（md 预览等渲染端注入用）：lang = fenced 语言名，经 SNIPPET_LANG_EXT
+    // 归一为假文件名后走与 highlight.file 相同的降级链（TextMate → 声明式 → plain）
+    R("highlight.snippet", async (args: { code: string; lang?: string | null }) => {
+      const themeState = this.shared.themes.resolve(
+        this.shared.settings.current.themePackageId,
+        this.shared.settings.current.theme === "light" ? "light" : "dark",
+      );
+      const syntaxColors = themeState.syntax;
+      const built = buildRawTheme(themeState);
+      const ext = args.lang ? SNIPPET_LANG_EXT[args.lang.toLowerCase()] ?? (args.lang.includes(".") ? args.lang.toLowerCase() : `.${args.lang.toLowerCase()}`) : null;
+      const fakePath = ext ? `snippet${ext}` : null;
+      if (fakePath) {
+        const tm = await this.shared.grammar.highlight(fakePath, args.code, built);
+        if (tm) return { language: tm.language, lines: tm.lines, syntaxColors };
+      }
+      if (args.code.length > 200_000) return { language: null, lines: [], syntaxColors };
+      const h = fakePath ? this.shared.highlight.forFile(fakePath) : null;
+      if (!h) return { language: null, lines: [], syntaxColors };
+      const { lines: runs } = this.shared.highlight.highlightLines(h, args.code.split("\n"));
+      return { language: h.language, lines: runs, syntaxColors };
+    });
 
     // ---- 扩展包（extension-system-v2.md §五/§六）----
     R("extensions.list", () => this.shared.pkgStore.list());
@@ -1310,7 +1337,7 @@ export class Bridge {
       // previewProviders 接缝：包提供者优先，缺省走内置预览
       const provider = this.shared.host.findPreviewProvider(args.path);
       if (provider) {
-        const r = await provider(args.path, args.maxBytes);
+        const r = await provider(args.path, { maxBytes: args.maxBytes, repo: this.needRepo() });
         if (r) return r;
       }
       return preview.readPreview(this.needRepo(), args.path, !!args.staged, args.maxBytes);
