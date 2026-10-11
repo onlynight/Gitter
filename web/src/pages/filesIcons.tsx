@@ -48,11 +48,18 @@ export const FilterIcon = () => (
 export const RefreshIcon = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13.2 1.8v3h-3" {...S} /></svg>
 );
+/** 全部折叠：两枚尖括号竖向朝中间收拢（上朝下 + 下朝上） */
 export const CollapseAllIcon = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
-    <path d="M2.5 2.5h11M2.5 13.5h11" {...S} />
-    <path d="m5.2 5 2.8 2.4L10.8 5" {...S} />
-    <path d="m5.2 11 2.8-2.4L10.8 11" {...S} />
+    <path d="M4.5 3 8 6.5 11.5 3" {...S} strokeWidth={1.3} />
+    <path d="M4.5 13 8 9.5 11.5 13" {...S} strokeWidth={1.3} />
+  </svg>
+);
+/** 全部展开：两枚尖括号竖向向两端张开（上朝上 + 下朝下） */
+export const ExpandAllIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M4.5 6.5 8 3l3.5 3.5" {...S} strokeWidth={1.3} />
+    <path d="M4.5 9.5 8 13l3.5-3.5" {...S} strokeWidth={1.3} />
   </svg>
 );
 export const CloseIcon = () => (
@@ -98,3 +105,24 @@ export const CopyIcon = () => (
   <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2" {...S} /><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" {...S} /></svg>
 );
 export const RevealIcon = () => <FolderIcon size={13} />;
+/** 新建文件：文档折角形 + 内嵌加号 */
+export const NewFileIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path
+      d="M4 1.8h5.2L12.8 5.4V14a.8.8 0 0 1-.8.8H4a.8.8 0 0 1-.8-.8V2.6c0-.44.36-.8.8-.8z"
+      stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"
+    />
+    <path d="M9 2v3.4h3.4" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+    <path d="M8.4 7.2v4M6.4 9.2h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+  </svg>
+);
+/** 新建文件夹：文件夹形 + 内嵌加号 */
+export const NewFolderIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path
+      d="M1.8 4.2c0-.6.4-1 1-1h3l1.4 1.6h5.9c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1H2.8c-.6 0-1-.4-1-1z"
+      stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"
+    />
+    <path d="M8 6.8v3.6M6.2 8.6h3.6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+  </svg>
+);

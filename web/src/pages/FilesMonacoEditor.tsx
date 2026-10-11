@@ -9,6 +9,7 @@ import { useEffect, useRef } from "react";
 import * as MonacoNs from "monaco-editor";
 import { useAppState } from "../pageSdk";
 import { applyMonacoTheme, createEditor, markerCounts } from "./filesMonaco";
+import { updateGitGutter } from "./filesGitGutter";
 
 type MonacoEditor = MonacoNs.editor.IStandaloneCodeEditor;
 type MonacoModel = MonacoNs.editor.ITextModel;
@@ -24,6 +25,10 @@ export interface FilesMonacoEditorProps {
   onMarkers?: (counts: { errors: number; warnings: number }) => void;
   /** 只读模式 */
   readOnly?: boolean;
+  /** git gutter 基线（HEAD 版本全文）：null = 未就绪（无标记）；"" = 未跟踪新文件 */
+  gitBase?: string | null;
+  /** git 行级 diff 高亮开关（false = 清除高亮；基线保留，重开即时恢复） */
+  showDiff?: boolean;
 }
 
 export function FilesMonacoEditor(props: FilesMonacoEditorProps) {
@@ -86,8 +91,36 @@ export function FilesMonacoEditor(props: FilesMonacoEditorProps) {
       if (e.isFlush) return; // 程序性 setValue（重新加载）不算用户编辑
       cbRef.current.onChange?.(model ? model.getValue() : "");
     });
-    return () => sub.dispose();
+
+    // git 行级 diff 高亮：model 就绪即算；内容任何变化（含 isFlush 重载）防抖重算；
+    // showDiff=false 一律清空（基线仍在 props 里，切回「变更」模式即时恢复）
+    let gutterTimer = 0;
+    const rerunGutter = () => {
+      window.clearTimeout(gutterTimer);
+      gutterTimer = window.setTimeout(() => {
+        const m = ed.getModel() as MonacoModel | null;
+        if (m && m === model) {
+          updateGitGutter(m, cbRef.current.showDiff ? (cbRef.current.gitBase ?? null) : null);
+        }
+      }, 250);
+    };
+    if (model) {
+      updateGitGutter(model, cbRef.current.showDiff ? (cbRef.current.gitBase ?? null) : null);
+    }
+    const subGutter = model ? model.onDidChangeContent(rerunGutter) : null;
+
+    return () => {
+      sub.dispose();
+      subGutter?.dispose();
+      window.clearTimeout(gutterTimer);
+    };
   }, [props.model]);
+
+  // 基线异步到达 / 模式开关切换 → 对当前 model 重算
+  useEffect(() => {
+    const m = edRef.current?.getModel() as MonacoModel | null;
+    if (m) updateGitGutter(m, props.showDiff ? (props.gitBase ?? null) : null);
+  }, [props.gitBase, props.showDiff]);
 
   // 光标/诊断订阅（编辑器级事件，跨 model 切换存活；全局 marker 变化按当前 model 过滤）
   useEffect(() => {

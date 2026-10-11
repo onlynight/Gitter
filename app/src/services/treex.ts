@@ -156,15 +156,17 @@ export async function readFileContent(
     if (stat.code === 0 && parseInt(stat.stdout.trim(), 10) <= maxBytes) {
       const show = await tryGit(workDir, ["show", `:${rel}`]);
       if (show.code === 0) {
-        buf = Buffer.from(show.stdout, "binary");
+        buf = Buffer.from(show.stdout, "utf8");
         fromIndex = true;
       }
     }
-  } else if (/^[0-9a-f]{40}$/.test(revision)) {
-    // git object hash（提交中的版本）
+  } else if (revision === "HEAD" || /^[0-9a-f]{40}$/.test(revision)) {
+    // git rev（HEAD / 对象 hash）：文件不在该版本里（未跟踪新文件）→ null。
+    // tryGit 已按 UTF-8 解码，重编码必须走 utf8——"binary"（latin1）会把
+    // 多字节字符压成单字节（U+4E00 → 0x00 NUL），非 ASCII 内容全体变 mojibake
     const show = await tryGit(workDir, ["show", `${revision}:${rel}`]);
     if (show.code === 0) {
-      buf = Buffer.from(show.stdout, "binary");
+      buf = Buffer.from(show.stdout, "utf8");
     }
   } else {
     // worktree（默认）
@@ -387,5 +389,65 @@ export async function writeFileContent(
     return { ok: true, size: st.size, mtime: st.mtimeMs };
   } catch {
     return { ok: false, size: buf.length, mtime: 0, error: "write_failed" };
+  }
+}
+
+/**
+ * 新建文件/文件夹（files 页资源管理器行内新建）。
+ * Windows 段名校验 + 路径锁 + wx 独占创建（防竞态覆盖已有文件）。
+ * 文件按需递归建父目录、内容为空；文件夹允许一次建多层（mkdir recursive）。
+ */
+export type FileCreateKind = "file" | "dir";
+
+export interface FileCreateResult {
+  ok: boolean;
+  path: string;
+  error?: "invalid_name" | "path_locked" | "exists" | "create_failed";
+}
+
+/** Windows 保留设备名（含带扩展名形态，CON.txt 同样保留） */
+const RESERVED_WIN_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+export function validateCreatePath(rel: string): "invalid_name" | null {
+  if (!rel || rel.length > 260) return "invalid_name";
+  for (const seg of rel.split("/")) {
+    if (!seg || seg === "." || seg === "..") return "invalid_name";
+    if (seg.toLowerCase() === ".git") return "invalid_name"; // 嵌套 .git 会干扰 git 的仓库边界判定
+    if (/[<>:"|?*\u0000-\u001f\\]/.test(seg)) return "invalid_name";
+    if (/[.\s]$/.test(seg)) return "invalid_name"; // Windows 会剥掉结尾点/空格，落盘名与请求名不一致
+    if (RESERVED_WIN_NAME.test(seg)) return "invalid_name";
+  }
+  return null;
+}
+
+export async function createEntry(
+  workDir: string,
+  rel: string,
+  kind: FileCreateKind,
+): Promise<FileCreateResult> {
+  const invalid = validateCreatePath(rel);
+  if (invalid) return { ok: false, path: rel, error: invalid };
+
+  const abs = path.resolve(workDir, rel);
+  const realWt = await fsp.realpath(workDir).catch(() => workDir);
+  const relCheck = path.relative(realWt, abs);
+  if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) {
+    return { ok: false, path: rel, error: "path_locked" };
+  }
+
+  try {
+    const existing = await fsp.lstat(abs).catch(() => null);
+    if (existing) return { ok: false, path: rel, error: "exists" };
+    if (kind === "dir") {
+      await fsp.mkdir(abs, { recursive: true });
+    } else {
+      await fsp.mkdir(path.dirname(abs), { recursive: true });
+      await fsp.writeFile(abs, "", { flag: "wx" }); // 独占创建：stat 与 write 间隙被并发建出则在此失败
+    }
+    return { ok: true, path: rel };
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "EEXIST" || code === "EISDIR") return { ok: false, path: rel, error: "exists" };
+    return { ok: false, path: rel, error: "create_failed" };
   }
 }

@@ -5,39 +5,23 @@
  * 宿主只管列表、顶栏（体积/页数/外部打开）、加载态与错误兜底卡（§10.5）。
  * 编辑一律交给外部应用（shell.openPath）——页内不回写字节。
  * 字节通道：pdf/docx/pptx/xlsx/ods 走 file.readBinary（base64），csv/tsv 走 file.content（文本）。
+ * iframe 容器/缩放档位与文件页画布查看器共用 officeDocPreview.tsx。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import {
   formatSize, isTextChannelKind, officeExtLabel, officeKindOf, previewerOf,
-  type OfficeKind,
 } from "./officeShared";
-import previewRuntimeJs from "virtual:officePreviewRuntime";
-import { IFRAME_CSS } from "./officePreview/iframeCss";
+import {
+  PreviewFrame, ZOOM_STEPS, zoomStep,
+  type Payload, type PreviewPhase, type PreviewRenderer,
+} from "./officeDocPreview";
 import { RefreshIcon } from "./filesIcons";
-
-type PreviewRenderer = NonNullable<ReturnType<typeof previewerOf>>;
-type Payload = { base64?: string; text?: string };
-type Phase = "loading" | "rendering" | "ready" | "error" | "legacy";
-
-const PREVIEW_MSG_SRC = "gitter-office-preview";
-
-// srcdoc 静态拼装一次：内联样式 + 预览运行时（</script 转义防提前闭合标签）
-const PREVIEW_JS = previewRuntimeJs.replace(/<\/script/gi, "<\\/script>");
-const SRCDOC = `<!doctype html><html><head><meta charset="utf-8"><style>${IFRAME_CSS}</style></head><body><div id="gitter-preview-root"></div><script>${PREVIEW_JS}</script></body></html>`;
 
 const SIDEBAR_KEY = "gitter.office.sidebar";
 const SIDEBAR_DEFAULT = 248;
 const SIDEBAR_MIN = 170;
 const SIDEBAR_MAX = 420;
-
-/** 缩放档位（宿主为唯一事实源；iframe 里 Ctrl+滚轮只发步进请求） */
-const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 3, 4];
-
-function zoomStep(z: number, dir: 1 | -1): number {
-  if (dir > 0) return ZOOM_STEPS.find((s) => s > z + 1e-9) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1];
-  return [...ZOOM_STEPS].reverse().find((s) => s < z - 1e-9) ?? ZOOM_STEPS[0];
-}
 
 function loadWidth(): number {
   const raw = window.localStorage.getItem(SIDEBAR_KEY);
@@ -52,7 +36,7 @@ export function OfficePage() {
 
   const [files, setFiles] = useState<string[]>([]);
   const [active, setActive] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>("loading");
+  const [phase, setPhase] = useState<PreviewPhase>("loading");
   const [payload, setPayload] = useState<Payload | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [size, setSize] = useState<number | null>(null);
@@ -343,122 +327,5 @@ export function OfficePage() {
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * sandbox iframe 预览容器：srcdoc 装静态运行时，postMessage 握手
- * （ready → render → done|error）。sandbox="allow-scripts"（无 allow-same-origin）
- * → opaque origin，iframe 内代码摸不到宿主 DOM/localStorage；超时兜底防挂死。
- * 缩放：宿主顶栏是唯一事实源——zoom 变化即下行 {type:"zoom"}；iframe 内
- * Ctrl+滚轮上行 {type:"zoom-request"} 步进请求。
- */
-function PreviewFrame(props: {
-  path: string;
-  renderer: PreviewRenderer;
-  name: string;
-  payload: Payload;
-  dark: boolean;
-  zoom: number;
-  onZoomDelta: (dir: 1 | -1) => void;
-  timeoutMessage: string;
-  onDone: (info: { pages?: number; sheets?: string[] }) => void;
-  onError: (message: string) => void;
-}) {
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const sentRef = useRef(false);
-  const settledRef = useRef(false);
-  const onDoneRef = useRef(props.onDone);
-  onDoneRef.current = props.onDone;
-  const onErrorRef = useRef(props.onError);
-  onErrorRef.current = props.onError;
-  const rendererRef = useRef(props.renderer);
-  rendererRef.current = props.renderer;
-  const nameRef = useRef(props.name);
-  nameRef.current = props.name;
-  const payloadRef = useRef(props.payload);
-  payloadRef.current = props.payload;
-  const darkRef = useRef(props.dark);
-  darkRef.current = props.dark;
-  const zoomRef = useRef(props.zoom);
-  zoomRef.current = props.zoom;
-  const onZoomDeltaRef = useRef(props.onZoomDelta);
-  onZoomDeltaRef.current = props.onZoomDelta;
-  const timeoutMsgRef = useRef(props.timeoutMessage);
-  timeoutMsgRef.current = props.timeoutMessage;
-
-  // zoom 下行（ready 前不发——ready 握手时会带当前值）
-  useEffect(() => {
-    if (sentRef.current && iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        { source: PREVIEW_MSG_SRC, type: "zoom", zoom: props.zoom }, "*");
-    }
-  }, [props.zoom]);
-
-  useEffect(() => {
-    sentRef.current = false;
-    settledRef.current = false;
-    const timer = window.setTimeout(() => {
-      if (!settledRef.current) {
-        settledRef.current = true;
-        onErrorRef.current(timeoutMsgRef.current);
-      }
-    }, 30000);
-    const handler = (ev: MessageEvent) => {
-      if (ev.source !== iframeRef.current?.contentWindow) return;
-      const msg = ev.data as { source?: string; type?: string; message?: string; dir?: number; info?: { pages?: number; sheets?: string[] } };
-      if (!msg || msg.source !== PREVIEW_MSG_SRC) return;
-      if (msg.type === "ready" && !sentRef.current) {
-        sentRef.current = true;
-        const win = iframeRef.current?.contentWindow;
-        if (win) {
-          win.postMessage({
-            source: PREVIEW_MSG_SRC,
-            type: "render",
-            id: 1,
-            renderer: rendererRef.current,
-            name: nameRef.current,
-            dark: darkRef.current,
-            base64: payloadRef.current.base64,
-            text: payloadRef.current.text,
-          }, "*");
-          // 渲染消息后补发当前缩放（打开即缩放过的场景：重试/快速操作）
-          if (zoomRef.current !== 1) {
-            win.postMessage({ source: PREVIEW_MSG_SRC, type: "zoom", zoom: zoomRef.current }, "*");
-          }
-        }
-        return;
-      }
-      // zoom 步进请求不受 settled 限制（done 之后仍可缩放）
-      if (msg.type === "zoom-request") {
-        onZoomDeltaRef.current(msg.dir != null && msg.dir < 0 ? -1 : 1);
-        return;
-      }
-      if (settledRef.current) return;
-      if (msg.type === "done") {
-        settledRef.current = true;
-        window.clearTimeout(timer);
-        onDoneRef.current(msg.info ?? {});
-      } else if (msg.type === "error") {
-        settledRef.current = true;
-        window.clearTimeout(timer);
-        onErrorRef.current(String(msg.message ?? "preview error"));
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => {
-      window.removeEventListener("message", handler);
-      window.clearTimeout(timer);
-    };
-  }, [props.path]);
-
-  return (
-    <iframe
-      ref={iframeRef}
-      className="office-preview-frame"
-      sandbox="allow-scripts"
-      title={props.name}
-      srcDoc={SRCDOC}
-    />
   );
 }

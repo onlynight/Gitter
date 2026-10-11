@@ -97,11 +97,13 @@ function monacoCssInline() {
   };
 }
 
-const officePreviewJs = PAGES.includes("office") ? await buildOfficePreviewRuntime() : null;
+const officePreviewJs = (PAGES.includes("office") || PAGES.includes("files"))
+  ? await buildOfficePreviewRuntime()
+  : null;
 
 for (const slot of PAGES) {
   const plugins = [monacoCssInline()];
-  if (slot === "office" && officePreviewJs !== null) {
+  if ((slot === "office" || slot === "files") && officePreviewJs !== null) {
     plugins.push({
       name: "office-preview-runtime",
       resolveId(source) {
@@ -140,7 +142,8 @@ for (const slot of PAGES) {
       copyPublicDir: false,
       // 不压缩是页面包缺省策略（安全网按行扫描、报错行号有意义）。
       // 例外：内联了大型第三方库的槽位启用 minify（自研代码占比极小，
-      // 压缩不损失安全网可读性）——files 内联 Monaco 全量（未压缩 ~24.8MB，§6.2）；
+      // 压缩不损失安全网可读性）——files 内联 Monaco 全量（未压缩 ~24.8MB，§6.2）
+      // 与 iframe 预览运行时（编辑器画布 Office 查看器，officeDocPreview.ts）；
       // office 内联 iframe 预览运行时（pdfjs + SheetJS + docx-preview + pptx-preview，
       // office-integration-plan.md §10）。
       minify: slot === "files" || slot === "office",

@@ -458,6 +458,9 @@ export class Bridge {
       }
       return result;
     });
+    // 新建文件/文件夹（files 页资源管理器行内新建）：Windows 段名校验+路径锁+独占创建
+    R("file.create", async (args: { path: string; kind: "file" | "dir" }) =>
+      treex.createEntry(this.needRepo(), args.path, args.kind === "dir" ? "dir" : "file"));
 
     // ---- Office 文档二进制读写（office-integration-plan.md §5 OOXML 白名单通道）----
     // stat：office 页保存前 mtime 冲突检测（免拉全量 base64）

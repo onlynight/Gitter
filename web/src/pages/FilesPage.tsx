@@ -32,6 +32,8 @@ export function FilesPage() {
   const [collapsed, setCollapsed] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [revealTick, setRevealTick] = useState(0);
+  // 文件树模式（全部/变更）：变更模式下编辑器才显示 git 行级 diff 高亮
+  const [treeMode, setTreeMode] = useState<"all" | "git">("all");
 
   const repo = pageSdk.repo();
   const tabsRef = useRef(tabs);
@@ -80,6 +82,27 @@ export function FilesPage() {
   }, []);
   // 标签点击/双击 = 转正并激活
   const activateTab = useCallback((path: string) => openFile(path, { preview: false }), [openFile]);
+
+  // 行内新建文件/文件夹：主进程创建（含 Windows 名校验/防竞态）→ 刷树 → 新文件转正打开
+  const createEntry = useCallback(async (dir: string, name: string, kind: "file" | "dir"): Promise<boolean> => {
+    if (!repo) return false;
+    const rel = dir ? `${dir}/${name}` : name;
+    try {
+      const r = await pageSdk.call<{ ok: boolean; error?: string }>("file.create", { path: rel, kind });
+      if (!r.ok) {
+        const key = r.error === "exists" ? "Files_CreateExists"
+          : r.error === "invalid_name" ? "Files_InvalidName" : "Files_CreateFailed";
+        pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t(key));
+        return false;
+      }
+      await loadTree();
+      if (kind === "file") openFile(rel, { preview: false });
+      return true;
+    } catch (e) {
+      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
+      return false;
+    }
+  }, [repo, loadTree, openFile]);
 
   // 关闭标签（EditorPane 确认无未保存更改后回调）：激活位顺移邻位
   const closeTab = useCallback((path: string) => {
@@ -165,8 +188,10 @@ export function FilesPage() {
             entries={treeData.entries}
             activePath={activeTab}
             onOpenFile={openFile}
+            onCreate={createEntry}
             loading={loading}
             onRefresh={() => void loadTree()}
+            onModeChange={setTreeMode}
             revealTick={revealTick}
           />
         </div>
@@ -189,6 +214,7 @@ export function FilesPage() {
           tabs={tabs}
           activeTab={activeTab}
           statusByPath={statusByPath}
+          showDiff={treeMode === "git"}
           onActivateTab={activateTab}
           onPinTab={activateTab}
           onCloseTab={closeTab}

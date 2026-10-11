@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useContextMenu, type CtxMenuItem } from "../kit";
 import { pageSdk } from "../pageSdk";
-import { ChevronIcon, CloseIcon, CollapseAllIcon, CopyIcon, DiffIcon, FileIcon, FilterIcon, FolderIcon, OpenExternalIcon, PencilIcon, RefreshIcon, RevealIcon, SparkIcon } from "./filesIcons";
+import { ChevronIcon, CloseIcon, CollapseAllIcon, CopyIcon, DiffIcon, ExpandAllIcon, FileIcon, FilterIcon, FolderIcon, NewFileIcon, NewFolderIcon, OpenExternalIcon, PencilIcon, RefreshIcon, RevealIcon, SparkIcon } from "./filesIcons";
 
 /**
  * 文件树组件（files-editor-redesign-mockup.html §二/§三，P2）：
@@ -33,20 +33,47 @@ const DIR_PRIO = ["U", "D", "M", "A", "R", "?"];
 
 type FilterMode = "all" | "git";
 
+/** 行内新建草稿：挂在 dir 下建 kind；dir="" 为仓库根 */
+interface Draft {
+  dir: string;
+  kind: "file" | "dir";
+}
+
+/** 草稿行占位 path（\0 前缀不可能与真实路径撞；键盘导航/揭示按 path 找行时自然跳过） */
+const DRAFT_PATH = "\0draft";
+
 interface VisibleNode {
   entry: TreeEntry;
   depth: number;
   /** 目录节点合成时继承的状态色（null = 中性） */
   dirStatus: string | null;
   open: boolean;
+  /** 行内新建输入行（非真实条目，不参与打开/右键） */
+  draft?: boolean;
+}
+
+/** Windows 名称段校验（与主进程 file.create 同规则）：非法字符/结尾点空格/保留设备名/.git */
+export function nameValidationError(name: string): boolean {
+  return (
+    !name ||
+    name.length > 255 ||
+    name.toLowerCase() === ".git" ||
+    /[\\/:*?"<>|\u0000-\u001f]/.test(name) ||
+    /[.\s]$/.test(name) ||
+    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(name)
+  );
 }
 
 export function TreePane(props: {
   entries: TreeEntry[];
   activePath: string | null;
   onOpenFile: (path: string, opts?: { preview?: boolean }) => void;
+  /** 行内新建提交（dir 相对根，name 单段名）：成功返回 true（关输入行），失败已 toast */
+  onCreate: (dir: string, name: string, kind: "file" | "dir") => Promise<boolean>;
   loading: boolean;
   onRefresh: () => void;
+  /** 树模式切换上报（FilesPage 据此开关编辑器 git 行级 diff 高亮） */
+  onModeChange?: (mode: "all" | "git") => void;
   /** 面包屑点击等场景的「重新揭示当前文件」信号（activePath 不变也要滚动+闪光） */
   revealTick?: number;
 }) {
@@ -55,6 +82,12 @@ export function TreePane(props: {
   const [filterOn, setFilterOn] = useState(false);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // 行内新建草稿（挂载点 + 名称输入）
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const draftInputRef = useRef<HTMLInputElement | null>(null);
+  // 目录选中态（点击行记忆，供树头新建按钮定位目标目录；文件行的选中 = 激活标签）
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
   // 键盘导航锚点（kbFocus）+ 描边可见性（kbKey：仅键盘操作时显示描边，鼠标点击不闪边框）
   const [kbFocus, setKbFocus] = useState<string | null>(null);
   const [kbKey, setKbKey] = useState(false);
@@ -76,23 +109,27 @@ export function TreePane(props: {
     git: props.entries.filter((e) => !e.isDir && e.status !== null).length,
   }), [props.entries]);
 
-  // 扁平化可见节点（目录 = 显式目录 ∪ 文件路径祖先合成；目录状态色按严重度继承）
+  // 扁平化可见节点（目录 = 文件路径全部祖先合成；目录状态色按严重度继承）
   const visibleNodes = useMemo<VisibleNode[]>(() => {
     const nodes: VisibleNode[] = [];
     const dirStatus = new Map<string, string | null>();
     const filesByDir = new Map<string, TreeEntry[]>();
     for (const f of files) {
-      const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
-      if (!filesByDir.has(dir)) filesByDir.set(dir, []);
-      filesByDir.get(dir)!.push(f);
-    }
-    for (const [dir, list] of filesByDir) {
-      let s: string | null = null;
-      for (const f of list) {
-        if (!f.status) continue;
-        if (s === null || DIR_PRIO.indexOf(f.status) < DIR_PRIO.indexOf(s)) s = f.status;
+      const parts = f.path.split("/");
+      // 逐层登记全部祖先目录（只登记直接父目录会让「中间层级不含文件」的
+      // 嵌套路径失去挂载点——根遍历只走不含 "/" 的键，整条子树随之丢失）
+      let acc = "";
+      for (let i = 0; i < parts.length - 1; i++) {
+        acc = acc ? `${acc}/${parts[i]}` : parts[i];
+        if (!filesByDir.has(acc)) filesByDir.set(acc, []);
+        if (f.status) {
+          const cur = dirStatus.get(acc) ?? null;
+          if (cur === null || DIR_PRIO.indexOf(f.status) < DIR_PRIO.indexOf(cur)) dirStatus.set(acc, f.status);
+        }
       }
-      dirStatus.set(dir, s);
+      const parent = parts.length > 1 ? acc : "";
+      if (!filesByDir.has(parent)) filesByDir.set(parent, []);
+      filesByDir.get(parent)!.push(f);
     }
 
     const walk = (dir: string, depth: number) => {
@@ -114,8 +151,23 @@ export function TreePane(props: {
     for (const f of (filesByDir.get("") ?? []).slice().sort((a, b) => a.path.localeCompare(b.path))) {
       nodes.push({ entry: f, depth: 0, dirStatus: null, open: false });
     }
+
+    // 行内新建草稿行：目标目录节点之后（根则置顶）；过滤态找不到目标目录时兜底置顶
+    if (draft) {
+      const node: VisibleNode = {
+        entry: { path: DRAFT_PATH, isDir: draft.kind === "dir", status: null, touchedByAgent: false },
+        depth: 0, dirStatus: null, open: false, draft: true,
+      };
+      const di = draft.dir ? nodes.findIndex((n) => n.entry.isDir && n.entry.path === draft.dir) : -1;
+      if (di >= 0) {
+        node.depth = nodes[di].depth + 1;
+        nodes.splice(di + 1, 0, node);
+      } else {
+        nodes.unshift(node);
+      }
+    }
     return nodes;
-  }, [files, forceOpen, collapsed]);
+  }, [files, forceOpen, collapsed, draft]);
   const nodesRef = useRef<VisibleNode[]>(visibleNodes);
   nodesRef.current = visibleNodes;
 
@@ -164,6 +216,53 @@ export function TreePane(props: {
     });
   }, []);
 
+  // 行内新建：展开目标目录的全部祖先（只展开自己、祖先仍折叠时该行渲染不出来，
+  // 输入行会兜底顶到树顶，看起来就像在根目录新建）→ 聚焦输入行
+  const startDraft = useCallback((dir: string, kind: "file" | "dir") => {
+    setDraft({ dir, kind });
+    setDraftName("");
+    setCollapsed((prev) => {
+      const segs = dir ? dir.split("/") : [];
+      let acc = "";
+      if (!segs.some((s) => { acc = acc ? `${acc}/${s}` : s; return prev.has(acc); })) return prev;
+      const next = new Set(prev);
+      acc = "";
+      for (const s of segs) {
+        acc = acc ? `${acc}/${s}` : s;
+        next.delete(acc);
+      }
+      return next;
+    });
+  }, []);
+
+  // 树头新建按钮的目标目录：选中目录内 / 选中文件同级 / 根
+  const selectedDir = useCallback((): string => {
+    if (!selectedPath) return "";
+    const n = nodesRef.current.find((x) => x.entry.path === selectedPath);
+    if (!n || n.draft) return "";
+    if (n.entry.isDir) return n.entry.path;
+    return n.entry.path.includes("/") ? n.entry.path.slice(0, n.entry.path.lastIndexOf("/")) : "";
+  }, [selectedPath]);
+
+  const commitDraft = useCallback(async () => {
+    const d = draft;
+    if (!d) return;
+    const name = draftName.trim();
+    if (nameValidationError(name)) {
+      pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t(name ? "Files_InvalidName" : "Files_NameRequired"));
+      draftInputRef.current?.focus();
+      return;
+    }
+    if (await props.onCreate(d.dir, name, d.kind)) setDraft(null);
+    else draftInputRef.current?.focus();
+  }, [draft, draftName, props.onCreate]);
+
+  useEffect(() => {
+    if (!draft) return;
+    const raf = requestAnimationFrame(() => draftInputRef.current?.focus());
+    return () => cancelAnimationFrame(raf);
+  }, [draft]);
+
   const copyPath = useCallback(async (rel: string, absolute: boolean) => {
     let p = rel;
     if (absolute) {
@@ -182,8 +281,12 @@ export function TreePane(props: {
 
   const menuFor = useCallback((node: VisibleNode): CtxMenuItem[] => {
     const path = node.entry.path;
+    const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
     if (node.entry.isDir) {
       return [
+        { label: t("Files_NewFile"), icon: <NewFileIcon />, action: () => startDraft(path, "file") },
+        { label: t("Files_NewFolder"), icon: <NewFolderIcon />, action: () => startDraft(path, "dir") },
+        { sep: true },
         { label: t("Files_RevealInExplorer"), icon: <RevealIcon />, action: () => reveal(path) },
         { label: t("Files_CopyPath"), icon: <CopyIcon />, action: () => void copyPath(path, true) },
       ];
@@ -192,13 +295,16 @@ export function TreePane(props: {
       { label: t("Files_TreeOpen"), hint: "Enter", action: () => props.onOpenFile(path, { preview: false }) },
       { label: t("Files_ShowDiff"), icon: <DiffIcon />, action: () => { pageSdk.navigate("changes"); } },
       { sep: true },
+      { label: t("Files_NewFile"), icon: <NewFileIcon />, action: () => startDraft(parentOf(path), "file") },
+      { label: t("Files_NewFolder"), icon: <NewFolderIcon />, action: () => startDraft(parentOf(path), "dir") },
+      { sep: true },
       { label: t("Files_CopyPath"), icon: <CopyIcon />, action: () => void copyPath(path, true) },
       { label: t("Files_CopyRelPath"), action: () => void copyPath(path, false) },
       { sep: true },
       { label: t("Files_OpenInEditor"), icon: <OpenExternalIcon />, action: () => openExternal(path) },
       { label: t("Files_RevealInExplorer"), icon: <RevealIcon />, action: () => reveal(path) },
     ];
-  }, [t, props.onOpenFile, copyPath, openExternal, reveal]);
+  }, [t, props.onOpenFile, copyPath, openExternal, reveal, startDraft]);
 
   const handleContext = useCallback((e: React.MouseEvent, node: VisibleNode) => {
     setKbKey(false);
@@ -215,10 +321,12 @@ export function TreePane(props: {
       setKbKey(true);
       const next = nodes[Math.max(0, Math.min(nodes.length - 1, idx < 0 ? 0 : idx + (e.key === "ArrowDown" ? 1 : -1)))];
       setKbFocus(next.entry.path);
+      setSelectedPath(next.entry.path);
       virtualizer.scrollToIndex(nodes.indexOf(next), { align: "auto" });
     } else if (e.key === "Enter" && idx >= 0) {
       e.preventDefault();
       const n = nodes[idx];
+      if (n.draft) { draftInputRef.current?.focus(); return; }
       if (n.entry.isDir) toggleDir(n.entry.path);
       else props.onOpenFile(n.entry.path, { preview: true });
     } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && idx >= 0) {
@@ -247,17 +355,54 @@ export function TreePane(props: {
   const rows = virtualizer.getVirtualItems().map((vi) => {
     const node = visibleNodes[vi.index];
     const { entry, depth } = node;
-    const isActive = entry.path === props.activePath;
+    const guides = [];
+    for (let d = 0; d < depth; d++) {
+      guides.push(<i key={d} className="files-guide" style={{ left: 14 + 16 * d }} />);
+    }
+    const rowStyle = { transform: `translateY(${vi.start}px)`, paddingLeft: 6 + depth * 16 } as const;
+
+    // 行内新建输入行：替换文件名段，Enter 提交 / Esc 取消 / 失焦取消
+    if (node.draft) {
+      return (
+        <div key={DRAFT_PATH} className="files-row draft" style={rowStyle}>
+          {guides}
+          <span className="files-fico">
+            {node.entry.isDir ? <FolderIcon /> : <FileIcon path={draftName || "x"} />}
+          </span>
+          <input
+            ref={draftInputRef}
+            className="files-draft-input"
+            value={draftName}
+            placeholder={t("Files_NewNamePlaceholder")}
+            title={draft?.dir || "/"}
+            spellCheck={false}
+            draggable={false}
+            onChange={(e) => setDraftName(e.target.value)}
+            onKeyDown={(e) => {
+              // 不让按键漏进树键盘导航（↑↓/Enter 会被容器截走）
+              e.stopPropagation();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void commitDraft();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setDraft(null);
+              }
+            }}
+            onBlur={() => setDraft(null)}
+          />
+        </div>
+      );
+    }
+
+    // 文件行选中 = 激活标签；目录行选中 = 树内点击记忆（打开的是编辑器，文件夹需要自己的选中态）
+    const isActive = entry.path === props.activePath || (entry.isDir && selectedPath === entry.path);
     const statusCls = entry.status ? STATUS_CLS[entry.status] ?? "" : "";
     const isAgent = !entry.isDir && entry.touchedByAgent;
     const nameCls =
       "files-nm" +
       (entry.isDir && node.dirStatus ? ` ${STATUS_CLS[node.dirStatus]}` : "") +
       (!entry.isDir && entry.status ? ` ${statusCls}` : "");
-    const guides = [];
-    for (let d = 0; d < depth; d++) {
-      guides.push(<i key={d} className="files-guide" style={{ left: 14 + 16 * d }} />);
-    }
     return (
       <div
         key={entry.path}
@@ -268,11 +413,12 @@ export function TreePane(props: {
           (isAgent ? " agent" : "") +
           (kbKey && entry.path === kbFocus ? " kb-focus" : "")
         }
-        style={{ transform: `translateY(${vi.start}px)`, paddingLeft: 6 + depth * 16 }}
+        style={rowStyle}
         title={entry.path}
         onClick={() => {
           setKbKey(false);
           setKbFocus(entry.path);
+          setSelectedPath(entry.path);
           if (entry.isDir) {
             if (mode === "all" && !q) toggleDir(entry.path);
           } else {
@@ -308,7 +454,10 @@ export function TreePane(props: {
               aria-selected={mode === m}
               title={t(m === "git" ? "Files_ModeChanges" : "Files_ModeAll")}
               className={"files-mtab" + (mode === m ? " on" : "")}
-              onClick={() => setMode(m)}
+              onClick={() => {
+                setMode(m);
+                props.onModeChange?.(m);
+              }}
             >
               {m === "all" ? <FolderIcon size={13} /> : <PencilIcon />}
               {m === "git" && <span className="n">{counts.git}</span>}
@@ -316,6 +465,12 @@ export function TreePane(props: {
           ))}
         </div>
         <div className="files-hacts">
+          <button className="files-ibtn" title={t("Files_NewFile")} onClick={() => startDraft(selectedDir(), "file")}>
+            <NewFileIcon />
+          </button>
+          <button className="files-ibtn" title={t("Files_NewFolder")} onClick={() => startDraft(selectedDir(), "dir")}>
+            <NewFolderIcon />
+          </button>
           <button
             className={"files-ibtn" + (filterOn ? " on" : "")}
             title={t("Files_FilterToggle")}
@@ -336,9 +491,12 @@ export function TreePane(props: {
           <button
             className="files-ibtn"
             title={t("Files_CollapseAll")}
-            onClick={() => setCollapsed(new Set(visibleNodes.filter((n) => n.entry.isDir).map((n) => n.entry.path)))}
+            onClick={() => setCollapsed(new Set(visibleNodes.filter((n) => n.entry.isDir && !n.draft).map((n) => n.entry.path)))}
           >
             <CollapseAllIcon />
+          </button>
+          <button className="files-ibtn" title={t("Files_ExpandAll")} onClick={() => setCollapsed(new Set())}>
+            <ExpandAllIcon />
           </button>
         </div>
       </div>

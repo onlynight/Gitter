@@ -15,6 +15,7 @@ import { CheckIcon, ChevronSepIcon, CloseIcon, FileIcon, FolderIcon, SearchIcon 
 import { FilesMonacoEditor } from "./FilesMonacoEditor";
 import { createTextModel, disposeTextModel, languageForPath, languageLabel } from "./filesMonaco";
 import { documentOpened, documentChanged, documentClosed } from "./filesLsp";
+import { viewerForPath } from "./filesViewers";
 
 type MonacoModel = import("monaco-editor").editor.ITextModel;
 
@@ -35,6 +36,8 @@ interface EditorState {
   binary: boolean;
   error: string | null;
   truncated: boolean;
+  /** git gutter 基线（HEAD 版本全文）：null = 未就绪；"" = 未跟踪新文件（整文件新增） */
+  gitBase: string | null;
 }
 
 const STATUS_CLS: Record<string, string> = { M: "gs-M", A: "gs-A", D: "gs-D", R: "gs-R", U: "gs-U", "?": "gs-Q" };
@@ -45,6 +48,8 @@ export function EditorPane(props: {
   activeTab: string | null;
   /** path → git 状态码（标签名着色 + 页脚徽标） */
   statusByPath: Record<string, string | null>;
+  /** git 行级 diff 高亮开关（文件树「变更」模式才开） */
+  showDiff?: boolean;
   onActivateTab: (path: string) => void;
   onPinTab: (path: string) => void;
   onCloseTab: (path: string) => void;
@@ -88,15 +93,15 @@ export function EditorPane(props: {
   const theme = useAppState().theme;
   const editorBg = theme?.tokens?.Base ?? "var(--c-base)";
 
-  // 加载文件内容
+  // 加载文件内容（画布查看器接管的路径——office 预览等——不走文本流，无 model/脏态）
   const loadFile = useCallback(async (path: string) => {
-    if (models.current.has(path)) return; // 已加载（keep-alive）
+    if (viewerForPath(path) || models.current.has(path)) return; // 已加载（keep-alive）
 
     setEditors((prev) => {
       const next = new Map(prev);
       next.set(path, {
         path, content: "", originalContent: "", eol: "lf", mtime: 0,
-        dirty: false, loading: true, binary: false, error: null, truncated: false,
+        dirty: false, loading: true, binary: false, error: null, truncated: false, gitBase: null,
       });
       return next;
     });
@@ -147,6 +152,25 @@ export function EditorPane(props: {
         }
         return next;
       });
+
+      // git gutter 基线：HEAD 版本全文（未跟踪新文件 git show 失败 → ""，整文件新增）
+      void pageSdk.call<{ content: string } | null>("file.content", { path, revision: "HEAD" })
+        .then((base) => {
+          setEditors((prev) => {
+            const next = new Map(prev);
+            const ed = next.get(path);
+            if (ed) ed.gitBase = base ? base.content : "";
+            return next;
+          });
+        })
+        .catch(() => {
+          setEditors((prev) => {
+            const next = new Map(prev);
+            const ed = next.get(path);
+            if (ed) ed.gitBase = "";
+            return next;
+          });
+        });
     } catch (e) {
       setEditors((prev) => {
         const next = new Map(prev);
@@ -345,6 +369,8 @@ export function EditorPane(props: {
 
   const activeEditor = props.activeTab ? editors.get(props.activeTab) : null;
   const activeModel = props.activeTab ? (models.current.get(props.activeTab) ?? null) : null;
+  // 画布查看器（office 预览等）接管：命中即替换 Monaco 画布，标签条/面包屑/页脚不变
+  const ActiveViewer = props.activeTab ? viewerForPath(props.activeTab) : null;
   const crumbs = props.activeTab ? props.activeTab.split("/") : [];
   const lang = props.activeTab ? languageLabel(languageForPath(props.activeTab)) : "";
 
@@ -407,9 +433,12 @@ export function EditorPane(props: {
       </div>
 
       {/* 编辑区：Monaco 实例常驻（新文件加载期保留上一个画面 + Loading 覆盖层，
-          不卸载重建——实例重挂是选中文件时「闪黑」的根因） */}
+          不卸载重建——实例重挂是选中文件时「闪黑」的根因）。
+          画布查看器（office 预览）命中时接管整个画布。 */}
       <div style={{ flex: 1, overflow: "hidden", position: "relative", minHeight: 0 }}>
-        {activeEditor && activeEditor.binary ? (
+        {ActiveViewer && props.activeTab ? (
+          <ActiveViewer key={props.activeTab} path={props.activeTab} />
+        ) : activeEditor && activeEditor.binary ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 20, textAlign: "center", opacity: 0.7 }}>{t("Editor_ErrorBinary")}</div>
         ) : activeEditor && activeEditor.error && !activeEditor.content ? (
           <div className="ed-note">{activeEditor.error}</div>
@@ -424,6 +453,8 @@ export function EditorPane(props: {
                 <FilesMonacoEditor
                   model={shown}
                   readOnly={stale}
+                  gitBase={stale ? null : activeEditor?.gitBase ?? null}
+                  showDiff={props.showDiff}
                   onChange={(value) => { if (!stale) handleContentChange(activeEditor!.path, value); }}
                   onPosition={setPosition}
                   onMarkers={setMarkers}

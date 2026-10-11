@@ -1034,6 +1034,7 @@ Files_FilterToggle	Filter	筛选
 Files_FilterMatches	{0} matches	{0} 个匹配
 Files_Refresh	Refresh	刷新
 Files_CollapseAll	Collapse all	全部折叠
+Files_ExpandAll	Expand all	全部展开
 Files_QuickOpen	Go to file…	转到文件…
 Files_TreeOpen	Open	打开
 Files_CopyPath	Copy path	复制路径
@@ -1043,6 +1044,13 @@ Files_NoMatch	No matching files	无匹配文件
 Files_Missing	File does not exist or cannot be read	文件不存在或无法读取
 Files_StatusTitle	Git status	Git 状态
 Files_GutterHint	Drag to resize (double-click to reset)	拖拽调整宽度（双击复位）
+Files_NewFile	New File	新建文件
+Files_NewFolder	New Folder	新建文件夹
+Files_NewNamePlaceholder	Name — Enter to confirm, Esc to cancel	名称，Enter 确认，Esc 取消
+Files_NameRequired	Enter a name	请输入名称
+Files_InvalidName	Name contains invalid characters or is not a valid Windows name	名称含非法字符或不符合 Windows 命名规则
+Files_CreateExists	A file or folder with the same name already exists	同名文件或文件夹已存在
+Files_CreateFailed	Failed to create	创建失败
 Common_Choose	Select	选择
 Common_More	More actions…	更多操作…
 Nav_Office	Office	Office 文档
