@@ -130,6 +130,25 @@ function mockRpc(method: string, params?: Record<string, unknown>): unknown {
     case "agents.list": return [{ id: "builtin.codex", name: "Codex", detect: { available: true } }];
     case "agent.tasks": return MOCK_TASKS;
     case "agent.taskTypes.list": return [];
+    case "agent.task.checkpoints": return [
+      { sha: "31338af9c2", summary: "checkpoint: 时间线图标替换完成", date: iso(-2_900_000) },
+      { sha: "91c4e02b17", summary: "checkpoint: 发送/停止按钮令牌修复", date: iso(-5_000_000) },
+    ];
+    case "file.content": {
+      const p = String(params?.path ?? "");
+      if (/\.(png|jpe?g|gif|webp|svg)$/i.test(p)) return { content: "", binary: true, mtime: 0 };
+      const sample = [
+        "// harness mock · " + p,
+        "export function demo(): void {",
+        "  // 视口行范围订阅（rAF 节流）：只跟踪可视区 ±buffer 行",
+        "  const first = Math.max(0, Math.floor(el.scrollTop / rowH) - buffer);",
+        "  const last = Math.floor((el.scrollTop + el.clientHeight) / rowH) + buffer;",
+        "}",
+      ].join("\n");
+      return { content: sample, mtime: Date.now() - 60_000, binary: false };
+    }
+    case "file.write": return { ok: true, size: 128, mtime: Date.now() };
+    case "file.readBinary": return { base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" };
     case "models.list": return [
       { id: "glm-4.6", name: "GLM-4.6", configured: true, isDefault: true, capabilities: { vision: true } },
       { id: "gpt-5", name: "GPT-5", configured: true, isDefault: false, capabilities: { vision: false } },
@@ -139,7 +158,19 @@ function mockRpc(method: string, params?: Record<string, unknown>): unknown {
     case "agent.task.history": return RICH_HISTORY;
     case "agent.context.stats": return { estTokens: 48_300, contextWindow: 200_000, budget: 180_000, ratio: 0.24, breakdown: { system: 2_100, messages: 44_200, reserved: 2_000 }, compactions: 1, totalInput: 152_340, totalOutput: 32_880, lastOutput: 2_412, tokPerSec: 41, cacheHitRate: 0.67 };
     case "agent.task.checkpoints": return [];
-    case "agent.task.files": return [];
+    case "agent.task.files": return [
+      { path: "web/src/pages/TasksPage.tsx", kind: "modified", added: 11, deleted: 4 },
+      { path: "web/src/kit/useVisibleRange.ts", kind: "added", added: 62, deleted: 0 },
+      { path: "web/src/styles.css", kind: "modified", added: 84, deleted: 0 },
+    ];
+    case "agent.task.diff": return [
+      { path: String(params?.path ?? "web/src/pages/TasksPage.tsx"), oldPath: String(params?.path ?? "web/src/pages/TasksPage.tsx"),
+        isBinary: false, isNew: false, isDeleted: false, isRenamed: false,
+        hunks: [{ oldStart: 114, oldCount: 4, newStart: 114, newCount: 8,
+          oldLines: ["export function demo() {", "  const rows = useMemo(() => renderDiff(diff), [diff]);", "  return rows;", "  }"], 
+          newLines: ["export function demo() {", "  const viewport = useVisibleRange(listRef, ROW_H);", "  const rows = useMemo(", "    () => renderDiff(diff, viewport),", "    [diff, viewport.first, viewport.last],", "  );", "  return rows;", "  }"] }],
+        addedLines: 5, deletedLines: 2, oldEndsWithNewline: true, newEndsWithNewline: true },
+    ];
     case "repo.files": return [
       "web/src/pages/TasksPage.tsx", "web/src/styles.css", "web/harness/main.tsx",
       "app/main.ts", "app/preload.ts", "package.json",
@@ -184,10 +215,14 @@ class DebugBoundary extends React.Component<{ children?: React.ReactNode }, { er
 };
 
 const renderers: { blockKind: string; render: (p: unknown) => unknown }[] = [];
+const panels: { id: string; title: string; fixed?: boolean; render: (ctx: { taskId: string }) => unknown }[] = [];
+let uiV = 0;
+const uiL: (() => void)[] = [];
 // 事件订阅注册表：window.__emit(method, payload) 可模拟宿主广播（实时更新验证）
 const listeners: Record<string, ((p: unknown) => void)[]> = {};
 (window as any).__emit = (method: string, payload?: unknown) => {
   for (const cb of listeners[method] ?? []) cb(payload);
+  for (const cb of gitterEventCbs) cb(method, payload);
 };
 (window as any).__setTasks = (patcher: (tasks: unknown[]) => void) => {
   patcher(MOCK_TASKS);
@@ -195,8 +230,14 @@ const listeners: Record<string, ((p: unknown) => void)[]> = {};
 };
 (window as any).GITTER_UI = {
   getActiveCaller: () => null,
-  call: (method: string, params?: Record<string, unknown>) => Promise.resolve(mockRpc(method, params)),
-  callWith: (_boot: unknown, method: string, params?: Record<string, unknown>) => Promise.resolve(mockRpc(method, params)),
+  call: (method: string, params?: Record<string, unknown>) => {
+    ((window as any).__calls ??= []).push([method, JSON.stringify(params ?? {}).slice(0, 80)]);
+    return Promise.resolve(mockRpc(method, params));
+  },
+  callWith: (_boot: unknown, method: string, params?: Record<string, unknown>) => {
+    ((window as any).__calls ??= []).push([method, JSON.stringify(params ?? {}).slice(0, 80)]);
+    return Promise.resolve(mockRpc(method, params));
+  },
   on: (method: string, cb: (p: unknown) => void) => {
     (listeners[method] ??= []).push(cb);
     return () => { const a = listeners[method] ?? []; const i = a.indexOf(cb); if (i >= 0) a.splice(i, 1); };
@@ -215,8 +256,15 @@ const listeners: Record<string, ((p: unknown) => void)[]> = {};
   subscribeState: (cb: () => void) => { const s = (window as any).__stateSubs ??= new Set<() => void>(); s.add(cb); return () => s.delete(cb); },
   getState: () => (window as any).__state ??= { repo: "D:\\Code\\Gitter", refreshTick: 0, focusTaskId: null },
   registerPage: (_meta: unknown, mount: (c: HTMLElement) => () => void) => { (window as any).__mountPage = mount; },
-  registerAgentUI: (reg: { timelineRenderers?: typeof renderers }) => { for (const r of reg.timelineRenderers ?? []) renderers.push(r); },
+  registerAgentUI: (reg: { timelineRenderers?: typeof renderers; taskPanels?: { id: string; title: string; fixed?: boolean; render: (ctx: { taskId: string }) => unknown }[] }) => {
+    for (const r of reg.timelineRenderers ?? []) renderers.push(r);
+    for (const p of reg.taskPanels ?? []) panels.push(p);
+    uiV += 1;
+    for (const fn of uiL) fn();
+  },
   resolveTimelineRenderer: (_tool: string | undefined, blockKind: string) => renderers.find((r) => r.blockKind === blockKind) ?? null,
+  taskPanels: () => panels.map((p) => ({ def: p, packageId: "com.example.demo", tier: "user" })),
+  agentUIRegistrations: () => [{ packageId: "com.example.demo", tier: "user", renderers: 0, providers: 0, panels: panels.length }],
   composerProviders: () => [{
     prefix: "@", label: "文件",
     source: async (query: string) => {
@@ -224,8 +272,18 @@ const listeners: Record<string, ((p: unknown) => void)[]> = {};
       return files.map((f) => ({ label: f, insert: f }));
     },
   }],
-  onAgentUIChanged: () => () => {},
-  agentUIVersion: () => 0,
+  onAgentUIChanged: (cb: () => void) => { uiL.push(cb); return () => { const i = uiL.indexOf(cb); if (i >= 0) uiL.splice(i, 1); }; },
+  agentUIVersion: () => uiV,
+};
+
+// bridge/client（window.gitter）适配：preload 同构桩——invoke 走 mockRpc，事件共用 __emit 注册表。
+// 缺失时 bridge/client 的 call() 一律抛「不在 Electron 宿主内」，面板/改动页等全部数据源静默失败。
+const gitterEventCbs: ((method: string, params: unknown) => void)[] = [];
+(window as any).gitter = {
+  invoke: async (method: string, params?: unknown) => ({ ok: true, data: await mockRpc(method, params) }),
+  onEvent: (cb: (method: string, params: unknown) => void) => { gitterEventCbs.push(cb); return () => { const i = gitterEventCbs.indexOf(cb); if (i >= 0) gitterEventCbs.splice(i, 1); }; },
+  winAction: () => {},
+  isMaximized: async () => false,
 };
 
 applyTheme("dark");
@@ -236,6 +294,22 @@ await import("../../app/resources/packages/gitui.page.tasks/page.js");
 const mount = (window as any).__mountPage as (c: HTMLElement) => () => void;
 const container = document.getElementById("root")!;
 mount(container);
+
+// 演示：外部包贡献任务页分栏面板 tab（v3.2 插件化——真实包经 registerAgentUI 同接缝）
+window.GITTER_UI.registerAgentUI({
+  packageId: "com.example.demo",
+  timelineRenderers: [],
+  composerProviders: [],
+  taskPanels: [{
+    id: "demo.summary",
+    title: "演示面板",
+    render: (ctx: { taskId: string }) => React.createElement(
+      "div",
+      { style: { padding: 14, fontSize: 12.5, color: "#9aa4b0" } },
+      "演示面板（外部包 com.example.demo 贡献）· taskId: " + ctx.taskId,
+    ),
+  }],
+});
 
 // 主题切换按钮（截图两档用）
 const bar = document.createElement("div");

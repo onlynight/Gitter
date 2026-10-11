@@ -3,7 +3,7 @@ import { getState, setState, subscribeState, type PageKey } from "./state/store"
 import { hostSurface, subscribeContextChanged, type PageSurface } from "./surface";
 import { registerUiPage, uiPage, type UIPageDef } from "./uiRegistry";
 import {
-  registerAgentUI, resolveTimelineRenderer, composerProviders, onAgentUIChanged, agentUIVersion,
+  registerAgentUI, resolveTimelineRenderer, composerProviders, taskPanels, onAgentUIChanged, agentUIVersion,
   type AgentUITier,
 } from "./agentUIRegistry";
 import {
@@ -92,7 +92,7 @@ declare global {
       registerPage(def: PageRegistration, mount: PendingExternalPage["mount"]): void;
       /** Agent UI 贡献（agent-harness-v4.md §14.6/§20.3.7：时间线渲染器 + 输入台提供者；
        * 层级由 loader 注入的包身份决定——用户包 > 内置包 > 宿主缺省） */
-      registerAgentUI(reg: { timelineRenderers?: import("./agentUIRegistry").TimelineRendererDef[]; composerProviders?: import("./agentUIRegistry").ComposerMentionProviderDef[] }): void;
+      registerAgentUI(reg: { timelineRenderers?: import("./agentUIRegistry").TimelineRendererDef[]; composerProviders?: import("./agentUIRegistry").ComposerMentionProviderDef[]; taskPanels?: import("./agentUIRegistry").TaskPanelDef[] }): void;
       /** Agent UI 注册表查询面（页面包经 external/agentUIShim 消费——注册表单源在宿主） */
       resolveTimelineRenderer(toolName: string | undefined, blockKind: string): import("./agentUIRegistry").TimelineRendererDef | null;
       composerProviders(): import("./agentUIRegistry").ComposerMentionProviderDef[];
@@ -153,6 +153,7 @@ export function installUiApi(): void {
         tier,
         timelineRenderers: reg.timelineRenderers ?? [],
         composerProviders: reg.composerProviders ?? [],
+        taskPanels: reg.taskPanels ?? [],
       });
     },
 

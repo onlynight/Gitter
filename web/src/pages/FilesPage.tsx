@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { pageSdk } from "../pageSdk";
+import { pageSdk, useAppState } from "../pageSdk";
 import { TreePane, type TreeEntry } from "./FilesTreePane";
 import { EditorPane, type EditorTab } from "./FilesEditorPane";
 import { QuickOpen } from "./FilesQuickOpen";
@@ -82,6 +82,16 @@ export function FilesPage() {
   }, []);
   // 标签点击/双击 = 转正并激活
   const activateTab = useCallback((path: string) => openFile(path, { preview: false }), [openFile]);
+
+  // 任务页「内置编辑器」跳转（v3.1 变更面板）：打开指定文件（按 ts 去重）
+  const fileFocus = useAppState().fileFocus;
+  const handledFocusRef = useRef(0);
+  useEffect(() => {
+    if (fileFocus && fileFocus.ts !== handledFocusRef.current) {
+      handledFocusRef.current = fileFocus.ts;
+      openFile(fileFocus.path, { preview: false });
+    }
+  }, [fileFocus, openFile]);
 
   // 行内新建文件/文件夹：主进程创建（含 Windows 名校验/防竞态）→ 刷树 → 新文件转正打开
   const createEntry = useCallback(async (dir: string, name: string, kind: "file" | "dir"): Promise<boolean> => {

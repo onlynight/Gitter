@@ -9,11 +9,12 @@ import { call, onEvent } from "./bridge/client";
 import type { SettingsDTO, ThemeStateDTO } from "./bridge/types";
 import {
   getState, navigate, notifyRepoChanged, onContextChanged, openSettings, pushToast, refreshCurrent,
+  requestFileFocus,
   reapplyTheme, setSharedContext, setState, t, updateSettings, type PageKey,
 } from "./state/store";
 import { runCommand, type RunContext } from "./commands";
 import { uiPages, uiPageProvidersFor } from "./uiRegistry";
-import { agentUIRegistrations } from "./agentUIRegistry";
+import { agentUIRegistrations, taskPanels as registryTaskPanels } from "./agentUIRegistry";
 import {
   docTitle, docTitleI18n, docs as registryDocs, docsVersion as registryDocsVersion,
   onDocsChanged as registryOnDocsChanged, registerDoc as registryRegisterDoc,
@@ -44,6 +45,8 @@ export interface ExtTreeAgentUIReg {
   tier: "host" | "builtin" | "user";
   renderers: number;
   providers: number;
+  /** 任务页分栏面板 tab 数（v3.2 插件化） */
+  panels: number;
 }
 /** 文档贡献（终端页文档面板消费；设置页"插件挂载树"按贡献包展示） */
 export interface ExtTreeDocReg {
@@ -69,6 +72,10 @@ export interface PageSurface {
   t(key: string, ...args: (string | number)[]): string;
   /** 导航 */
   navigate(page: PageKey): void;
+  /** 请求文件页打开并编辑指定文件（配合 navigate("files")） */
+  requestFileFocus(path: string): void;
+  /** 任务页分栏面板贡献（v3.2 插件化：内置「按轮」+ 外部包 tab） */
+  taskPanels(): { def: import("./agentUIRegistry").TaskPanelDef; packageId: string; tier: import("./agentUIRegistry").AgentUITier }[];
   /** 打开设置页并定位区块 */
   openSettings(section?: string): void;
   /** 通知 toast */
@@ -129,6 +136,8 @@ export function hostSurface(callFn: PageSurface["call"], onFn: PageSurface["on"]
     on: onFn,
     t,
     navigate,
+    requestFileFocus,
+    taskPanels: registryTaskPanels,
     openSettings,
     toast: (title, body) => pushToast(title, body ?? ""),
     refresh: refreshCurrent,

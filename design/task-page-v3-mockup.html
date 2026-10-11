@@ -77,6 +77,7 @@
   .chip:hover{color:var(--text);border-color:var(--dim2)}
   .ibtn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:1px solid transparent;background:transparent;color:var(--dim);border-radius:7px;cursor:pointer;flex:none;padding:0}
   .ibtn:hover{color:var(--text);background:var(--panel2)}
+  .ibtn.on{color:var(--text);background:var(--panel2);border-color:var(--border2)}
   .ibtn.svg{width:28px;height:28px}
   .ibtn svg{width:15px;height:15px}
   .ibtn.framed{border-color:var(--border2)}
@@ -85,16 +86,26 @@
   .ibtn.danger:hover{border-color:var(--red);background:color-mix(in srgb,var(--red) 8%,transparent)}
 
   /* ============ 布局 ============ */
-  .main{position:relative;z-index:1;display:grid;grid-template-columns:292px minmax(0,1fr);height:calc(100vh - 44px)}
-  .list{border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+  .main{position:relative;z-index:1;display:grid;grid-template-columns:6px 292px minmax(0,1fr);height:calc(100vh - 44px)}
+  .main > .vdiv{grid-column:1;grid-row:1}
+  .main > .list{grid-column:2;grid-row:1}
+  .main > .detail{grid-column:3;grid-row:1}
+  /* 可拖拽分割线：任务列表|对话、对话|变更面板（拖拽时实时调列宽，松手记忆比例） */
+  .vdiv{position:relative;cursor:col-resize;background:transparent;flex:none}
+  .vdiv::after{content:"";position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--border-strong);transform:translateX(-50%)}
+  .vdiv:hover::after,.vdiv.drag::after{width:2px;background:var(--sel)}
+  .vdiv .grip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:34px;border-radius:4px;background:var(--border2);opacity:.6;transition:opacity .15s}
+  .vdiv:hover .grip,.vdiv.drag .grip{opacity:1;background:var(--sel)}
+  .list{border-right:none;display:flex;flex-direction:column;min-height:0;background:var(--bg)}
   .detail{display:flex;flex-direction:column;min-height:0;background:transparent}
 
   /* ============ 任务列表 ============ */
-  /* 左侧任务列表（极简）：标题 + 新建按钮 + 状态点×标题行；详情悬停可读 */
-  .lhead{display:flex;align-items:center;gap:8px;padding:12px 14px 8px}
-  .lhead b{font-size:12.5px;font-weight:650}
-  .lhead .sp{flex:1}
-  .list .scroll{overflow-y:auto;flex:1;padding:2px 8px 14px;display:flex;flex-direction:column;gap:1px}
+  /* 左侧任务列表（极简）：顶部通栏新建按钮 + 状态点×标题行；详情悬停可读，分叉/归档悬停行尾 */
+  .newtask{margin:12px 12px 4px;display:flex;align-items:center;justify-content:center;gap:7px;height:34px;border:1px solid var(--border2);border-radius:9px;color:var(--dim);font-size:12.5px;cursor:pointer;background:var(--panel)}
+  .newtask:hover{color:var(--text);border-color:var(--dim2);background:var(--panel2)}
+  .newtask svg{width:13px;height:13px}
+  .newtask .kbd{margin-left:2px}
+  .list .scroll{overflow-y:auto;flex:1;padding:4px 8px 14px;display:flex;flex-direction:column;gap:1px}
   .trow{display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent;font-size:12.5px;transition:background .15s}
   .trow:hover{background:var(--panel2)}
   .trow.sel{background:var(--panel2);border-color:var(--sel-border)}
@@ -362,6 +373,62 @@
   .cview-banner.ok{color:var(--green);background:color-mix(in srgb,var(--green) 6%,transparent);border-bottom-color:color-mix(in srgb,var(--green) 25%,transparent)}
   .cview .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--dim2);font-size:12px}
   .toast{position:fixed;left:50%;bottom:36px;transform:translateX(-50%);background:var(--solid);backdrop-filter:blur(16px);border:1px solid var(--border2);color:var(--text);border-radius:9px;padding:7px 16px;font-size:12px;box-shadow:var(--sh2);opacity:0;pointer-events:none;transition:opacity .2s;z-index:50}
+  /* ---- 分栏（v3.1）：对话 4/7 + 实时变更面板 3/7；分隔条可拖拽调比例，可整体收起 ---- */
+  .chat-split{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,4fr) 6px minmax(300px,3fr)}
+  .chat-split > .chat-col{grid-column:1;grid-row:1}
+  .chat-split > .vdiv{grid-column:2;grid-row:1}
+  .chat-split > .liveside{grid-column:3;grid-row:1}
+  .chat-split.noside{grid-template-columns:minmax(0,1fr) 0 0}
+  .chat-split.noside .vdiv{display:none}
+  .chat-col{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .liveside{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel)}
+  /* 轮次 tab 条：每个打开的轮次一个 tab（可关闭），＋ 打开其他轮次 */
+  .ls-tabs{display:flex;align-items:center;gap:3px;padding:7px 10px 6px;border-bottom:1px solid var(--border);overflow-x:auto;flex:none}
+  .lstab{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--dim);border:1px solid var(--border2);border-radius:7px;padding:2.5px 9px;cursor:pointer;white-space:nowrap;user-select:none;flex:none}
+  .lstab:hover{color:var(--text);border-color:var(--dim2)}
+  .lstab.on{background:var(--sel);border-color:var(--sel);color:var(--sel-fg)}
+  .lstab .x{opacity:.55;font-size:11px;line-height:1}
+  .lstab .x:hover{color:var(--red);opacity:1}
+  .lstab.add{color:var(--dim);border-style:dashed}
+  /* 外部应用分裂按钮（ZCode 式）：主钮=内置编辑器，下拉=外部应用列表（非系统选择器） */
+  .splitbtn{display:inline-flex;flex:none;position:relative}
+  .sb-main{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-family:inherit;color:var(--text);border:1px solid var(--border-strong);border-right:none;border-radius:7px 0 0 7px;padding:2px 9px;cursor:pointer;background:var(--panel)}
+  .sb-main:hover,.sb-chev:hover{border-color:var(--dim2)}
+  .sb-chev{display:inline-flex;align-items:center;font-size:10px;color:var(--dim);border:1px solid var(--border-strong);border-left:1px solid var(--border);border-radius:0 7px 7px 0;padding:2px 6px;cursor:pointer;background:var(--panel)}
+  .sb-menu{position:absolute;bottom:calc(100% + 6px);right:0;min-width:240px;background:var(--panel2);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,.25);padding:5px;display:none;z-index:40}
+  .sb-menu.on{display:block}
+  .sb-menu .mh{padding:4px 10px 3px;color:var(--dim2);font-size:10px}
+  .sb-menu .mi{padding:6px 10px;border-radius:7px;cursor:pointer;font-size:12px}
+  .sb-menu .mi:hover{background:var(--panel)}
+  .sb-menu .mi .sub2{color:var(--dim2);font-size:10.5px;margin-top:1px}
+  .sb-menu .sep{height:1px;background:var(--border);margin:4px 6px}
+  .ls-turnspage{flex:1;min-height:0;display:flex;flex-direction:column;min-width:0}
+  .ls-turns{flex:none;max-height:46%;overflow-y:auto;padding:4px 8px;border-bottom:1px solid var(--border)}
+  .lturn{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:8px;border:1px solid transparent;cursor:pointer;font-size:11.5px;color:var(--dim);margin-bottom:2px}
+  .lturn:hover{background:var(--panel2)}
+  .lturn.sel{background:var(--panel2);border-color:var(--sel-border);color:var(--text)}
+  .lturn .dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--dim2)}
+  .lturn.cur .dot{background:var(--green)}
+  .lturn .sum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+  .lturn .tm{color:var(--dim2);font-size:10px;flex:none;font-family:var(--mono)}
+  .lturn .st{color:var(--dim2);font-size:10px;font-family:var(--mono);flex:none}
+  .lturn .st .add{color:var(--green)} .lturn .st .del{color:var(--red)}
+  .ls-fileswrap{flex:1;min-height:0;overflow-y:auto;padding:6px 8px}
+  .ls-fileswrap .lh{padding:2px 4px 6px;color:var(--dim2);font-size:10.5px}
+  .ls-filepage{flex:1;min-height:0;display:flex;flex-direction:column;min-width:0}
+  .ls-viewbar{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .ls-viewbar .fp{font-family:var(--mono);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+  .ls-body{flex:1;min-height:0;overflow:auto}
+  .ls-editor{font-family:var(--mono);font-size:12px;line-height:20px;white-space:pre;padding:10px 14px;min-height:100%;outline:none}
+  .ls-editor:focus{background:color-mix(in srgb,var(--panel2) 60%,transparent)}
+  .ls-editor .ln{display:inline-block;width:30px;text-align:right;margin-right:12px;color:var(--dim2);font-size:10px;user-select:none}
+  .ls-img{margin:14px auto;display:block;max-width:88%;border-radius:10px;border:1px solid var(--border2)}
+  .ls-imgcap{margin:8px auto 0;width:fit-content;color:var(--dim2);font-size:10.5px}
+  /* 对话流内文件变更行：查看/预览 一律驱动右侧面板（右侧 = 主预览面） */
+  .tlf{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;background:var(--panel);padding:4px 10px;font-size:12px;margin:2px 0}
+  .tlf .l{font-family:var(--mono);font-weight:700;font-size:11.5px;flex:none}
+  .tlf .p{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:11.5px;color:var(--text)}
+  .tlf .s{color:var(--dim2);font-size:10.5px;font-family:var(--mono);flex:none}
   .toast.on{opacity:1}
 </style>
 </head>
@@ -370,7 +437,7 @@
 
 <div class="topbar">
   <span class="logo"><span class="mark">⚡</span>Gitter 任务</span>
-  <span class="crumb">任务页 v3 设计稿 · 精致单色 × 磨砂质感 · 可点击：页签 / 工具折叠 / 授权选项 / composer（+ 附件 · 访问控制 · 模型 · 思考深度 · 用量明细）/ 查看 diff / 主题</span>
+  <span class="crumb">任务页 v3.1 设计稿 · 分栏变更面板 · 分割线均可拖拽（任务列表|对话、对话|面板）· 变更按轮 tab 查看 · 对话内 查看/预览 驱动右侧 · 外部应用=分裂按钮下拉</span>
   <span class="sp"></span>
   <button class="ibtn svg" title="搜索任务（Ctrl+K）" onclick="toast('设计稿示意：全局任务搜索')"></button>
   <button class="ibtn svg" title="设置" onclick="toast('设计稿示意：任务设置')"></button>
@@ -381,7 +448,7 @@
 <div class="main">
   <!-- ============ 左：任务列表 ============ -->
   <div class="list">
-    <div class="lhead"><b>任务</b><span class="sp"></span><button class="ibtn framed" title="新任务（Ctrl+N）" onclick="toast('设计稿示意：新建任务')"><span id="ico-plusb"></span></button></div>
+    <div class="newtask"><span id="ico-plus"></span>新任务<span class="kbd">Ctrl+N</span></div>
     <div class="scroll">
       <div class="trow sel" title="task/fix-diff-lag · 运行中 · 正在跑 npm test 验证… · checkpoint ×3 · 排队 1" onclick="pickCard(this)"><span class="sdot run"></span><span class="title">修复 Changes 页 diff 渲染卡顿</span><span class="quick"><button class="qbtn" title="分叉任务" data-ico="fork" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" title="归档任务" data-ico="archive" onclick="event.stopPropagation();toast('设计稿示意：归档任务')"></button></span></div>
       <div class="trow" title="task/refactor-wt · 规划模式 · 等待计划批准" onclick="pickCard(this)"><span class="sdot plan"></span><span class="title">重构 worktree 服务层</span><span class="quick"><button class="qbtn" title="分叉任务" data-ico="fork" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" title="归档任务" data-ico="archive" onclick="event.stopPropagation();toast('设计稿示意：归档任务')"></button></span></div>
@@ -389,6 +456,7 @@
       <div class="trow" title="task/release-2-3 · push 被拒绝（保护分支）" onclick="pickCard(this)"><span class="sdot err"></span><span class="title">发布 v2.3 到 GitHub Release</span><span class="quick"><button class="qbtn" title="分叉任务" data-ico="fork" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" title="归档任务" data-ico="archive" onclick="event.stopPropagation();toast('设计稿示意：归档任务')"></button></span></div>
     </div>
   </div>
+  <div class="vdiv" id="divList" title="拖拽调整任务列表宽度"><span class="grip"></span></div>
 
   <!-- ============ 右：详情 ============ -->
   <div class="detail">
@@ -401,11 +469,14 @@
 
       <!-- ===== 对话页 ===== -->
       <div class="page on" id="p-chat">
+        <div class="chat-split" id="chatSplit">
+        <div class="chat-col">
         <div class="pagehead">
           <span class="pill run"><span class="pdot"></span>Working · 48s</span>
           <span class="mono-chip">task/fix-diff-lag</span>
           <span class="meta" style="display:inline-flex;align-items:center;gap:5px;color:var(--amber)"><span id="ico-q1"></span>排队 1</span>
           <span class="sp"></span>
+          <button class="ibtn framed" id="splitToggle" title="打开/关闭右侧变更分栏" onclick="toggleSide()"><span id="ico-split1"></span></button>
           <button class="tbtn"><span id="ico-ext1"></span>新窗口</button>
         </div>
         <div class="stream">
@@ -440,6 +511,7 @@ web/src/pages/ChangesPage.tsx:66:  const d = renderDiff(f);</div>
               <div class="head" onclick="this.parentElement.classList.toggle('open')">
                 <span class="glyph ok" id="ig2"></span><span class="name">file_patch</span>
                 <span class="args">{ path: "web/src/kit/DiffView.tsx", edits: 2 }</span>
+                <button class="tbtn" style="padding:0 7px" onclick="event.stopPropagation();lsGoto('web/src/kit/DiffView.tsx','preview')">预览</button>
                 <span class="ms">12ms</span><span class="chev down" id="ic2"></span>
               </div>
               <div class="result"><span class="ln-del">-  const rows = useMemo(() =&gt; renderDiff(diff), [diff]);</span>
@@ -447,6 +519,8 @@ web/src/pages/ChangesPage.tsx:66:  const d = renderDiff(f);</div>
 <span class="ln-add">+  const rows = useMemo(() =&gt; renderDiff(diff, viewport), [diff, viewport]);</span>
 已编辑 web/src/kit/DiffView.tsx（2 处修改，+3 −2）</div>
             </div>
+
+            <div class="tlf"><span class="l mod">M</span><span class="p">web/src/kit/DiffView.tsx</span><span class="s">+11 −4</span><button class="tbtn" style="padding:0 7px" onclick="lsGoto('web/src/kit/DiffView.tsx','diff')">查看</button><button class="tbtn" style="padding:0 7px" onclick="lsGoto('web/src/kit/DiffView.tsx','preview')">预览</button></div>
 
             <div class="tool">
               <div class="head" onclick="this.parentElement.classList.toggle('open')">
@@ -566,6 +640,43 @@ PASS src/kit/DiffView.cache.test.ts  ◂ 等待退出码…</div>
             </div>
           </div>
         </div>
+      </div>
+      <div class="vdiv" id="divPanel" title="拖拽调整分栏比例"><span class="grip"></span></div>
+
+        <!-- ===== 实时变更面板（3/7 · 按轮 tab 查看 · 预览/内置编辑器/外部应用）===== -->
+        <div class="liveside" id="liveSide">
+          <div class="ls-tabs" id="lsTabs"></div>
+          <!-- 固定 tab「按轮」：上=轮次列表，下=该轮变更文件；点击文件 → 新开文件 tab 预览 -->
+          <div class="ls-turnspage" id="lsTurnsPage">
+            <div class="ls-turns" id="lsTurns"></div>
+            <div class="ls-fileswrap">
+              <div class="lh" id="lsHint"></div>
+              <div id="lsFileList"></div>
+            </div>
+          </div>
+          <!-- 文件 tab：预览（高亮只读）/ 差异，全高显示 -->
+          <div class="ls-filepage" id="lsFilePage" style="display:none">
+            <div class="ls-viewbar">
+              <span class="l" id="lsLetter" style="font-family:var(--mono);font-weight:700;font-size:12px"></span>
+              <span class="fp" id="lsPath">—</span>
+              <div class="seg" id="lsSeg"><span data-m="preview" class="on">预览</span><span data-m="diff">差异</span></div>
+              <div class="splitbtn">
+                <button class="sb-main" title="跳到内置编辑器（文件页）编辑" onclick="lsJumpEdit()"><span id="ico-pen1"></span>内置编辑器</button>
+                <button class="sb-chev" title="用其他应用打开" onclick="toggleSbMenu(event)">▾</button>
+                <div class="sb-menu" id="sbMenu">
+                  <div class="mh">用外部应用打开当前文件</div>
+                  <div class="mi" onclick="sbPick('VS Code（settings.externalEditor）')">VS Code<div class="sub2">settings.externalEditor · 已配置</div></div>
+                  <div class="mi" onclick="sbPick('系统默认应用')">系统默认应用<div class="sub2">shell.openPath</div></div>
+                  <div class="sep"></div>
+                  <div class="mi" style="color:var(--dim)" onclick="sbPick('选择其他应用…')">选择其他应用…</div>
+                </div>
+              </div>
+            </div>
+            <div class="ls-body" id="lsBody"></div>
+          </div>
+        </div>
+        </div>
+
       </div>
 
       <!-- ===== 改动页 ===== -->
@@ -704,6 +815,8 @@ var P = {
   "cpu":"M4.75 3.25h6.5a1.5 1.5 0 0 1 1.5 1.5v6.5a1.5 1.5 0 0 1-1.5 1.5h-6.5a1.5 1.5 0 0 1-1.5-1.5v-6.5a1.5 1.5 0 0 1 1.5-1.5Zm1.5 2.25a.75.75 0 0 0-.75.75v3.5c0 .414.336.75.75.75h3.5a.75.75 0 0 0 .75-.75v-3.5a.75.75 0 0 0-.75-.75ZM5.5 1h1.5v2.25H5.5ZM9 1h1.5v2.25H9ZM5.5 12.75h1.5V15H5.5ZM9 12.75h1.5V15H9ZM1 5.5h2.25v1.5H1ZM1 9h2.25v1.5H1ZM12.75 5.5H15v1.5h-2.25ZM12.75 9H15v1.5h-2.25Z",
   /* 灯泡（思考深度）：替代 gear —— 密齿齿轮在 13px 糊成一片；Octicons light-bulb-16 改绘 */
   "bulb":"M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319a8.456 8.456 0 0 0-.542.68c-.207.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z",
+  /* 分屏（分栏切换钮，VS Code 布局钮同型） */
+  "splitpane":"M2 3h5.25c.55 0 1 .45 1 1v8c0 .55-.45 1-1 1H2c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1Zm6.75 0H14c.55 0 1 .45 1 1v8c0 .55-.45 1-1 1H8.75c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1Z",
   /* 以下四枚逐字取自 web/src/pages/taskIcons.tsx PATHS（现成图标） */
   "fork":"M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z",
   "archive":"M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H14v6.25A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25V6h-.25A1.75 1.75 0 0 1 0 4.25v-1.5ZM3.5 6v6.25c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6h-9ZM1.75 2.5a.25.25 0 0 0-.25.25v1.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H1.75ZM6.25 8h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z",
@@ -716,6 +829,7 @@ function ico(name, size){
 // 静态占位注入
 (function(){
   var m = {
+    "ico-plus":["plus",13],"ico-pen1":["pencil",11],"ico-split1":["splitpane",15],
     "ig1":["search",12.5],"ig2":["pencil",12.5],"ig3":["terminal",12.5],
     "ic1":["chevron-down",12],"ic2":["chevron-down",12],"ic3":["chevron-down",12],
     "ico-list1":["list",12],"ico-todo-done1":["check-circle",13],"ico-todo-done2":["check-circle",13],
@@ -1075,8 +1189,9 @@ var B3 = {
   ]},
 };
 function emph(s){ return s.replace(/⟦([\s\S]*?)⟧/g, "<span class='wd'>$1</span>"); }
+function escH(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function cell(cls, ln, text){
-  return "<div class='cell "+cls+"'><span class='ln'>"+(ln||"")+"</span><span class='code'>"+emph(text)+"</span></div>";
+  return "<div class='cell "+cls+"'><span class='ln'>"+(ln||"")+"</span><span class='code'>"+emph(escH(text))+"</span></div>";
 }
 function sideHtml(h){
   var out = "", i = 0, rows = h.rows;
@@ -1305,6 +1420,174 @@ function doRollback(){ toast("设计稿：确认后 reset --hard "+cur.sha+"，�
 renderCpList();
 renderDiffTab();
 openDetail("7f3a2c1"); backToList(); // 预热
+
+// ================= 实时变更面板（v3.2）：固定「按轮」tab（轮次列表 + 该轮文件），文件预览开新 tab =================
+var LS = { tabs: ["turns"], active: "turns", turn: "latest", modes: {} };
+function turnOfSha(sha){ return TURNS.filter(function(t){ return t.sha === sha; })[0] || null; }
+function lsFilesForTurn(id){
+  var t = id === "latest" ? TURNS[0] : turnOfSha(id);
+  if (!t) return [];
+  var files = t.turnFiles.map(function(p){
+    var b = t.bodies[p];
+    return { p: p, l: b.letter, s: "+" + b.added + " −" + b.deleted, body: b };
+  });
+  if (t.sha === "90cc7d2") files.push({ p: "docs/assets/architecture.png", l: "A", s: "+1 −0", img: true });
+  return files;
+}
+function letterOf(path){ var r = "M"; TURNS.forEach(function(t){ if (t.bodies[path]) r = t.bodies[path].letter; }); return r; }
+function baseName(p){ var a = p.split("/"); return a[a.length - 1]; }
+function editorContent(b){
+  var out = [];
+  b.hunks.forEach(function(h){
+    h.rows.forEach(function(r){ if (r.type !== "del") out.push(r.text); });
+    if (h.mid) out.push("");
+  });
+  return out.join(String.fromCharCode(10));
+}
+function renderLsTabs(){
+  var html = "<div class='lstab" + (LS.active === "turns" ? " on" : "") + "' data-tab='turns' title='按轮查看变更（固定，不可关闭）'>按轮</div>";
+  LS.tabs.forEach(function(id){
+    if (id === "turns") return;
+    var bn = baseName(id);
+    html += "<div class='lstab" + (LS.active === id ? " on" : "") + "' data-tab='" + id + "' title='" + id + " · 预览/差异'>"
+      + "<span class='l " + (letterOf(id)==="A"?"add":letterOf(id)==="D"?"del":"mod") + "'>" + letterOf(id) + "</span>"
+      + bn
+      + " <span class='x' title='关闭' onclick=\"event.stopPropagation();lsCloseTab('" + id + "')\">✕</span></div>";
+  });
+  document.getElementById("lsTabs").innerHTML = html + "<span style='flex:1'></span>"
+    + "<button class='tbtn' title='收起面板，回到纯对话' onclick='toggleSide()'>收起</button>";
+  document.querySelectorAll("#lsTabs .lstab").forEach(function(t){
+    t.onclick = function(e){
+      if (e.target.classList.contains("x")) return;
+      LS.active = t.dataset.tab; renderLsTabs(); renderLsPages();
+    };
+  });
+}
+function renderTurnsPage(){
+  var rows = [{ id: "latest", label: "最新一轮 · 工作区当前内容", time: "", stats: "", cur: true }];
+  TURNS.forEach(function(t){
+    var a = 0, d = 0;
+    t.turnFiles.forEach(function(p){ var b = t.bodies[p]; a += b.added; d += b.deleted; });
+    rows.push({ id: t.sha, label: "cp " + t.sha + " · " + t.sum, time: t.time, stats: "+" + a + " −" + d, cur: false });
+  });
+  var html = "";
+  rows.forEach(function(r){
+    html += "<div class='lturn" + (LS.turn === r.id ? " sel" : "") + (r.cur ? " cur" : "") + "' onclick=\"lsSelectTurn('" + r.id + "')\">"
+      + "<span class='dot'></span><span class='sum'>" + r.label + "</span>"
+      + (r.stats ? "<span class='st'>" + r.stats + "</span>" : "")
+      + (r.time ? "<span class='tm'>" + r.time + "</span>" : "")
+      + "</div>";
+  });
+  document.getElementById("lsTurns").innerHTML = html;
+  document.getElementById("lsHint").textContent = LS.turn === "latest"
+    ? "最新一轮（工作区当前内容）· 点击文件 → 新开 tab 预览 / 差异"
+    : "该轮快照（只读回看）· 点击文件 → 新开 tab 预览 / 差异";
+  var fh = "";
+  lsFilesForTurn(LS.turn).forEach(function(f){
+    fh += "<div class='df' onclick=\"lsOpenFile('" + f.p + "')\">"
+      + "<span class='l " + (f.l==="A"?"add":f.l==="D"?"del":"mod") + "'>" + f.l + "</span>"
+      + "<span class='p'>" + f.p + "</span><span class='s'>" + f.s + "</span></div>";
+  });
+  document.getElementById("lsFileList").innerHTML = fh || "<div class='df' style='color:var(--dim2)'>该轮无改动</div>";
+}
+function lsSelectTurn(id){ LS.turn = id; renderTurnsPage(); }
+function renderLsPages(){
+  if (LS.active === "turns") {
+    document.getElementById("lsTurnsPage").style.display = "flex";
+    document.getElementById("lsFilePage").style.display = "none";
+    renderTurnsPage();
+  } else {
+    document.getElementById("lsTurnsPage").style.display = "none";
+    document.getElementById("lsFilePage").style.display = "flex";
+    renderFilePage();
+  }
+}
+function renderFilePage(){
+  var path = LS.active;
+  var body = null;
+  TURNS.forEach(function(t){ if (!body && t.bodies[path]) body = t.bodies[path]; });
+  var mode = LS.modes[path] || "preview";
+  var letter = letterOf(path);
+  var el = document.getElementById("lsLetter");
+  el.textContent = letter;
+  el.className = "l " + (letter==="A" ? "add" : letter==="D" ? "del" : "mod");
+  document.getElementById("lsPath").textContent = path;
+  document.querySelectorAll("#lsSeg span").forEach(function(s){ s.classList.toggle("on", s.dataset.m === mode); });
+  var bodyEl = document.getElementById("lsBody");
+  if (!body){ bodyEl.innerHTML = "<div class='lc-loading'>（无内容）</div>"; return; }
+  if (body.img){ bodyEl.innerHTML = "<div class='ls-img' style='width:320px;height:200px;background:linear-gradient(135deg,#1c3d5a,#3d2b5a)'></div><div class='ls-imgcap'>architecture.png · file.readBinary 预览</div>"; return; }
+  bodyEl.innerHTML = mode === "diff"
+    ? "<div style='padding:4px 10px'>" + renderHunks(body, "side") + "</div>"
+    : (function(){
+        var lines = editorContent(body).split("\n");
+        var html = "<div class='ls-editor' contenteditable='true' spellcheck='false'>";
+        lines.forEach(function(t, i){ html += "<span class='ln'>"+(i+1)+"</span>"+escH(t)+"\nn" ; });
+        return html + "</div>";
+      })();
+}
+function lsOpenFile(path, mode){
+  if (document.getElementById("chatSplit").classList.contains("noside")) toggleSide();
+  if (LS.tabs.indexOf(path) < 0) LS.tabs.push(path);
+  LS.active = path;
+  LS.modes[path] = mode || LS.modes[path] || "preview";
+  renderLsTabs(); renderLsPages();
+}
+function lsCloseTab(id){
+  LS.tabs = LS.tabs.filter(function(x){ return x !== id; });
+  if (LS.active === id) LS.active = "turns";
+  renderLsTabs(); renderLsPages();
+}
+function lsSetMode(m){ LS.modes[LS.active] = m; renderFilePage(); }
+function toggleSide(){
+  var split = document.getElementById("chatSplit");
+  split.classList.toggle("noside");
+  var open = !split.classList.contains("noside");
+  var st = document.getElementById("splitToggle");
+  if (st) st.classList.toggle("on", open);
+  renderLsTabs();
+}
+// 对话流 查看/预览 → 驱动右侧面板（右侧 = 主预览面）
+function lsGoto(path, mode){
+  lsOpenFile(path, mode === "diff" ? "diff" : "preview");
+}
+// 可拖拽分割线：任务列表|对话、对话|变更面板（拖拽实时调列宽）
+(function(){
+  var d1 = document.getElementById("divList");
+  d1.addEventListener("pointerdown", function(e){
+    e.preventDefault();
+    var main = document.querySelector(".main");
+    var rect = main.getBoundingClientRect();
+    var move = function(ev){
+      var w = Math.max(210, Math.min(420, ev.clientX - rect.left - 3));
+      main.style.gridTemplateColumns = "6px " + w + "px minmax(0,1fr)";
+    };
+    var up = function(){ window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); d1.classList.remove("drag"); };
+    d1.classList.add("drag");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  });
+  var d2 = document.getElementById("divPanel");
+  d2.addEventListener("pointerdown", function(e){
+    e.preventDefault();
+    var split = document.getElementById("chatSplit");
+    var rect = split.getBoundingClientRect();
+    var move = function(ev){
+      var pct = Math.max(38, Math.min(66, ((ev.clientX - rect.left) / rect.width) * 100));
+      split.style.gridTemplateColumns = pct + "% 6px minmax(280px, 1fr)";
+    };
+    var up = function(){ window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); d2.classList.remove("drag"); };
+    d2.classList.add("drag");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  });
+})();
+// 外部应用分裂按钮（ZCode 式）：主钮=跳内置编辑器编辑；下拉=外部应用列表（非系统选择器）
+function lsJumpEdit(){ toast('设计稿示意：跳转文件页内置编辑器，打开并编辑当前文件'); }
+function toggleSbMenu(e){ e.stopPropagation(); document.getElementById("sbMenu").classList.toggle("on"); }
+function sbPick(app){ document.getElementById("sbMenu").classList.remove("on"); toast("设计稿示意：" + app + " 打开当前文件（shell.openPath）"); }
+document.addEventListener("click", function(e){ if (!e.target.closest(".splitbtn")) document.getElementById("sbMenu")?.classList.remove("on"); });
+renderLsTabs();
+renderLsPages();
 </script>
 </body>
 </html>

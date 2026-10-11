@@ -30,6 +30,8 @@ export interface AppState {
   panels: { id: string; title: string; body: string }[];
   /** A4 Log 会话卡联动：聚焦任务卡（TasksPage 消费后清空） */
   focusTaskId: string | null;
+  /** 任务页「内置编辑器」跳转：请求文件页打开并编辑指定文件（FilesPage 消费后按 ts 去重） */
+  fileFocus: { path: string; ts: number } | null;
   /** Agent 流式输出缓冲（agent.stream 事件，10s 无增量自动清空） */
   agentStreamText: string | null;
   /** U1b 共享上下文（跨页联动与外部页读取；页面内仍可保局部镜像） */
@@ -48,6 +50,7 @@ let state: AppState = {
   i18n: null,
   maximized: false,
   routedCommand: null,
+  fileFocus: null,
   refreshTick: 0,
   repoChangedTick: 0,
   settingsFocus: null,
@@ -126,6 +129,11 @@ export function useApp(): AppState {
 export function subscribeState(cb: () => void): () => void {
   listeners.add(cb);
   return () => listeners.delete(cb);
+}
+
+/** 任务页「内置编辑器」跳转：请求文件页打开并编辑指定文件（配合 navigate("files")）。 */
+export function requestFileFocus(path: string) {
+  setState({ fileFocus: { path, ts: Date.now() } });
 }
 
 export function navigate(page: PageKey) {

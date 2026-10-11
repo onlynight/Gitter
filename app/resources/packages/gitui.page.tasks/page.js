@@ -1,31 +1,6 @@
 (function(jsxRuntime, react) {
   "use strict";
   var _a, _b;
-  const K = () => {
-    const k = window.GITTER_KIT;
-    if (!k) throw new Error("GITTER_KIT 未注入（外部页必须经宿主 pageLoader 装载）");
-    return k;
-  };
-  const React = K().React;
-  K().ReactDOM;
-  const ReactDOMClient = K().ReactDOMClient;
-  const DiffView = K().DiffView;
-  K().diffStatusLetter;
-  K().renderSegments;
-  K().wordDiff;
-  K().SplitPane;
-  K().Banner;
-  const Modal = K().Modal;
-  K().useContextMenu;
-  K().SyncBar;
-  K().useSyncProgress;
-  const renderMarkdown = K().renderMarkdown;
-  K().registerMarkdownPlugin;
-  const PageErrorBoundary = K().PageErrorBoundary;
-  K().NavIcon;
-  K().Select;
-  K().ReflogDialog;
-  K().ScrollArea;
   function U$1() {
     const g = window.GITTER_UI;
     if (!g) throw new Error("GITTER_UI 未注入（外部页必须经宿主 pageLoader 装载）");
@@ -48,6 +23,8 @@
     on: (method, cb) => U$1().on(method, cb),
     t: (key, ...args) => U$1().t(key, ...args),
     navigate: (page) => U$1().navigate(page),
+    taskPanels: () => [],
+    requestFileFocus: (path) => U$1().requestFileFocus(path),
     openSettings: (section) => U$1().openSettings(section),
     toast: (title, body) => U$1().toast(title, body),
     refresh: () => U$1().refresh(),
@@ -88,6 +65,9 @@
   }
   function registerAgentUI(reg) {
     U().registerAgentUI(reg);
+  }
+  function taskPanels() {
+    return U().taskPanels();
   }
   function resolveTimelineRenderer(toolName, blockKind) {
     return U().resolveTimelineRenderer(toolName, blockKind);
@@ -178,7 +158,11 @@
     // 对勾（Octicons check-16）
     "check": "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z",
     // 复制（Octicons copy-16：双叠方块）
-    "copy": "M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"
+    "copy": "M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z",
+    // 分屏（分栏切换钮，VS Code 布局钮同型）：左右两个圆角栏
+    "splitpane": "M2 3h5.25c.55 0 1 .45 1 1v8c0 .55-.45 1-1 1H2c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1Zm6.75 0H14c.55 0 1 .45 1 1v8c0 .55-.45 1-1 1H8.75c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1Z",
+    // 灯泡（思考深度；Octicons light-bulb-16 改绘）——密齿 gear 缩到 13px 糊成一团（v3 设计稿 task-page-v3-mockup）
+    "bulb": "M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319a8.456 8.456 0 0 0-.542.68c-.207.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"
   };
   function TlIcon(props) {
     const d = PATHS[props.name];
@@ -238,21 +222,322 @@
         return "dot";
     }
   }
-  const { call, on: onEvent, t, openSettings, notifyRepoChanged } = pageSdk;
-  const LIVE_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
-  const BUSY_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-permission"]);
-  const MODE_ORDER = ["plan", "default", "yolo"];
-  const MODE_META = {
-    plan: { label: "◇ 计划", color: "var(--c-chip-purple-fg, #b490ff)" },
-    default: { label: "● 默认", color: "var(--c-text3)" },
-    yolo: { label: "⚡ 完全访问", color: "var(--c-red)" }
+  function api() {
+    if (!window.gitter) {
+      return {
+        invoke: async () => ({ ok: false, error: { message: "不在 Electron 宿主内（桥不可用）" } }),
+        onEvent: () => () => {
+        },
+        winAction: () => {
+        },
+        isMaximized: async () => false
+      };
+    }
+    return window.gitter;
+  }
+  class BridgeCallError extends Error {
+    constructor(message, detail) {
+      super(message);
+      this.detail = detail;
+    }
+  }
+  async function call$1(method, params) {
+    const res = await api().invoke(method, params);
+    if (!res.ok) throw new BridgeCallError(res.error.message, res.error.detail);
+    return res.data;
+  }
+  const K = () => {
+    const k = window.GITTER_KIT;
+    if (!k) throw new Error("GITTER_KIT 未注入（外部页必须经宿主 pageLoader 装载）");
+    return k;
   };
-  const THINKING_META = {
-    off: { label: "思考·关", hint: "跳过推理，响应最快" },
-    low: { label: "思考·低", hint: "轻量推理，适合明确指令" },
-    medium: { label: "思考·中", hint: "平衡推理与速度（默认）" },
-    high: { label: "思考·高", hint: "深度推理，适合复杂设计" }
-  };
+  const React = K().React;
+  K().ReactDOM;
+  const ReactDOMClient = K().ReactDOMClient;
+  const DiffView = K().DiffView;
+  K().diffStatusLetter;
+  K().renderSegments;
+  K().wordDiff;
+  K().SplitPane;
+  K().Banner;
+  K().Modal;
+  K().useContextMenu;
+  K().SyncBar;
+  K().useSyncProgress;
+  const renderMarkdown = K().renderMarkdown;
+  K().registerMarkdownPlugin;
+  const PageErrorBoundary = K().PageErrorBoundary;
+  K().NavIcon;
+  K().Select;
+  K().ReflogDialog;
+  K().ScrollArea;
+  const IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i;
+  const MAX_TEXT_BYTES = 2e6;
+  const TURNS_TAB = "turns";
+  function letterColor(letter) {
+    return letter === "A" ? "var(--c-green)" : letter === "D" ? "var(--c-red)" : "var(--c-amber)";
+  }
+  function baseName(p) {
+    return p.split("/").pop() ?? p;
+  }
+  function tabId(path) {
+    return `file:${path}`;
+  }
+  function TaskChangesPanel(props) {
+    var _a2;
+    const [tabs, setTabs] = react.useState([TURNS_TAB]);
+    const [active, setActive] = react.useState(TURNS_TAB);
+    const [turn, setTurn] = react.useState("latest");
+    const [modes, setModes] = react.useState({});
+    const [cps, setCps] = react.useState([]);
+    const [letters, setLetters] = react.useState({});
+    const [files, setFiles] = react.useState([]);
+    const [diffs, setDiffs] = react.useState([]);
+    const [view, setView] = react.useState({ kind: "empty" });
+    const [err, setErr] = react.useState(null);
+    const lastReq = react.useRef(0);
+    const uiV = useAgentUIVersion();
+    const pluginPanels = react.useMemo(() => taskPanels(), [uiV]);
+    const activePlugin = pluginPanels.find((p) => p.def.id === active) ?? null;
+    function letterOf(path) {
+      return letters[path] ?? "M";
+    }
+    const activePath = active === TURNS_TAB ? void 0 : active;
+    const activeMode = activePath ? modes[activePath] ?? "preview" : "preview";
+    (() => {
+      const t2 = tabs.find((t22) => typeof t22 !== "string" && tabId(t22.path) === active);
+      return t2 ? t2.origin : "latest";
+    })();
+    react.useEffect(() => {
+      let cancelled = false;
+      void call$1("agent.task.checkpoints", { taskId: props.taskId }).then((x) => {
+        if (!cancelled) setCps(x.slice().reverse());
+      }).catch(() => {
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [props.taskId, props.tick]);
+    react.useEffect(() => {
+      if (active !== TURNS_TAB) return;
+      let cancelled = false;
+      if (turn === "latest") {
+        void call$1("agent.task.files", { taskId: props.taskId }).then((fs) => {
+          if (cancelled) return;
+          setFiles(fs.map((f) => ({ path: f.path, letter: f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M", added: f.added, deleted: f.deleted })));
+          setLetters((lm) => {
+            const nm = { ...lm };
+            fs.forEach((f) => {
+              nm[f.path] = f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M";
+            });
+            return nm;
+          });
+        }).catch(() => {
+          if (!cancelled) setFiles([]);
+        });
+      } else {
+        void call$1("agent.task.diff", { taskId: props.taskId, since: `checkpoint:${turn}` }).then((ds) => {
+          if (cancelled) return;
+          setFiles(ds.map((d) => ({ path: d.path, letter: d.isNew ? "A" : d.isDeleted ? "D" : "M", added: d.addedLines, deleted: d.deletedLines })));
+          setLetters((lm) => {
+            const nm = { ...lm };
+            ds.forEach((d) => {
+              nm[d.path] = d.isNew ? "A" : d.isDeleted ? "D" : "M";
+            });
+            return nm;
+          });
+        }).catch(() => {
+          if (!cancelled) setFiles([]);
+        });
+      }
+      return () => {
+        cancelled = true;
+      };
+    }, [active, turn, props.taskId, props.tick]);
+    react.useEffect(() => {
+      const req = props.request;
+      if (!req || req.ts === lastReq.current) return;
+      lastReq.current = req.ts;
+      openFileTab(req.path, "latest", req.mode);
+    }, [(_a2 = props.request) == null ? void 0 : _a2.ts]);
+    react.useEffect(() => {
+      var _a3;
+      if (activePath === void 0 || activeMode !== "diff") {
+        setDiffs([]);
+        return;
+      }
+      let cancelled = false;
+      const origin = ((_a3 = tabs.find((t2) => typeof t2 !== "string" && t2.path === activePath)) == null ? void 0 : _a3.origin) ?? "latest";
+      const since = origin === "latest" ? void 0 : `checkpoint:${origin}`;
+      void call$1("agent.task.diff", { taskId: props.taskId, path: activePath, since }).then((d) => {
+        if (!cancelled) setDiffs(d);
+      }).catch(() => {
+        if (!cancelled) setDiffs([]);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [activePath, activeMode, props.taskId]);
+    react.useEffect(() => {
+      if (activePath === void 0 || activeMode !== "preview") return;
+      let cancelled = false;
+      setErr(null);
+      if (IMG_RE.test(activePath)) {
+        setView({ kind: "loading" });
+        void call$1("file.readBinary", { path: activePath }).then((r) => {
+          var _a3;
+          if (cancelled) return;
+          const ext = ((_a3 = activePath.split(".").pop()) == null ? void 0 : _a3.toLowerCase()) ?? "png";
+          setView({ kind: "image", url: `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${(r == null ? void 0 : r.base64) ?? ""}` });
+        }).catch((e) => {
+          if (!cancelled) setView({ kind: "error", message: e.message });
+        });
+        return () => {
+          cancelled = true;
+        };
+      }
+      setView({ kind: "loading" });
+      (async () => {
+        try {
+          const r = await call$1("file.content", { path: activePath, revision: "worktree", maxBytes: MAX_TEXT_BYTES });
+          if (cancelled) return;
+          if (!r || r.binary) {
+            setView({ kind: "binary" });
+            return;
+          }
+          if (r.truncated) {
+            setView({ kind: "toolarge" });
+            return;
+          }
+          const hl = await call$1("highlight.file", { path: activePath, text: r.content }).catch(() => null);
+          if (cancelled) return;
+          setView({ kind: "text", lines: (hl == null ? void 0 : hl.lines) ?? [], plain: r.content.split("\n"), syntaxColors: (hl == null ? void 0 : hl.syntaxColors) ?? {} });
+        } catch (e) {
+          if (!cancelled) setView({ kind: "error", message: e.message });
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [activePath, activeMode, props.taskId]);
+    const activate = (id) => setActive(id);
+    function openFileTab(path, origin, mode) {
+      setTabs((cur) => {
+        const ids = cur.map((t2) => typeof t2 === "string" ? t2 : t2.path);
+        if (ids.includes(path)) return cur;
+        return [...cur, { path, origin }];
+      });
+      setActive(path);
+      if (mode) setModes((m) => ({ ...m, [path]: mode }));
+    }
+    const closeTab = react.useCallback((id) => {
+      setTabs((cur) => cur.filter((t2) => (typeof t2 === "string" ? t2 : t2.path) !== id));
+      setActive((cur) => cur === id ? TURNS_TAB : cur);
+    }, []);
+    const openExternal = react.useCallback((useExternalEditor) => {
+      if (!activePath) return;
+      const full = `${props.worktreePath.replace(/[\\/]+$/, "")}/${activePath.replace(/\\/g, "/")}`;
+      void call$1("shell.openPath", { path: full, editor: useExternalEditor || void 0 }).catch((e) => setErr(e.message));
+    }, [activePath, props.worktreePath]);
+    const fileTabNodes = tabs.filter((t2) => typeof t2 !== "string");
+    const hintText = turn === "latest" ? "最新一轮（工作区当前内容）· 点击文件 → 新开 tab 预览 / 差异" : `该轮快照（${turn.slice(0, 8)}^..${turn.slice(0, 8)}）· 只读回看`;
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-panel", children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-tabs", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-tab turns" + (active === TURNS_TAB ? " on" : ""), title: "按轮查看变更（固定，不可关闭）", onClick: () => activate(TURNS_TAB), children: [
+          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "commit", size: 12 }),
+          "按轮"
+        ] }),
+        pluginPanels.map(({ def }) => /* @__PURE__ */ jsxRuntime.jsx("button", { className: "lc-tab" + (active === def.id ? " on" : ""), title: def.title, onClick: () => setActive(def.id), children: def.title }, def.id)),
+        fileTabNodes.map((t2) => /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-tab file" + (active === t2.path ? " on" : ""), title: t2.path, onClick: () => setActive(t2.path), children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-letter", style: { color: letterColor(letterOf(t2.path)) }, children: letterOf(t2.path) }),
+          baseName(t2.path),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-x", title: "关闭", onClick: (e) => {
+            e.stopPropagation();
+            closeTab(t2.path);
+          }, children: "✕" })
+        ] }, t2.path)),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "收起面板，回到纯对话", onClick: props.onCollapse, children: "收起" })
+      ] }),
+      activePlugin ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-body", style: { display: "flex" }, children: activePlugin.def.render({ taskId: props.taskId }) }) : active === TURNS_TAB ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-turnspage", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-turns", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-hint", children: "按轮查看变更 · 点击轮次载入该轮文件列表" }),
+          /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-turn" + (turn === "latest" ? " sel" : ""), onClick: () => setTurn("latest"), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-turn-dot", style: { background: "var(--c-green)" } }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-turn-sum", children: "最新一轮 · 工作区当前内容" })
+          ] }),
+          cps.map((c) => /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-turn" + (turn === c.sha ? " sel" : ""), title: `${c.summary}
+${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-turn-dot" }),
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "lc-turn-sum", children: [
+              "cp ",
+              c.sha.slice(0, 8),
+              " · ",
+              c.summary.replace(/^checkpoint:\s*/, "")
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-turn-time", children: c.date.slice(5, 16).replace("T", " ") })
+          ] }, c.sha))
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-fileswrap", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-hint", children: hintText }),
+          files.map((f) => /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-file", title: `${f.path} · 预览 / 差异`, onClick: () => openFileTab(f.path, turn), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-letter", style: { color: letterColor(f.letter) }, children: f.letter }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-path", children: f.path }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-stats", children: f.added != null ? `+${f.added} −${f.deleted ?? 0}` : "" })
+          ] }, f.path)),
+          files.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-hint", children: turn === "latest" ? "暂无改动" : "该轮无改动" })
+        ] })
+      ] }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-filepage", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-viewbar", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-letter", style: { color: letterColor(letterOf(activePath ?? "")) }, children: letterOf(activePath ?? "") }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-viewbar-path", children: activePath ?? "—" }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-seg", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: activeMode === "preview" ? "on" : "", onClick: () => activePath && setModes((m) => ({ ...m, [activePath]: "preview" })), children: "预览" }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: activeMode === "diff" ? "on" : "", onClick: () => activePath && setModes((m) => ({ ...m, [activePath]: "diff" })), children: "差异" })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "splitbtn", children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-split-main", disabled: !activePath, title: "跳到内置编辑器（文件页）编辑", onClick: () => activePath && props.onEditInFilesPage(activePath), children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "pencil", size: 12 }),
+              "内置编辑器"
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "lc-split-chev", disabled: !activePath, title: "用其他应用打开", onClick: (e) => {
+              var _a3;
+              e.stopPropagation();
+              (_a3 = document.getElementById("lcAppMenu")) == null ? void 0 : _a3.classList.toggle("on");
+            }, children: "▾" }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-split-menu", id: "lcAppMenu", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-split-head", children: "用外部应用打开当前文件" }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "lc-split-item", onClick: () => {
+                var _a3;
+                openExternal(true);
+                (_a3 = document.getElementById("lcAppMenu")) == null ? void 0 : _a3.classList.remove("on");
+              }, children: "VS Code（settings.externalEditor）" }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "lc-split-item", onClick: () => {
+                var _a3;
+                openExternal(false);
+                (_a3 = document.getElementById("lcAppMenu")) == null ? void 0 : _a3.classList.remove("on");
+              }, children: "系统默认应用" })
+            ] })
+          ] })
+        ] }),
+        err && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-err", children: err }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-body", children: activeMode === "diff" ? diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "（无差异）" }) : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d }, d.path)) : view.kind === "loading" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "加载中…" }) : view.kind === "image" ? /* @__PURE__ */ jsxRuntime.jsx("img", { className: "lc-img", src: view.url, alt: activePath ?? "" }) : view.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "lc-code", children: view.lines.length > 0 ? view.lines.map((runs, li) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-line", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-ln", children: li + 1 }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-code", children: runs.length === 0 ? view.plain[li] ?? "" : runs.map((r, ri) => {
+            var _a3;
+            return /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: r.color ?? view.syntaxColors[r.style] }, children: (_a3 = view.plain[li]) == null ? void 0 : _a3.slice(r.start, r.end) }, ri);
+          }) })
+        ] }, li)) : view.plain.map((t2, li) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-line", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-ln", children: li + 1 }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-code", children: t2 })
+        ] }, li)) }) : view.kind === "binary" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "二进制文件——请用「外部应用」打开" }) : view.kind === "toolarge" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "文件过大——请用「外部应用」打开" }) : view.kind === "error" ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-loading", children: [
+          "读取失败：",
+          view.message
+        ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "（选择文件）" }) })
+      ] })
+    ] });
+  }
   const TOOL_LABELS = {
     web_search: "网络搜索",
     web_fetch: "读取网页",
@@ -276,34 +561,6 @@
     plan_submit: "提交计划",
     task: "子代理"
   };
-  const BUILTIN_SLASH = [
-    { name: "compact", hint: "立即压缩上下文" },
-    { name: "clear", hint: "重置会话（保留 worktree/checkpoint）" },
-    { name: "plan", hint: "切计划模式" },
-    { name: "default", hint: "切默认模式" },
-    { name: "yolo", hint: "切完全访问模式" },
-    { name: "approvals", hint: "切换审批模式（同 Shift+Tab）" },
-    { name: "stop", hint: "中断当前轮" },
-    { name: "model", arg: "<id>", hint: "切换模型档案" },
-    { name: "thinking", arg: "<level>", hint: "切换思考深度" },
-    { name: "fork", hint: "分叉任务" },
-    { name: "skill", arg: "<名称>", hint: "注入技能指引" },
-    { name: "export", hint: "导出会话为 Markdown 文件" },
-    { name: "cp", hint: "立即创建检查点" },
-    { name: "diff", hint: "查看当前改动" },
-    { name: "attach", hint: "附加图片（随下条消息发送）" },
-    // 模板命令（D3/D4）：与包命令同一分发语义（busy 排队 / idle 续跑，零新增 RPC）
-    {
-      name: "review",
-      hint: "审查当前工作区改动（review 子代理）",
-      template: "请用 task 工具（mode=review）审查当前工作区改动：先 repo_status / repo_diff 获取变更，逐文件审查正确性、边界条件与测试影响，产出问题清单（文件:行号 + 高/中/低 + 修复建议），最后给出可合并结论。${input}"
-    },
-    {
-      name: "init",
-      hint: "分析仓库并生成/更新 AGENTS.md",
-      template: "请分析当前仓库（目录结构、构建/测试/lint 命令、代码约定、现有文档），在仓库根生成或更新 AGENTS.md：项目简介、常用命令、目录导览、代码约定与注意事项。已存在时合并改进而非覆盖。${input}"
-    }
-  ];
   const MAX_BLOCKS = 400;
   function pushCap(arr, b) {
     let next = [...arr, b];
@@ -347,6 +604,7 @@
     }
     switch (ev.type) {
       case "status":
+        if (ev.phase === "running-command") return blocks;
         return pushCap(blocks, { kind: "status", text: `${ev.phase ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.phase });
       case "output":
         if (ev.stream === "thinking") {
@@ -416,26 +674,6 @@
         return blocks;
     }
   }
-  function stateChip(s) {
-    switch (s) {
-      case "starting":
-        return { label: "Starting", color: "var(--c-text3)" };
-      case "working":
-        return { label: "● Working", color: "var(--c-green)" };
-      case "awaiting-input":
-        return { label: "Awaiting input", color: "var(--c-text)" };
-      case "awaiting-permission":
-        return { label: "● 待确认", color: "var(--c-amber)" };
-      case "completed":
-        return { label: "Completed", color: "var(--c-accent)" };
-      case "failed":
-        return { label: "Failed", color: "var(--c-red)" };
-      case "interrupted":
-        return { label: "Interrupted", color: "var(--c-amber)" };
-      case "stopped":
-        return { label: "Stopped", color: "var(--c-text3)" };
-    }
-  }
   function permOptions(b, showFullAccess = false) {
     const sig = b.command ?? b.title;
     const prefix = sig ? sig.slice(0, 24) : null;
@@ -446,45 +684,12 @@
     opts.push({ label: `${opts.length + 1}. 否，告诉 agent 改用其他方式`, reply: { ok: false } });
     return opts;
   }
-  function ErrorFloat(props) {
-    const [open, setOpen] = react.useState(false);
-    const [truncated, setTruncated] = react.useState(false);
-    const textRef = react.useRef(null);
-    react.useEffect(() => {
-      setOpen(false);
-      const el = textRef.current;
-      setTruncated(!!el && el.scrollWidth > el.clientWidth + 1);
-    }, [props.text]);
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner error", style: { position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 30, margin: 0, maxWidth: props.maxWidth, boxShadow: "0 8px 20px color-mix(in srgb, #000 25%, transparent)" }, children: [
-      /* @__PURE__ */ jsxRuntime.jsx(
-        "span",
-        {
-          ref: textRef,
-          className: "banner-text",
-          style: open ? { whiteSpace: "normal", wordBreak: "break-word", maxHeight: "40vh", overflowY: "auto", userSelect: "text" } : void 0,
-          children: props.text
-        }
-      ),
-      (truncated || open) && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { flex: "none" }, onClick: () => setOpen((v) => !v), children: open ? "收起" : "展开" }),
-      props.go && props.onGo && /* @__PURE__ */ jsxRuntime.jsx(
-        "button",
-        {
-          className: "tool-btn",
-          title: `打开设置 · ${props.go.section}`,
-          style: { flex: "none", color: "var(--c-link)", textDecoration: "underline", textUnderlineOffset: 2 },
-          onClick: () => props.onGo(props.go.section),
-          children: props.go.label
-        }
-      ),
-      /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { flex: "none" }, onClick: props.onClose, children: "✕" })
-    ] });
-  }
   function AgentImage(props) {
     const [src, setSrc] = react.useState(null);
     const [err, setErr] = react.useState(null);
     react.useEffect(() => {
       let cancelled = false;
-      void call("agent.previewImage", { taskId: props.taskId, path: props.path }).then((r) => {
+      void call$1("agent.previewImage", { taskId: props.taskId, path: props.path }).then((r) => {
         if (cancelled) return;
         if (r.dataUrl) setSrc(r.dataUrl);
         else setErr(r.error ?? "加载失败");
@@ -507,69 +712,18 @@
     ] });
     return /* @__PURE__ */ jsxRuntime.jsx("img", { src, alt: props.path, style: { maxWidth: 320, maxHeight: 220, borderRadius: 6, border: "1px solid var(--c-border)" } });
   }
-  function MentionPopover(props) {
-    const { mention, items, onPick, onSelect } = props;
-    if (!mention || items.length === 0) return null;
-    const sel = Math.max(0, Math.min(props.selectedIndex, items.length - 1));
-    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mention-pop", style: { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 180, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }, children: items.map((it, i) => /* @__PURE__ */ jsxRuntime.jsx(
-      "div",
-      {
-        ref: (el) => {
-          if (el && i === sel) el.scrollIntoView({ block: "nearest" });
-        },
-        style: {
-          padding: "4px 10px",
-          fontSize: 12,
-          cursor: "pointer",
-          borderRadius: 6,
-          background: i === sel ? "var(--c-selected)" : "transparent",
-          color: i === sel ? "var(--c-text)" : "var(--c-text2)"
-        },
-        onMouseEnter: () => onSelect(i),
-        onMouseDown: (e) => {
-          e.preventDefault();
-          onPick(it.insert);
-        },
-        children: it.label
-      },
-      it.label
-    )) });
-  }
-  function SlashPopover(props) {
-    if (!props.open || props.items.length === 0) return null;
-    const sel = Math.max(0, Math.min(props.selectedIndex, props.items.length - 1));
-    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mention-pop", style: { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 240, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }, children: props.items.map((it, i) => /* @__PURE__ */ jsxRuntime.jsxs(
-      "div",
-      {
-        ref: (el) => {
-          if (el && i === sel) el.scrollIntoView({ block: "nearest" });
-        },
-        style: {
-          padding: "5px 10px",
-          fontSize: 12,
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          borderRadius: 6,
-          background: i === sel ? "var(--c-selected)" : "transparent"
-        },
-        onMouseEnter: () => props.onSelect(i),
-        onMouseDown: (e) => {
-          e.preventDefault();
-          props.onPick(it.insert);
-        },
-        children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontWeight: 600, flex: "none" }, children: it.name }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: it.hint })
-        ]
-      },
-      it.name
-    )) });
-  }
-  function ToolCard({ b }) {
+  function ToolCard({ b, ctx }) {
     const [open, setOpen] = react.useState(false);
     const label = TOOL_LABELS[b.name] ?? b.name;
+    const filePath = (() => {
+      if (b.name !== "file_write" && b.name !== "file_patch") return null;
+      try {
+        const a = b.args;
+        return typeof (a == null ? void 0 : a.path) === "string" ? a.path : null;
+      } catch {
+        return null;
+      }
+    })();
     const argSummary = (() => {
       try {
         const a = b.args;
@@ -584,26 +738,47 @@
         return "";
       }
     })();
-    const glyphColor = b.state === "running" ? "var(--c-amber)" : b.state === "error" ? "var(--c-red)" : "var(--c-green)";
     const firstLine = (b.result ?? "").split("\n")[0] ?? "";
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontFamily: "var(--mono, monospace)", fontSize: 12.5 }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "2px 4px", borderRadius: 6 }, onClick: () => setOpen(!open), children: [
-        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: toolIconName(b.name), color: glyphColor, className: b.state === "running" ? "tl-pulse" : void 0 }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontWeight: 700 }, children: label }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }, children: argSummary }),
-        b.source ? /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 9.5, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px", color: "var(--c-text3)" }, children: b.source }) : null,
-        b.durationMs !== void 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: [
-          (b.durationMs / 1e3).toFixed(1),
-          "s"
-        ] }) : null
-      ] }),
-      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { margin: "1px 0 0 18px", borderLeft: "1px solid var(--c-border)", paddingLeft: 10, color: "var(--c-text3)", fontSize: 12 }, children: b.state === "running" && b.tail ? /* @__PURE__ */ jsxRuntime.jsx("pre", { style: { whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0, fontFamily: "inherit", color: "var(--c-text)" }, children: b.tail.split("\n").slice(-4).join("\n") }) : b.result ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: open ? 420 : 22, overflow: "hidden", cursor: "pointer" }, onClick: () => setOpen(!open), children: open ? b.result.slice(0, 16e3) : firstLine.slice(0, 200) || "（无输出）" }),
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-tool", children: [
+      /* @__PURE__ */ jsxRuntime.jsxs(
+        "div",
+        {
+          className: "tl-tool-head",
+          onClick: () => setOpen(!open),
+          role: "button",
+          tabIndex: 0,
+          "aria-expanded": open,
+          onKeyDown: (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setOpen(!open);
+            }
+          },
+          children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-glyph " + (b.state === "running" ? "run" : b.state === "error" ? "err" : "ok"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: toolIconName(b.name), size: 13, className: b.state === "running" ? "tl-pulse" : void 0 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-tool-name", children: label }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-tool-args", children: argSummary }),
+            filePath && (ctx == null ? void 0 : ctx.previewFile) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn tl-tool-btn", onClick: (e) => {
+              var _a2;
+              e.stopPropagation();
+              (_a2 = ctx.previewFile) == null ? void 0 : _a2.call(ctx, filePath);
+            }, children: "预览" }) : null,
+            b.source ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-tool-src", children: b.source }) : null,
+            b.durationMs !== void 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tl-tool-ms", children: [
+              (b.durationMs / 1e3).toFixed(1),
+              "s"
+            ] }) : null,
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, className: "tl-chev" + (open ? " open" : "") })
+          ]
+        }
+      ),
+      b.state === "running" && b.tail || b.result ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tl-tool-result", children: b.state === "running" && b.tail ? /* @__PURE__ */ jsxRuntime.jsx("pre", { style: { whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0, fontFamily: "inherit", color: "var(--c-text)" }, children: b.tail.split("\n").slice(-4).join("\n") }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: open ? 420 : 22, overflow: "hidden", cursor: "pointer" }, onClick: () => setOpen(!open), children: open ? (b.result ?? "").slice(0, 16e3) : firstLine.slice(0, 200) || "（无输出）" }),
         open && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { fontSize: 10.5, margin: "4px 0" }, onClick: () => {
           var _a2;
           return void ((_a2 = navigator.clipboard) == null ? void 0 : _a2.writeText(b.result ?? ""));
         }, children: "复制结果" })
-      ] }) : null })
+      ] }) }) : null
     ] });
   }
   function ThinkingCard({ b }) {
@@ -613,7 +788,7 @@
       if (b.closed && !userTouched.current) setOpen(false);
     }, [b.closed]);
     const streaming = open && !b.closed;
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-think", style: { borderLeft: "2px solid var(--c-border)", paddingLeft: 10 }, children: [
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-think", style: { borderLeft: open ? "2px solid var(--c-border)" : void 0, paddingLeft: open ? 10 : void 0 }, children: [
       /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
@@ -716,437 +891,6 @@
       ] }, i)) }) })
     ] });
   }
-  function CompPopover(props) {
-    const ref = react.useRef(null);
-    const [maxH, setMaxH] = react.useState(void 0);
-    react.useLayoutEffect(() => {
-      if (!props.open) {
-        setMaxH(void 0);
-        return;
-      }
-      const measure = () => {
-        const el = ref.current;
-        if (!el) return;
-        const r = el.getBoundingClientRect();
-        setMaxH(Math.max(160, Math.min(320, r.bottom - 12)));
-      };
-      measure();
-      window.addEventListener("resize", measure);
-      return () => window.removeEventListener("resize", measure);
-    }, [props.open]);
-    react.useEffect(() => {
-      if (!props.open) return;
-      const h = (e) => {
-        if (ref.current && !ref.current.contains(e.target)) props.onClose();
-      };
-      const k = (e) => {
-        if (e.key === "Escape") {
-          e.stopPropagation();
-          props.onClose();
-        }
-      };
-      document.addEventListener("mousedown", h);
-      document.addEventListener("keydown", k);
-      return () => {
-        document.removeEventListener("mousedown", h);
-        document.removeEventListener("keydown", k);
-      };
-    }, [props.open, props.onClose]);
-    return /* @__PURE__ */ jsxRuntime.jsx(
-      "div",
-      {
-        ref,
-        className: "comp-pop" + (props.open ? " open" : "") + (props.wide ? " wide" : "") + (props.anchor === "right" ? " right" : ""),
-        style: { maxHeight: maxH, overflowY: maxH !== void 0 ? "auto" : void 0 },
-        "aria-hidden": !props.open,
-        children: props.children
-      }
-    );
-  }
-  function CompOption(props) {
-    const { icon, color, name, sub, on, disabled, onSelect } = props;
-    return /* @__PURE__ */ jsxRuntime.jsxs(
-      "div",
-      {
-        className: "comp-opt" + (on ? " on" : "") + (disabled ? "" : ""),
-        style: disabled ? { opacity: 0.45, cursor: "default" } : void 0,
-        onClick: () => {
-          if (!disabled) onSelect();
-        },
-        children: [
-          icon ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: icon, size: 13, color }) : /* @__PURE__ */ jsxRuntime.jsx("span", { style: { width: 13, flex: "none" } }),
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-name", children: name }),
-            sub ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-sub", children: sub }) : null
-          ] }),
-          on && /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check-circle", size: 13, className: "comp-check", color: "var(--c-green)" })
-        ]
-      }
-    );
-  }
-  const Composer = react.forwardRef(function Composer2(props, ref) {
-    const { value, onChange, onKeyDown, placeholder, maxH } = props;
-    const [open, setOpen] = react.useState("");
-    const toggle = (k) => setOpen((o) => o === k ? "" : k);
-    const [modelNav, setModelNav] = react.useState("");
-    react.useEffect(() => {
-      if (open !== "model") setModelNav("");
-    }, [open]);
-    react.useEffect(() => {
-      const el = typeof ref === "function" ? null : ref == null ? void 0 : ref.current;
-      if (!el) return;
-      el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, maxH) + "px";
-    }, [value, maxH]);
-    const pick = (v, set) => {
-      set(v);
-      setOpen("");
-    };
-    const curHit = (() => {
-      for (const g of props.groups) {
-        const mem = g.members.find((x) => x.id === props.model);
-        if (mem) return { g, mem };
-      }
-      return null;
-    })();
-    const s = props.stats;
-    const pct = s ? Math.round(s.ratio * 100) : 0;
-    const pctColor = s ? pct > 92 ? "var(--c-red)" : pct > 80 ? "var(--c-amber)" : "var(--c-text3)" : "var(--c-text3)";
-    const fmtK = (n) => n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k` : `${n}`;
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "composer-box", style: { position: "relative" }, children: [
-      props.attachments && props.attachments.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
-        props.attachments.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 52, height: 52, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "移除", style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 }, onClick: img.onRemove, children: "✕" })
-        ] }, `${img.name}:${i}`)),
-        props.attachmentHint ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", style: { alignSelf: "center" }, children: props.attachmentHint }) : null
-      ] }),
-      props.children,
-      /* @__PURE__ */ jsxRuntime.jsx(
-        "textarea",
-        {
-          ref,
-          className: "composer-input",
-          rows: 1,
-          autoFocus: props.autoFocus,
-          style: { minHeight: props.minH ?? 24 },
-          placeholder,
-          value,
-          onChange: (e) => onChange(e.target.value),
-          onPaste: (e) => {
-            const files = [...e.clipboardData.files];
-            if (files.some((f) => f.type.startsWith("image/"))) {
-              e.preventDefault();
-              props.onAttachImage();
-            }
-          },
-          onDrop: (e) => {
-            const files = [...e.dataTransfer.files];
-            if (files.some((f) => f.type.startsWith("image/"))) {
-              e.preventDefault();
-              props.onAttachImage();
-            }
-          },
-          onKeyDown
-        }
-      ),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-bar", children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx(
-            "button",
-            {
-              className: "comp-item",
-              title: "附加附件 / 命令",
-              "aria-haspopup": "menu",
-              "aria-expanded": open === "plus",
-              style: { padding: "0 7px" },
-              onClick: () => toggle("plus"),
-              children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plus", size: 14 })
-            }
-          ),
-          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "plus", wide: true, anchor: "left", onClose: () => setOpen(""), children: [
-            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "附件" }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-opt", onClick: () => {
-              props.onAttachImage();
-              setOpen("");
-            }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "file", size: 13, color: "var(--c-text2)" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-opt-name", children: "添加图片" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-opt-sub", children: "最多 4 张 · 4MB" })
-            ] }),
-            props.slash && props.slash.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-sep" }),
-              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "命令（插入输入框）" }),
-              props.slash.slice(0, 14).map((c) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-opt", onClick: () => {
-                var _a2;
-                (_a2 = props.onPickSlash) == null ? void 0 : _a2.call(props, c.insert);
-                setOpen("");
-              }, children: [
-                /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontSize: 12 }, children: c.name }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-opt-sub", children: c.hint })
-              ] }, c.name))
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs(
-            "button",
-            {
-              className: "comp-item",
-              title: "访问控制（Shift+Tab 循环）",
-              "aria-haspopup": "menu",
-              "aria-expanded": open === "mode",
-              onClick: () => toggle("mode"),
-              disabled: props.modeDisabled,
-              children: [
-                props.mode === "yolo" ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "bolt", size: 13, color: "var(--c-red)" }) : props.mode === "plan" ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plan", size: 13, color: "var(--c-chip-purple-fg, #b490ff)" }) : /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13, color: "var(--c-text2)" }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-label", children: props.modeLabel }),
-                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "mode" ? " open" : "") })
-              ]
-            }
-          ),
-          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "mode", anchor: "left", onClose: () => setOpen(""), children: [
-            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "访问控制" }),
-            MODE_ORDER.map((m) => /* @__PURE__ */ jsxRuntime.jsx(
-              CompOption,
-              {
-                on: props.mode === m,
-                onSelect: () => pick(m, props.onMode),
-                icon: m === "yolo" ? "bolt" : m === "plan" ? "plan" : "shield",
-                color: MODE_META[m].color,
-                name: MODE_META[m].label.replace(/^[●◆◇⚡]\s*/, ""),
-                sub: m === "plan" ? "只读调研，出计划待批准" : m === "yolo" ? "全部放行不再询问，仅不确定时提问" : "自动执行，仅高危命令需确认"
-              },
-              m
-            ))
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs(
-            "button",
-            {
-              className: "comp-item",
-              title: "模型档案",
-              "aria-haspopup": "menu",
-              "aria-expanded": open === "model",
-              onClick: () => toggle("model"),
-              disabled: props.modelDisabled,
-              children: [
-                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "bot", size: 13, color: "var(--c-text2)" }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-label", children: curHit ? curHit.g.members.length > 1 ? `${curHit.g.name} · ${curHit.mem.name}` : curHit.mem.name : props.model || "默认模型" }),
-                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "model" ? " open" : "") })
-              ]
-            }
-          ),
-          /* @__PURE__ */ jsxRuntime.jsx(CompPopover, { open: open === "model", anchor: "left", onClose: () => setOpen(""), children: modelNav ? (() => {
-            const g = props.groups.find((x) => x.id === modelNav);
-            if (!g) return null;
-            return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntime.jsxs(
-                "div",
-                {
-                  className: "comp-opt comp-group",
-                  role: "button",
-                  tabIndex: 0,
-                  "aria-label": g.name,
-                  onClick: () => setModelNav(""),
-                  onKeyDown: (e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setModelNav("");
-                    }
-                  },
-                  children: [
-                    /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, style: { transform: "rotate(180deg)" }, color: "var(--c-text3)" }),
-                    /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-name", children: g.name }),
-                      g.hint ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-sub", children: g.hint }) : null
-                    ] }),
-                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-count", children: g.members.length })
-                  ]
-                }
-              ),
-              g.members.map((mem) => /* @__PURE__ */ jsxRuntime.jsx(
-                CompOption,
-                {
-                  on: mem.id === props.model,
-                  onSelect: () => pick(mem.id, props.onModel),
-                  name: mem.name,
-                  sub: mem.sub
-                },
-                mem.id
-              ))
-            ] });
-          })() : (
-            // 一级面板：供应商列表；单模型档案直接选中，多模型进入二级
-            /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "模型" }),
-              props.groups.map((g) => {
-                if (g.members.length > 1) {
-                  return /* @__PURE__ */ jsxRuntime.jsxs(
-                    "div",
-                    {
-                      className: "comp-opt comp-group",
-                      role: "button",
-                      tabIndex: 0,
-                      "aria-haspopup": "menu",
-                      "aria-label": g.name,
-                      onClick: () => setModelNav(g.id),
-                      onKeyDown: (e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          setModelNav(g.id);
-                        }
-                      },
-                      children: [
-                        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "bot", size: 13, color: "var(--c-text2)" }),
-                        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-name", children: g.name }),
-                          g.hint ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-sub", children: g.hint }) : null
-                        ] }),
-                        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-count", children: g.members.length }),
-                        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 10, color: "var(--c-text3)" })
-                      ]
-                    },
-                    g.id
-                  );
-                }
-                const mem = g.members[0];
-                return /* @__PURE__ */ jsxRuntime.jsx(
-                  CompOption,
-                  {
-                    on: mem.id === props.model,
-                    onSelect: () => pick(mem.id, props.onModel),
-                    icon: "bot",
-                    color: "var(--c-text2)",
-                    name: g.name,
-                    sub: g.hint ?? mem.sub
-                  },
-                  g.id
-                );
-              })
-            ] })
-          ) })
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "comp-item", title: "思考深度", "aria-haspopup": "menu", "aria-expanded": open === "think", onClick: () => toggle("think"), children: [
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "gear", size: 13, color: "var(--c-text2)" }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-label", children: THINKING_META[props.thinking].label }),
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "think" ? " open" : "") })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "think", anchor: "left", onClose: () => setOpen(""), children: [
-            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "思考深度" }),
-            ["off", "low", "medium", "high"].map((v) => /* @__PURE__ */ jsxRuntime.jsx(
-              CompOption,
-              {
-                on: v === props.thinking,
-                onSelect: () => pick(v, props.onThinking),
-                icon: "sparkle",
-                color: v === "off" ? "var(--c-text3)" : "var(--c-amber)",
-                name: THINKING_META[v].label,
-                sub: THINKING_META[v].hint
-              },
-              v
-            ))
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "comp-send", title: props.sendTitle, disabled: !props.canSend && !props.busy, onClick: () => props.busy ? props.onStop() : props.onSend(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: props.busy ? "stop" : "send", size: 13 }) })
-      ] }),
-      s && (s.estTokens > 0 || s.totalInput != null) && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-row", children: /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("button", { type: "button", className: "comp-stats", title: "用量明细", "aria-haspopup": "menu", "aria-expanded": open === "stats", onClick: () => toggle("stats"), children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-bar", children: /* @__PURE__ */ jsxRuntime.jsx("i", { style: { width: `${Math.min(100, pct)}%`, background: pctColor } }) }),
-          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
-            "上下文 ",
-            /* @__PURE__ */ jsxRuntime.jsx("b", { children: s ? `${fmtK(s.estTokens)} / ${fmtK(s.contextWindow)}` : "—" }),
-            s ? ` · ${pct}%` : ""
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
-            "输入 ",
-            /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.totalInput) != null ? fmtK(s.totalInput) : "—" })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
-            "输出 ",
-            /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.totalOutput) != null ? fmtK(s.totalOutput) : "—" })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-item", children: /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.tokPerSec) != null ? `${s.tokPerSec} tok/s` : "—" }) }),
-          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
-            "缓存 ",
-            /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.cacheHitRate) != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—" })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "stats" ? " open" : "") })
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "stats", anchor: "right", onClose: () => setOpen(""), children: [
-          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "用量明细" }),
-          s ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "上下文窗口" }),
-              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
-                fmtK(s.contextWindow),
-                " · ",
-                pct,
-                "%"
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "系统提示" }),
-              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
-                Math.round(s.breakdown.system),
-                " tok"
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "历史消息" }),
-              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
-                Math.round(s.breakdown.messages),
-                " tok"
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "预留输出" }),
-              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
-                Math.round(s.breakdown.reserved),
-                " tok"
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-sep" }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "剩余预算" }),
-              /* @__PURE__ */ jsxRuntime.jsx("b", { children: fmtK(s.budget) })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "累计输入" }),
-              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.totalInput != null ? `${s.totalInput.toLocaleString()} tok` : "—" })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "累计输出" }),
-              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.totalOutput != null ? `${s.totalOutput.toLocaleString()} tok` : "—" })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "最近一轮输出" }),
-              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.lastOutput != null ? `${s.lastOutput.toLocaleString()} tok` : "—" })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "生成速度" }),
-              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.tokPerSec != null ? `${s.tokPerSec} tok/s` : "—" })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "缓存命中率" }),
-              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.cacheHitRate != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—" })
-            ] }),
-            s.compactions > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "已自动压缩" }),
-              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
-                s.compactions,
-                " 次"
-              ] })
-            ] }),
-            pct > 80 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "2px 9px 6px", fontSize: 11, color: "var(--c-amber)" }, children: "已接近上限，建议 /compact 压缩历史" })
-          ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "2px 9px 8px", fontSize: 11, color: "var(--c-text3)" }, children: "发送首条消息后开始统计" })
-        ] })
-      ] }) })
-    ] });
-  });
   function PermissionCard(props) {
     var _a2, _b2, _c, _d;
     const { b, decided, sel } = props;
@@ -1405,7 +1149,7 @@
     },
     {
       blockKind: "tool",
-      render: ({ block }) => /* @__PURE__ */ jsxRuntime.jsx(ToolCard, { b: block })
+      render: ({ block, ctx }) => /* @__PURE__ */ jsxRuntime.jsx(ToolCard, { b: block, ctx })
     },
     {
       blockKind: "checkpoint",
@@ -1427,16 +1171,17 @@
       render: ({ block, ctx }) => {
         const b = block;
         if (b.changeKind === "read-image") return /* @__PURE__ */ jsxRuntime.jsx("div", { children: /* @__PURE__ */ jsxRuntime.jsx(AgentImage, { taskId: (ctx == null ? void 0 : ctx.taskId) ?? "", path: b.path }) });
+        const letter = b.changeKind === "deleted" ? "D" : b.changeKind === "added" ? "A" : "M";
         const color = b.changeKind === "deleted" ? "var(--c-red)" : b.changeKind === "added" ? "var(--c-green)" : "var(--c-amber)";
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 12, color, overflowWrap: "anywhere" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { marginRight: 6 }, children: b.changeKind === "deleted" ? "−" : "+" }),
-          b.path,
-          b.summary ? ` (${b.summary})` : "",
-          (ctx == null ? void 0 : ctx.viewFile) && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { fontSize: 10.5, marginLeft: 8, padding: "0 6px" }, onClick: () => {
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-file", title: b.path, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { fontWeight: 700, fontSize: 11.5, color, flex: "none" }, children: letter }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-file-path", children: b.path }),
+          b.summary ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono tl-file-stats", children: b.summary }) : null,
+          (ctx == null ? void 0 : ctx.viewFile) && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn tl-file-btn", onClick: () => {
             var _a2;
             return (_a2 = ctx.viewFile) == null ? void 0 : _a2.call(ctx, b.path);
           }, children: "查看" }),
-          (ctx == null ? void 0 : ctx.previewFile) && b.changeKind !== "deleted" && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { fontSize: 10.5, marginLeft: 4, padding: "0 6px" }, onClick: () => {
+          (ctx == null ? void 0 : ctx.previewFile) && b.changeKind !== "deleted" && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn tl-file-btn", onClick: () => {
             var _a2;
             return (_a2 = ctx.previewFile) == null ? void 0 : _a2.call(ctx, b.path);
           }, children: "预览" })
@@ -1486,16 +1231,814 @@
       }
     }
   ];
+  function MentionPopover(props) {
+    const { mention, items, onPick, onSelect } = props;
+    if (!mention || items.length === 0) return null;
+    const sel = Math.max(0, Math.min(props.selectedIndex, items.length - 1));
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mention-pop", style: { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 180, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }, children: items.map((it, i) => /* @__PURE__ */ jsxRuntime.jsx(
+      "div",
+      {
+        ref: (el) => {
+          if (el && i === sel) el.scrollIntoView({ block: "nearest" });
+        },
+        style: {
+          padding: "4px 10px",
+          fontSize: 12,
+          cursor: "pointer",
+          borderRadius: 6,
+          background: i === sel ? "var(--c-selected)" : "transparent",
+          color: i === sel ? "var(--c-text)" : "var(--c-text2)"
+        },
+        onMouseEnter: () => onSelect(i),
+        onMouseDown: (e) => {
+          e.preventDefault();
+          onPick(it.insert);
+        },
+        children: it.label
+      },
+      it.label
+    )) });
+  }
+  function SlashPopover(props) {
+    if (!props.open || props.items.length === 0) return null;
+    const sel = Math.max(0, Math.min(props.selectedIndex, props.items.length - 1));
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mention-pop", style: { position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 240, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }, children: props.items.map((it, i) => /* @__PURE__ */ jsxRuntime.jsxs(
+      "div",
+      {
+        ref: (el) => {
+          if (el && i === sel) el.scrollIntoView({ block: "nearest" });
+        },
+        style: {
+          padding: "5px 10px",
+          fontSize: 12,
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          borderRadius: 6,
+          background: i === sel ? "var(--c-selected)" : "transparent"
+        },
+        onMouseEnter: () => props.onSelect(i),
+        onMouseDown: (e) => {
+          e.preventDefault();
+          props.onPick(it.insert);
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontWeight: 600, flex: "none" }, children: it.name }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: it.hint })
+        ]
+      },
+      it.name
+    )) });
+  }
+  const MODE_ORDER = ["plan", "default", "yolo"];
+  const MODE_META = {
+    plan: { label: "◇ 计划", color: "var(--c-chip-purple-fg, #b490ff)" },
+    default: { label: "● 默认", color: "var(--c-text3)" },
+    yolo: { label: "⚡ 完全访问", color: "var(--c-red)" }
+  };
+  const THINKING_META = {
+    off: { label: "思考·关", hint: "跳过推理，响应最快" },
+    low: { label: "思考·低", hint: "轻量推理，适合明确指令" },
+    medium: { label: "思考·中", hint: "平衡推理与速度（默认）" },
+    high: { label: "思考·高", hint: "深度推理，适合复杂设计" }
+  };
+  function CompPopover(props) {
+    const ref = react.useRef(null);
+    const [maxH, setMaxH] = react.useState(void 0);
+    react.useLayoutEffect(() => {
+      if (!props.open) return;
+      const measure = () => {
+        const el = ref.current;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        setMaxH(Math.max(160, Math.min(320, r.bottom - 12)));
+      };
+      measure();
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }, [props.open]);
+    react.useEffect(() => {
+      if (!props.open) return;
+      const h = (e) => {
+        if (ref.current && !ref.current.contains(e.target)) props.onClose();
+      };
+      const k = (e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          props.onClose();
+        }
+      };
+      document.addEventListener("mousedown", h);
+      document.addEventListener("keydown", k);
+      return () => {
+        document.removeEventListener("mousedown", h);
+        document.removeEventListener("keydown", k);
+      };
+    }, [props.open, props.onClose]);
+    return /* @__PURE__ */ jsxRuntime.jsx(
+      "div",
+      {
+        ref,
+        className: "comp-pop" + (props.open ? " open" : "") + (props.wide ? " wide" : "") + (props.anchor === "right" ? " right" : ""),
+        style: { maxHeight: maxH, overflowY: maxH !== void 0 ? "auto" : void 0 },
+        "aria-hidden": !props.open,
+        children: props.children
+      }
+    );
+  }
+  function CompOption(props) {
+    const { icon, color, name, sub, on, disabled, onSelect } = props;
+    return /* @__PURE__ */ jsxRuntime.jsxs(
+      "div",
+      {
+        className: "comp-opt" + (on ? " on" : "") + (disabled ? "" : ""),
+        style: disabled ? { opacity: 0.45, cursor: "default" } : void 0,
+        onClick: () => {
+          if (!disabled) onSelect();
+        },
+        children: [
+          icon ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: icon, size: 13, color }) : /* @__PURE__ */ jsxRuntime.jsx("span", { style: { width: 13, flex: "none" } }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-name", children: name }),
+            sub ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-sub", children: sub }) : null
+          ] }),
+          on && /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check-circle", size: 13, className: "comp-check", color: "var(--c-green)" })
+        ]
+      }
+    );
+  }
+  const Composer = react.forwardRef(function Composer2(props, ref) {
+    const { value, onChange, onKeyDown, placeholder, maxH } = props;
+    const [open, setOpen] = react.useState("");
+    const toggle = (k) => setOpen((o) => o === k ? "" : k);
+    const [modelNav, setModelNav] = react.useState("");
+    react.useEffect(() => {
+      if (open !== "model") setModelNav("");
+    }, [open]);
+    react.useEffect(() => {
+      const el = typeof ref === "function" ? null : ref == null ? void 0 : ref.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, maxH) + "px";
+    }, [value, maxH]);
+    const pick = (v, set) => {
+      set(v);
+      setOpen("");
+    };
+    const curHit = (() => {
+      for (const g of props.groups) {
+        const mem = g.members.find((x) => x.id === props.model);
+        if (mem) return { g, mem };
+      }
+      return null;
+    })();
+    const s = props.stats;
+    const pct = s ? Math.round(s.ratio * 100) : 0;
+    const pctColor = s ? pct > 92 ? "var(--c-red)" : pct > 80 ? "var(--c-amber)" : "var(--c-text3)" : "var(--c-text3)";
+    const fmtK = (n) => n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k` : `${n}`;
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "composer-box", style: { position: "relative" }, children: [
+      props.attachments && props.attachments.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
+        props.attachments.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 52, height: 52, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "移除", style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 }, onClick: img.onRemove, children: "✕" })
+        ] }, `${img.name}:${i}`)),
+        props.attachmentHint ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", style: { alignSelf: "center" }, children: props.attachmentHint }) : null
+      ] }),
+      props.children,
+      /* @__PURE__ */ jsxRuntime.jsx(
+        "textarea",
+        {
+          ref,
+          className: "composer-input",
+          rows: 1,
+          autoFocus: props.autoFocus,
+          style: { minHeight: props.minH ?? 24 },
+          placeholder,
+          value,
+          onChange: (e) => onChange(e.target.value),
+          onPaste: (e) => {
+            const files = [...e.clipboardData.files];
+            if (files.some((f) => f.type.startsWith("image/"))) {
+              e.preventDefault();
+              props.onAttachImage();
+            }
+          },
+          onDrop: (e) => {
+            const files = [...e.dataTransfer.files];
+            if (files.some((f) => f.type.startsWith("image/"))) {
+              e.preventDefault();
+              props.onAttachImage();
+            }
+          },
+          onKeyDown
+        }
+      ),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-bar", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "comp-item",
+              title: "附加附件 / 命令",
+              "aria-haspopup": "menu",
+              "aria-expanded": open === "plus",
+              style: { padding: "0 7px" },
+              onClick: () => toggle("plus"),
+              children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plus", size: 14 })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "plus", wide: true, anchor: "left", onClose: () => setOpen(""), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "附件" }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-opt", onClick: () => {
+              props.onAttachImage();
+              setOpen("");
+            }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "file", size: 13, color: "var(--c-text2)" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-opt-name", children: "添加图片" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-opt-sub", children: "最多 4 张 · 4MB" })
+            ] }),
+            props.slash && props.slash.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-sep" }),
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "命令（插入输入框）" }),
+              props.slash.slice(0, 14).map((c) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-opt", onClick: () => {
+                var _a2;
+                (_a2 = props.onPickSlash) == null ? void 0 : _a2.call(props, c.insert);
+                setOpen("");
+              }, children: [
+                /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontSize: 12 }, children: c.name }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-opt-sub", children: c.hint })
+              ] }, c.name))
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs(
+            "button",
+            {
+              className: "comp-item",
+              title: "访问控制（Shift+Tab 循环）",
+              "aria-haspopup": "menu",
+              "aria-expanded": open === "mode",
+              onClick: () => toggle("mode"),
+              disabled: props.modeDisabled,
+              children: [
+                props.mode === "yolo" ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "bolt", size: 13, color: "var(--c-red)" }) : props.mode === "plan" ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plan", size: 13, color: "var(--c-chip-purple-fg, #b490ff)" }) : /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13, color: "var(--c-text2)" }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-label", children: props.modeLabel }),
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "mode" ? " open" : "") })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "mode", anchor: "left", onClose: () => setOpen(""), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "访问控制" }),
+            MODE_ORDER.map((m) => /* @__PURE__ */ jsxRuntime.jsx(
+              CompOption,
+              {
+                on: props.mode === m,
+                onSelect: () => pick(m, props.onMode),
+                icon: m === "yolo" ? "bolt" : m === "plan" ? "plan" : "shield",
+                color: MODE_META[m].color,
+                name: MODE_META[m].label.replace(/^[●◆◇⚡]\s*/, ""),
+                sub: m === "plan" ? "只读调研，出计划待批准" : m === "yolo" ? "全部放行不再询问，仅不确定时提问" : "自动执行，仅高危命令需确认"
+              },
+              m
+            ))
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs(
+            "button",
+            {
+              className: "comp-item",
+              title: "模型档案",
+              "aria-haspopup": "menu",
+              "aria-expanded": open === "model",
+              onClick: () => toggle("model"),
+              disabled: props.modelDisabled,
+              children: [
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13, color: "var(--c-text2)" }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-label", children: curHit ? curHit.g.members.length > 1 ? `${curHit.g.name} · ${curHit.mem.name}` : curHit.mem.name : props.model || "默认模型" }),
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "model" ? " open" : "") })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx(CompPopover, { open: open === "model", anchor: "left", onClose: () => setOpen(""), children: modelNav ? (() => {
+            const g = props.groups.find((x) => x.id === modelNav);
+            if (!g) return null;
+            return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsxs(
+                "div",
+                {
+                  className: "comp-opt comp-group",
+                  role: "button",
+                  tabIndex: 0,
+                  "aria-label": g.name,
+                  onClick: () => setModelNav(""),
+                  onKeyDown: (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setModelNav("");
+                    }
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, style: { transform: "rotate(180deg)" }, color: "var(--c-text3)" }),
+                    /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-name", children: g.name }),
+                      g.hint ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-sub", children: g.hint }) : null
+                    ] }),
+                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-count", children: g.members.length })
+                  ]
+                }
+              ),
+              g.members.map((mem) => /* @__PURE__ */ jsxRuntime.jsx(
+                CompOption,
+                {
+                  on: mem.id === props.model,
+                  onSelect: () => pick(mem.id, props.onModel),
+                  name: mem.name,
+                  sub: mem.sub
+                },
+                mem.id
+              ))
+            ] });
+          })() : (
+            // 一级面板：供应商列表；单模型档案直接选中，多模型进入二级
+            /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "模型" }),
+              props.groups.map((g) => {
+                if (g.members.length > 1) {
+                  return /* @__PURE__ */ jsxRuntime.jsxs(
+                    "div",
+                    {
+                      className: "comp-opt comp-group",
+                      role: "button",
+                      tabIndex: 0,
+                      "aria-haspopup": "menu",
+                      "aria-label": g.name,
+                      onClick: () => setModelNav(g.id),
+                      onKeyDown: (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setModelNav(g.id);
+                        }
+                      },
+                      children: [
+                        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13, color: "var(--c-text2)" }),
+                        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-name", children: g.name }),
+                          g.hint ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-opt-sub", children: g.hint }) : null
+                        ] }),
+                        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-count", children: g.members.length }),
+                        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 10, color: "var(--c-text3)" })
+                      ]
+                    },
+                    g.id
+                  );
+                }
+                const mem = g.members[0];
+                return /* @__PURE__ */ jsxRuntime.jsx(
+                  CompOption,
+                  {
+                    on: mem.id === props.model,
+                    onSelect: () => pick(mem.id, props.onModel),
+                    icon: "sparkle",
+                    color: "var(--c-text2)",
+                    name: g.name,
+                    sub: g.hint ?? mem.sub
+                  },
+                  g.id
+                );
+              })
+            ] })
+          ) })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "comp-item", title: "思考深度", "aria-haspopup": "menu", "aria-expanded": open === "think", onClick: () => toggle("think"), children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "bulb", size: 13, color: "var(--c-text2)" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-label", children: THINKING_META[props.thinking].label }),
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "think" ? " open" : "") })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "think", anchor: "left", onClose: () => setOpen(""), children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "思考深度" }),
+            ["off", "low", "medium", "high"].map((v) => /* @__PURE__ */ jsxRuntime.jsx(
+              CompOption,
+              {
+                on: v === props.thinking,
+                onSelect: () => pick(v, props.onThinking),
+                icon: "sparkle",
+                color: v === "off" ? "var(--c-text3)" : "var(--c-amber)",
+                name: THINKING_META[v].label,
+                sub: THINKING_META[v].hint
+              },
+              v
+            ))
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "comp-send", title: props.sendTitle, disabled: !props.canSend && !props.busy, onClick: () => props.busy ? props.onStop() : props.onSend(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: props.busy ? "stop" : "send", size: 13 }) })
+      ] }),
+      s && (s.estTokens > 0 || s.totalInput != null) && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-row", children: /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("button", { type: "button", className: "comp-stats", title: "用量明细", "aria-haspopup": "menu", "aria-expanded": open === "stats", onClick: () => toggle("stats"), children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-bar", children: /* @__PURE__ */ jsxRuntime.jsx("i", { style: { width: `${Math.min(100, pct)}%`, background: pctColor } }) }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
+            "上下文 ",
+            /* @__PURE__ */ jsxRuntime.jsx("b", { children: s ? `${fmtK(s.estTokens)} / ${fmtK(s.contextWindow)}` : "—" }),
+            s ? ` · ${pct}%` : ""
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
+            "输入 ",
+            /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.totalInput) != null ? fmtK(s.totalInput) : "—" })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
+            "输出 ",
+            /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.totalOutput) != null ? fmtK(s.totalOutput) : "—" })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-item", children: /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.tokPerSec) != null ? `${s.tokPerSec} tok/s` : "—" }) }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-stats-item", children: [
+            "缓存 ",
+            /* @__PURE__ */ jsxRuntime.jsx("b", { children: (s == null ? void 0 : s.cacheHitRate) != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—" })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: "comp-chev" + (open === "stats" ? " open" : "") })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs(CompPopover, { open: open === "stats", anchor: "right", onClose: () => setOpen(""), children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-head", children: "用量明细" }),
+          s ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "上下文窗口" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                fmtK(s.contextWindow),
+                " · ",
+                pct,
+                "%"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "系统提示" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                Math.round(s.breakdown.system),
+                " tok"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "历史消息" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                Math.round(s.breakdown.messages),
+                " tok"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "预留输出" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                Math.round(s.breakdown.reserved),
+                " tok"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "comp-pop-sep" }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "剩余预算" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: fmtK(s.budget) })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "累计输入" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.totalInput != null ? `${s.totalInput.toLocaleString()} tok` : "—" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "累计输出" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.totalOutput != null ? `${s.totalOutput.toLocaleString()} tok` : "—" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "最近一轮输出" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.lastOutput != null ? `${s.lastOutput.toLocaleString()} tok` : "—" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "生成速度" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.tokPerSec != null ? `${s.tokPerSec} tok/s` : "—" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "缓存命中率" }),
+              /* @__PURE__ */ jsxRuntime.jsx("b", { children: s.cacheHitRate != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—" })
+            ] }),
+            s.cacheMissTotal != null && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "缓存未命中" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                s.cacheMissTotal.toLocaleString(),
+                " tok"
+              ] })
+            ] }),
+            s.cacheBreaks != null && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", title: "压缩 / 备用模型 / 重启续跑 / 模式切换发生的轮次——这些轮前缀已知断裂", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "断点轮" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                s.cacheBreaks,
+                " 轮"
+              ] })
+            ] }),
+            s.compactions > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "comp-ctx-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: "已自动压缩" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("b", { children: [
+                s.compactions,
+                " 次"
+              ] })
+            ] }),
+            pct > 80 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "2px 9px 6px", fontSize: 11, color: "var(--c-amber)" }, children: "已接近上限，建议 /compact 压缩历史" })
+          ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: "2px 9px 8px", fontSize: 11, color: "var(--c-text3)" }, children: "发送首条消息后开始统计" })
+        ] })
+      ] }) })
+    ] });
+  });
   const BUILTIN_COMPOSER_PROVIDERS = [
     {
       prefix: "@",
       label: "文件",
       source: async (query) => {
-        const files = await call("repo.files", { query });
+        const files = await call$1("repo.files", { query });
         return files.map((f) => ({ label: f, insert: f }));
       }
     }
   ];
+  const { notifyRepoChanged: notifyRepoChanged$1 } = pageSdk;
+  function ChangesTab(props) {
+    const { taskId, worktreePath, baselineSha, initialFile, tick } = props;
+    const [files, setFiles] = react.useState([]);
+    const [sel, setSel] = react.useState(initialFile ?? null);
+    const [diffs, setDiffs] = react.useState([]);
+    const diffTextRef = react.useRef("");
+    const [since, setSince] = react.useState(void 0);
+    const [busy, setBusy] = react.useState(false);
+    react.useEffect(() => {
+      let cancelled = false;
+      setBusy(true);
+      void call$1("agent.task.files", { taskId }).then(async (fs) => {
+        var _a2;
+        if (cancelled) return;
+        setFiles(fs);
+        props.onCount(fs.length);
+        const target = sel && fs.some((f) => f.path === sel) ? sel : ((_a2 = fs[0]) == null ? void 0 : _a2.path) ?? null;
+        setSel(target);
+        if (target) {
+          const [d, txt] = await Promise.all([
+            call$1("agent.task.diff", { taskId, path: target, since }),
+            call$1("agent.task.diffText", { taskId, path: target, since })
+          ]);
+          if (!cancelled) {
+            setDiffs(d);
+            diffTextRef.current = txt;
+          }
+        } else {
+          setDiffs([]);
+          diffTextRef.current = "";
+        }
+      }).catch((e) => props.setError(e.message)).finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [taskId, tick, sel, since]);
+    const pick = (x) => {
+      setSel(x);
+      setDiffs([]);
+    };
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: "改动" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }, children: props.branch }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: [
+          files.length,
+          " 个文件 · 基于 ",
+          baselineSha.slice(0, 8),
+          "^"
+        ] }),
+        since ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)", fontSize: 11 }, children: [
+          "· 查看 ",
+          since
+        ] }) : null,
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call$1("app.newWindow", { path: worktreePath }), children: "在 Changes 中打开" }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => {
+          var _a2;
+          return void ((_a2 = navigator.clipboard) == null ? void 0 : _a2.writeText(diffTextRef.current));
+        }, children: "复制 diff" })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "250px 1fr", overflow: "hidden" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderRight: "1px solid var(--c-border)", overflowY: "auto", padding: 8 }, children: [
+          files.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5, padding: 6 }, children: busy ? "加载中…" : "暂无改动" }),
+          files.map((f) => {
+            const letter = f.kind === "deleted" ? "D" : f.kind === "added" ? "A" : "M";
+            const color = f.kind === "deleted" ? "var(--c-red)" : f.kind === "added" ? "var(--c-green)" : "var(--c-amber)";
+            return /* @__PURE__ */ jsxRuntime.jsxs(
+              "div",
+              {
+                onClick: () => pick(f.path),
+                style: { padding: "6px 9px", borderRadius: 8, cursor: "pointer", display: "flex", gap: 6, background: sel === f.path ? "var(--c-panel)" : "transparent", border: `1px solid ${sel === f.path ? "var(--c-text)" : "transparent"}` },
+                children: [
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", fontWeight: 700, color }, children: letter }),
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--mono, monospace)", fontSize: 11.5 }, children: f.path }),
+                  /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontFamily: "var(--mono, monospace)", fontSize: 10.5 }, children: [
+                    "+",
+                    f.added ?? 0,
+                    " −",
+                    f.deleted ?? 0
+                  ] })
+                ]
+              },
+              f.path
+            );
+          })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { overflowY: "auto", padding: "12px 16px", minWidth: 0 }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", fontSize: 12.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: sel ?? "（选择文件）" }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginLeft: "auto", display: "flex", gap: 6 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: !sel, onClick: async () => {
+                var _a2;
+                if (!sel || !window.confirm(`还原 ${sel} 到会话基线（${baselineSha.slice(0, 8)}）？该文件在本会话的改动将被丢弃。`)) return;
+                try {
+                  await call$1("agent.task.restore", { taskId, sha: baselineSha, path: sel });
+                  await props.onReloadAgents();
+                  notifyRepoChanged$1();
+                  (_a2 = props.onMutate) == null ? void 0 : _a2.call(props);
+                } catch (e) {
+                  props.setError(e.message);
+                }
+              }, children: "还原此文件" }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", children: "复制" })
+            ] })
+          ] }),
+          diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: busy ? "加载中…" : "（无差异）" }) : diffs.map((d) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, padding: "2px 0" }, children: [
+              d.path,
+              " +",
+              d.addedLines,
+              " −",
+              d.deletedLines
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d })
+          ] }, d.path)),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 8 }, children: "并排 / 内联 切换沿用现有 DiffView" })
+        ] })
+      ] })
+    ] });
+  }
+  function CheckpointsTab(props) {
+    const { taskId, tick } = props;
+    const [cps, setCps] = react.useState([]);
+    const [viewSha, setViewSha] = react.useState(null);
+    const [diffs, setDiffs] = react.useState([]);
+    react.useEffect(() => {
+      let cancelled = false;
+      void call$1("agent.task.checkpoints", { taskId }).then((x) => {
+        if (cancelled) return;
+        const r = x.reverse();
+        setCps(r);
+        props.onCount(r.length);
+      }).catch((e) => props.setError(e.message));
+      return () => {
+        cancelled = true;
+      };
+    }, [taskId, tick]);
+    react.useEffect(() => {
+      if (!viewSha) {
+        setDiffs([]);
+        return;
+      }
+      let cancelled = false;
+      void call$1("agent.task.diff", { taskId, since: `checkpoint:${viewSha}` }).then((d) => {
+        if (!cancelled) setDiffs(d);
+      }).catch((e) => props.setError(e.message));
+      return () => {
+        cancelled = true;
+      };
+    }, [viewSha]);
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: "检查点" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }, children: props.branch }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: [
+          cps.length,
+          " 个托管提交 · Esc×2 快捷回此页"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginBottom: 10 }, children: "每轮结束自动托管 checkpoint。回滚 = ZCode rewind：恢复 worktree 到该轮之前（消息历史保留，可重新续跑）。" }),
+        cps.map((cp) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid var(--c-border)", borderRadius: 10, padding: "8px 12px", marginBottom: 8, fontFamily: "var(--mono, monospace)", fontSize: 12 }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)" }, children: [
+            "cp ",
+            cp.sha.slice(0, 8)
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "inherit" }, children: cp.summary.replace(/^checkpoint:\s*/, "") }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: cp.date.slice(5, 16).replace("T", " ") }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setViewSha(viewSha === cp.sha ? null : cp.sha), children: viewSha === cp.sha ? "收起该轮 diff" : "查看该轮 diff" }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: async () => {
+            var _a2;
+            if (!window.confirm(`回滚 worktree 到 ${cp.sha.slice(0, 8)}？该 checkpoint 之后的所有改动将被丢弃（reset --hard）。`)) return;
+            try {
+              await call$1("agent.task.restore", { taskId, sha: cp.sha });
+              props.onViewDiff();
+              notifyRepoChanged$1();
+              (_a2 = props.onMutate) == null ? void 0 : _a2.call(props);
+            } catch (e) {
+              props.setError(e.message);
+            }
+          }, children: "回滚到此处" })
+        ] }, cp.sha)),
+        cps.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: "暂无 checkpoint" }),
+        viewSha && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { marginTop: 8, maxHeight: 320, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 10, padding: 8 }, children: diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: "（该轮无改动）" }) : diffs.map((d) => /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, padding: "2px 0" }, children: [
+            d.path,
+            " +",
+            d.addedLines,
+            " −",
+            d.deletedLines
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d })
+        ] }, d.path)) })
+      ] })
+    ] });
+  }
+  const { call, on: onEvent, t, openSettings, notifyRepoChanged } = pageSdk;
+  const LIVE_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
+  const BUSY_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-permission"]);
+  const BUILTIN_SLASH = [
+    { name: "compact", hint: "立即压缩上下文" },
+    { name: "clear", hint: "重置会话（保留 worktree/checkpoint）" },
+    { name: "plan", hint: "切计划模式" },
+    { name: "default", hint: "切默认模式" },
+    { name: "yolo", hint: "切完全访问模式" },
+    { name: "approvals", hint: "切换审批模式（同 Shift+Tab）" },
+    { name: "stop", hint: "中断当前轮" },
+    { name: "model", arg: "<id>", hint: "切换模型档案" },
+    { name: "thinking", arg: "<level>", hint: "切换思考深度" },
+    { name: "fork", hint: "分叉任务" },
+    { name: "skill", arg: "<名称>", hint: "注入技能指引" },
+    { name: "export", hint: "导出会话为 Markdown 文件" },
+    { name: "cp", hint: "立即创建检查点" },
+    { name: "diff", hint: "查看当前改动" },
+    { name: "attach", hint: "附加图片（随下条消息发送）" },
+    // 模板命令（D3/D4）：与包命令同一分发语义（busy 排队 / idle 续跑，零新增 RPC）
+    {
+      name: "review",
+      hint: "审查当前工作区改动（review 子代理）",
+      template: "请用 task 工具（mode=review）审查当前工作区改动：先 repo_status / repo_diff 获取变更，逐文件审查正确性、边界条件与测试影响，产出问题清单（文件:行号 + 高/中/低 + 修复建议），最后给出可合并结论。${input}"
+    },
+    {
+      name: "init",
+      hint: "分析仓库并生成/更新 AGENTS.md",
+      template: "请分析当前仓库（目录结构、构建/测试/lint 命令、代码约定、现有文档），在仓库根生成或更新 AGENTS.md：项目简介、常用命令、目录导览、代码约定与注意事项。已存在时合并改进而非覆盖。${input}"
+    }
+  ];
+  function stateChip(s) {
+    switch (s) {
+      case "starting":
+        return { label: "Starting", color: "var(--c-text3)" };
+      case "working":
+        return { label: "● Working", color: "var(--c-green)" };
+      case "awaiting-input":
+        return { label: "Awaiting input", color: "var(--c-text)" };
+      case "awaiting-permission":
+        return { label: "● 待确认", color: "var(--c-amber)" };
+      case "completed":
+        return { label: "Completed", color: "var(--c-accent)" };
+      case "failed":
+        return { label: "Failed", color: "var(--c-red)" };
+      case "interrupted":
+        return { label: "Interrupted", color: "var(--c-amber)" };
+      case "stopped":
+        return { label: "Stopped", color: "var(--c-text3)" };
+    }
+  }
+  function ErrorFloat(props) {
+    const [open, setOpen] = react.useState(false);
+    const [truncated, setTruncated] = react.useState(false);
+    const textRef = react.useRef(null);
+    react.useEffect(() => {
+      setOpen(false);
+      const el = textRef.current;
+      setTruncated(!!el && el.scrollWidth > el.clientWidth + 1);
+    }, [props.text]);
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "banner error", style: { position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 30, margin: 0, maxWidth: props.maxWidth, boxShadow: "0 8px 20px color-mix(in srgb, #000 25%, transparent)" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsx(
+        "span",
+        {
+          ref: textRef,
+          className: "banner-text",
+          style: open ? { whiteSpace: "normal", wordBreak: "break-word", maxHeight: "40vh", overflowY: "auto", userSelect: "text" } : void 0,
+          children: props.text
+        }
+      ),
+      (truncated || open) && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { flex: "none" }, onClick: () => setOpen((v) => !v), children: open ? "收起" : "展开" }),
+      props.go && props.onGo && /* @__PURE__ */ jsxRuntime.jsx(
+        "button",
+        {
+          className: "tool-btn",
+          title: `打开设置 · ${props.go.section}`,
+          style: { flex: "none", color: "var(--c-link)", textDecoration: "underline", textUnderlineOffset: 2 },
+          onClick: () => props.onGo(props.go.section),
+          children: props.go.label
+        }
+      ),
+      /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { flex: "none" }, onClick: props.onClose, children: "✕" })
+    ] });
+  }
   let builtinAgentUIDone = false;
   function registerBuiltinAgentUI() {
     if (builtinAgentUIDone || typeof window === "undefined" || !window.GITTER_UI) return;
@@ -1623,14 +2166,63 @@
         reader.readAsDataURL(f);
       }
     }, [addImages]);
-    const [preview, setPreview] = react.useState(null);
-    const [previewLoading, setPreviewLoading] = react.useState(false);
+    const [changesPanelOpen, setChangesPanelOpen] = react.useState(true);
+    const [listWidth, setListWidth] = react.useState(() => {
+      const v = Number(localStorage.getItem("gitter.taskListWidth"));
+      return Number.isFinite(v) && v >= 210 && v <= 440 ? v : 300;
+    });
+    const [splitChatW, setSplitChatW] = react.useState(() => {
+      const v = Number(localStorage.getItem("gitter.taskSplitChatW"));
+      return Number.isFinite(v) && v >= 340 ? v : 0;
+    });
+    const startListDrag = (e) => {
+      e.preventDefault();
+      const main = e.currentTarget.parentElement;
+      if (!main) return;
+      const left = main.getBoundingClientRect().left;
+      const move = (ev) => {
+        const w = Math.max(210, Math.min(440, ev.clientX - left - 3));
+        main.style.gridTemplateColumns = w + "px 6px minmax(0, 1fr)";
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        const m = main.style.gridTemplateColumns.match(/^([0-9]+)px/);
+        if (m) {
+          setListWidth(Number(m[1]));
+          localStorage.setItem("gitter.taskListWidth", m[1]);
+        }
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    };
+    const startSplitDrag = (e) => {
+      e.preventDefault();
+      const split = e.currentTarget.parentElement;
+      if (!split) return;
+      const rect = split.getBoundingClientRect();
+      const move = (ev) => {
+        const w = Math.max(340, Math.min(rect.width - 340, ev.clientX - rect.left - 3));
+        split.style.gridTemplateColumns = w + "px 6px minmax(280px, 1fr)";
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        const m = split.style.gridTemplateColumns.match(/^([0-9]+)px/);
+        if (m) {
+          setSplitChatW(Number(m[1]));
+          localStorage.setItem("gitter.taskSplitChatW", m[1]);
+        }
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    };
+    const [panelReq, setPanelReq] = react.useState(null);
     const previewFile = react.useCallback((path) => {
-      if (!selectedTask) return;
-      setPreviewLoading(true);
-      setPreview({ path, content: "", truncated: false, binary: false, size: 0 });
-      void call("agent.task.previewFile", { taskId: selectedTask, path }).then((r) => setPreview({ path, ...r })).catch((e) => setPreview({ path, content: `（读取失败：${e.message}）`, truncated: false, binary: false, size: 0 })).finally(() => setPreviewLoading(false));
-    }, [selectedTask]);
+      setPanelReq({ path, mode: "preview", ts: Date.now() });
+      setTab("chat");
+      setChangesPanelOpen(true);
+    }, []);
     const [cpCount, setCpCount] = react.useState(0);
     const [diffCount, setDiffCount] = react.useState(0);
     const [awayFromBottom, setAwayFromBottom] = react.useState(false);
@@ -2372,7 +2964,9 @@ ${target.instructions}
         taskId: selectedTask ?? "",
         viewFile: (path) => {
           setPendingFile(path);
-          setTab("diff");
+          setPanelReq({ path, mode: "diff", ts: Date.now() });
+          setTab("chat");
+          setChangesPanelOpen(true);
         },
         previewFile,
         contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : void 0,
@@ -2399,6 +2993,7 @@ ${target.instructions}
       return /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
+          className: "tk-row" + (selectedNow ? " sel" : ""),
           onClick: () => {
             setSelectedTask(selectedNow ? null : task.taskId);
             setTab("chat");
@@ -2407,36 +3002,37 @@ ${target.instructions}
           },
           title: `${task.title}
 ${stateChip(task.state).label} · ${task.branch}`,
-          style: { border: `1px solid ${selectedNow ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 10, padding: "6px 6px 6px 11px", cursor: "pointer", background: "var(--c-panel)", display: "flex", alignItems: "center", gap: 8, minHeight: 34 },
           children: [
-            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { width: 7, height: 7, borderRadius: "50%", background: dotColor, flex: "none", opacity: working ? 1 : 0.85 } }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5, fontWeight: 600 }, children: task.title }),
-            /* @__PURE__ */ jsxRuntime.jsx(
-              "button",
-              {
-                className: "icon-btn",
-                title: live ? "运行中不可分叉，请先停止" : "分叉任务（复制对话历史到新分支）",
-                disabled: live,
-                onClick: (e) => {
-                  e.stopPropagation();
-                  void forkTask(task.taskId);
-                },
-                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "fork", size: 14 })
-              }
-            ),
-            /* @__PURE__ */ jsxRuntime.jsx(
-              "button",
-              {
-                className: "icon-btn",
-                title: live ? "运行中不可归档，请先停止" : "归档任务（从列表隐藏，可恢复）",
-                disabled: live,
-                onClick: (e) => {
-                  e.stopPropagation();
-                  void archiveTask(task.taskId);
-                },
-                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "archive", size: 14 })
-              }
-            )
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-dot" + (working ? " run" : ""), style: { color: dotColor } }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-row-title", children: task.title }),
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-quick", children: [
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "icon-btn",
+                  title: live ? "运行中不可分叉，请先停止" : "分叉任务（复制对话历史到新分支）",
+                  disabled: live,
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    void forkTask(task.taskId);
+                  },
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "fork", size: 13 })
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "icon-btn",
+                  title: live ? "运行中不可归档，请先停止" : "归档任务（从列表隐藏，可恢复）",
+                  disabled: live,
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    void archiveTask(task.taskId);
+                  },
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "archive", size: 13 })
+                }
+              )
+            ] })
           ]
         },
         task.taskId
@@ -2455,7 +3051,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
     const activeProfile = resolveRefProfile(selected == null ? void 0 : selected.modelRef) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
     const visionOk = resolveRefVision((selected == null ? void 0 : selected.modelRef) ?? (activeProfile == null ? void 0 : activeProfile.id));
     const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", flex: 1, minHeight: 0, height: "100%" }, children: [
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "grid", gridTemplateColumns: `${listWidth}px 6px minmax(0, 1fr)`, flex: 1, minHeight: 0, height: "100%" }, children: [
       /* @__PURE__ */ jsxRuntime.jsx(
         "input",
         {
@@ -2476,10 +3072,6 @@ ${stateChip(task.state).label} · ${task.branch}`,
           }
         }
       ),
-      preview && /* @__PURE__ */ jsxRuntime.jsxs(Modal, { title: `预览：${preview.path}`, confirmText: "关闭", onConfirm: () => setPreview(null), onClose: () => setPreview(null), children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 11, color: "var(--c-text3)", marginBottom: 6 }, children: previewLoading ? "加载中…" : `${preview.binary ? "二进制文件" : `${(preview.size / 1024).toFixed(1)} KB`}${preview.truncated ? " · 已截断（前 64KB）" : ""}` }),
-        /* @__PURE__ */ jsxRuntime.jsx("pre", { style: { maxHeight: 420, overflow: "auto", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "8px 10px", fontSize: 11.5, fontFamily: "var(--mono, monospace)", whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }, children: preview.content })
-      ] }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderRight: "1px solid var(--c-border)", display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "new-task-btn", style: { margin: "10px 10px 6px", width: "calc(100% - 20px)" }, onClick: startNewTask, children: "＋ 新任务（描述目标，Ctrl+N）" }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 10px 10px", display: "flex", flexDirection: "column", gap: 8 }, children: [
@@ -2487,46 +3079,46 @@ ${stateChip(task.state).label} · ${task.branch}`,
           agentTasks == null ? void 0 : agentTasks.map(agentCard)
         ] })
       ] }),
+      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", title: "拖拽调整任务列表宽度", onPointerDown: startListDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", gap: 2, padding: "6px 14px 0", borderBottom: "1px solid var(--c-border)" }, children: [["chat", "对话"], ["diff", `改动${diffCount ? ` ${diffCount}` : ""}`], ["cp", `检查点${cpCount ? ` ${cpCount}` : ""}`]].map(([id, label]) => /* @__PURE__ */ jsxRuntime.jsx(
-          "div",
-          {
-            onClick: () => setTab(id),
-            style: { padding: "5px 14px", fontSize: 12.5, color: tab === id ? "var(--c-text)" : "var(--c-text3)", cursor: "pointer", border: `1px solid ${tab === id ? "var(--c-border)" : "transparent"}`, borderBottom: "none", borderRadius: "8px 8px 0 0" },
-            children: label
-          },
-          id
-        )) }),
-        selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: tab === "chat" ? "flex" : "none", flexDirection: "column", overflow: "hidden" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap", color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)" }, children: [
-            /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { fontSize: 11.5, padding: "1px 10px", borderRadius: 999, border: `1px solid ${stateChip(selected.state).color}`, color: stateChip(selected.state).color }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-tabs", children: [["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tab" + (tab === id ? " on" : ""), onClick: () => setTab(id), children: [
+          label,
+          n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-tab-n", children: n }) : null
+        ] }, id)) }),
+        selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: tab === "chat" ? changesPanelOpen ? "grid" : "flex" : "none", flexDirection: "column", gridTemplateColumns: splitChatW > 0 ? `${splitChatW}px 6px minmax(280px, 1fr)` : "minmax(0, 4fr) 6px minmax(280px, 3fr)", gridTemplateRows: "auto minmax(0, 1fr) auto", overflow: "hidden" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-pagehead", style: { gridColumn: "1", gridRow: "1" }, children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill", style: { color: stateChip(selected.state).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state).color} 9%, transparent)` }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-pill-dot" }),
               stateChip(selected.state).label,
               busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1e3)) + "s" : ""
             ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 11.5 }, children: selected.branch }),
-            runningTool ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)", display: "inline-flex", alignItems: "center", gap: 5 }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: toolIconName(runningTool.name), size: 11, className: "tl-pulse" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-monochip", children: selected.branch }),
+            runningTool ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill amber", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-pill-dot", style: { animation: "tk-pulse 1.2s infinite" } }),
               TOOL_LABELS[runningTool.name] ?? runningTool.name,
               " ",
               ((Date.now() - runningTool.startTs) / 1e3).toFixed(1),
               "s"
             ] }) : null,
-            (((_b2 = selected.queued) == null ? void 0 : _b2.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)", display: "inline-flex", alignItems: "center", gap: 5 }, children: [
+            (((_b2 = selected.queued) == null ? void 0 : _b2.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill amber", children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "clock", size: 11 }),
               "排队 ",
               selected.queued.length
             ] }) : null,
-            /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill dim", children: [
               "子代理 ",
               runningSubs,
               "/",
               maxSubagents
             ] }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { children: "Esc 中断 · Esc×2 回滚 · Shift+Tab 模式 · ↑↓ 历史" }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": "在新窗口打开 worktree", onClick: () => void call("app.newWindow", { path: selected.worktreePath }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "external", size: 14 }) })
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tk-ibtn" + (changesPanelOpen ? " on" : ""), title: changesPanelOpen ? "关闭右侧变更分栏" : "打开右侧变更分栏", onClick: () => setChangesPanelOpen((v) => !v), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "splitpane", size: 15 }) }),
+            /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn", onClick: () => void call("app.newWindow", { path: selected.worktreePath }), children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "external", size: 12 }),
+              "新窗口"
+            ] })
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, minWidth: 0, position: "relative" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "2" }, children: [
             error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "calc(100% - 292px)", go: errorGo, onGo: (s) => {
               openSettings(s);
               setError(null);
@@ -2646,7 +3238,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
               }
             )
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "3" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
             busy && !pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 7, padding: "0 2px 7px", fontSize: 12 }, children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 12, color: "var(--c-amber)", className: "tl-pulse" }),
               /* @__PURE__ */ jsxRuntime.jsx("span", { className: "shimmer-text", children: busyHint })
@@ -2731,7 +3323,22 @@ ${stateChip(task.state).label} · ${task.branch}`,
                 ] })
               }
             )
-          ] }) })
+          ] }) }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", style: { gridColumn: "2", gridRow: "2 / 4" }, title: "拖拽调整分栏比例", onPointerDown: startSplitDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
+          changesPanelOpen && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { gridColumn: "3", gridRow: "2 / 4", minHeight: 0, minWidth: 0, display: "flex" }, children: /* @__PURE__ */ jsxRuntime.jsx(
+            TaskChangesPanel,
+            {
+              taskId: selected.taskId,
+              worktreePath: selected.worktreePath,
+              tick: changesTick,
+              request: panelReq,
+              onCollapse: () => setChangesPanelOpen(false),
+              onEditInFilesPage: (path) => {
+                pageSdk.requestFileFocus(path);
+                pageSdk.navigate("files");
+              }
+            }
+          ) })
         ] }),
         tab === "chat" && !selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }, children: [
           error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "min(680px, 92%)", go: errorGo, onGo: (s) => {
@@ -2816,205 +3423,6 @@ ${stateChip(task.state).label} · ${task.branch}`,
           }
         ),
         tab === "cp" && selected && /* @__PURE__ */ jsxRuntime.jsx(CheckpointsTab, { taskId: selected.taskId, branch: selected.branch, tick: changesTick, setError, onCount: setCpCount, onViewDiff: () => setTab("diff"), onMutate: () => setChangesTick((n) => n + 1) })
-      ] })
-    ] });
-  }
-  function ChangesTab(props) {
-    const { taskId, worktreePath, baselineSha, initialFile, tick } = props;
-    const [files, setFiles] = react.useState([]);
-    const [sel, setSel] = react.useState(initialFile ?? null);
-    const [diffs, setDiffs] = react.useState([]);
-    const diffTextRef = react.useRef("");
-    const [since, setSince] = react.useState(void 0);
-    const [busy, setBusy] = react.useState(false);
-    react.useEffect(() => {
-      let cancelled = false;
-      setBusy(true);
-      void call("agent.task.files", { taskId }).then(async (fs) => {
-        var _a2;
-        if (cancelled) return;
-        setFiles(fs);
-        props.onCount(fs.length);
-        const target = sel && fs.some((f) => f.path === sel) ? sel : ((_a2 = fs[0]) == null ? void 0 : _a2.path) ?? null;
-        setSel(target);
-        if (target) {
-          const [d, txt] = await Promise.all([
-            call("agent.task.diff", { taskId, path: target, since }),
-            call("agent.task.diffText", { taskId, path: target, since })
-          ]);
-          if (!cancelled) {
-            setDiffs(d);
-            diffTextRef.current = txt;
-          }
-        } else {
-          setDiffs([]);
-          diffTextRef.current = "";
-        }
-      }).catch((e) => props.setError(e.message)).finally(() => {
-        if (!cancelled) setBusy(false);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }, [taskId, tick, sel, since]);
-    const pick = (x) => {
-      setSel(x);
-      setDiffs([]);
-    };
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: "改动" }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }, children: props.branch }),
-        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: [
-          files.length,
-          " 个文件 · 基于 ",
-          baselineSha.slice(0, 8),
-          "^"
-        ] }),
-        since ? /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)", fontSize: 11 }, children: [
-          "· 查看 ",
-          since
-        ] }) : null,
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call("app.newWindow", { path: worktreePath }), children: "在 Changes 中打开" }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => {
-          var _a2;
-          return void ((_a2 = navigator.clipboard) == null ? void 0 : _a2.writeText(diffTextRef.current));
-        }, children: "复制 diff" })
-      ] }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "250px 1fr", overflow: "hidden" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderRight: "1px solid var(--c-border)", overflowY: "auto", padding: 8 }, children: [
-          files.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5, padding: 6 }, children: busy ? "加载中…" : "暂无改动" }),
-          files.map((f) => {
-            const letter = f.kind === "deleted" ? "D" : f.kind === "added" ? "A" : "M";
-            const color = f.kind === "deleted" ? "var(--c-red)" : f.kind === "added" ? "var(--c-green)" : "var(--c-amber)";
-            return /* @__PURE__ */ jsxRuntime.jsxs(
-              "div",
-              {
-                onClick: () => pick(f.path),
-                style: { padding: "6px 9px", borderRadius: 8, cursor: "pointer", display: "flex", gap: 6, background: sel === f.path ? "var(--c-panel)" : "transparent", border: `1px solid ${sel === f.path ? "var(--c-text)" : "transparent"}` },
-                children: [
-                  /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", fontWeight: 700, color }, children: letter }),
-                  /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--mono, monospace)", fontSize: 11.5 }, children: f.path }),
-                  /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontFamily: "var(--mono, monospace)", fontSize: 10.5 }, children: [
-                    "+",
-                    f.added ?? 0,
-                    " −",
-                    f.deleted ?? 0
-                  ] })
-                ]
-              },
-              f.path
-            );
-          })
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { overflowY: "auto", padding: "12px 16px", minWidth: 0 }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }, children: [
-            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", fontSize: 12.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: sel ?? "（选择文件）" }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginLeft: "auto", display: "flex", gap: 6 }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: !sel, onClick: async () => {
-                var _a2;
-                if (!sel || !window.confirm(`还原 ${sel} 到会话基线（${baselineSha.slice(0, 8)}）？该文件在本会话的改动将被丢弃。`)) return;
-                try {
-                  await call("agent.task.restore", { taskId, sha: baselineSha, path: sel });
-                  await props.onReloadAgents();
-                  notifyRepoChanged();
-                  (_a2 = props.onMutate) == null ? void 0 : _a2.call(props);
-                } catch (e) {
-                  props.setError(e.message);
-                }
-              }, children: "还原此文件" }),
-              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", children: "复制" })
-            ] })
-          ] }),
-          diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: busy ? "加载中…" : "（无差异）" }) : diffs.map((d) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8 }, children: [
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, padding: "2px 0" }, children: [
-              d.path,
-              " +",
-              d.addedLines,
-              " −",
-              d.deletedLines
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d })
-          ] }, d.path)),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 8 }, children: "并排 / 内联 切换沿用现有 DiffView" })
-        ] })
-      ] })
-    ] });
-  }
-  function CheckpointsTab(props) {
-    const { taskId, tick } = props;
-    const [cps, setCps] = react.useState([]);
-    const [viewSha, setViewSha] = react.useState(null);
-    const [diffs, setDiffs] = react.useState([]);
-    react.useEffect(() => {
-      let cancelled = false;
-      void call("agent.task.checkpoints", { taskId }).then((x) => {
-        if (cancelled) return;
-        const r = x.reverse();
-        setCps(r);
-        props.onCount(r.length);
-      }).catch((e) => props.setError(e.message));
-      return () => {
-        cancelled = true;
-      };
-    }, [taskId, tick]);
-    react.useEffect(() => {
-      if (!viewSha) {
-        setDiffs([]);
-        return;
-      }
-      let cancelled = false;
-      void call("agent.task.diff", { taskId, since: `checkpoint:${viewSha}` }).then((d) => {
-        if (!cancelled) setDiffs(d);
-      }).catch((e) => props.setError(e.message));
-      return () => {
-        cancelled = true;
-      };
-    }, [viewSha]);
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: "检查点" }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }, children: props.branch }),
-        /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: [
-          cps.length,
-          " 个托管提交 · Esc×2 快捷回此页"
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880 }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginBottom: 10 }, children: "每轮结束自动托管 checkpoint。回滚 = ZCode rewind：恢复 worktree 到该轮之前（消息历史保留，可重新续跑）。" }),
-        cps.map((cp) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid var(--c-border)", borderRadius: 10, padding: "8px 12px", marginBottom: 8, fontFamily: "var(--mono, monospace)", fontSize: 12 }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)" }, children: [
-            "cp ",
-            cp.sha.slice(0, 8)
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "inherit" }, children: cp.summary.replace(/^checkpoint:\s*/, "") }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: cp.date.slice(5, 16).replace("T", " ") }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setViewSha(viewSha === cp.sha ? null : cp.sha), children: viewSha === cp.sha ? "收起该轮 diff" : "查看该轮 diff" }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: async () => {
-            var _a2;
-            if (!window.confirm(`回滚 worktree 到 ${cp.sha.slice(0, 8)}？该 checkpoint 之后的所有改动将被丢弃（reset --hard）。`)) return;
-            try {
-              await call("agent.task.restore", { taskId, sha: cp.sha });
-              props.onViewDiff();
-              notifyRepoChanged();
-              (_a2 = props.onMutate) == null ? void 0 : _a2.call(props);
-            } catch (e) {
-              props.setError(e.message);
-            }
-          }, children: "回滚到此处" })
-        ] }, cp.sha)),
-        cps.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: "暂无 checkpoint" }),
-        viewSha && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { marginTop: 8, maxHeight: 320, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 10, padding: 8 }, children: diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: "（该轮无改动）" }) : diffs.map((d) => /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, padding: "2px 0" }, children: [
-            d.path,
-            " +",
-            d.addedLines,
-            " −",
-            d.deletedLines
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d })
-        ] }, d.path)) })
       ] })
     ] });
   }

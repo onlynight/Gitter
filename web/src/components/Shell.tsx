@@ -20,12 +20,10 @@ export function TitleBar() {
         className="tb-hamburger"
         title={t("Common_ToggleSidebar")}
         onClick={() => {
-          // 折叠/展开是唯一该有宽度动画的时刻：.main-anim 挂临时过渡（常驻过渡会让
-          // Chromium 的 grid 列轨道卡死在旧值，宽度收敛写入失效——见 styles.css .main 注释）
-          const main = document.querySelector<HTMLElement>(".main");
-          main?.classList.add("main-anim");
+          // 折叠/展开动画由 Sidebar 的 collapsed 副作用挂 .main-anim（随宽度实际变化同帧
+          // 生效，不再依赖固定时间窗——settings IPC 往返一旦超过固定窗口，宽度变化落在窗外
+          // 动画就消失）。常驻过渡会让 Chromium 的 grid 列轨道卡死在旧值，见 styles.css .main 注释。
           void updateSettings({ sidebarCollapsed: !(settings?.sidebarCollapsed ?? false) });
-          window.setTimeout(() => main?.classList.remove("main-anim"), 320);
         }}
       >
         ☰
@@ -58,7 +56,7 @@ export function Sidebar() {
   // （常规字重）天然留出富余，也顺带消灭「恰满宽 + 取整吞亚像素」造成的尾部省略号。
   // 注意：直接写 .main 内联 grid 列而非改 --sidebar-w 变量——Chromium 对「变量值变化 +
   // grid-template-columns 过渡」存在失效（变量已新值、轨道恒滞后一步）。基础 .main 不挂
-  // 过渡（写入瞬时生效）；折叠/展开动画由 TitleBar 临时挂 .main-anim（见 styles.css）。
+  // 过渡（写入瞬时生效）；折叠/展开动画由下方 collapsed 副作用临时挂 .main-anim（见 styles.css）。
   useLayoutEffect(() => {
     const measure = () => {
       const root = rootRef.current;
@@ -113,6 +111,22 @@ export function Sidebar() {
     }));
   const extNav = slots.filter((x) => x.source === "package" && !hasBuiltinProvider(slotOf(x)));
   const collapsed = settings?.sidebarCollapsed ?? false;
+  // 折叠/展开动画：collapsed 翻转的同一帧挂 .main-anim（useLayoutEffect 先于绘制，宽度
+  // 变化与过渡必然同帧生效，settings IPC 往返多慢都不丢动画），transitionend（+超时兜底，
+  // 覆盖 reduced-motion 的 .01ms 过渡 / 动画被打断）后摘除。only-on-flip：首帧与无关
+  // 渲染不挂，宽度收敛写入保持瞬时生效。
+  const prevCollapsed = useRef(collapsed);
+  useLayoutEffect(() => {
+    const main = document.querySelector<HTMLElement>(".main");
+    if (!main) return;
+    if (prevCollapsed.current === collapsed) return;
+    prevCollapsed.current = collapsed;
+    main.classList.add("main-anim");
+    const remove = () => main.classList.remove("main-anim");
+    main.addEventListener("transitionend", remove, { once: true });
+    const t = window.setTimeout(remove, 400);
+    return () => { window.clearTimeout(t); main.removeEventListener("transitionend", remove); main.classList.remove("main-anim"); };
+  }, [collapsed]);
   // 设置固定在侧栏最下方（不在主导航序列）；身份取注册表胜出者（可被替换页面包带来新图标）
   const settingsDef = resolveUiPage("settings");
   const SETTINGS_NAV = {

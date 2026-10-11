@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from "react";
 import type {
   AgentUITier, TimelineRendererDef, ComposerMentionProviderDef, TimelineCardProps, TimelineCardCtx,
+  TaskPanelDef, TaskPanelRenderCtx,
 } from "../agentUIRegistry";
 
 function U(): NonNullable<Window["GITTER_UI"]> {
@@ -20,8 +21,14 @@ function U(): NonNullable<Window["GITTER_UI"]> {
 export function registerAgentUI(reg: {
   timelineRenderers?: TimelineRendererDef[];
   composerProviders?: ComposerMentionProviderDef[];
+  taskPanels?: TaskPanelDef[];
 }): void {
   U().registerAgentUI(reg);
+}
+
+/** 任务页分栏面板贡献（v3.2 插件化）：按层级倒序（内置/宿主靠前，用户包在后）。 */
+export function taskPanels(): { def: TaskPanelDef; packageId: string; tier: AgentUITier }[] {
+  return U().taskPanels();
 }
 
 export function resolveTimelineRenderer(toolName: string | undefined, blockKind: string): TimelineRendererDef | null {
@@ -42,4 +49,4 @@ export function useAgentUIVersion(): number {
   return useSyncExternalStore(g.onAgentUIChanged, g.agentUIVersion);
 }
 
-export type { AgentUITier, TimelineRendererDef, ComposerMentionProviderDef, TimelineCardProps, TimelineCardCtx };
+export type { AgentUITier, TimelineRendererDef, ComposerMentionProviderDef, TimelineCardProps, TimelineCardCtx, TaskPanelDef, TaskPanelRenderCtx };

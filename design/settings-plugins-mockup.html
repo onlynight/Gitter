@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<title>Gitter 设置 · 任务页插件挂载树 设计稿</title>
+<style>
+  /* 沿用 v3 配色规范：选中黑白灰；绿/红/琥珀/紫语义色；双主题 */
+  :root{
+    --bg0:#0b0d11; --bg:rgba(15,17,22,.66); --panel:rgba(255,255,255,.035); --panel2:rgba(255,255,255,.065);
+    --border:rgba(255,255,255,.075); --border2:rgba(255,255,255,.15); --sel-border:rgba(255,255,255,.30);
+    --text:#dfe5ec; --dim:#939dab; --dim2:#5f6874;
+    --green:#7ee787; --red:#ff7b72; --amber:#d5a03c; --purple:#b490ff; --blue:#6babf5;
+    --mono:"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+  }
+  body.light{
+    --bg0:#e8ebf0; --bg:rgba(252,253,255,.7); --panel:rgba(255,255,255,.58); --panel2:rgba(255,255,255,.95);
+    --border:rgba(15,25,45,.1); --border2:rgba(15,25,45,.18); --sel-border:rgba(15,25,45,.34);
+    --text:#1a1e26; --dim:#5a6470; --dim2:#8b95a1;
+    --green:#1a7f37; --red:#cf222e; --amber:#9a6700; --purple:#8250df; --blue:#0b6bcb;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg0);color:var(--text);font:13px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;overflow:hidden}
+  .ambient{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(640px 420px at 16% -6%,rgba(96,165,250,.11),transparent 68%),radial-gradient(720px 480px at 92% 110%,rgba(168,130,255,.09),transparent 68%)}
+  body.light .ambient{background:radial-gradient(640px 420px at 16% -6%,rgba(96,165,250,.14),transparent 68%),radial-gradient(720px 480px at 92% 110%,rgba(168,130,255,.1),transparent 68%)}
+  .topbar{position:relative;z-index:5;display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;background:var(--bg);backdrop-filter:blur(20px) saturate(1.25);border-bottom:1px solid var(--border)}
+  .topbar b{font-size:13px}
+  .crumb{color:var(--dim);font-size:12px}
+  .sp{flex:1}
+  .chip{display:inline-flex;align-items:center;border:1px solid var(--border2);border-radius:999px;padding:2px 11px;font-size:11.5px;color:var(--dim);cursor:pointer}
+  .main{position:relative;z-index:1;display:grid;grid-template-columns:200px 1fr;height:calc(100vh - 44px)}
+  .rail{border-right:1px solid var(--border);background:var(--bg);padding:10px 8px;display:flex;flex-direction:column;gap:2px}
+  .ri{padding:6px 12px;border-radius:8px;color:var(--dim);cursor:pointer;font-size:12.5px;display:flex;gap:8px;align-items:center}
+  .ri:hover{background:var(--panel2)}
+  .ri.on{background:var(--panel2);color:var(--text);border:1px solid var(--sel-border)}
+  .content{padding:20px 26px;overflow-y:auto}
+  h2{font-size:14px;margin-bottom:4px}
+  .sub{color:var(--dim);font-size:12px;margin-bottom:16px}
+  .vswitch{display:inline-flex;border:1px solid var(--border2);border-radius:8px;overflow:hidden;margin-bottom:14px}
+  .vswitch span{padding:2px 12px;font-size:11.5px;color:var(--dim);cursor:pointer;background:var(--panel)}
+  .vswitch span.on{background:var(--sel);color:var(--sel-fg)}
+  .tree{border:1px solid var(--border);border-radius:12px;background:var(--panel);overflow:hidden}
+  .grp{padding:8px 14px;font-size:12.5px;font-weight:650;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);background:var(--panel2)}
+  .grp .tag{font-size:10px;color:var(--dim2);border:1px solid var(--border2);border-radius:999px;padding:0 7px;font-weight:400}
+  .leaf{display:flex;align-items:center;gap:10px;padding:9px 14px 9px 30px;border-bottom:1px solid var(--border)}
+  .leaf:last-child{border-bottom:none}
+  .leaf:hover{background:var(--panel2)}
+  .leaf .name{font-size:12.5px;font-weight:550}
+  .leaf .sub{margin:0;color:var(--dim2);font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .src{font-size:10px;border-radius:999px;padding:0 8px;line-height:16px;flex:none}
+  .src.builtin{color:var(--blue);border:1px solid color-mix(in srgb,var(--blue) 40%,transparent);background:color-mix(in srgb,var(--blue) 10%,transparent)}
+  .src.pkg{color:var(--purple);border:1px solid color-mix(in srgb,var(--purple) 40%,transparent);background:color-mix(in srgb,var(--purple) 10%,transparent)}
+  .sw{width:32px;height:18px;border-radius:999px;background:var(--border2);position:relative;cursor:pointer;flex:none;transition:background .15s}
+  .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--text);transition:left .15s}
+  .sw.on{background:var(--green)}
+  .sw.on::after{left:16px}
+  .note{margin-top:12px;color:var(--dim2);font-size:11px}
+  .kbd{font-family:var(--mono);font-size:10px;color:var(--dim);border:1px solid var(--border2);border-radius:4px;padding:0 5px}
+</style>
+</head>
+<body>
+<div class="ambient"></div>
+<div class="topbar">
+  <b>⚙ Gitter 设置</b><span class="crumb">设计稿 · 任务页插件挂载树 · 可点击：开关 / 视图切换 / 主题</span>
+  <span class="sp"></span>
+  <span class="chip" id="themechip" onclick="toggleTheme()">外观：暗</span>
+</div>
+<div class="main">
+  <div class="rail">
+    <div class="ri">外观</div>
+    <div class="ri">终端</div>
+    <div class="ri">仓库</div>
+    <div class="ri">模型档案</div>
+    <div class="ri">AI 行为</div>
+    <div class="ri on">扩展</div>
+    <div class="ri">关于</div>
+  </div>
+  <div class="content">
+    <h2>插件挂载树</h2>
+    <div class="sub">渲染层注册表快照：页面槽位 → 挂载插件 → 贡献明细。包热插拔 / 启用开关即时刷新；关闭开关 = 从任务页摘除该贡献（不改包文件）。</div>
+    <div class="vswitch"><span class="on">按页面（树状）</span><span>按类型</span></div>
+
+    <div class="tree">
+      <div class="grp">全局 <span class="tag">所有页面共用</span></div>
+      <div class="leaf">
+        <span class="name">时间线渲染器</span>
+        <span class="src builtin">内置</span>
+        <span class="sub">工具卡 · 思考卡 · 文件变更行 · 检查点行 · 授权卡 · 清单卡 · 轮脚注</span>
+        <span class="sw on" onclick="this.classList.toggle('on')"></span>
+      </div>
+      <div class="leaf">
+        <span class="name">Composer 提供者</span>
+        <span class="src builtin">内置</span>
+        <span class="sub">@文件 提及（repo.files 搜索）</span>
+        <span class="sw on" onclick="this.classList.toggle('on')"></span>
+      </div>
+      <div class="leaf">
+        <span class="name">斜杠命令</span>
+        <span class="src builtin">内置</span>
+        <span class="sub">/compact /clear /plan /default /yolo /model /thinking /fork /skill /export /cp /diff /attach</span>
+        <span class="sw on" onclick="this.classList.toggle('on')"></span>
+      </div>
+      <div class="grp">任务页 <span class="tag">TasksPage 槽位</span></div>
+      <div class="leaf">
+        <span class="name">分栏变更面板</span>
+        <span class="src builtin">内置</span>
+        <span class="sub">对话 4/7 + 实时变更 3/7 · 按轮查看 · 预览 / 内置编辑器 / 外部应用</span>
+        <span class="sw on" onclick="this.classList.toggle('on')"></span>
+      </div>
+      <div class="leaf">
+        <span class="name">时间线渲染器 · 授权卡增强</span>
+        <span class="src pkg">com.example.review</span>
+        <span class="sub">按 risk 等级着色 + 前缀规则一键放行</span>
+        <span class="sw on" onclick="this.classList.toggle('on')"></span>
+      </div>
+      <div class="leaf">
+        <span class="name">Composer 提供者 · @任务</span>
+        <span class="src pkg">com.example.tasks</span>
+        <span class="sub">@ 提及任务并在消息中嵌入引用</span>
+        <span class="sw" onclick="this.classList.toggle('on')"></span>
+      </div>
+      <div class="leaf">
+        <span class="name">斜杠命令 · /review /init</span>
+        <span class="src pkg">com.example.review</span>
+        <span class="sub">审查当前工作区改动 · 分析仓库生成 AGENTS.md</span>
+        <span class="sw on" onclick="this.classList.toggle('on')"></span>
+      </div>
+    </div>
+    <div class="note">
+      来源标记：<span class="src builtin">内置</span> 宿主自带 · <span class="src pkg">包 id</span> 来自 .gpk 扩展包（卸载包即摘除）。
+      开关持久化于 extensions.setKindEnabled / setConfig（既有 RPC，零新增）。悬停行可看完整贡献清单；「按类型」视图把同一贡献类型跨包平铺对比。
+    </div>
+  </div>
+</div>
+<script>
+  function toggleTheme(){
+    var light = document.body.classList.toggle("light");
+    document.getElementById("themechip").textContent = light ? "外观：亮" : "外观：暗";
+  }
+</script>
+</body>
+</html>

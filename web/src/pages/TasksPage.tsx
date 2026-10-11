@@ -1,5 +1,5 @@
 import { Fragment, forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { DiffView, Modal, renderMarkdown, Select } from "../kit";
+import { DiffView, renderMarkdown, Select } from "../kit";
 import type {
   AgentCheckpointDTO, AgentContextStatsDTO, AgentEventDTO, AgentHarnessDTO, AgentTaskDTO,
   AgentTaskFileDTO, DiffDTO, ModelProfileDTO, TaskTypeDTO, WorktreeDTO,
@@ -10,6 +10,14 @@ import {
   type TimelineRendererDef, type ComposerMentionProviderDef, type TimelineCardCtx,
 } from "../external/agentUIShim";
 import { TlIcon, toolIconName, type TlIconName } from "./taskIcons";
+import { TaskChangesPanel } from "./TaskChangesPanel";
+import {
+  TOOL_LABELS, BUILTIN_TIMELINE_RENDERERS, pushCap, reduceBlocks, groupLogs, groupTurns, permOptions,
+  type Block, type Todo, type TurnGroup, type PermOption,
+  TodoList, PermissionCard, QuestionCard, PlanCard, SubtaskBlock,
+} from "./TaskTimeline";
+import { Composer, MentionPopover, SlashPopover, BUILTIN_COMPOSER_PROVIDERS, MODE_ORDER, MODE_META, THINKING_META, type ModelGroupVM } from "./TaskComposer";
+import { ChangesTab, CheckpointsTab } from "./TaskDetailPages";
 // 任务页 v3（docs/task-page-v2-design.md）：Codex 信息架构（任务卡列表 + 对话/改动/检查点三独立页）
 // × ZCode 交互（⏺ 工具卡折叠/⎿ 结果、编号授权选项、todo 清单、Esc/Esc×2、Shift+Tab 模式循环、
 // 上下文条、发送/停止合一图标按钮）。页签为全局导航，改动/检查点为完全独立页（无对话元素）。
@@ -17,28 +25,6 @@ const { call, on: onEvent, t, openSettings, notifyRepoChanged } = pageSdk;
 
 const LIVE_STATES = new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
 const BUSY_STATES = new Set(["starting", "working", "awaiting-permission"]);
-const MODE_ORDER: ("plan" | "default" | "yolo")[] = ["plan", "default", "yolo"];
-const MODE_META: Record<string, { label: string; color: string }> = {
-  plan: { label: "◇ 计划", color: "var(--c-chip-purple-fg, #b490ff)" },
-  default: { label: "● 默认", color: "var(--c-text3)" },
-  yolo: { label: "⚡ 完全访问", color: "var(--c-red)" },
-};
-const THINKING_META: Record<"off" | "low" | "medium" | "high", { label: string; hint: string }> = {
-  off: { label: "思考·关", hint: "跳过推理，响应最快" },
-  low: { label: "思考·低", hint: "轻量推理，适合明确指令" },
-  medium: { label: "思考·中", hint: "平衡推理与速度（默认）" },
-  high: { label: "思考·高", hint: "深度推理，适合复杂设计" },
-};
-
-const TOOL_LABELS: Record<string, string> = {
-  web_search: "网络搜索", web_fetch: "读取网页",
-  repo_status: "工作区状态", repo_diff: "读取 diff", repo_log: "提交历史",
-  repo_read_file: "读文件", repo_list_files: "列文件", repo_glob: "找文件", repo_grep: "搜索内容",
-  review_get_state: "验收反馈", file_write: "写文件", file_patch: "编辑文件",
-  git_stage: "暂存", git_commit: "提交", git_push: "推送",
-  terminal_run: "执行命令", terminal_poll: "后台命令",
-  ask_user: "提问", todo_write: "任务清单", plan_submit: "提交计划", task: "子代理",
-};
 
 /** 内置斜杠命令表（§20.3.8 数据化自举：补全列表与分发表同一数据源；包命令走 agent.command 贡献） */
 const BUILTIN_SLASH: { name: string; arg?: string; hint: string; template?: string }[] = [
@@ -64,144 +50,6 @@ const BUILTIN_SLASH: { name: string; arg?: string; hint: string; template?: stri
     template: "请分析当前仓库（目录结构、构建/测试/lint 命令、代码约定、现有文档），在仓库根生成或更新 AGENTS.md：项目简介、常用命令、目录导览、代码约定与注意事项。已存在时合并改进而非覆盖。${input}" },
 ];
 
-// ---- 时间线块模型（v3：⏺ 工具卡折叠 / ⎿ 结果缩进）----
-
-type Todo = { content: string; status: "pending" | "in_progress" | "completed" };
-
-type Block =
-  | { kind: "human"; text: string }
-  | { kind: "assistant"; text: string; merge: boolean }
-  | { kind: "thinking"; text: string; merge: boolean; closed?: boolean }
-  | { kind: "status"; text: string; phase?: string }
-  | { kind: "tool"; callId: string; name: string; args?: unknown; state: "running" | "ok" | "error"; result?: string; durationMs?: number; source?: string | null; tail?: string; startTs: number }
-  | { kind: "permission"; requestId: string; toolName: string; title: string; command?: string | null; payload?: AgentEventDTO["payload"]; rememberable?: boolean }
-  | { kind: "question"; requestId: string; question: string; options: string[] }
-  | { kind: "plan"; requestId: string; plan: string }
-  | { kind: "todo"; todos: Todo[] }
-  | { kind: "checkpoint"; sha: string; summary: string }
-  | { kind: "file"; path: string; changeKind: string; summary?: string }
-  | { kind: "subtask"; subtaskId: string; name: string; mode: string; state: string; final?: string; durationMs?: number; children: Block[] }
-  | { kind: "turn"; text: string; usage?: { input?: number; output?: number } }
-  | { kind: "log"; level: string; text: string };
-
-const MAX_BLOCKS = 400;
-
-function pushCap(arr: Block[], b: Block): Block[] {
-  let next = [...arr, b];
-  // 非思考块入场 = 思考已结束：把尾部思考块标记收起（用户之后仍可手动展开）
-  if (b.kind !== "thinking") {
-    for (let i = next.length - 2; i >= 0; i--) {
-      const x = next[i];
-      if (x.kind !== "thinking") break;
-      if (!x.closed) {
-        next = [...next];
-        next[i] = { ...x, closed: true };
-      }
-    }
-  }
-  return next.length > MAX_BLOCKS ? next.slice(next.length - MAX_BLOCKS) : next;
-}
-
-/** 事件 → 块序列（纯归约；子代理事件按 subtaskId 归组嵌套）。 */
-function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
-  if (ev.subtaskId) {
-    if (ev.type === "subtask") {
-      const idx = [...blocks].reverse().findIndex((b) => b.kind === "subtask" && b.subtaskId === ev.subtaskId);
-      if (idx >= 0) {
-        const at = blocks.length - 1 - idx;
-        const next = [...blocks];
-        const sub = next[at] as Extract<Block, { kind: "subtask" }>;
-        next[at] = { ...sub, state: ev.state ?? sub.state, final: ev.finalMessage ?? sub.final, durationMs: ev.durationMs ?? sub.durationMs };
-        return next;
-      }
-      return pushCap(blocks, { kind: "subtask", subtaskId: ev.subtaskId, name: ev.name ?? "", mode: ev.mode ?? "", state: ev.state ?? "running", final: ev.finalMessage, durationMs: ev.durationMs, children: [] });
-    }
-    const idx = [...blocks].reverse().findIndex((b) => b.kind === "subtask" && b.subtaskId === ev.subtaskId);
-    if (idx >= 0) {
-      const at = blocks.length - 1 - idx;
-      const sub = blocks[at] as Extract<Block, { kind: "subtask" }>;
-      const inner = reduceBlocks([], { ...ev, subtaskId: undefined });
-      let children = sub.children;
-      for (const c of inner) children = pushCap(children, c);
-      const next = [...blocks];
-      next[at] = { ...sub, children };
-      return next;
-    }
-    return blocks;
-  }
-
-  switch (ev.type) {
-    case "status":
-      return pushCap(blocks, { kind: "status", text: `${ev.phase ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.phase });
-    case "output":
-      if (ev.stream === "thinking") {
-        // 思考流：与正文同款合并策略（连续 thinking 增量并入最后一张思考卡）
-        const last = blocks[blocks.length - 1];
-        if (last && last.kind === "thinking" && last.merge && !last.closed) {
-          const next = [...blocks];
-          next[next.length - 1] = { ...last, text: last.text + (ev.text ?? "") };
-          return next;
-        }
-        return pushCap(blocks, { kind: "thinking", text: ev.text ?? "", merge: true });
-      }
-      if (ev.stream === "assistant") {
-        const last = blocks[blocks.length - 1];
-        if (last && last.kind === "assistant" && last.merge) {
-          const next = [...blocks];
-          next[next.length - 1] = { ...last, text: last.text + (ev.text ?? "") };
-          return next;
-        }
-        return pushCap(blocks, { kind: "assistant", text: ev.text ?? "", merge: true });
-      }
-      if (ev.stream === "tool") {
-        for (let i = blocks.length - 1; i >= 0; i--) {
-          const b = blocks[i];
-          if (b.kind === "tool" && b.name === "terminal_run" && b.state === "running") {
-            const next = [...blocks];
-            next[i] = { ...b, tail: ((b.tail ?? "") + (ev.text ?? "")).slice(-2000) };
-            return next;
-          }
-        }
-      }
-      return blocks;
-    case "tool": {
-      if (ev.phase === "start") {
-        return pushCap(blocks, { kind: "tool", callId: ev.callId ?? "", name: ev.name ?? "", args: ev.args, state: "running", source: ev.source, startTs: Date.now() });
-      }
-      for (let i = blocks.length - 1; i >= 0; i--) {
-        const b = blocks[i];
-        if (b.kind === "tool" && b.callId === ev.callId) {
-          const next = [...blocks];
-          next[i] = { ...b, state: ev.isError ? "error" : "ok", result: ev.result, durationMs: ev.durationMs };
-          return next;
-        }
-      }
-      return blocks;
-    }
-    case "permission":
-      return pushCap(blocks, { kind: "permission", requestId: ev.requestId ?? "", toolName: ev.toolName ?? ev.title ?? "", title: ev.title ?? "", command: ev.command, payload: ev.payload, rememberable: ev.rememberable });
-    case "question":
-      return pushCap(blocks, { kind: "question", requestId: ev.requestId ?? "", question: ev.question ?? "", options: ev.options ?? [] });
-    case "plan":
-      return pushCap(blocks, { kind: "plan", requestId: ev.requestId ?? "", plan: ev.plan ?? "" });
-    case "todo":
-      return pushCap(blocks.filter((b) => b.kind !== "todo"), { kind: "todo", todos: ev.todos ?? [] });
-    case "checkpoint":
-      return pushCap(blocks, { kind: "checkpoint", sha: ev.commitSha ?? "", summary: ev.summary ?? "" });
-    case "file-change":
-      return pushCap(blocks, { kind: "file", path: ev.path ?? "", changeKind: ev.kind ?? "modified", summary: ev.summary });
-    case "subtask":
-      return pushCap(blocks, { kind: "subtask", subtaskId: ev.subtaskId ?? "", name: ev.name ?? "", mode: ev.mode ?? "", state: ev.state ?? "running", final: ev.finalMessage, durationMs: ev.durationMs, children: [] });
-    case "turn-completed":
-      return pushCap(blocks, { kind: "turn", text: `turn #${blocks.filter((b) => b.kind === "turn").length + 1}`, usage: ev.usage });
-    case "completed":
-      return pushCap(blocks, { kind: "status", text: `${ev.outcome ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}` });
-    case "log":
-      return pushCap(blocks, { kind: "log", level: ev.level ?? "info", text: ev.text ?? "" });
-    default:
-      return blocks;
-  }
-}
 
 function stateChip(s: AgentTaskDTO["state"]): { label: string; color: string } {
   switch (s) {
@@ -218,23 +66,6 @@ function stateChip(s: AgentTaskDTO["state"]): { label: string; color: string } {
 
 // ---- ZCode 式交互组件 ----
 
-type PermOption = { label: string; reply: { ok: boolean; remember?: boolean; rulePrefix?: string | null; fullAccess?: boolean } };
-
-/** 授权卡编号选项生成（§四 + Codex 式升级）：一次 / 本会话 / 总是允许前缀 / 完全访问（切 yolo）/ 否。
- * fullAccess = 批准当前请求并把任务切到完全访问模式（后续免询问，仅不确定的选项仍会提问）。 */
-function permOptions(b: Extract<Block, { kind: "permission" }>, showFullAccess = false): PermOption[] {
-  const sig = b.command ?? b.title;
-  const prefix = sig ? sig.slice(0, 24) : null;
-  const opts: PermOption[] = [{ label: "1. 是，执行一次", reply: { ok: true } }];
-  if (b.rememberable !== false) opts.push({ label: "2. 是，本会话不再询问", reply: { ok: true, remember: true } });
-  if (prefix) opts.push({ label: `3. 是，总是允许前缀 “${prefix}”`, reply: { ok: true, remember: true, rulePrefix: prefix } });
-  if (showFullAccess) opts.push({ label: `${opts.length + 1}. 完全访问：批准并切换（后续不再询问，仅不确定时提问）`, reply: { ok: true, remember: true, fullAccess: true } });
-  opts.push({ label: `${opts.length + 1}. 否，告诉 agent 改用其他方式`, reply: { ok: false } });
-  return opts;
-}
-
-/** 错误浮层（对话页顶部状态条下方 / 新任务页顶部居中）：默认单行省略，超长时出现「展开」按钮查看全文；
- * go 可选——带「去设置」类跳转按钮（如视觉能力报错直达 模型档案 设置分区）。 */
 function ErrorFloat(props: { text: string; maxWidth: number | string; go?: { label: string; section: string } | null; onGo?: (section: string) => void; onClose: () => void }) {
   const [open, setOpen] = useState(false);
   const [truncated, setTruncated] = useState(false);
@@ -264,958 +95,15 @@ function ErrorFloat(props: { text: string; maxWidth: number | string; go?: { lab
   );
 }
 
-function AgentImage(props: { taskId: string; path: string }) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void call<{ dataUrl?: string; error?: string }>("agent.previewImage", { taskId: props.taskId, path: props.path })
-      .then((r) => {
-        if (cancelled) return;
-        if (r.dataUrl) setSrc(r.dataUrl);
-        else setErr(r.error ?? "加载失败");
-      })
-      .catch((e) => setErr((e as Error).message));
-    return () => { cancelled = true; };
-  }, [props.taskId, props.path]);
-  if (err) return <div style={{ color: "var(--c-text3)", fontSize: 11.5 }}>🖼 {props.path}（{err}）</div>;
-  if (!src) return <div style={{ color: "var(--c-text3)", fontSize: 11.5 }}>🖼 {props.path}（加载中…）</div>;
-  return <img src={src} alt={props.path} style={{ maxWidth: 320, maxHeight: 220, borderRadius: 6, border: "1px solid var(--c-border)" }} />;
-}
 
-function MentionPopover(props: {
-  mention: { start: number; prefix: string; query: string } | null;
-  items: { label: string; insert: string }[];
-  onPick: (insert: string) => void;
-  selectedIndex: number;
-  onSelect: (idx: number) => void;
-}) {
-  const { mention, items, onPick, onSelect } = props;
-  if (!mention || items.length === 0) return null;
-  const sel = Math.max(0, Math.min(props.selectedIndex, items.length - 1));
-  return (
-    <div className="mention-pop" style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 180, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }}>
-      {items.map((it, i) => (
-        <div key={it.label}
-          ref={(el) => { if (el && i === sel) el.scrollIntoView({ block: "nearest" }); }}
-          style={{
-            padding: "4px 10px", fontSize: 12, cursor: "pointer", borderRadius: 6,
-            background: i === sel ? "var(--c-selected)" : "transparent",
-            color: i === sel ? "var(--c-text)" : "var(--c-text2)",
-          }}
-          onMouseEnter={() => onSelect(i)}
-          onMouseDown={(e) => { e.preventDefault(); onPick(it.insert); }}>
-          {it.label}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** 斜杠命令弹出层（输入 / 后自动出现，过滤匹配的命令列表）。 */
-function SlashPopover(props: {
-  open: boolean;
-  items: { name: string; hint: string; insert: string }[];
-  onPick: (insert: string) => void;
-  selectedIndex: number;
-  onSelect: (idx: number) => void;
-}) {
-  if (!props.open || props.items.length === 0) return null;
-  const sel = Math.max(0, Math.min(props.selectedIndex, props.items.length - 1));
-  return (
-    <div className="mention-pop" style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 10, maxHeight: 240, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 8, zIndex: 20 }}>
-      {props.items.map((it, i) => (
-        <div key={it.name}
-          ref={(el) => { if (el && i === sel) el.scrollIntoView({ block: "nearest" }); }}
-          style={{
-            padding: "5px 10px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderRadius: 6,
-            background: i === sel ? "var(--c-selected)" : "transparent",
-          }}
-          onMouseEnter={() => props.onSelect(i)}
-          onMouseDown={(e) => { e.preventDefault(); props.onPick(it.insert); }}>
-          <span style={{ fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontWeight: 600, flex: "none" }}>{it.name}</span>
-          <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{it.hint}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** ⏺ 工具卡（ZCode 形态：默认折叠一行，⎿ 结果缩进一行；点击展开完整；terminal 运行中 tail 4 行）。
- * 行首图标按工具类别区分（taskIcons），颜色随状态：运行琥珀脉冲 / 成功绿 / 失败红。 */
-function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
-  const [open, setOpen] = useState(false);
-  const label = TOOL_LABELS[b.name] ?? b.name;
-  const argSummary = (() => {
-    try {
-      const a = b.args as Record<string, unknown> | undefined;
-      if (!a) return "";
-      if (typeof a.command === "string") return a.command.slice(0, 110);
-      if (typeof a.path === "string") return a.path;
-      if (typeof a.pattern === "string") return JSON.stringify(a).slice(0, 110);
-      if (Array.isArray(a.paths)) return (a.paths as string[]).slice(0, 3).join(", ");
-      if (typeof a.question === "string") return a.question.slice(0, 80);
-      return JSON.stringify(a).slice(0, 110);
-    } catch { return ""; }
-  })();
-  const glyphColor = b.state === "running" ? "var(--c-amber)" : b.state === "error" ? "var(--c-red)" : "var(--c-green)";
-  const firstLine = (b.result ?? "").split("\n")[0] ?? "";
-  return (
-    <div style={{ fontFamily: "var(--mono, monospace)", fontSize: 12.5 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "2px 4px", borderRadius: 6 }} onClick={() => setOpen(!open)}>
-        <TlIcon name={toolIconName(b.name)} color={glyphColor} className={b.state === "running" ? "tl-pulse" : undefined} />
-        <span style={{ fontWeight: 700 }}>{label}</span>
-        <span style={{ color: "var(--c-text3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{argSummary}</span>
-        {b.source ? <span style={{ fontSize: 9.5, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px", color: "var(--c-text3)" }}>{b.source}</span> : null}
-        {b.durationMs !== undefined ? <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{(b.durationMs / 1000).toFixed(1)}s</span> : null}
-      </div>
-      <div style={{ margin: "1px 0 0 18px", borderLeft: "1px solid var(--c-border)", paddingLeft: 10, color: "var(--c-text3)", fontSize: 12 }}>
-        {b.state === "running" && b.tail ? (
-          <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0, fontFamily: "inherit", color: "var(--c-text)" }}>{b.tail.split("\n").slice(-4).join("\n")}</pre>
-        ) : b.result ? (
-          <>
-            <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: open ? 420 : 22, overflow: "hidden", cursor: "pointer" }} onClick={() => setOpen(!open)}>
-              {open ? b.result.slice(0, 16_000) : firstLine.slice(0, 200) || "（无输出）"}
-            </div>
-            {open && (
-              <button className="tool-btn" style={{ fontSize: 10.5, margin: "4px 0" }} onClick={() => void navigator.clipboard?.writeText(b.result ?? "")}>复制结果</button>
-            )}
-          </>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-/** 思考卡（⏺ 思考过程）：流式期间自动展开，后续块入场（closed）自动折叠；全程可手动开合。
- * 斜体弱化呈现——思考是过程信息，视觉层级低于正文与工具卡。 */
-function ThinkingCard({ b }: { b: Extract<Block, { kind: "thinking" }> }) {
-  const [open, setOpen] = useState(() => !b.closed);
-  // 用户手动开合后，不再被 closed 翻转强制收起
-  const userTouched = useRef(false);
-  useEffect(() => {
-    if (b.closed && !userTouched.current) setOpen(false);
-  }, [b.closed]);
-  const streaming = open && !b.closed;
-  return (
-    <div className="tl-think" style={{ borderLeft: "2px solid var(--c-border)", paddingLeft: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: "var(--c-text3)", padding: "2px 0", userSelect: "none" }}
-        onClick={() => { userTouched.current = true; setOpen((v) => !v); }}
-        role="button" tabIndex={0} aria-expanded={open}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); userTouched.current = true; setOpen((v) => !v); } }}>
-        <TlIcon name="sparkle" size={12} color={streaming ? "var(--c-amber)" : "var(--c-text3)"} className={streaming ? "tl-pulse" : undefined} />
-        <span style={{ fontStyle: "italic", fontWeight: streaming ? 600 : 400 }}>{streaming ? "思考中…" : "思考过程"}</span>
-        <TlIcon name="chevron-right" size={10} className={"tl-chev" + (open ? " open" : "")} />
-      </div>
-      {open && (
-        <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--c-text3)", fontStyle: "italic", fontSize: 12.5, lineHeight: 1.6, padding: "2px 0 4px", userSelect: "text" }}>
-          {b.text.trim() || "…"}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 计划任务列表（ZCode TodoList 形态）：头部显示进度，点击整行折叠/展开。
- * 展开动画 = height: 0 ↔ 内容实测高度（px）。grid-template-rows 的 fr/max-content
- * 关键字不是长度，浏览器无法在两者间插值，视觉上是瞬切；height 的 px 一定能逐帧插值。
- * 过渡结束后把 height 归位到 auto，让后续条目增删、换行、字号变化都能自适应，不残留固定高度。
- * todo 事件每次都会替换掉历史条目（reducer 只留最新一份），
- * 所以状态推进时卡片原地刷新，不会在时间线里堆积重复清单。 */
-function TodoList({ todos }: { todos: Todo[] }) {
-  const done = todos.filter((x) => x.status === "completed").length;
-  const running = todos.some((x) => x.status === "in_progress");
-  const allDone = todos.length > 0 && done === todos.length;
-  const [open, setOpen] = useState(() => !allDone);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const innerRef = useRef<HTMLDivElement | null>(null);
-  const openRef = useRef(open);
-  openRef.current = open;
-  // 状态变化驱动默认展开态：全部完成收起（不占屏），有进行中项自动展开
-  useEffect(() => {
-    if (allDone) setOpen(false);
-    else if (running) setOpen(true);
-  }, [allDone, running]);
-  // 展开/收起动画：实测 inner 内容高度 → 写入 body.style.height（CSS 负责过渡曲线）
-  // 条目数量或文案变化时（如 todo_write 更新）重算一次，避免固定高度卡住新内容
-  useEffect(() => {
-    const body = bodyRef.current;
-    const inner = innerRef.current;
-    if (!body || !inner) return;
-    if (!openRef.current) { body.style.height = "0px"; return; }
-    body.style.height = `${inner.scrollHeight}px`;
-    const settle = () => {
-      if (openRef.current) body.style.height = "auto";
-      body.removeEventListener("transitionend", settle);
-    };
-    body.addEventListener("transitionend", settle);
-  }, [open, todos]);
-  const pct = todos.length > 0 ? Math.round((done / todos.length) * 100) : 0;
-  const title = allDone ? "全部完成" : running ? "进行中" : "等待中";
-  return (
-    <div className="todo-card">
-      <div className="todo-head" onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} aria-expanded={open}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => !o); } }}>
-        <TlIcon name="chevron-right" size={11} className={"todo-chev" + (open ? " open" : "")} />
-        <TlIcon name="plan" size={12} color={allDone ? "var(--c-green)" : running ? "var(--c-amber)" : "var(--c-text3)"} />
-        <span style={{ fontWeight: 700 }}>{title}</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <span className="todo-progress"><i style={{ width: `${pct}%` }} /></span>
-          <span style={{ fontVariantNumeric: "tabular-nums" }}>{done}/{todos.length}</span>
-        </span>
-        {running && <span className="tl-pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--c-amber)", marginLeft: "auto" }} />}
-      </div>
-      <div ref={bodyRef} className="todo-body">
-        <div ref={innerRef} className="todo-inner">
-          {todos.map((td, i) => (
-            <div key={i} className={"todo-item" + (td.status === "completed" ? " done" : td.status === "in_progress" ? " cur" : "")}>
-              <TlIcon name={td.status === "completed" ? "check-circle" : td.status === "in_progress" ? "circle-dot" : "circle"}
-                color={td.status === "completed" ? "var(--c-green)" : td.status === "in_progress" ? "var(--c-amber)" : "var(--c-text3)"}
-                className={td.status === "in_progress" ? "tl-pulse" : undefined} />
-              <span style={{ flex: 1, minWidth: 0, fontWeight: td.status === "in_progress" ? 600 : 400 }}>{td.content}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** 模型选择两级数据：一级 = 供应商（用户分组/包档案），二级 = 组内具体模型。 */
-interface ModelGroupVM {
-  id: string;
-  name: string;
-  hint?: string;
-  members: { id: string; name: string; sub?: string }[];
-}
-
-/** composer 底部工具条弹出菜单（ZCode 形态）：向上展开，点击外部/Esc 收起。
- * open 为 null 表示关闭；动画由 .comp-pop.open 的 opacity+transform 过渡负责。 */
-function CompPopover(props: {
-  open: boolean;
-  anchor: "left" | "right";
-  /** 加宽变体（默认宽度的 2 倍）：内容多的面板用，如 + 附件/命令 */
-  wide?: boolean;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  // 动态高度：向上展开的弹层按「视口顶 → 弹层底」的可用空间收顶（上限 320px），内容超高内部滚动
-  const [maxH, setMaxH] = useState<number | undefined>(undefined);
-  useLayoutEffect(() => {
-    if (!props.open) { setMaxH(undefined); return; }
-    const measure = () => {
-      const el = ref.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      setMaxH(Math.max(160, Math.min(320, r.bottom - 12)));
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [props.open]);
-  useEffect(() => {
-    if (!props.open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) props.onClose();
-    };
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); props.onClose(); } };
-    document.addEventListener("mousedown", h);
-    document.addEventListener("keydown", k);
-    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("keydown", k); };
-  }, [props.open, props.onClose]);
-  return (
-    <div ref={ref} className={"comp-pop" + (props.open ? " open" : "") + (props.wide ? " wide" : "") + (props.anchor === "right" ? " right" : "")}
-      style={{ maxHeight: maxH, overflowY: maxH !== undefined ? "auto" : undefined }} aria-hidden={!props.open}>
-      {props.children}
-    </div>
-  );
-}
-
-/** 工具条单条菜单项：当前项打勾，其余行只给背景反馈 */
-function CompOption(props: {
-  icon?: TlIconName;
-  color?: string;
-  name: string;
-  sub?: string;
-  on: boolean;
-  disabled?: boolean;
-  onSelect: () => void;
-}) {
-  const { icon, color, name, sub, on, disabled, onSelect } = props;
-  return (
-    <div className={"comp-opt" + (on ? " on" : "") + (disabled ? "" : "")}
-      style={disabled ? { opacity: 0.45, cursor: "default" } : undefined}
-      onClick={() => { if (!disabled) onSelect(); }}>
-      {icon ? <TlIcon name={icon} size={13} color={color} /> : <span style={{ width: 13, flex: "none" }} />}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="comp-opt-name">{name}</div>
-        {sub ? <div className="comp-opt-sub">{sub}</div> : null}
-      </div>
-      {on && <TlIcon name="check-circle" size={13} className="comp-check" color="var(--c-green)" />}
-    </div>
-  );
-}
-
-/** 任务页底部 composer（ZCode 中央输入框形态）——对话与新任务两处共用同一套工具条。
- * 工具条：+ 附件 / 访问控制（审批模式）/ 模型 / 思考深度 / 上下文用量 / 发送·停止。
- * 四个下拉均为真实功能入口（写回 agent.task.setMode / setModel / 续跑切换思考深度 / 上下文明细）。
- * forwardRef：React ≤18 不把 ref 作为 prop 传函数组件，自动增高与外部 focus 都依赖它。 */
-type ComposerProps = {
-  value: string;
-  onChange: (v: string) => void;
-  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-  placeholder: string;
-  minH?: number;
-  maxH: number;
-  autoFocus?: boolean;
-  busy: boolean;
-  sending: boolean;
-  canSend: boolean;
-  sendTitle: string;
-  onStop: () => void;
-  onSend: () => void;
-  mode: "plan" | "default" | "yolo";
-  onMode: (m: "plan" | "default" | "yolo") => void;
-  modeDisabled?: boolean;
-  modeLabel: string;
-  /** 两级模型选择：一级供应商（用户分组/包档案），二级组内具体模型 */
-  groups: ModelGroupVM[];
-  model: string;
-  onModel: (id: string) => void;
-  modelDisabled?: boolean;
-  thinking: "off" | "low" | "medium" | "high";
-  onThinking: (v: "off" | "low" | "medium" | "high") => void;
-  stats: AgentContextStatsDTO | null;
-  attachments?: { name: string; dataUrl: string; onRemove: () => void }[];
-  attachmentHint?: string;
-  onAttachImage: () => void;
-  slash?: { name: string; hint: string; insert: string }[];
-  onPickSlash: (insert: string) => void;
-  children?: ReactNode;
-};
-
-const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function Composer(props, ref) {
-  const { value, onChange, onKeyDown, placeholder, maxH } = props;
-  const [open, setOpen] = useState<"" | "plus" | "mode" | "model" | "think" | "stats">("");
-  const toggle = (k: typeof open) => setOpen((o) => (o === k ? "" : k));
-  // 两级模型选择：modelNav = 当前二级面板的供应商分组 id（"" = 一级列表；面板收起即复位）
-  const [modelNav, setModelNav] = useState("");
-  useEffect(() => { if (open !== "model") setModelNav(""); }, [open]);
-  // 自动增高：随内容长高，封顶后内部滚动；清空自动回落
-  useEffect(() => {
-    const el = typeof ref === "function" ? null : ref?.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, maxH) + "px";
-  }, [value, maxH]);
-  const pick = <T,>(v: T, set: (x: T) => void) => { set(v); setOpen(""); };
-
-  // 当前选中项定位（跨分组找叶节点）：组名 · 模型名（单模型组只显示模型名）
-  const curHit = (() => {
-    for (const g of props.groups) {
-      const mem = g.members.find((x) => x.id === props.model);
-      if (mem) return { g, mem };
-    }
-    return null;
-  })();
-
-  const s = props.stats;
-  const pct = s ? Math.round(s.ratio * 100) : 0;
-  const pctColor = s ? (pct > 92 ? "var(--c-red)" : pct > 80 ? "var(--c-amber)" : "var(--c-text3)") : "var(--c-text3)";
-  const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k` : `${n}`);
-
-  return (
-    <div className="composer-box" style={{ position: "relative" }}>
-      {props.attachments && props.attachments.length > 0 && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-          {props.attachments.map((img, i) => (
-            <div key={`${img.name}:${i}`} style={{ position: "relative" }}>
-              <img src={img.dataUrl} alt={img.name} style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" }} />
-              <button className="tool-btn" title="移除" style={{ position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 }} onClick={img.onRemove}>✕</button>
-            </div>
-          ))}
-          {props.attachmentHint ? <span className="hint" style={{ alignSelf: "center" }}>{props.attachmentHint}</span> : null}
-        </div>
-      )}
-      {props.children}
-      <textarea
-        ref={ref}
-        className="composer-input"
-        rows={1}
-        autoFocus={props.autoFocus}
-        style={{ minHeight: props.minH ?? 24 }}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onPaste={(e) => {
-          const files = [...e.clipboardData.files];
-          if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); props.onAttachImage(); }
-        }}
-        onDrop={(e) => {
-          const files = [...e.dataTransfer.files];
-          if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); props.onAttachImage(); }
-        }}
-        onKeyDown={onKeyDown}
-      />
-      <div className="comp-bar">
-        {/* + 附件：图片选择器 + 内置斜杠命令快速注入 */}
-        <span style={{ position: "relative", display: "inline-flex" }}>
-          <button className="comp-item" title="附加附件 / 命令" aria-haspopup="menu" aria-expanded={open === "plus"}
-            style={{ padding: "0 7px" }} onClick={() => toggle("plus")}>
-            <TlIcon name="plus" size={14} />
-          </button>
-          <CompPopover open={open === "plus"} wide anchor="left" onClose={() => setOpen("")}>
-            <div className="comp-pop-head">附件</div>
-            <div className="comp-opt" onClick={() => { props.onAttachImage(); setOpen(""); }}>
-              <TlIcon name="file" size={13} color="var(--c-text2)" />
-              <span className="comp-opt-name">添加图片</span>
-              <span className="comp-opt-sub">最多 4 张 · 4MB</span>
-            </div>
-            {props.slash && props.slash.length > 0 && (
-              <>
-                <div className="comp-pop-sep" />
-                <div className="comp-pop-head">命令（插入输入框）</div>
-                {props.slash.slice(0, 14).map((c) => (
-                  <div key={c.name} className="comp-opt" onClick={() => { props.onPickSlash?.(c.insert); setOpen(""); }}>
-                    <span style={{ fontFamily: "var(--mono, monospace)", color: "var(--c-text)", fontSize: 12 }}>{c.name}</span>
-                    <span className="comp-opt-sub">{c.hint}</span>
-                  </div>
-                ))}
-              </>
-            )}
-          </CompPopover>
-        </span>
-
-        {/* 访问控制：权限模式（计划 / 默认 / 完全访问） */}
-        <span style={{ position: "relative", display: "inline-flex" }}>
-          <button className="comp-item" title="访问控制（Shift+Tab 循环）" aria-haspopup="menu" aria-expanded={open === "mode"}
-            onClick={() => toggle("mode")} disabled={props.modeDisabled}>
-            {props.mode === "yolo" ? <TlIcon name="bolt" size={13} color="var(--c-red)" />
-              : props.mode === "plan" ? <TlIcon name="plan" size={13} color="var(--c-chip-purple-fg, #b490ff)" />
-                : <TlIcon name="shield" size={13} color="var(--c-text2)" />}
-            <span className="comp-label">{props.modeLabel}</span>
-            <TlIcon name="chevron-down" size={10} className={"comp-chev" + (open === "mode" ? " open" : "")} />
-          </button>
-          <CompPopover open={open === "mode"} anchor="left" onClose={() => setOpen("")}>
-            <div className="comp-pop-head">访问控制</div>
-            {(MODE_ORDER as ("plan" | "default" | "yolo")[]).map((m) => (
-              <CompOption key={m} on={props.mode === m} onSelect={() => pick(m, props.onMode)}
-                icon={m === "yolo" ? "bolt" : m === "plan" ? "plan" : "shield"}
-                color={MODE_META[m].color}
-                name={MODE_META[m].label.replace(/^[●◆◇⚡]\s*/, "")}
-                sub={m === "plan" ? "只读调研，出计划待批准" : m === "yolo" ? "全部放行不再询问，仅不确定时提问" : "自动执行，仅高危命令需确认"} />
-            ))}
-          </CompPopover>
-        </span>
-
-        {/* 模型 */}
-        <span style={{ position: "relative", display: "inline-flex" }}>
-          <button className="comp-item" title="模型档案" aria-haspopup="menu" aria-expanded={open === "model"}
-            onClick={() => toggle("model")} disabled={props.modelDisabled}>
-            <TlIcon name="bot" size={13} color="var(--c-text2)" />
-            <span className="comp-label">{curHit
-              ? (curHit.g.members.length > 1 ? `${curHit.g.name} · ${curHit.mem.name}` : curHit.mem.name)
-              : (props.model || "默认模型")}</span>
-            <TlIcon name="chevron-down" size={10} className={"comp-chev" + (open === "model" ? " open" : "")} />
-          </button>
-          <CompPopover open={open === "model"} anchor="left" onClose={() => setOpen("")}>
-            {modelNav ? (() => {
-              // 二级面板：具体模型列表（头部返回一级供应商列表）
-              const g = props.groups.find((x) => x.id === modelNav);
-              if (!g) return null;
-              return (
-                <>
-                  <div className="comp-opt comp-group" role="button" tabIndex={0} aria-label={g.name}
-                    onClick={() => setModelNav("")}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setModelNav(""); } }}>
-                    <TlIcon name="chevron-right" size={11} style={{ transform: "rotate(180deg)" }} color="var(--c-text3)" />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="comp-opt-name">{g.name}</div>
-                      {g.hint ? <div className="comp-opt-sub">{g.hint}</div> : null}
-                    </div>
-                    <span className="comp-count">{g.members.length}</span>
-                  </div>
-                  {g.members.map((mem) => (
-                    <CompOption key={mem.id} on={mem.id === props.model} onSelect={() => pick(mem.id, props.onModel)}
-                      name={mem.name} sub={mem.sub} />
-                  ))}
-                </>
-              );
-            })() : (
-              // 一级面板：供应商列表；单模型档案直接选中，多模型进入二级
-              <>
-                <div className="comp-pop-head">模型</div>
-                {props.groups.map((g) => {
-                  if (g.members.length > 1) {
-                    return (
-                      <div key={g.id} className="comp-opt comp-group" role="button" tabIndex={0}
-                        aria-haspopup="menu" aria-label={g.name}
-                        onClick={() => setModelNav(g.id)}
-                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setModelNav(g.id); } }}>
-                        <TlIcon name="bot" size={13} color="var(--c-text2)" />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="comp-opt-name">{g.name}</div>
-                          {g.hint ? <div className="comp-opt-sub">{g.hint}</div> : null}
-                        </div>
-                        <span className="comp-count">{g.members.length}</span>
-                        <TlIcon name="chevron-right" size={10} color="var(--c-text3)" />
-                      </div>
-                    );
-                  }
-                  const mem = g.members[0];
-                  return (
-                    <CompOption key={g.id} on={mem.id === props.model} onSelect={() => pick(mem.id, props.onModel)}
-                      icon="bot" color="var(--c-text2)" name={g.name} sub={g.hint ?? mem.sub} />
-                  );
-                })}
-              </>
-            )}
-          </CompPopover>
-        </span>
-
-        {/* 思考深度 */}
-        <span style={{ position: "relative", display: "inline-flex" }}>
-          <button className="comp-item" title="思考深度" aria-haspopup="menu" aria-expanded={open === "think"} onClick={() => toggle("think")}>
-            <TlIcon name="gear" size={13} color="var(--c-text2)" />
-            <span className="comp-label">{THINKING_META[props.thinking].label}</span>
-            <TlIcon name="chevron-down" size={10} className={"comp-chev" + (open === "think" ? " open" : "")} />
-          </button>
-          <CompPopover open={open === "think"} anchor="left" onClose={() => setOpen("")}>
-            <div className="comp-pop-head">思考深度</div>
-            {(["off", "low", "medium", "high"] as const).map((v) => (
-              <CompOption key={v} on={v === props.thinking} onSelect={() => pick(v, props.onThinking)}
-                icon="sparkle" color={v === "off" ? "var(--c-text3)" : "var(--c-amber)"}
-                name={THINKING_META[v].label} sub={THINKING_META[v].hint} />
-            ))}
-          </CompPopover>
-        </span>
-
-        <span style={{ flex: 1 }} />
-        <button className="comp-send" title={props.sendTitle} disabled={!props.canSend && !props.busy} onClick={() => (props.busy ? props.onStop() : props.onSend())}>
-          <TlIcon name={props.busy ? "stop" : "send"} size={13} />
-        </button>
-      </div>
-      {/* 统计栏（DeepSeek 式）：上下文容量 / token 用量 / 速度 / 缓存命中率，点击展开明细。
-          新任务页与空会话（无消息、无用量记录）不显示整栏——避免一排「—」和多余分割线。 */}
-      {s && (s.estTokens > 0 || s.totalInput != null) && (
-      <span className="comp-stats-row">
-        {/* 内层 shrink-wrap 作为弹层定位锚：弹层右缘对齐箭头右缘，箭头跟在内容后 */}
-        <span style={{ position: "relative", display: "inline-flex" }}>
-        <button type="button" className="comp-stats" title="用量明细" aria-haspopup="menu" aria-expanded={open === "stats"} onClick={() => toggle("stats")}>
-          <span className="comp-stats-bar"><i style={{ width: `${Math.min(100, pct)}%`, background: pctColor }} /></span>
-          <span className="comp-stats-item">上下文 <b>{s ? `${fmtK(s.estTokens)} / ${fmtK(s.contextWindow)}` : "—"}</b>{s ? ` · ${pct}%` : ""}</span>
-          <span className="comp-stats-item">输入 <b>{s?.totalInput != null ? fmtK(s.totalInput) : "—"}</b></span>
-          <span className="comp-stats-item">输出 <b>{s?.totalOutput != null ? fmtK(s.totalOutput) : "—"}</b></span>
-          <span className="comp-stats-item"><b>{s?.tokPerSec != null ? `${s.tokPerSec} tok/s` : "—"}</b></span>
-          <span className="comp-stats-item">缓存 <b>{s?.cacheHitRate != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—"}</b></span>
-          <TlIcon name="chevron-down" size={10} className={"comp-chev" + (open === "stats" ? " open" : "")} />
-        </button>
-        <CompPopover open={open === "stats"} anchor="right" onClose={() => setOpen("")}>
-          <div className="comp-pop-head">用量明细</div>
-          {s ? (
-            <>
-              <div className="comp-ctx-row"><span>上下文窗口</span><b>{fmtK(s.contextWindow)} · {pct}%</b></div>
-              <div className="comp-ctx-row"><span>系统提示</span><b>{Math.round(s.breakdown.system)} tok</b></div>
-              <div className="comp-ctx-row"><span>历史消息</span><b>{Math.round(s.breakdown.messages)} tok</b></div>
-              <div className="comp-ctx-row"><span>预留输出</span><b>{Math.round(s.breakdown.reserved)} tok</b></div>
-              <div className="comp-pop-sep" />
-              <div className="comp-ctx-row"><span>剩余预算</span><b>{fmtK(s.budget)}</b></div>
-              <div className="comp-ctx-row"><span>累计输入</span><b>{s.totalInput != null ? `${s.totalInput.toLocaleString()} tok` : "—"}</b></div>
-              <div className="comp-ctx-row"><span>累计输出</span><b>{s.totalOutput != null ? `${s.totalOutput.toLocaleString()} tok` : "—"}</b></div>
-              <div className="comp-ctx-row"><span>最近一轮输出</span><b>{s.lastOutput != null ? `${s.lastOutput.toLocaleString()} tok` : "—"}</b></div>
-              <div className="comp-ctx-row"><span>生成速度</span><b>{s.tokPerSec != null ? `${s.tokPerSec} tok/s` : "—"}</b></div>
-              <div className="comp-ctx-row"><span>缓存命中率</span><b>{s.cacheHitRate != null ? `${Math.round(s.cacheHitRate * 100)}%` : "—"}</b></div>
-              {s.compactions > 0 && <div className="comp-ctx-row"><span>已自动压缩</span><b>{s.compactions} 次</b></div>}
-              {pct > 80 && (
-                <div style={{ padding: "2px 9px 6px", fontSize: 11, color: "var(--c-amber)" }}>
-                  已接近上限，建议 /compact 压缩历史
-                </div>
-              )}
-            </>
-          ) : (
-            <div style={{ padding: "2px 9px 8px", fontSize: 11, color: "var(--c-text3)" }}>
-              发送首条消息后开始统计
-            </div>
-          )}
-        </CompPopover>
-        </span>
-      </span>
-      )}
-    </div>
-  );
-});
-
-
-/** 授权卡（ZCode 编号选项：❯ 当前项，↑↓+Enter+数字直选） */
-function PermissionCard(props: {
-  b: Extract<Block, { kind: "permission" }>;
-  decided: string | undefined;
-  sel: number;
-  showFullAccess: boolean;
-  onSel: (requestId: string, i: number) => void;
-  onReply: (requestId: string, ok: boolean, remember?: boolean, rulePrefix?: string | null) => void;
-  onFullAccess: (requestId: string) => void;
-}) {
-  const { b, decided, sel } = props;
-  const kindLabel: Record<string, string> = {
-    command: "命令", "git-stage": "暂存", "git-commit": "提交", "git-push": "推送",
-    mcp: "MCP", plugin: "插件", restore: "恢复",
-  };
-  const kind = b.payload?.kind ?? "command";
-  const options = permOptions(b, props.showFullAccess);
-  return (
-    <div style={{ border: `1px solid ${decided ? "var(--c-border)" : "var(--c-amber)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }}>
-      <div style={{ color: decided ? "var(--c-text3)" : "var(--c-amber)", fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-        <TlIcon name="shield" size={13} />
-        <span>授权请求 · {kindLabel[kind] ?? kind}</span>
-        {b.payload?.source ? <span style={{ fontSize: 10, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px" }}>{b.payload.source}</span> : null}
-        {b.payload?.risk && <span style={{ color: b.payload.risk === "high" ? "var(--c-red)" : "var(--c-amber)", marginLeft: "auto", fontWeight: 700 }}>■ {b.payload.risk === "high" ? "高危" : "注意"}</span>}
-      </div>
-      {b.command && <div style={{ fontFamily: "var(--mono, monospace)", fontSize: 12, background: "var(--c-panel)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "6px 10px", margin: "4px 0", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{b.command}</div>}
-      {b.payload?.paths && b.payload.paths.length > 0 && (
-        <div style={{ fontSize: 11.5, color: "var(--c-text3)", margin: "4px 0", maxHeight: 64, overflowY: "auto" }}>
-          {b.payload.paths.slice(0, 20).map((p) => <div key={p}>{p}</div>)}
-          {b.payload.paths.length > 20 ? <div>…共 {b.payload.paths.length} 个文件</div> : null}
-        </div>
-      )}
-      {decided ? (
-        <div style={{ fontSize: 11.5, color: "var(--c-text3)" }}>{decided === "ok" ? "✓ 已批准" : decided === "rule" ? "✓ 已批准并记住前缀" : "✕ 已拒绝"}</div>
-      ) : (
-        <>
-          <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
-            {options.map((o, i) => (
-              <div key={o.label}
-                onClick={() => {
-                  props.onSel(b.requestId, i);
-                  if (o.reply.fullAccess) props.onFullAccess(b.requestId);
-                  else if (o.reply.rulePrefix !== undefined && o.reply.rulePrefix !== null && o.reply.ok) props.onReply(b.requestId, true, true, o.reply.rulePrefix);
-                  else props.onReply(b.requestId, o.reply.ok, o.reply.remember);
-                }}
-                style={{ display: "flex", gap: 8, padding: "4px 10px", borderRadius: 8, cursor: "pointer", border: `1px solid ${sel === i ? "var(--c-border)" : "transparent"}`, background: sel === i ? "var(--c-panel)" : "transparent" }}>
-                <span style={{ color: sel === i ? "var(--c-text)" : "transparent", width: 12 }}>{sel === i ? "❯" : ""}</span>
-                <span>{o.label}</span>
-              </div>
-            ))}
-          </div>
-          <div style={{ color: "var(--c-text3)", fontSize: 10.5, marginTop: 6 }}>↑↓ 选择 · Enter 确认 · 数字直选 · 选择结果会回给 agent 继续工作</div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function QuestionCard(props: {
-  b: Extract<Block, { kind: "question" }>;
-  decided: string | undefined;
-  onAnswer: (requestId: string, answer?: string, optionIndex?: number) => void;
-}) {
-  const { b, decided, onAnswer } = props;
-  const [text, setText] = useState("");
-  return (
-    <div style={{ border: `2px dashed ${decided ? "var(--c-border)" : "var(--c-accent)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }}>
-      <div style={{ fontWeight: 600, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-        <TlIcon name="chat" size={13} color="var(--c-accent)" />
-        <span>{b.question}</span>
-      </div>
-      {decided ? (
-        <div style={{ fontSize: 11.5, color: "var(--c-text3)" }}>已回答：{decided}</div>
-      ) : (
-        <>
-          {b.options.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-              {b.options.map((o, i) => (
-                <button key={o} className="tool-btn" onClick={() => onAnswer(b.requestId, undefined, i)}>{o}</button>
-              ))}
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 6 }}>
-            <input className="input" style={{ flex: 1 }} placeholder="自由回答…（Enter 发送）" value={text} onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) onAnswer(b.requestId, text.trim()); }} />
-            <button className="tool-btn" disabled={!text.trim()} onClick={() => onAnswer(b.requestId, text.trim())}>回答</button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/** 计划卡（ZCode ExitPlanMode：批准选项） */
-function PlanCard(props: {
-  b: Extract<Block, { kind: "plan" }>;
-  decided: string | undefined;
-  onPlan: (requestId: string, ok: boolean, feedback?: string) => void;
-}) {
-  const { b, decided, onPlan } = props;
-  const [text, setText] = useState("");
-  return (
-    <div style={{ border: `1px solid ${decided ? "var(--c-border)" : "var(--c-chip-purple-fg, #b490ff)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 720, opacity: decided ? 0.75 : 1 }}>
-      <div style={{ color: "var(--c-chip-purple-fg, #b490ff)", fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-        <TlIcon name="plan" size={13} />
-        <span>执行计划{decided ? (decided === "ok" ? " · 已批准" : " · 需修订") : ""}</span>
-      </div>
-      <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(b.plan) }} />
-      {decided ? null : (
-        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 2 }}>
-          {[
-            { label: "1. 批准并开始执行", act: () => onPlan(b.requestId, true) },
-            { label: "2. 批准，执行时逐项确认", act: () => onPlan(b.requestId, true) },
-          ].map((o) => (
-            <div key={o.label} onClick={o.act} style={{ display: "flex", gap: 8, padding: "4px 10px", borderRadius: 8, cursor: "pointer", background: "var(--c-panel)" }}>
-              <span>{o.label}</span>
-            </div>
-          ))}
-          <div style={{ display: "flex", gap: 6, padding: "4px 10px" }}>
-            <input className="input" style={{ flex: 1, minWidth: 160 }} placeholder="修改意见（可选）…" value={text} onChange={(e) => setText(e.target.value)} />
-            <button className="tool-btn" onClick={() => onPlan(b.requestId, false, text.trim() || undefined)}>继续规划</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SubtaskBlock({ b, ctx }: { b: Extract<Block, { kind: "subtask" }>; ctx?: TimelineCardCtx }) {
-  const [open, setOpen] = useState(b.state === "running");
-  const stateColor = b.state === "running" ? "var(--c-amber)" : b.state === "completed" ? "var(--c-green)" : "var(--c-red)";
-  return (
-    <div style={{ border: "1px solid var(--c-border)", borderRadius: 10, padding: "6px 10px", minWidth: 0 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", flexWrap: "wrap" }} onClick={() => setOpen(!open)}>
-        <TlIcon name="bot" size={14} color={stateColor} className={b.state === "running" ? "tl-pulse" : undefined} />
-        <b style={{ fontSize: 12.5 }}>{b.name || "子代理"}</b>
-        <span style={{ fontSize: 10.5, color: stateColor, border: `1px solid ${stateColor}`, borderRadius: 4, padding: "0 4px" }}>{b.mode} · {b.state}</span>
-        {b.durationMs !== undefined ? <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{Math.round(b.durationMs / 100) / 10}s</span> : null}
-        <span style={{ color: "var(--c-text3)", fontSize: 10.5, marginLeft: "auto" }}>{open ? "收起" : "展开"}</span>
-      </div>
-      {open && (
-        <div style={{ marginTop: 6, borderLeft: "1px solid var(--c-border)", paddingLeft: 10, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-          {ctx?.renderChildren ? ctx.renderChildren(b.children) : null}
-          {b.final && <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(b.final) }} />}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 连续 ≥3 条 log 折叠为一组（渲染分组，不改块序列）。 */
-type LogBlock = Extract<Block, { kind: "log" }>;
-function groupLogs(blocks: Block[]): ({ kind: "block"; block: Block } | { kind: "logs"; items: LogBlock[] })[] {
-  const out: ({ kind: "block"; block: Block } | { kind: "logs"; items: LogBlock[] })[] = [];
-  let run: LogBlock[] = [];
-  const flush = () => {
-    if (run.length === 0) return;
-    if (run.length >= 3) out.push({ kind: "logs", items: run });
-    else for (const b of run) out.push({ kind: "block", block: b });
-    run = [];
-  };
-  for (const b of blocks) {
-    if (b.kind === "log") run.push(b);
-    else { flush(); out.push({ kind: "block", block: b }); }
-  }
-  flush();
-  return out;
-}
-
-// ---- 轮次分组（ZCode 式折叠）----
-// 以 turn（轮完成）标记切组：一组 = 一条用户消息（或有/无）之后到下一个 turn 之间的全部过程块。
-// 已结束的组把最后一段正文（其后无工具/子代理）抽为 conclusion 常驻可见，process 默认折叠；
-// 最后一组若还没有 turn 标记 = 进行中，保持实时展开不折叠。
-
-interface TurnGroup {
-  /** 折叠状态记忆锚（human / turn / 首个过程块的稳定引用） */
-  anchor: unknown;
-  human: Block | null;
-  process: Block[];
-  conclusion: Block | null;
-  turn: Block | null;
-  /** true = 最后一组且尚未收到 turn 标记（本轮仍在流式） */
-  active: boolean;
-}
-
-function groupTurns(blocks: Block[]): TurnGroup[] {
-  const groups: TurnGroup[] = [];
-  let cur: TurnGroup | null = null;
-  const newGroup = (human: Block | null): TurnGroup =>
-    ({ anchor: null, human, process: [], conclusion: null, turn: null, active: false });
-  const flush = () => { if (cur) groups.push(cur); cur = null; };
-  for (const b of blocks) {
-    if (b.kind === "human") { flush(); cur = newGroup(b); continue; }
-    if (!cur) cur = newGroup(null);
-    if (b.kind === "turn") { cur.turn = b; flush(); continue; }
-    cur.process.push(b);
-  }
-  flush();
-  for (const g of groups) {
-    g.anchor = g.human ?? g.turn ?? g.process[0] ?? {};
-    if (!g.turn) { g.active = true; continue; }
-    // 结论抽取：从组尾向前找最后一段正文；中途遇工具/子代理 = 轮以动作收尾（max-steps 等），不抽取
-    for (let j = g.process.length - 1; j >= 0; j--) {
-      const b = g.process[j];
-      if (b.kind === "tool" || b.kind === "subtask") break;
-      if (b.kind === "assistant") { g.conclusion = b; g.process.splice(j, 1); break; }
-    }
-  }
-  return groups;
-}
 
 // ---- 内置时间线渲染器自举（agent-harness-v4.md §20.3.7 第 2 期迁移）----
 // 十类展示块经 registerAgentUI 与插件包同接缝竞争（层级 builtin：用户包可替换，宿主缺省兜底）；
 // 交互卡（授权/提问/计划）是裁决面 UI，不开放替换（§20.9），仍硬接线在 renderBlock。
 // @文件 mention 同批迁移为内置 composer provider（插件可加新前缀，同 prefix 用户包覆盖）。
 
-/** 消息底部复制钮（图标态，固定显示）：点击复制纯文本，短暂切换为对勾反馈「已复制」。
- * 只挂在本轮结论性回复上（中间过程片段经 ctx.showCopy=false 隐藏）。 */
-function CopyMessageButton({ text, align }: { text: string; align: "left" | "right" }) {
-  const [done, setDone] = useState(false);
-  const timer = useRef<number | null>(null);
-  useEffect(() => () => { if (timer.current !== null) window.clearTimeout(timer.current); }, []);
-  return (
-    <div style={{ display: "flex", justifyContent: align === "right" ? "flex-end" : "flex-start", marginTop: 4 }}>
-      <button type="button" className="icon-btn msg-copy" title={done ? "已复制" : "复制"} aria-label={done ? "已复制" : "复制"}
-        onClick={(e) => {
-          e.stopPropagation();
-          void navigator.clipboard?.writeText(text);
-          setDone(true);
-          if (timer.current !== null) window.clearTimeout(timer.current);
-          timer.current = window.setTimeout(() => setDone(false), 1400);
-        }}>
-        <TlIcon name={done ? "check" : "copy"} size={13} color={done ? "var(--c-green)" : undefined} />
-      </button>
-    </div>
-  );
-}
-
-const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
-  {
-    blockKind: "human",
-    render: ({ block }) => {
-      const b = block as Extract<Block, { kind: "human" }>;
-      // 对话形式：用户消息靠右圆角气泡（ZCode 形态），上下留宽间距（文本可选中，无复制钮）
-      return (
-        <div className="msg-row" style={{ display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }}>
-          <div style={{ maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }}>
-            {b.text}
-          </div>
-        </div>
-      );
-    },
-  },
-  {
-    blockKind: "assistant",
-    render: ({ block, ctx }) => {
-      const b = block as Extract<Block, { kind: "assistant" }>;
-      // 复制钮只挂本轮结论（ctx.showCopy 由 renderBlock 前向扫描判定）
-      return (
-        <div className="msg-row" style={{ padding: "0 4px" }}>
-          <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(b.text) }} />
-          {ctx?.showCopy ? <CopyMessageButton text={b.text} align="left" /> : null}
-        </div>
-      );
-    },
-  },
-  {
-    blockKind: "thinking",
-    render: ({ block }) => <ThinkingCard b={block as Extract<Block, { kind: "thinking" }>} />,
-  },
-  {
-    blockKind: "status",
-    render: ({ block }) => {
-      const b = block as Extract<Block, { kind: "status" }>;
-      const icon = b.phase === "thinking" ? "sparkle" : b.phase === "editing" ? "pencil" : "dot";
-      return (
-        <div style={{ fontSize: 11.5, color: "var(--c-text3)", display: "flex", alignItems: "center", gap: 6 }}>
-          <TlIcon name={icon} size={12} className={b.phase === "thinking" ? "tl-pulse" : undefined} />{b.text}
-        </div>
-      );
-    },
-  },
-  {
-    blockKind: "tool",
-    render: ({ block }) => <ToolCard b={block as Extract<Block, { kind: "tool" }>} />,
-  },
-  {
-    blockKind: "checkpoint",
-    render: ({ block }) => {
-      const b = block as Extract<Block, { kind: "checkpoint" }>;
-      return (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 12, fontFamily: "var(--mono, monospace)" }}>
-          <TlIcon name="check-circle" size={13} color="var(--c-text)" /><span>cp {b.sha.slice(0, 8)}</span>
-          <span style={{ color: "var(--c-text)", fontFamily: "inherit", overflowWrap: "anywhere" }}>{b.summary}</span>
-          <span style={{ fontSize: 10.5 }}>· Esc×2 可回滚</span>
-        </div>
-      );
-    },
-  },
-  {
-    blockKind: "file",
-    render: ({ block, ctx }) => {
-      const b = block as Extract<Block, { kind: "file" }>;
-      if (b.changeKind === "read-image") return <div><AgentImage taskId={ctx?.taskId ?? ""} path={b.path} /></div>;
-      const color = b.changeKind === "deleted" ? "var(--c-red)" : b.changeKind === "added" ? "var(--c-green)" : "var(--c-amber)";
-      return (
-        <div style={{ fontSize: 12, color, overflowWrap: "anywhere" }}>
-          <span className="mono" style={{ marginRight: 6 }}>{b.changeKind === "deleted" ? "−" : "+"}</span>
-          {b.path}{b.summary ? ` (${b.summary})` : ""}
-          {ctx?.viewFile && (
-            <button className="tool-btn" style={{ fontSize: 10.5, marginLeft: 8, padding: "0 6px" }} onClick={() => ctx.viewFile?.(b.path)}>查看</button>
-          )}
-          {ctx?.previewFile && b.changeKind !== "deleted" && (
-            <button className="tool-btn" style={{ fontSize: 10.5, marginLeft: 4, padding: "0 6px" }} onClick={() => ctx.previewFile?.(b.path)}>预览</button>
-          )}
-        </div>
-      );
-    },
-  },
-  {
-    blockKind: "todo",
-    render: ({ block }) => <TodoList todos={(block as Extract<Block, { kind: "todo" }>).todos} />,
-  },
-  {
-    blockKind: "subtask",
-    render: ({ block, ctx }) => <SubtaskBlock b={block as Extract<Block, { kind: "subtask" }>} ctx={ctx} />,
-  },
-  {
-    blockKind: "turn",
-    render: ({ block, ctx }) => {
-      const b = block as Extract<Block, { kind: "turn" }>;
-      return (
-        <div style={{ color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <TlIcon name="usage" size={12} />{b.text}
-          </span>
-          {b.usage ? <span>{(((b.usage.input ?? 0) + (b.usage.output ?? 0)) / 1000).toFixed(1)}k tokens（{b.usage.input ?? "?"} in / {b.usage.output ?? "?"} out）</span> : null}
-          {ctx?.contextPct ? <span>context {ctx.contextPct}</span> : null}
-        </div>
-      );
-    },
-  },
-  {
-    blockKind: "log",
-    render: ({ block }) => {
-      const b = block as Extract<Block, { kind: "log" }>;
-      return (
-        <div style={{ fontSize: 11, color: b.level === "error" ? "var(--c-red)" : b.level === "warn" ? "var(--c-amber)" : "var(--c-text3)", overflowWrap: "anywhere", display: "flex", alignItems: "center", gap: 6 }}>
-          <TlIcon name="dot" size={8} />{b.text}
-        </div>
-      );
-    },
-  },
-];
-
-const BUILTIN_COMPOSER_PROVIDERS: ComposerMentionProviderDef[] = [
-  {
-    prefix: "@",
-    label: "文件",
-    source: async (query: string) => {
-      const files = await call<string[]>("repo.files", { query });
-      return files.map((f) => ({ label: f, insert: f }));
-    },
-  },
-];
 
 let builtinAgentUIDone = false;
-/** 自举注册：模块求值时（loader 注入窗口内）包身份生效 → 层级 builtin；
- * 错过窗口（如未来主 bundle 内置组件语境）由组件体补注册 → 层级 host 兜底。 */
 function registerBuiltinAgentUI(): void {
   if (builtinAgentUIDone || typeof window === "undefined" || !window.GITTER_UI) return;
   builtinAgentUIDone = true;
@@ -1344,18 +232,61 @@ export function TasksPage() {
       reader.readAsDataURL(f);
     }
   }, [addImages]);
-  // D9 只读预览（§21.3.4）
-  const [preview, setPreview] = useState<{ path: string; content: string; truncated: boolean; binary: boolean; size: number } | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  // v3.1 实时变更面板（docs/task-page-live-changes.md）：对话 4/7 + 变更 3/7 分栏；
+  // 对话流 查看/预览 一律驱动面板（右侧 = 主预览面），不再开 Modal / 跳改动页
+  const [changesPanelOpen, setChangesPanelOpen] = useState(true);
+  // 分栏布局：任务列表宽度 / 分栏比例（localStorage 持久化，拖拽实时调整）
+  const [listWidth, setListWidth] = useState(() => {
+    const v = Number(localStorage.getItem("gitter.taskListWidth"));
+    return Number.isFinite(v) && v >= 210 && v <= 440 ? v : 300;
+  });
+  const [splitChatW, setSplitChatW] = useState(() => {
+    const v = Number(localStorage.getItem("gitter.taskSplitChatW"));
+    return Number.isFinite(v) && v >= 340 ? v : 0; // 0 = 默认 4fr/3fr 比例
+  });
+  // 分割线拖拽：拖拽中直写 grid 列（不经 React 渲染，无抖动），松手落 localStorage
+  const startListDrag = (e: { currentTarget: HTMLElement; preventDefault(): void }) => {
+    e.preventDefault();
+    const main = e.currentTarget.parentElement;
+    if (!main) return;
+    const left = main.getBoundingClientRect().left;
+    const move = (ev: PointerEvent) => {
+      const w = Math.max(210, Math.min(440, ev.clientX - left - 3));
+      main.style.gridTemplateColumns = w + "px 6px minmax(0, 1fr)";
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const m = main.style.gridTemplateColumns.match(/^([0-9]+)px/);
+      if (m) { setListWidth(Number(m[1])); localStorage.setItem("gitter.taskListWidth", m[1]); }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const startSplitDrag = (e: { currentTarget: HTMLElement; preventDefault(): void }) => {
+    e.preventDefault();
+    const split = e.currentTarget.parentElement;
+    if (!split) return;
+    const rect = split.getBoundingClientRect();
+    const move = (ev: PointerEvent) => {
+      const w = Math.max(340, Math.min(rect.width - 340, ev.clientX - rect.left - 3));
+      split.style.gridTemplateColumns = w + "px 6px minmax(280px, 1fr)";
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const m = split.style.gridTemplateColumns.match(/^([0-9]+)px/);
+      if (m) { setSplitChatW(Number(m[1])); localStorage.setItem("gitter.taskSplitChatW", m[1]); }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const [panelReq, setPanelReq] = useState<{ path: string; mode: "preview" | "diff"; ts: number } | null>(null);
   const previewFile = useCallback((path: string) => {
-    if (!selectedTask) return;
-    setPreviewLoading(true);
-    setPreview({ path, content: "", truncated: false, binary: false, size: 0 });
-    void call<{ content: string; truncated: boolean; binary: boolean; size: number }>("agent.task.previewFile", { taskId: selectedTask, path })
-      .then((r) => setPreview({ path, ...r }))
-      .catch((e) => setPreview({ path, content: `（读取失败：${(e as Error).message}）`, truncated: false, binary: false, size: 0 }))
-      .finally(() => setPreviewLoading(false));
-  }, [selectedTask]);
+    setPanelReq({ path, mode: "preview", ts: Date.now() });
+    setTab("chat");
+    setChangesPanelOpen(true);
+  }, []);
   const [cpCount, setCpCount] = useState(0);
   const [diffCount, setDiffCount] = useState(0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
@@ -2019,7 +950,7 @@ export function TasksPage() {
     if (!renderer) return null;
     const ctx: TimelineCardCtx = {
       taskId: selectedTask ?? "",
-      viewFile: (path) => { setPendingFile(path); setTab("diff"); },
+      viewFile: (path) => { setPendingFile(path); setPanelReq({ path, mode: "diff", ts: Date.now() }); setTab("chat"); setChangesPanelOpen(true); },
       previewFile,
       contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : undefined,
       showCopy: !process && copyBlocks.has(b),
@@ -2042,26 +973,28 @@ export function TasksPage() {
       ),
     );
 
-  // 任务列表极简卡：状态点 + 标题一行；操作收敛为右侧 分叉/归档 图标按钮（运行中禁用）
+  // 任务列表极简行（v3 设计稿 task-page-v3-mockup）：状态点 + 标题一行；
+  // 分叉/归档收敛为悬停行尾图标钮（.tk-quick），细节（分支/状态）走 title 悬停
   const agentCard = (task: AgentTaskDTO) => {
     const live = LIVE_STATES.has(task.state);
     const selectedNow = selectedTask === task.taskId;
     const dotColor = task.state === "failed" ? "var(--c-red)" : task.state === "completed" || task.state === "stopped" ? "var(--c-text3)" : task.permissionMode === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-green)";
     const working = task.state === "working" || task.state === "starting";
     return (
-      <div key={task.taskId} onClick={() => { setSelectedTask(selectedNow ? null : task.taskId); setTab("chat"); setThinking(task.thinking ?? "medium"); setMode(task.permissionMode ?? "default"); }}
-        title={`${task.title}\n${stateChip(task.state).label} · ${task.branch}`}
-        style={{ border: `1px solid ${selectedNow ? "var(--c-text)" : "var(--c-border)"}`, borderRadius: 10, padding: "6px 6px 6px 11px", cursor: "pointer", background: "var(--c-panel)", display: "flex", alignItems: "center", gap: 8, minHeight: 34 }}>
-        <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flex: "none", opacity: working ? 1 : 0.85 }} />
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5, fontWeight: 600 }}>{task.title}</span>
-        <button className="icon-btn" title={live ? "运行中不可分叉，请先停止" : "分叉任务（复制对话历史到新分支）"} disabled={live}
-          onClick={(e) => { e.stopPropagation(); void forkTask(task.taskId); }}>
-          <TlIcon name="fork" size={14} />
-        </button>
-        <button className="icon-btn" title={live ? "运行中不可归档，请先停止" : "归档任务（从列表隐藏，可恢复）"} disabled={live}
-          onClick={(e) => { e.stopPropagation(); void archiveTask(task.taskId); }}>
-          <TlIcon name="archive" size={14} />
-        </button>
+      <div key={task.taskId} className={"tk-row" + (selectedNow ? " sel" : "")} onClick={() => { setSelectedTask(selectedNow ? null : task.taskId); setTab("chat"); setThinking(task.thinking ?? "medium"); setMode(task.permissionMode ?? "default"); }}
+        title={`${task.title}\n${stateChip(task.state).label} · ${task.branch}`}>
+        <span className={"tk-dot" + (working ? " run" : "")} style={{ color: dotColor }} />
+        <span className="tk-row-title">{task.title}</span>
+        <span className="tk-quick">
+          <button className="icon-btn" title={live ? "运行中不可分叉，请先停止" : "分叉任务（复制对话历史到新分支）"} disabled={live}
+            onClick={(e) => { e.stopPropagation(); void forkTask(task.taskId); }}>
+            <TlIcon name="fork" size={13} />
+          </button>
+          <button className="icon-btn" title={live ? "运行中不可归档，请先停止" : "归档任务（从列表隐藏，可恢复）"} disabled={live}
+            onClick={(e) => { e.stopPropagation(); void archiveTask(task.taskId); }}>
+            <TlIcon name="archive" size={13} />
+          </button>
+        </span>
       </div>
     );
   };
@@ -2084,7 +1017,7 @@ export function TasksPage() {
   const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", flex: 1, minHeight: 0, height: "100%" }}>
+    <div style={{ display: "grid", gridTemplateColumns: `${listWidth}px 6px minmax(0, 1fr)`, flex: 1, minHeight: 0, height: "100%" }}>
       {/* 图片附加：粘贴/拖拽之外提供点击入口（视觉能力门控在选择时校验） */}
       <input ref={imageInputRef} type="file" accept="image/*" multiple style={{ display: "none" }}
         onChange={(e) => {
@@ -2095,14 +1028,6 @@ export function TasksPage() {
           filesToImages(files);
         }}
       />
-      {preview && (
-        <Modal title={`预览：${preview.path}`} confirmText="关闭" onConfirm={() => setPreview(null)} onClose={() => setPreview(null)}>
-          <div style={{ fontSize: 11, color: "var(--c-text3)", marginBottom: 6 }}>
-            {previewLoading ? "加载中…" : `${preview.binary ? "二进制文件" : `${(preview.size / 1024).toFixed(1)} KB`}${preview.truncated ? " · 已截断（前 64KB）" : ""}`}
-          </div>
-          <pre style={{ maxHeight: 420, overflow: "auto", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "8px 10px", fontSize: 11.5, fontFamily: "var(--mono, monospace)", whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>{preview.content}</pre>
-        </Modal>
-      )}
       {/* 错误提示以浮层显示在对话页顶部状态条下方（见时间线容器内）：
           grid 根元素的直接子元素会抢占 300px 侧栏列把排版挤乱，侧栏内联则常驻占一行 */}
 
@@ -2118,42 +1043,49 @@ export function TasksPage() {
           {agentTasks?.map(agentCard)}
         </div>
       </div>
+      {/* 任务列表|对话 分割线：拖拽调宽（localStorage 持久化） */}
+      <div className="tk-vdiv" title="拖拽调整任务列表宽度" onPointerDown={startListDrag}><span className="tk-vdiv-grip" /></div>
 
       {/* ═══ 右：详情（页签 = 全局导航；三页互斥独立）═══ */}
       {/* minWidth: 0 = grid item 自动最小尺寸回收：对话内容的 min-content 宽度不再把 1fr 轨道撑破窗口 */}
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}>
-        <div style={{ display: "flex", gap: 2, padding: "6px 14px 0", borderBottom: "1px solid var(--c-border)" }}>
-          {([["chat", "对话"], ["diff", `改动${diffCount ? ` ${diffCount}` : ""}`], ["cp", `检查点${cpCount ? ` ${cpCount}` : ""}`]] as const).map(([id, label]) => (
-            <div key={id} onClick={() => setTab(id)}
-              style={{ padding: "5px 14px", fontSize: 12.5, color: tab === id ? "var(--c-text)" : "var(--c-text3)", cursor: "pointer", border: `1px solid ${tab === id ? "var(--c-border)" : "transparent"}`, borderBottom: "none", borderRadius: "8px 8px 0 0" }}>
-              {label}
+        <div className="tk-tabs">
+          {([["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount]] as const).map(([id, label, n]) => (
+            <div key={id} className={"tk-tab" + (tab === id ? " on" : "")} onClick={() => setTab(id)}>
+              {label}{n > 0 ? <span className="tk-tab-n">{n}</span> : null}
             </div>
           ))}
         </div>
 
         {/* ═══ 对话页（保持挂载：切改动/检查点不重新加载历史、不丢滚动位置） ═══ */}
         {selected && (
-          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? "flex" : "none", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap", color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)" }}>
-              <span style={{ fontSize: 11.5, padding: "1px 10px", borderRadius: 999, border: `1px solid ${stateChip(selected.state).color}`, color: stateChip(selected.state).color }}>
+          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? (changesPanelOpen ? "grid" : "flex") : "none", flexDirection: "column", gridTemplateColumns: splitChatW > 0 ? `${splitChatW}px 6px minmax(280px, 1fr)` : "minmax(0, 4fr) 6px minmax(280px, 3fr)", gridTemplateRows: "auto minmax(0, 1fr) auto", overflow: "hidden" }}>
+            <div className="tk-pagehead" style={{ gridColumn: "1", gridRow: "1" }}>
+              <span className="tk-pill" style={{ color: stateChip(selected.state).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state).color} 9%, transparent)` }}>
+                <span className="tk-pill-dot" />
                 {stateChip(selected.state).label}{busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1000)) + "s" : ""}
               </span>
-              <span style={{ fontSize: 11.5 }}>{selected.branch}</span>
+              <span className="tk-monochip">{selected.branch}</span>
               {runningTool ? (
-                <span style={{ color: "var(--c-amber)", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  <TlIcon name={toolIconName(runningTool.name)} size={11} className="tl-pulse" />
+                <span className="tk-pill amber">
+                  <span className="tk-pill-dot" style={{ animation: "tk-pulse 1.2s infinite" }} />
                   {(TOOL_LABELS[runningTool.name] ?? runningTool.name)} {((Date.now() - runningTool.startTs) / 1000).toFixed(1)}s
                 </span>
               ) : null}
-              {(selected.queued?.length ?? 0) > 0 ? <span style={{ color: "var(--c-amber)", display: "inline-flex", alignItems: "center", gap: 5 }}><TlIcon name="clock" size={11} />排队 {selected.queued!.length}</span> : null}
-              <span>子代理 {runningSubs}/{maxSubagents}</span>
+              {(selected.queued?.length ?? 0) > 0 ? (
+                <span className="tk-pill amber"><TlIcon name="clock" size={11} />排队 {selected.queued!.length}</span>
+              ) : null}
+              <span className="tk-pill dim">子代理 {runningSubs}/{maxSubagents}</span>
               <span style={{ flex: 1 }} />
-              <span>Esc 中断 · Esc×2 回滚 · Shift+Tab 模式 · ↑↓ 历史</span>
-              <button className="tool-btn icon" data-tip="在新窗口打开 worktree" onClick={() => void call("app.newWindow", { path: selected.worktreePath })}>
-                <TlIcon name="external" size={14} />
+              <button className={"tk-ibtn" + (changesPanelOpen ? " on" : "")} title={changesPanelOpen ? "关闭右侧变更分栏" : "打开右侧变更分栏"} onClick={() => setChangesPanelOpen((v) => !v)}>
+                <TlIcon name="splitpane" size={15} />
+              </button>
+              <button className="tool-btn" onClick={() => void call("app.newWindow", { path: selected.worktreePath })}>
+                <TlIcon name="external" size={12} />
+                新窗口
               </button>
             </div>
-            <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative" }}>
+            <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "2" }}>
               {/* 错误浮层：悬于时间线之上、顶部状态条正下方；不打断版面流 */}
               {error && <ErrorFloat text={error} maxWidth="calc(100% - 292px)" go={errorGo} onGo={(s) => { openSettings(s); setError(null); }} onClose={() => setError(null)} />}
               <div ref={timelineRef} style={{ height: "100%", overflowY: "auto", overflowX: "hidden" }}
@@ -2237,7 +1169,7 @@ export function TasksPage() {
                 </button>
               )}
             </div>
-            <div style={{ borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px" }}>
+            <div style={{ borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "3" }}>
               <div style={{ maxWidth: 880, margin: "0 auto", position: "relative" }}>
                 {/* DeepSeek 式执行中提示：脉冲星光 + 流光文字（运行工具名/秒数实时刷新） */}
                 {busy && !pendingPerm && (
@@ -2308,6 +1240,20 @@ export function TasksPage() {
                 />
               </div>
             </div>
+            {/* 对话|变更面板 分割线：拖拽调比例（localStorage 持久化） */}
+            <div className="tk-vdiv" style={{ gridColumn: "2", gridRow: "2 / 4" }} title="拖拽调整分栏比例" onPointerDown={startSplitDrag}><span className="tk-vdiv-grip" /></div>
+            {changesPanelOpen && (
+              <div style={{ gridColumn: "3", gridRow: "2 / 4", minHeight: 0, minWidth: 0, display: "flex" }}>
+                <TaskChangesPanel
+                  taskId={selected.taskId}
+                  worktreePath={selected.worktreePath}
+                  tick={changesTick}
+                  request={panelReq}
+                  onCollapse={() => setChangesPanelOpen(false)}
+                  onEditInFilesPage={(path) => { pageSdk.requestFileFocus(path); pageSdk.navigate("files"); }}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -2372,190 +1318,6 @@ export function TasksPage() {
         {/* ═══ 检查点页（完全独立页 · ZCode rewind）═══ */}
         {tab === "cp" && selected && (
           <CheckpointsTab taskId={selected.taskId} branch={selected.branch} tick={changesTick} setError={setError} onCount={setCpCount} onViewDiff={() => setTab("diff")} onMutate={() => setChangesTick((n) => n + 1)} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-type SettingsRulesLite = { id: string; tool: string; pattern: string | null; effect: "allow" | "deny"; scope: "global" | "repo"; createdAt: string };
-
-// ---- 改动页（独立页 · Codex Diff Review × Gitter 语义）----
-
-function ChangesTab(props: {
-  taskId: string;
-  worktreePath: string;
-  baselineSha: string;
-  initialFile?: string | null;
-  branch: string;
-  tick: number;
-  onReloadAgents: () => Promise<void>;
-  setError: (e: string) => void;
-  onCount: (n: number) => void;
-  /** 本页发起的变更（还原文件）完成后通知父级 bump tick：文件列表与顶部徽标同步刷新 */
-  onMutate?: () => void;
-}) {
-  const { taskId, worktreePath, baselineSha, initialFile, tick } = props;
-  const [files, setFiles] = useState<AgentTaskFileDTO[]>([]);
-  const [sel, setSel] = useState<string | null>(initialFile ?? null);
-  const [diffs, setDiffs] = useState<DiffDTO[]>([]);
-  const diffTextRef = useRef("");
-  const [since, setSince] = useState<string | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setBusy(true);
-    void call<AgentTaskFileDTO[]>("agent.task.files", { taskId })
-      .then(async (fs) => {
-        if (cancelled) return;
-        setFiles(fs);
-        props.onCount(fs.length);
-        const target = sel && fs.some((f) => f.path === sel) ? sel : fs[0]?.path ?? null;
-        setSel(target);
-        if (target) {
-          const [d, txt] = await Promise.all([
-            call<DiffDTO[]>("agent.task.diff", { taskId, path: target, since }),
-            call<string>("agent.task.diffText", { taskId, path: target, since }),
-          ]);
-          if (!cancelled) { setDiffs(d); diffTextRef.current = txt; }
-        } else { setDiffs([]); diffTextRef.current = ""; }
-      })
-      .catch((e) => props.setError((e as Error).message))
-      .finally(() => { if (!cancelled) setBusy(false); });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId, tick, sel, since]);
-
-  const pick = (x: string | null) => { setSel(x); setDiffs([]); };
-
-  return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }}>
-        <b style={{ fontSize: 12.5 }}>改动</b>
-        <span style={{ color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }}>{props.branch}</span>
-        <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{files.length} 个文件 · 基于 {baselineSha.slice(0, 8)}^</span>
-        {since ? <span style={{ color: "var(--c-amber)", fontSize: 11 }}>· 查看 {since}</span> : null}
-        <span style={{ flex: 1 }} />
-        <button className="tool-btn" onClick={() => void call("app.newWindow", { path: worktreePath })}>在 Changes 中打开</button>
-        <button className="tool-btn" onClick={() => void navigator.clipboard?.writeText(diffTextRef.current)}>复制 diff</button>
-      </div>
-      <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "250px 1fr", overflow: "hidden" }}>
-        <div style={{ borderRight: "1px solid var(--c-border)", overflowY: "auto", padding: 8 }}>
-          {files.length === 0 && <div style={{ color: "var(--c-text3)", fontSize: 11.5, padding: 6 }}>{busy ? "加载中…" : "暂无改动"}</div>}
-          {files.map((f) => {
-            const letter = f.kind === "deleted" ? "D" : f.kind === "added" ? "A" : "M";
-            const color = f.kind === "deleted" ? "var(--c-red)" : f.kind === "added" ? "var(--c-green)" : "var(--c-amber)";
-            return (
-              <div key={f.path} onClick={() => pick(f.path)}
-                style={{ padding: "6px 9px", borderRadius: 8, cursor: "pointer", display: "flex", gap: 6, background: sel === f.path ? "var(--c-panel)" : "transparent", border: `1px solid ${sel === f.path ? "var(--c-text)" : "transparent"}` }}>
-                <span style={{ fontFamily: "var(--mono, monospace)", fontWeight: 700, color }}>{letter}</span>
-                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--mono, monospace)", fontSize: 11.5 }}>{f.path}</span>
-                <span style={{ color: "var(--c-text3)", fontFamily: "var(--mono, monospace)", fontSize: 10.5 }}>+{f.added ?? 0} −{f.deleted ?? 0}</span>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ overflowY: "auto", padding: "12px 16px", minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <span style={{ fontFamily: "var(--mono, monospace)", fontSize: 12.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ?? "（选择文件）"}</span>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-              <button className="tool-btn" disabled={!sel} onClick={async () => {
-                if (!sel || !window.confirm(`还原 ${sel} 到会话基线（${baselineSha.slice(0, 8)}）？该文件在本会话的改动将被丢弃。`)) return;
-                try { await call("agent.task.restore", { taskId, sha: baselineSha, path: sel }); await props.onReloadAgents(); notifyRepoChanged(); props.onMutate?.(); } catch (e) { props.setError((e as Error).message); }
-              }}>还原此文件</button>
-              <button className="tool-btn">复制</button>
-            </div>
-          </div>
-          {diffs.length === 0 ? (
-            <div style={{ color: "var(--c-text3)", fontSize: 11.5 }}>{busy ? "加载中…" : "（无差异）"}</div>
-          ) : diffs.map((d) => (
-            <div key={d.path} style={{ marginBottom: 8 }}>
-              <div style={{ color: "var(--c-text3)", fontSize: 11, padding: "2px 0" }}>{d.path} +{d.addedLines} −{d.deletedLines}</div>
-              <DiffView diff={d} />
-            </div>
-          ))}
-          <div style={{ color: "var(--c-text3)", fontSize: 11, marginTop: 8 }}>并排 / 内联 切换沿用现有 DiffView</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---- 检查点页（独立页 · ZCode rewind）----
-
-function CheckpointsTab(props: {
-  taskId: string;
-  branch: string;
-  tick: number;
-  setError: (e: string) => void;
-  onCount: (n: number) => void;
-  onViewDiff: () => void;
-  /** 回滚完成后通知父级 bump tick：改动页文件列表与顶部徽标同步刷新 */
-  onMutate?: () => void;
-}) {
-  const { taskId, tick } = props;
-  const [cps, setCps] = useState<AgentCheckpointDTO[]>([]);
-  const [viewSha, setViewSha] = useState<string | null>(null);
-  const [diffs, setDiffs] = useState<DiffDTO[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void call<AgentCheckpointDTO[]>("agent.task.checkpoints", { taskId })
-      .then((x) => {
-        if (cancelled) return;
-        const r = x.reverse();
-        setCps(r);
-        props.onCount(r.length);
-      })
-      .catch((e) => props.setError((e as Error).message));
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId, tick]);
-
-  useEffect(() => {
-    if (!viewSha) { setDiffs([]); return; }
-    let cancelled = false;
-    void call<DiffDTO[]>("agent.task.diff", { taskId, since: `checkpoint:${viewSha}` })
-      .then((d) => { if (!cancelled) setDiffs(d); })
-      .catch((e) => props.setError((e as Error).message));
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewSha]);
-
-  return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)" }}>
-        <b style={{ fontSize: 12.5 }}>检查点</b>
-        <span style={{ color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }}>{props.branch}</span>
-        <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{cps.length} 个托管提交 · Esc×2 快捷回此页</span>
-      </div>
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880 }}>
-        <div style={{ color: "var(--c-text3)", fontSize: 12, marginBottom: 10 }}>
-          每轮结束自动托管 checkpoint。回滚 = ZCode rewind：恢复 worktree 到该轮之前（消息历史保留，可重新续跑）。
-        </div>
-        {cps.map((cp) => (
-          <div key={cp.sha} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid var(--c-border)", borderRadius: 10, padding: "8px 12px", marginBottom: 8, fontFamily: "var(--mono, monospace)", fontSize: 12 }}>
-            <span style={{ color: "var(--c-text3)" }}>cp {cp.sha.slice(0, 8)}</span>
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "inherit" }}>{cp.summary.replace(/^checkpoint:\s*/, "")}</span>
-            <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{cp.date.slice(5, 16).replace("T", " ")}</span>
-            <button className="tool-btn" onClick={() => setViewSha(viewSha === cp.sha ? null : cp.sha)}>{viewSha === cp.sha ? "收起该轮 diff" : "查看该轮 diff"}</button>
-            <button className="tool-btn" onClick={async () => {
-              if (!window.confirm(`回滚 worktree 到 ${cp.sha.slice(0, 8)}？该 checkpoint 之后的所有改动将被丢弃（reset --hard）。`)) return;
-              try { await call("agent.task.restore", { taskId, sha: cp.sha }); props.onViewDiff(); notifyRepoChanged(); props.onMutate?.(); } catch (e) { props.setError((e as Error).message); }
-            }}>回滚到此处</button>
-          </div>
-        ))}
-        {cps.length === 0 && <div style={{ color: "var(--c-text3)", fontSize: 11.5 }}>暂无 checkpoint</div>}
-        {viewSha && (
-          <div style={{ marginTop: 8, maxHeight: 320, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: 10, padding: 8 }}>
-            {diffs.length === 0 ? <div style={{ color: "var(--c-text3)", fontSize: 11.5 }}>（该轮无改动）</div> : diffs.map((d) => (
-              <div key={d.path}>
-                <div style={{ color: "var(--c-text3)", fontSize: 11, padding: "2px 0" }}>{d.path} +{d.addedLines} −{d.deletedLines}</div>
-                <DiffView diff={d} />
-              </div>
-            ))}
-          </div>
         )}
       </div>
     </div>

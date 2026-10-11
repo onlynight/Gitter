@@ -54,12 +54,33 @@ export interface ComposerMentionProviderDef {
   source: (query: string) => Promise<{ label: string; insert: string }[]>;
 }
 
+export interface TaskPanelRenderCtx {
+  /** 选中任务 id */
+  taskId: string;
+}
+
+/** 任务页分栏面板贡献（v3.2 插件化）：外部包可在变更面板头部追加自己的 tab；
+ * fixed = 固定不可关闭（内置「按轮」tab 同型，外部包一般不用）。 */
+export interface TaskPanelDef {
+  /** 稳定 id（如 "mydeploy.review"） */
+  id: string;
+  /** tab 标题 */
+  title: string;
+  /** 固定不可关闭 */
+  fixed?: boolean;
+  /** 渲染优先级（同 tier 内，大者靠前；同分先注册胜） */
+  rank?: number;
+  render: (ctx: TaskPanelRenderCtx) => ReactNode;
+}
+
 export interface AgentUIRegistration {
   packageId: string;
   /** 提供者层级：user（用户包）> builtin（内置包）> host（宿主缺省自举） */
   tier: AgentUITier;
   timelineRenderers: TimelineRendererDef[];
   composerProviders: ComposerMentionProviderDef[];
+  /** 任务页分栏面板 tab 贡献（v3.2 插件化） */
+  taskPanels?: TaskPanelDef[];
 }
 
 interface Scored {
@@ -139,12 +160,22 @@ export function composerProviders(): ComposerMentionProviderDef[] {
   return [...best.values()].map((s) => s.provider);
 }
 
+/** 任务页分栏面板贡献：全部按层级倒序（内置/宿主靠前，用户包 tab 追加在后）。 */
+export function taskPanels(): { def: TaskPanelDef; packageId: string; tier: AgentUITier }[] {
+  const list: { def: TaskPanelDef; packageId: string; tier: AgentUITier }[] = [];
+  for (const reg of registrations.values()) {
+    for (const p of reg.taskPanels ?? []) list.push({ def: p, packageId: reg.packageId, tier: reg.tier });
+  }
+  return list.sort((a, b) => TIER_ORDER[b.tier] - TIER_ORDER[a.tier]);
+}
+
 /** 活跃注册（设置页贡献审计/调试：逐包可见层级与贡献数）。 */
-export function agentUIRegistrations(): { packageId: string; tier: AgentUITier; renderers: number; providers: number }[] {
+export function agentUIRegistrations(): { packageId: string; tier: AgentUITier; renderers: number; providers: number; panels: number }[] {
   return [...registrations.values()].map((r) => ({
     packageId: r.packageId,
     tier: r.tier,
     renderers: r.timelineRenderers.length,
     providers: r.composerProviders.length,
+    panels: (r.taskPanels ?? []).length,
   }));
 }
