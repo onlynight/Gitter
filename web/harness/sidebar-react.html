@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Sidebar 真实组件宽度行为 harness</title>
+<style>
+  html, body, #root { height: 100%; margin: 0; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  .main { height: 100%; }
+  .content { display: flex; align-items: center; justify-content: center; color: var(--c-text3); overflow: hidden; }
+  #probe { position: fixed; left: 8px; bottom: 8px; z-index: 999; font: 12px/1.6 Consolas, monospace;
+    color: var(--c-text2); background: var(--c-panel); border: 1px solid var(--c-border); border-radius: 6px; padding: 6px 10px; white-space: pre; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="probe"></div>
+<script type="module" src="./sidebar-react-main.tsx"></script>
+</body>
+</html>

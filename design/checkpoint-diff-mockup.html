@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<title>Gitter 检查点 Diff 查看器 设计稿 —— 下钻整页 × 双主题</title>
+<style>
+  /* 配色沿用 docs/task-page-v2-mockup.html 规范：选中/聚焦一律黑白灰；
+     绿/红/琥珀 为语义色（增/删/警示），不用于选中框。双主题。 */
+  :root{
+    --bg:#101216; --panel:#171a20; --panel2:#1d2129; --border:#2a2f38; --border2:#343b46;
+    --text:#d7dde5; --dim:#8a939f; --dim2:#5c6570;
+    --sel:#b9c0c8; --sel-fg:#101216;
+    --green:#7ee787; --red:#ff7b72; --amber:#d29922;
+    --diff-add:rgba(126,231,135,.13); --diff-del:rgba(255,123,114,.13);
+    --wd-a:rgba(126,231,135,.32); --wd-d:rgba(255,123,114,.32);
+    --mono:"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+  }
+  body.light{
+    --bg:#f5f6f7; --panel:#ffffff; --panel2:#eceef0; --border:#d9dde2; --border2:#c6ccd3;
+    --text:#17191c; --dim:#5a6470; --dim2:#8a939f;
+    --sel:#4a5158; --sel-fg:#f5f6f7;
+    --green:#1a7f37; --red:#cf222e; --amber:#9a6700;
+    --diff-add:rgba(26,127,55,.12); --diff-del:rgba(207,34,46,.12);
+    --wd-a:rgba(26,127,55,.30); --wd-d:rgba(207,34,46,.30);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:2px solid var(--border);background:var(--panel)}
+  .topbar b{font-size:13px}
+  .topbar .crumb{color:var(--dim);font-size:12px}
+  .topbar .sp{flex:1}
+  .chip{display:inline-flex;align-items:center;gap:5px;border:2px solid var(--border2);border-radius:999px;padding:1px 10px;font-size:11.5px;color:var(--dim);cursor:pointer;user-select:none}
+  .chip:hover{color:var(--text);border-color:var(--dim)}
+  .main{flex:1;display:grid;grid-template-columns:300px 1fr;min-height:0}
+  .list{border-right:2px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--panel)}
+  .list .new{margin:10px 10px 6px;padding:9px 12px;border:2px dashed var(--border2);border-radius:8px;color:var(--dim);text-align:center;cursor:pointer;font-size:12.5px}
+  .list .scroll{overflow-y:auto;flex:1;padding:4px 10px 10px;display:flex;flex-direction:column;gap:8px}
+  .tcard{border:2px solid var(--border);border-radius:10px;padding:9px 11px;cursor:pointer;background:var(--panel2)}
+  .tcard:hover{border-color:var(--dim)}
+  .tcard.sel{border-color:var(--sel)}
+  .tcard .t1{display:flex;align-items:center;gap:7px}
+  .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .dot.work{background:var(--green)} .dot.done{background:var(--dim2)} .dot.plan{background:var(--amber)} .dot.err{background:var(--red)}
+  .tcard .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;font-weight:600}
+  .tcard .t2{color:var(--dim);font-size:11px;margin-top:3px;display:flex;gap:8px}
+  .tcard .branch{font-family:var(--mono)}
+  .tcard .t3{color:var(--dim2);font-size:11px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .detail{display:flex;flex-direction:column;min-height:0}
+  .tabs{display:flex;gap:2px;padding:6px 14px 0;border-bottom:2px solid var(--border);background:var(--panel)}
+  .tab{padding:5px 14px;font-size:12.5px;color:var(--dim);cursor:pointer;border:2px solid transparent;border-bottom:none;border-radius:8px 8px 0 0}
+  .tab.on{color:var(--text);background:var(--bg);border-color:var(--border)}
+  .tab .n{color:var(--dim)}
+  .body{flex:1;min-height:0;display:flex;flex-direction:column}
+  .page{flex:1;min-height:0;display:none}
+  .page.on{display:flex;flex-direction:column;overflow:hidden}
+  .placeholder{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dim2);font-size:12px}
+  .tbtn{border:2px solid var(--border2);background:transparent;color:var(--dim);border-radius:6px;padding:2px 9px;font-size:11.5px;cursor:pointer;white-space:nowrap}
+  .tbtn:hover{color:var(--text);border-color:var(--dim)}
+  .tbtn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 40%,transparent)}
+  .tbtn.danger:hover{border-color:var(--red)}
+  .kbd{font-family:var(--mono);font-size:10.5px;color:var(--dim);border:2px solid var(--border2);border-radius:4px;padding:0 5px}
+  .legend{padding:6px 14px;color:var(--dim2);font-size:11px;border-top:2px solid var(--border);background:var(--panel)}
+  .legend b{color:var(--dim)}
+  .pagehead{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:2px solid var(--border);background:var(--panel);flex-wrap:wrap}
+  .pagehead .sp{flex:1}
+  .add{color:var(--green)} .del{color:var(--red)} .mod{color:var(--amber)}
+
+  /* ---- 检查点 · 列表态 ---- */
+  .cppage{flex:1;overflow-y:auto;padding:18px 20px;max-width:880px;width:100%;margin:0 auto}
+  .cpnote{color:var(--dim);font-size:12px;margin-bottom:12px}
+  .cprow{display:flex;align-items:center;gap:10px;border:2px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-family:var(--mono);font-size:12px;background:var(--panel)}
+  .cprow:hover{border-color:var(--dim)}
+  .cprow .sha{color:var(--dim)}
+  .cprow .sum{flex:1;color:var(--text);font-family:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cprow .st{color:var(--dim2);font-size:11px;white-space:nowrap}
+  .cprow .st b{font-weight:400}
+
+  /* ---- 检查点 · 详情态（下钻整页）---- */
+  .cpdetail{flex:1;min-height:0;display:grid;grid-template-columns:250px minmax(0,1fr)}
+  .backbtn{display:inline-flex;align-items:center;gap:4px}
+  .cpdetail .pagehead .sha{font-family:var(--mono);font-size:12px;color:var(--dim)}
+  .cpdetail .pagehead .sum{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cpdetail .pagehead .meta{color:var(--dim2);font-size:11px;font-family:var(--mono);white-space:nowrap}
+
+  .cside{border-right:2px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--panel)}
+  .cside-h{padding:8px 10px 4px;color:var(--dim2);font-size:10.5px}
+  .cside-h.warn{color:var(--amber)}
+  .cside-list{flex:1;overflow-y:auto;padding:4px 8px}
+  .df{padding:6px 9px;border-radius:8px;cursor:pointer;font-size:12px;display:flex;gap:6px;align-items:center;border:2px solid transparent;margin-bottom:2px}
+  .df:hover{background:var(--panel2)}
+  .df.sel{background:var(--panel2);border-color:var(--sel)}
+  .df .l{font-family:var(--mono);font-weight:700;font-size:11.5px}
+  .df .p{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:11.5px}
+  .df .s{color:var(--dim2);font-family:var(--mono);font-size:10.5px;white-space:nowrap}
+  .cside-foot{border-top:2px solid var(--border);padding:9px 10px;display:flex;flex-direction:column;gap:8px}
+  .scopetoggle{display:flex;gap:4px}
+  .scopetoggle span{flex:1;text-align:center;font-size:11px;color:var(--dim);border:2px solid var(--border2);border-radius:6px;padding:3px 4px;cursor:pointer;user-select:none;white-space:nowrap}
+  .scopetoggle span:hover{color:var(--text);border-color:var(--dim)}
+  .scopetoggle span.on{background:var(--sel);border-color:var(--sel);color:var(--sel-fg)}
+  .cside-foot .hint{color:var(--dim2);font-size:10.5px;line-height:1.5}
+
+  .cview{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .cview-banner{display:flex;align-items:center;gap:8px;padding:6px 14px;color:var(--amber);font-size:11.5px;border-bottom:2px solid color-mix(in srgb,var(--amber) 35%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent)}
+  .cview-banner.ok{color:var(--green);border-bottom-color:color-mix(in srgb,var(--green) 30%,transparent);background:color-mix(in srgb,var(--green) 7%,transparent)}
+  .filehead{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:2px solid var(--border);background:var(--panel)}
+  .filehead .path{font-family:var(--mono);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filehead .pm{font-family:var(--mono);font-size:11px;white-space:nowrap}
+  .filehead .sp{flex:1}
+  .seg{display:flex;gap:2px}
+  .seg span{font-size:11px;color:var(--dim);border:2px solid var(--border2);padding:1px 8px;cursor:pointer;user-select:none}
+  .seg span:first-child{border-radius:6px 0 0 6px}
+  .seg span:last-child{border-radius:0 6px 6px 0;border-left:none}
+  .seg span.on{background:var(--sel);border-color:var(--sel);color:var(--sel-fg)}
+  .diffwrap{flex:1;overflow:auto;padding:0 0 30px}
+
+  /* ---- diff 渲染（对齐 kit/DiffView：并排缺省 / 内联可选）---- */
+  .hunk{font-family:var(--mono);font-size:12px;line-height:20px;margin-top:10px;border-top:2px solid var(--border);border-bottom:2px solid var(--border)}
+  .hunk .hh{display:flex;gap:8px;padding:3px 14px;color:var(--dim2);background:var(--panel);border-bottom:2px solid var(--border);font-size:11.5px;position:sticky;top:0}
+  .sbs{display:grid;grid-template-columns:1fr 1fr}
+  .inl{display:block}
+  .cell{display:flex;min-width:0}
+  .cell .ln{flex:none;width:38px;text-align:right;padding-right:8px;color:var(--dim2);font-size:10.5px;line-height:20px;user-select:none}
+  .cell .code{white-space:pre-wrap;overflow-wrap:anywhere;padding-right:14px}
+  .d-ctx{background:transparent}
+  .d-add{background:var(--diff-add)}
+  .d-del{background:var(--diff-del)}
+  .d-pad{background:color-mix(in srgb,var(--panel) 55%,var(--bg))}
+  .d-mid{padding:2px 14px;color:var(--dim2);font-style:italic;font-size:11px;background:color-mix(in srgb,var(--panel) 40%,var(--bg))}
+  .wd{border-radius:2px}
+  .d-add .wd{background:var(--wd-a)}
+  .d-del .wd{background:var(--wd-d)}
+  .cview .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--dim2);font-size:12px}
+  .cview .empty .big{font-size:30px}
+
+  /* toast */
+  .toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--panel2);border:2px solid var(--border2);color:var(--text);border-radius:8px;padding:7px 16px;font-size:12px;box-shadow:0 8px 20px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <b>⚡ Gitter 任务</b><span class="crumb">设计稿 · 检查点 Diff 查看器（下钻整页）· 静态示意（可点击：页签 / 查看 diff / 文件切换 / 范围切换 / 并排·内联 / 主题）</span>
+  <span class="sp"></span>
+  <span class="chip" id="themechip" onclick="toggleTheme()">外观：暗</span>
+</div>
+<div class="main">
+  <div class="list">
+    <div class="new">＋ 新任务（Ctrl+N）</div>
+    <div class="scroll">
+      <div class="tcard sel">
+        <div class="t1"><span class="dot work"></span><span class="title">修复 Changes 页 diff 渲染卡顿</span></div>
+        <div class="t2"><span class="branch">task/fix-diff-lag</span><span>· 2m</span><span>· ⏳排队 1</span></div>
+        <div class="t3">正在跑 npm test 验证…</div>
+      </div>
+      <div class="tcard">
+        <div class="t1"><span class="dot plan"></span><span class="title">重构 worktree 服务层</span></div>
+        <div class="t2"><span class="branch">task/refactor-wt</span><span>· 1h</span></div>
+        <div class="t3">◇ 规划模式 · 等待计划批准</div>
+      </div>
+      <div class="tcard">
+        <div class="t1"><span class="dot done"></span><span class="title">升级 vite 到最新大版本</span></div>
+        <div class="t2"><span class="branch">task/vite-upgrade</span><span>· 昨天</span></div>
+        <div class="t3">✔ 已完成 · checkpoint ×6 · +412 −96</div>
+      </div>
+      <div class="tcard">
+        <div class="t1"><span class="dot err"></span><span class="title">发布 v2.3 到 GitHub Release</span></div>
+        <div class="t2"><span class="branch">task/release-2-3</span><span>· 昨天</span></div>
+        <div class="t3">✕ push 被拒绝（保护分支）</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="detail">
+    <div class="tabs">
+      <div class="tab" data-p="chat">对话</div>
+      <div class="tab" data-p="diff">改动 <span class="n">3</span></div>
+      <div class="tab on" data-p="cp">检查点 <span class="n">3</span></div>
+    </div>
+    <div class="body">
+      <div class="page" id="p-chat"><div class="placeholder">本设计稿聚焦「检查点」页签 · 对话页见 docs/task-page-v2-mockup.html</div></div>
+      <div class="page" id="p-diff"><div class="placeholder">本设计稿聚焦「检查点」页签 · 改动页布局与本稿详情态一致（文件侧栏 + DiffView）</div></div>
+
+      <!-- ============ 检查点页 ============ -->
+      <div class="page on" id="p-cp">
+
+        <!-- 列表态 -->
+        <div id="cpListState" style="display:flex;flex-direction:column;flex:1;min-height:0">
+          <div class="pagehead">
+            <b style="font-size:12.5px">检查点</b>
+            <span style="color:var(--dim);font-size:11.5px;font-family:var(--mono)">task/fix-diff-lag</span>
+            <span style="color:var(--dim2);font-size:11px">3 个托管提交 · 每轮结束自动托管 · <span class="kbd">Esc</span><span class="kbd">Esc</span> 快捷回此页</span>
+          </div>
+          <div class="cppage">
+            <div class="cpnote">每轮结束自动托管 checkpoint。回滚 = ZCode rewind：恢复 worktree 到该轮之前（消息历史保留，可重新续跑）。<b style="color:var(--dim)">查看 diff</b> 下钻到该轮的完整 diff 审查视图。</div>
+            <div id="cpRows"></div>
+            <div style="margin-top:10px;color:var(--dim2);font-size:11px">基线 90cc7d2^ · 整体 squash 合并走既有验收台流程（送验收 → 新窗口 Changes）· 统计与 numstat 由 taskCheckpoints 一并返回</div>
+          </div>
+        </div>
+
+        <!-- 详情态（下钻） -->
+        <div id="cpDetailState" style="display:none;flex-direction:column;flex:1;min-height:0">
+          <div class="pagehead">
+            <button class="tbtn backbtn" onclick="backToList()">← 返回列表</button>
+            <span class="sha" id="dSha">cp 7f3a2c1</span>
+            <span class="sum" id="dSum">diff 视口缓存 + 测试</span>
+            <span class="meta" id="dMeta">14:06 · 3 个文件 · +73 −5</span>
+            <span class="sp"></span>
+            <button class="tbtn" onclick="copyDiff()">复制 diff</button>
+          </div>
+          <div class="cpdetail">
+            <div class="cside">
+              <div class="cside-h" id="sideHead">该轮 3 个文件 · 点击查看</div>
+              <div class="cside-list" id="sideList"></div>
+              <div class="cside-foot">
+                <div class="scopetoggle" id="scopeToggle">
+                  <span data-scope="turn" class="on">该轮 diff</span>
+                  <span data-scope="rollback">回滚预览</span>
+                </div>
+                <div class="hint" id="scopeHint">该轮 diff = 本轮托管提交（sha^..sha）。</div>
+                <button class="tbtn danger" onclick="doRollback()">回滚到此处（reset --hard）</button>
+              </div>
+            </div>
+            <div class="cview">
+              <div class="cview-banner" id="viewBanner" style="display:none"></div>
+              <div class="filehead">
+                <span id="fhLetter" class="l" style="font-family:var(--mono);font-weight:700;font-size:12px"></span>
+                <span class="path" id="fhPath">—</span>
+                <span class="pm" id="fhPm"></span>
+                <span class="sp"></span>
+                <div class="seg" id="viewSeg"><span data-m="side" class="on">并排</span><span data-m="inline">内联</span></div>
+              </div>
+              <div class="diffwrap" id="diffWrap"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      图例：<b>A/M/D</b> = 新增/修改/删除 · <span class="add">+N</span> <span class="del">−N</span> 为行数统计 · 选中一律黑白灰 · <b>该轮 diff</b> = sha^..sha · <b>回滚预览</b> = 该检查点 → 当前工作区（reset --hard 将丢弃的改动）· 详情态 Esc 返回列表 · 双主题
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ================= 示例数据（与真实 DiffDTO 字段同构） =================
+// rows: [type, oldLn, newLn, text]  type ∈ ctx|add|del ；⟦..⟧ = 字级 diff 强调
+function esc(s){return s;}
+function T(type,o,n,text){return {type,o,n,text};}
+
+var B3 = { // 7f3a2c1 这一轮（最新）
+  "web/src/kit/DiffView.tsx": { letter:"M", added:9, deleted:4, hunks:[
+    { head:"@@ -114,7 +114,11 @@ export function DiffView(props: DiffViewProps) {", rows:[
+      T("ctx",114,114,"export function DiffView(props: DiffViewProps) {"),
+      T("ctx",115,115,"  const diff = props.diff;"),
+      T("del",116,null,"  const rows = useMemo(() => ⟦renderDiff(diff)⟧, [diff]);"),
+      T("add",null,116,"  const ⟦viewport = useVisibleRange(listRef, ROW_H);⟧"),
+      T("add",null,117,"  const rows = useMemo("),
+      T("add",null,118,"    () => renderDiff(diff, viewport),"),
+      T("add",null,119,"    [diff, viewport.first, viewport.last],"),
+      T("add",null,120,"  );"),
+      T("ctx",117,121,"  return ("),
+      T("ctx",118,122,"    <div className=\"diff\" ref={listRef}>"),
+    ]},
+    { head:"@@ -203,10 +207,14 @@ function flushWindow(rows: FlatItem[], viewport: Range) {", rows:[
+      T("ctx",203,207,"  const rows: FlatItem[] = [];"),
+      T("del",204,null,"  ⟦for (const h of props.diff.hunks) {⟧"),
+      T("del",205,null,"  ⟦  pushHunk(rows, h);⟧"),
+      T("del",206,null,"  ⟦}⟧"),
+      T("add",null,204,"  ⟦for (const h of visibleHunks(props.diff.hunks, viewport)) {⟧"),
+      T("add",null,205,"    pushHunk(rows, h);"),
+      T("add",null,206,"    if (rows.length >= viewport.last) break; // 视口外不再展开"),
+      T("add",null,207,"  }"),
+      T("ctx",207,208,"  return rows;"),
+      T("ctx",208,209,"}"),
+    ]},
+  ]},
+  "web/src/kit/useVisibleRange.ts": { letter:"A", added:62, deleted:0, hunks:[
+    { head:"@@ -0,0 +1,24 @@（新文件 · 共 62 行，示意前段）", rows:[
+      T("add",null,1,"import { useEffect, useRef, useState } from \"react\";"),
+      T("add",null,2,""),
+      T("add",null,3,"/** 视口行范围订阅（rAF 节流）：只跟踪可视区 ±buffer 行，供 DiffView 窗口化渲染。 */"),
+      T("add",null,4,"export function useVisibleRange("),
+      T("add",null,5,"  listRef: React.RefObject<HTMLDivElement | null>,"),
+      T("add",null,6,"  rowH: number,"),
+      T("add",null,7,"  buffer = 60,"),
+      T("add",null,8,") {"),
+      T("add",null,9,"  const [range, setRange] = useState({ first: 0, last: 120 });"),
+      T("add",null,10,"  useEffect(() => {"),
+      T("add",null,11,"    const el = listRef.current;"),
+      T("add",null,12,"    if (!el) return;"),
+      T("add",null,13,"    let raf = 0;"),
+      T("add",null,14,"    const onScroll = () => {"),
+      T("add",null,15,"      cancelAnimationFrame(raf);"),
+      T("add",null,16,"      raf = requestAnimationFrame(() => {"),
+      T("add",null,17,"        const first = Math.max(0, Math.floor(el.scrollTop / rowH) - buffer);"),
+      T("add",null,18,"        const last = Math.floor((el.scrollTop + el.clientHeight) / rowH) + buffer;"),
+      T("add",null,19,"        setRange((r) => (r.first === first && r.last === last ? r : { first, last }));"),
+      T("add",null,20,"      });"),
+      T("add",null,21,"    };"),
+      T("add",null,22,"    el.addEventListener(\"scroll\", onScroll, { passive: true });"),
+      T("add",null,23,"    return () => { el.removeEventListener(\"scroll\", onScroll); cancelAnimationFrame(raf); };"),
+      T("add",null,24,"  }, [listRef, rowH]);"),
+    ], mid:"⋯ 示意：此处还有 38 行（新文件共 62 行）"},
+  ]},
+  "web/src/pages/ChangesPage.tsx": { letter:"M", added:2, deleted:1, hunks:[
+    { head:"@@ -60,4 +60,5 @@ export function ChangesPage() {", rows:[
+      T("ctx",60,60,"  const d = renderDiff(f);"),
+      T("del",61,null,"  return ⟦<DiffView diff={d} />⟧;"),
+      T("add",null,61,"  const viewport = useVisibleRange(listRef, ROW_H);"),
+      T("add",null,62,"  return ⟦<DiffView diff={d} viewport={viewport} ref={listRef} />⟧;"),
+      T("ctx",62,63,"}"),
+    ]},
+  ]},
+};
+
+var B2 = { // 3b91e04 这一轮（半成品）
+  "web/src/kit/wordDiff.ts": { letter:"M", added:29, deleted:2, hunks:[
+    { head:"@@ -12,8 +12,37 @@ export function wordDiff(oldText: string, newText: string)", rows:[
+      T("ctx",12,12,"export function wordDiff(oldText: string, newText: string) {"),
+      T("del",13,null,"  const parts = ⟦diffChars(oldText, newText)⟧;"),
+      T("add",null,13,"  // 半成品：先按行过滤视口，视口外的行对直接视为等长"),
+      T("add",null,14,"  const parts = ⟦diffChars(oldText, newText, {⟧"),
+      T("add",null,15,"⟦    viewport,⟧"),
+      T("add",null,16,"⟦    skipOutside: true,⟧"),
+      T("add",null,17,"⟦  });⟧"),
+      T("add",null,18,"  if (viewport.first > 0) {"),
+      T("add",null,19,"    parts.unshift(equalPart(viewport.first * ROW_H));"),
+      T("add",null,20,"  }"),
+      T("ctx",14,21,"  return parts.map((p) => ({"),
+      T("ctx",15,22,"    value: p.value,"),
+      T("ctx",16,23,"    added: p.added,"),
+      T("ctx",17,24,"    removed: p.removed,"),
+      T("ctx",18,25,"  }));"),
+      T("ctx",19,26,"}"),
+    ], mid:"⋯ 示意：还有 3 处修改（该文件合计 +29 −2）"},
+  ]},
+  "web/src/kit/DiffView.tsx": { letter:"M", added:2, deleted:0, hunks:[
+    { head:"@@ -36,6 +36,8 @@ const ROW_H = 20;", rows:[
+      T("ctx",36,36,"const ROW_H = 20;"),
+      T("add",null,37,"type Range = { first: number; last: number };"),
+      T("add",null,38,"let activeViewport: Range = { first: 0, last: 120 }; // 半成品：模块级透传"),
+      T("ctx",37,39,""),
+    ]},
+  ]},
+};
+
+var B1 = { // 90cc7d2 这一轮（复现脚本 + 基线测量）
+  "scripts/diff-lag-repro.html": { letter:"A", added:74, deleted:0, hunks:[
+    { head:"@@ -0,0 +1,10 @@（新文件 · 共 74 行，示意前段）", rows:[
+      T("add",null,1,"<!DOCTYPE html>"),
+      T("add",null,2,"<html><body>"),
+      T("add",null,3,"<script>"),
+      T("add",null,4,"// 构造 3000 行合成 diff，测量 Changes 页滚动帧时间"),
+      T("add",null,5,"const rows = [];"),
+      T("add",null,6,"for (let i = 0; i < 3000; i++) {"),
+      T("add",null,7,"  rows.push({ t: i % 7 === 0 ? \"add\" : i % 5 === 0 ? \"del\" : \"ctx\", s: \"x\".repeat(80) });"),
+      T("add",null,8,"}"),
+      T("add",null,9,"renderInto(document.body, rows);"),
+      T("add",null,10,"// 基线测量：48ms/帧（wordDiff 全量重算）"),
+    ], mid:"⋯ 示意：此处还有 64 行"},
+  ]},
+  "web/src/kit/DiffView.cache.test.ts": { letter:"A", added:14, deleted:0, hunks:[
+    { head:"@@ -0,0 +1,14 @@", rows:[
+      T("add",null,1,"import { describe, expect, it } from \"vitest\";"),
+      T("add",null,2,"import { renderDiff } from \"./wordDiff\";"),
+      T("add",null,3,""),
+      T("add",null,4,"it(\"视口外的行不参与字级 diff\", () => {"),
+      T("add",null,5,"  const rows = makeRows(3000);"),
+      T("add",null,6,"  const t0 = performance.now();"),
+      T("add",null,7,"  renderDiff(diff, { first: 0, last: 120 });"),
+      T("add",null,8,"  expect(performance.now() - t0).toBeLessThan(16);"),
+      T("add",null,9,"});"),
+      T("add",null,10,""),
+      T("add",null,11,"it(\"缓存窗口随滚动更新\", () => {"),
+      T("add",null,12,"  // 模拟滚动 1000px → first/last 平移"),
+      T("add",null,13,"  expect(viewportOf(1000)).toEqual({ first: 10, last: 190 });"),
+      T("add",null,14,"});"),
+    ]},
+  ]},
+};
+
+// 检查点（最新在前）。turnFiles = 该轮 diff；rollbackFiles = 回滚将丢弃（该点 → 工作区）
+var TURNS = [
+  { sha:"7f3a2c1", sum:"diff 视口缓存 + 测试", time:"14:06", bodies:B3,
+    turnFiles:["web/src/kit/DiffView.tsx","web/src/kit/useVisibleRange.ts","web/src/pages/ChangesPage.tsx"],
+    rollbackFiles:[] },
+  { sha:"3b91e04", sum:"wordDiff 增加视口参数（半成品）", time:"14:04", bodies:B2,
+    turnFiles:["web/src/kit/wordDiff.ts","web/src/kit/DiffView.tsx"],
+    rollbackFiles:["web/src/kit/DiffView.tsx","web/src/kit/useVisibleRange.ts","web/src/pages/ChangesPage.tsx"],
+    rollbackBodies:B3 },
+  { sha:"90cc7d2", sum:"复现脚本 + 基线测量", time:"14:03", bodies:B1,
+    turnFiles:["scripts/diff-lag-repro.html","web/src/kit/DiffView.cache.test.ts"],
+    rollbackFiles:["web/src/kit/DiffView.tsx","web/src/kit/wordDiff.ts","web/src/kit/useVisibleRange.ts","web/src/pages/ChangesPage.tsx"],
+    rollbackBodies:Object.assign({}, B3, B2) },
+];
+
+function statOf(files, bodies){
+  var a=0,d=0; files.forEach(function(p){a+=bodies[p].added; d+=bodies[p].deleted;});
+  return files.length+" 个文件 · <span class='add'>+"+a+"</span> <span class='del'>−"+d+"</span>";
+}
+
+// ================= 列表态渲染 =================
+function renderList(){
+  var html = "";
+  TURNS.forEach(function(t){
+    html += "<div class='cprow'>"
+      + "<span class='sha'>cp "+t.sha+"</span>"
+      + "<span class='sum'>"+t.sum+"</span>"
+      + "<span class='st'>"+statOf(t.turnFiles,t.bodies)+"</span>"
+      + "<span class='st'>"+t.time+"</span>"
+      + "<button class='tbtn' onclick=\"openDetail('"+t.sha+"')\">查看 diff →</button>"
+      + "<button class='tbtn' onclick=\"toast('设计稿：确认后 reset --hard 并跳转改动页（示意）')\">回滚到此处</button>"
+      + "</div>";
+  });
+  document.getElementById("cpRows").innerHTML = html;
+}
+
+// ================= 详情态 =================
+var cur = { sha:null, file:null, scope:"turn", mode:"side" };
+
+function turnOf(sha){ return TURNS.filter(function(t){return t.sha===sha;})[0]; }
+function bodiesOf(t){ return cur.scope==="turn" ? t.bodies : (t.rollbackBodies||t.bodies); }
+function filesOf(t){ return cur.scope==="turn" ? t.turnFiles : t.rollbackFiles; }
+
+function openDetail(sha){
+  cur = { sha:sha, file:null, scope:"turn", mode:cur.mode };
+  var t = turnOf(sha);
+  cur.file = filesOf(t)[0] || null;
+  document.getElementById("cpListState").style.display = "none";
+  document.getElementById("cpDetailState").style.display = "flex";
+  document.getElementById("dSha").textContent = "cp "+sha;
+  document.getElementById("dSum").textContent = t.sum;
+  renderDetail();
+}
+function backToList(){
+  document.getElementById("cpDetailState").style.display = "none";
+  document.getElementById("cpListState").style.display = "flex";
+}
+
+function renderDetail(){
+  var t = turnOf(cur.sha);
+  var files = filesOf(t), bodies = bodiesOf(t);
+  var rollback = cur.scope === "rollback";
+  document.getElementById("dMeta").innerHTML = t.time+" · "+statOf(files,bodies);
+  // 侧栏
+  var head = document.getElementById("sideHead");
+  head.textContent = (rollback ? "将丢弃 " : "该轮 ")+files.length+" 个文件 · 点击查看";
+  head.className = "cside-h" + (rollback && files.length ? " warn" : "");
+  var lh = "";
+  files.forEach(function(p){
+    var b = bodies[p];
+    lh += "<div class='df"+(p===cur.file?" sel":"")+"' onclick=\"pickFile('"+p+"')\">"
+      + "<span class='l "+(b.letter==="A"?"add":b.letter==="D"?"del":"mod")+"'>"+b.letter+"</span>"
+      + "<span class='p'>"+p+"</span>"
+      + "<span class='s'>+"+b.added+" −"+b.deleted+"</span></div>";
+  });
+  document.getElementById("sideList").innerHTML = lh || "<div style='padding:8px;color:var(--dim2);font-size:11.5px'>无文件</div>";
+  // 范围切换 + 提示
+  document.querySelectorAll("#scopeToggle span").forEach(function(s){
+    s.classList.toggle("on", s.dataset.scope===cur.scope);
+  });
+  document.getElementById("scopeHint").innerHTML = rollback
+    ? "回滚预览 = 该检查点 → 当前工作区，即 <b>reset --hard "+cur.sha+"</b> 将丢弃的改动。"
+    : "该轮 diff = 本轮托管提交（"+cur.sha+"^..​"+cur.sha+"）。";
+  // 顶部横幅
+  var banner = document.getElementById("viewBanner");
+  if (rollback && files.length===0){
+    banner.style.display = "flex"; banner.className = "cview-banner ok";
+    banner.innerHTML = "✔ 工作区与该检查点一致 —— 回滚到此处不会丢弃任何改动";
+  } else if (rollback){
+    banner.style.display = "flex"; banner.className = "cview-banner";
+    banner.innerHTML = "⚠ 回滚预览 —— reset --hard "+cur.sha+" 将丢弃以下 "+files.length+" 个文件的全部改动";
+  } else { banner.style.display = "none"; }
+  // 右侧 diff
+  renderDiffPane(bodies);
+}
+
+function pickFile(p){ cur.file = p; renderDetail(); }
+
+function renderDiffPane(bodies){
+  var wrap = document.getElementById("diffWrap");
+  var b = cur.file && bodies[cur.file];
+  document.getElementById("fhLetter").textContent = b ? b.letter : "";
+  document.getElementById("fhLetter").className = b ? (b.letter==="A" ? "add" : b.letter==="D" ? "del" : "mod") : "";
+  document.getElementById("fhPath").textContent = cur.file || "—";
+  document.getElementById("fhPm").innerHTML = b ? "<span class='add'>+"+b.added+"</span> <span class='del'>−"+b.deleted+"</span>" : "";
+  document.querySelectorAll("#viewSeg span").forEach(function(s){ s.classList.toggle("on", s.dataset.m===cur.mode); });
+  if (!b){ wrap.innerHTML = ""; return; }
+  var html = "";
+  b.hunks.forEach(function(h){
+    html += "<div class='hunk'><div class='hh'>⚑ "+h.head+"</div>";
+    html += cur.mode==="side" ? sideHtml(h) : inlineHtml(h);
+    if (h.mid) html += "<div class='d-mid'>"+h.mid+"</div>";
+    html += "</div>";
+  });
+  wrap.innerHTML = html;
+}
+
+function emph(s){ return s.replace(/⟦([\s\S]*?)⟧/g, "<span class='wd'>$1</span>"); }
+function cell(cls, ln, text){
+  return "<div class='cell "+cls+"'><span class='ln'>"+(ln||"")+"</span><span class='code'>"+emph(text)+"</span></div>";
+}
+
+// 并排：del/add 就近配对（对齐 DiffView buildSideRows）
+function sideHtml(h){
+  var out = "", i = 0, rows = h.rows;
+  while (i < rows.length){
+    var r = rows[i];
+    if (r.type === "ctx"){ out += cell("d-ctx", r.n, r.text) + cell("d-ctx", r.n, r.text); i++; continue; }
+    var dels = [], adds = [];
+    while (i < rows.length && rows[i].type === "del"){ dels.push(rows[i]); i++; }
+    while (i < rows.length && rows[i].type === "add"){ adds.push(rows[i]); i++; }
+    var n = Math.max(dels.length, adds.length);
+    for (var k = 0; k < n; k++){
+      out += dels[k] ? cell("d-del", dels[k].o, dels[k].text) : cell("d-pad", "", "");
+      out += adds[k] ? cell("d-add", adds[k].n, adds[k].text) : cell("d-pad", "", "");
+    }
+  }
+  return "<div class='sbs'>"+out+"</div>";
+}
+
+// 内联：单列，del 在前 add 在后（对齐 DiffView InlineRowView）
+function inlineHtml(h){
+  var out = "";
+  h.rows.forEach(function(r){
+    if (r.type === "ctx") out += cell("d-ctx", r.n, r.text);
+    else if (r.type === "del") out += cell("d-del", r.o, r.text);
+    else out += cell("d-add", r.n, r.text);
+  });
+  return "<div class='inl'>"+out+"</div>";
+}
+
+// ================= 交互 =================
+function pickScope(s){
+  var t = turnOf(cur.sha);
+  cur.scope = s;
+  cur.file = filesOf(t)[0] || null;
+  renderDetail();
+}
+document.querySelectorAll("#scopeToggle span").forEach(function(s){
+  s.onclick = function(){ pickScope(s.dataset.scope); };
+});
+document.querySelectorAll("#viewSeg span").forEach(function(s){
+  s.onclick = function(){ cur.mode = s.dataset.m; renderDetail(); };
+});
+function doRollback(){ toast("设计稿：确认后 reset --hard "+cur.sha+"，并跳转改动页（示意）"); }
+function copyDiff(){
+  try { navigator.clipboard && navigator.clipboard.writeText("设计稿示意 diff"); } catch(e){}
+  toast("已复制该轮 diff（设计稿示意）");
+}
+var toastTimer = 0;
+function toast(msg){
+  var el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.classList.remove("on"); }, 2200);
+}
+document.addEventListener("keydown", function(e){
+  if (e.key === "Escape" && document.getElementById("cpDetailState").style.display !== "none") backToList();
+});
+
+// 页签
+document.querySelectorAll(".tab").forEach(function(t){
+  t.onclick = function(){
+    document.querySelectorAll(".tab").forEach(function(x){ x.classList.remove("on"); });
+    document.querySelectorAll(".page").forEach(function(x){ x.classList.remove("on"); });
+    t.classList.add("on");
+    document.getElementById("p-" + t.dataset.p).classList.add("on");
+  };
+});
+// 主题
+function toggleTheme(){
+  var light = document.body.classList.toggle("light");
+  document.getElementById("themechip").textContent = light ? "外观：亮" : "外观：暗";
+}
+renderList();
+openDetail("7f3a2c1"); backToList(); // 预热详情态 DOM
+</script>
+</body>
+</html>

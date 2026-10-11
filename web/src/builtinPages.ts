@@ -13,6 +13,8 @@ registerBuiltinPages([
   { id: "tasks", titleKey: "Nav_Tasks", glyph: "\uE7C1", order: 50 },
   { id: "bash", titleKey: "Nav_Terminal", glyph: "\uE756", order: 60 },
   { id: "files", titleKey: "Nav_Files", glyph: "\uE8A5", order: 70 },
-  { id: "office", titleKey: "Nav_Office", glyph: "\uE7C3", order: 71 }, // E7C3 Page——E786 在图标字体缺字，导航渲染空白
+  // Office：表格网格（电子表格隐喻）——原先 E7C3 Page 与 files 的 E8A5 Document 轮廓几乎
+  // 相同，侧栏里分不清哪个是 office；E786 同样不可用（图标字体缺字），故走 SVG。
+  { id: "office", titleKey: "Nav_Office", svg: "M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zm1.5 0v9h9v-9h-9zM7.25 3.5h1.5v9h-1.5zM3.5 7.25h9v1.5h-9z", order: 71 },
   { id: "settings", titleKey: "Nav_Settings", glyph: "\uE713", order: 700 },
 ]);

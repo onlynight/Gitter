@@ -19,7 +19,14 @@ export function TitleBar() {
       <button
         className="tb-hamburger"
         title={t("Common_ToggleSidebar")}
-        onClick={() => void updateSettings({ sidebarCollapsed: !(settings?.sidebarCollapsed ?? false) })}
+        onClick={() => {
+          // 折叠/展开是唯一该有宽度动画的时刻：.main-anim 挂临时过渡（常驻过渡会让
+          // Chromium 的 grid 列轨道卡死在旧值，宽度收敛写入失效——见 styles.css .main 注释）
+          const main = document.querySelector<HTMLElement>(".main");
+          main?.classList.add("main-anim");
+          void updateSettings({ sidebarCollapsed: !(settings?.sidebarCollapsed ?? false) });
+          window.setTimeout(() => main?.classList.remove("main-anim"), 320);
+        }}
       >
         ☰
       </button>
@@ -46,19 +53,41 @@ export function Sidebar() {
   // （左：4px 外边距 + 10px 内边距 = 14px，右侧对称），上限 300px，
   // 超出上限由 .nav-label 打点截断。折叠态测量仍准确——scrollWidth 取文本自然宽度。
   // 每次渲染后重测（语言/页面包/字体变化都会经此收敛），图标字体晚到时由 fonts.ready 兜底。
+  // 宽度必须与选中项无关：激活项加粗（600）更宽，若按「当前字重」测，选中宽标签页时
+  // 栏宽撑开、切走时收窄。故统一按 600 测（克隆探针，见 measure 内注释），非激活项
+  // （常规字重）天然留出富余，也顺带消灭「恰满宽 + 取整吞亚像素」造成的尾部省略号。
   // 注意：直接写 .main 内联 grid 列而非改 --sidebar-w 变量——Chromium 对「变量值变化 +
-  // grid-template-columns 过渡」存在失效（变量已新值、轨道恒滞后一步）；内联直写属直接
-  // 属性值变化，过渡动画正常。折叠态写 48px 与 --sidebar-w-collapsed 默认值一致。
+  // grid-template-columns 过渡」存在失效（变量已新值、轨道恒滞后一步）。基础 .main 不挂
+  // 过渡（写入瞬时生效）；折叠/展开动画由 TitleBar 临时挂 .main-anim（见 styles.css）。
   useLayoutEffect(() => {
     const measure = () => {
       const root = rootRef.current;
       if (!root) return;
       let maxLabel = 0;
+      // 克隆探针测量（不能原地改字重再读）：系统「减弱动态效果」开启时 * 规则给所有元素
+      // transition: all(.01ms)，同步改字重 + 读宽命中的是过渡起始帧（旧字重宽度），加粗测量
+      // 整体失效且随上一选中态漂移。克隆是新插入节点、无前态样式，不触发过渡，读到的即是
+      // 目标字重（600）的真实自然宽。
+      const probe = document.createElement("div");
+      probe.setAttribute("aria-hidden", "true");
+      probe.style.cssText = "position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;";
+      root.appendChild(probe);
       for (const el of root.querySelectorAll<HTMLElement>(".nav-label")) {
-        maxLabel = Math.max(maxLabel, el.scrollWidth, el.offsetWidth);
+        const clone = document.createElement("span");
+        clone.textContent = el.textContent;
+        const cs = getComputedStyle(el);
+        clone.style.fontSize = cs.fontSize;
+        clone.style.fontFamily = cs.fontFamily;
+        clone.style.fontWeight = "600"; // 统一按激活态字重测（宽度上界，宽度与选中项解耦）
+        probe.appendChild(clone);
+        maxLabel = Math.max(maxLabel, clone.offsetWidth);
       }
+      probe.remove();
       const extAllowance = root.querySelector(".nav-ext-x") ? 26 : 0; // 外部页行尾 ✕ 钮
-      const w = Math.min(300, Math.max(48, 16 + 10 + maxLabel + 20 + 8 + extAllowance));
+      // +4px 安全余量：scrollWidth 取整可吞 ~0.5px 亚像素，flex 链（100%-8 → padding →
+      // icon → gap）逐级取整又能吞 ~1px（实测 64 算式只落到 63），零/小余量时恰满宽的
+      // 标签会打省略号。4px 覆盖两处损耗且视觉不可辨。
+      const w = Math.min(300, Math.max(48, 16 + 10 + maxLabel + 20 + 8 + 4 + extAllowance));
       // 直写 .main 内联 grid 列而非改 --sidebar-w 变量——Chromium 对「变量值变化 +
       // grid-template-columns 过渡」存在失效（变量已新值、轨道恒滞后一步）；内联直写
       // 属直接属性值变化，过渡动画正常。折叠态移除内联，让 .main.collapsed 规则生效。
