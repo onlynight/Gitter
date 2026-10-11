@@ -58,6 +58,12 @@
   .tbtn:hover{color:var(--text);border-color:var(--dim)}
   .tbtn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 40%,transparent)}
   .tbtn.danger:hover{border-color:var(--red)}
+  /* 图标按钮：与 taskIcons.tsx 的 TlIcon 同源 SVG（16 viewBox / fill currentColor） */
+  .ibtn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:2px solid var(--border2);background:transparent;color:var(--dim);border-radius:6px;cursor:pointer;flex:none;padding:0}
+  .ibtn:hover{color:var(--text);border-color:var(--dim)}
+  .ibtn svg{width:14px;height:14px;flex:none}
+  .ibtn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 40%,transparent)}
+  .ibtn.danger:hover{border-color:var(--red)}
   .kbd{font-family:var(--mono);font-size:10.5px;color:var(--dim);border:2px solid var(--border2);border-radius:4px;padding:0 5px}
   .legend{padding:6px 14px;color:var(--dim2);font-size:11px;border-top:2px solid var(--border);background:var(--panel)}
   .legend b{color:var(--dim)}
@@ -191,7 +197,7 @@
             <span style="color:var(--dim2);font-size:11px">3 个托管提交 · 每轮结束自动托管 · <span class="kbd">Esc</span><span class="kbd">Esc</span> 快捷回此页</span>
           </div>
           <div class="cppage">
-            <div class="cpnote">每轮结束自动托管 checkpoint。回滚 = ZCode rewind：恢复 worktree 到该轮之前（消息历史保留，可重新续跑）。<b style="color:var(--dim)">查看 diff</b> 下钻到该轮的完整 diff 审查视图。</div>
+            <div class="cpnote">每轮结束自动托管 checkpoint。回滚 = ZCode rewind：恢复 worktree 到该轮之前（消息历史保留，可重新续跑）。点 <span style="display:inline-flex;width:20px;height:20px;border:2px solid var(--border2);border-radius:5px;color:var(--dim);align-items:center;justify-content:center;vertical-align:-5px"><svg viewBox="0 0 16 16" width="11" height="11"><path d="M2 4.25 5 8l-3 3.75V4.25ZM6 3h1.5v10H6V3Zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3Z" fill="currentColor" fill-rule="evenodd"/></svg></span> 下钻到该轮的完整 diff 审查视图；悬停行尾图标按钮可看说明。</div>
             <div id="cpRows"></div>
             <div style="margin-top:10px;color:var(--dim2);font-size:11px">基线 90cc7d2^ · 整体 squash 合并走既有验收台流程（送验收 → 新窗口 Changes）· 统计与 numstat 由 taskCheckpoints 一并返回</div>
           </div>
@@ -236,7 +242,7 @@
       </div>
     </div>
     <div class="legend">
-      图例：<b>A/M/D</b> = 新增/修改/删除 · <span class="add">+N</span> <span class="del">−N</span> 为行数统计 · 选中一律黑白灰 · <b>该轮 diff</b> = sha^..sha · <b>回滚预览</b> = 该检查点 → 当前工作区（reset --hard 将丢弃的改动）· 详情态 Esc 返回列表 · 双主题
+      图例：<b>A/M/D</b> = 新增/修改/删除 · <span class="add">+N</span> <span class="del">−N</span> 为行数统计 · 选中一律黑白灰 · 行尾图标（taskIcons 现成）：<b>⎙ diff</b> = 查看该轮 diff、<b style="color:var(--red)">🕐 clock</b> = 回滚到该时间点（danger 红 · 悬停有说明）· <b>该轮 diff</b> = sha^..sha · <b>回滚预览</b> = 该检查点 → 当前工作区 · 详情态 Esc 返回列表 · 双主题
     </div>
   </div>
 </div>
@@ -244,6 +250,17 @@
 
 <script>
 // ================= 示例数据（与真实 DiffDTO 字段同构） =================
+// 现成图标：路径逐字取自 web/src/pages/taskIcons.tsx 的 PATHS（16 viewBox / fill currentColor）
+var ICONS = {
+  // diff（变更页同源 —— 用户已在改动页认识它）
+  diff: "M2 4.25 5 8l-3 3.75V4.25ZM6 3h1.5v10H6V3Zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3Z",
+  // clock（提交历史/回到时间点 —— repo_log 同款）
+  clock: "M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm.75 1.5h-1.5v4l3 1.8.75-1.23-2.25-1.35V4.5Z",
+};
+function ico(name){
+  return "<svg viewBox='0 0 16 16' aria-hidden='true'><path d='" + ICONS[name] + "' fill='currentColor' fill-rule='evenodd'/></svg>";
+}
+
 // rows: [type, oldLn, newLn, text]  type ∈ ctx|add|del ；⟦..⟧ = 字级 diff 强调
 function esc(s){return s;}
 function T(type,o,n,text){return {type,o,n,text};}
@@ -409,8 +426,8 @@ function renderList(){
       + "<span class='sum'>"+t.sum+"</span>"
       + "<span class='st'>"+statOf(t.turnFiles,t.bodies)+"</span>"
       + "<span class='st'>"+t.time+"</span>"
-      + "<button class='tbtn' onclick=\"openDetail('"+t.sha+"')\">查看 diff →</button>"
-      + "<button class='tbtn' onclick=\"toast('设计稿：确认后 reset --hard 并跳转改动页（示意）')\">回滚到此处</button>"
+      + "<button class='ibtn' title='查看该轮 diff —— 下钻整页（并排/内联 · 语法高亮）' onclick=\"openDetail('"+t.sha+"')\">"+ico("diff")+"</button>"
+      + "<button class='ibtn danger' title='回滚到此处 —— reset --hard 回到该时间点，丢弃之后的改动' onclick=\"toast('设计稿：确认后 reset --hard 并跳转改动页（示意）')\">"+ico("clock")+"</button>"
       + "</div>";
   });
   document.getElementById("cpRows").innerHTML = html;
