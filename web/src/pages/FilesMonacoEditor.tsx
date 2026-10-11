@@ -117,7 +117,8 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       };
     }, []);
 
-    // 外部定位（搜索结果点击）：reveal 居中 + 光标落位 + 焦点
+    // 外部定位（搜索结果点击/问题面板）：reveal 居中 + 光标落位 + 焦点；
+    // 依赖含 model——搜索打开新文件时定位先于 model 就绪到达，model 挂载后需补触发
     useEffect(() => {
       const ed = edRef.current;
       const r = props.revealLine;
@@ -126,7 +127,7 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       ed.setPosition({ lineNumber: r.line, column: 1 });
       ed.focus();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.revealLine?.ts]);
+    }, [props.revealLine?.ts, props.model]);
 
     useImperativeHandle(ref, () => ({
       runAction: (actionId: string) => {

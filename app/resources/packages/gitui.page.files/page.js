@@ -2871,7 +2871,7 @@
         ed.revealLineInCenter(r.line);
         ed.setPosition({ lineNumber: r.line, column: 1 });
         ed.focus();
-      }, [(_a2 = props.revealLine) == null ? void 0 : _a2.ts]);
+      }, [(_a2 = props.revealLine) == null ? void 0 : _a2.ts, props.model]);
       React$1.useImperativeHandle(ref, () => ({
         runAction: (actionId) => {
           const ed = edRef.current;
