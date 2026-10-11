@@ -148,11 +148,21 @@ async function main() {
     { role: "user" as const, content: "任务五" },
     { role: "assistant" as const, content: "ok" },
   ];
-  const cut = findCompactionCut(msgs, 8);
+  const cut = findCompactionCut(msgs, { keepLast: 8 });
   check("压缩切点落在 user 边界", cut !== null && msgs[cut!]?.role === "user", `cut=${cut}`);
-  check("小历史不压缩", findCompactionCut(msgs.slice(0, 5), 8) === null);
+  check("小历史不压缩", findCompactionCut(msgs.slice(0, 5), { keepLast: 8 }) === null);
   check("token 估算非零", estimateMessagesTokens(msgs) > 10);
   check("预算 = 窗口 − 预留", budgetOf(128_000) === 128_000 - 8192);
+  // §22.9 F13.3：keepTokens 尾部预算语义——预算足够 → 不压缩；预算收紧 → 切点仍在 user 边界
+  const big = Array.from({ length: 10 }, (_, i) =>
+    i % 2 === 0
+      ? { role: "user" as const, content: `u${i} ${"x".repeat(400)}` }
+      : { role: "assistant" as const, content: `a${i} ${"y".repeat(400)}` },
+  );
+  check("keepTokens 预算充裕不压缩", findCompactionCut(big, { keepTokens: 100_000 }) === null);
+  const cutBudget = findCompactionCut(big, { keepTokens: 900, calibration: 1 });
+  check("keepTokens 收紧出切点且落 user 边界", cutBudget !== null && cutBudget >= 1 && big[cutBudget!]?.role === "user", `cut=${cutBudget}`);
+  check("keepTokens 显式 null 回退条数语义", findCompactionCut(msgs, { keepTokens: null, keepLast: 8 }) === findCompactionCut(msgs, { keepLast: 8 }));
 
   // ---- 7. journal 分段（F1.2）----
   const repo2 = fs.mkdtempSync(path.join(os.tmpdir(), "gitter-agent-j-"));
@@ -346,6 +356,47 @@ async function main() {
       }
     } finally {
       globalThis.fetch = realFetch;
+    }
+
+    // ⑤ §22.9 F13.1：历史 reasoning_content 默认剥离（思考模型 CoT 回传 = 每步 1-8k 首现 token）
+    let stripBody: { messages?: { role: string; reasoning_content?: string; content?: unknown }[] } | null = null;
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      if (init?.body && typeof init.body === "string") {
+        try { stripBody = JSON.parse(init.body) as { messages?: { role: string; reasoning_content?: string }[] }; } catch { /* ignore */ }
+      }
+      return sse(["data: [DONE]\n\n"]);
+    }) as typeof fetch;
+    try {
+      const rr = resolveProfileModel({ kind: "openai-compatible", baseURL: "https://api.deepseek.com/v1", modelId: "deepseek-chat", apiKey: "k" });
+      if (rr.ok) {
+        await streamText({
+          model: rr.model,
+          messages: [
+            { role: "user", content: "hi" },
+            { role: "assistant", content: [{ type: "reasoning", text: "内心独白" }] as never },
+            { role: "user", content: "继续" },
+          ],
+        }).usage;
+        const asst = (stripBody as { messages?: { role: string; reasoning_content?: string }[] } | null)?.messages?.find((m) => m.role === "assistant");
+        check("22.9 历史 reasoning_content 默认剥离", !!asst && !("reasoning_content" in asst), JSON.stringify(asst));
+      }
+      // ⑥ 显式关闭：reasoning_content 原样透传
+      const rr2 = resolveProfileModel({ kind: "openai-compatible", baseURL: "https://api.deepseek.com/v1", modelId: "deepseek-chat", apiKey: "k", stripHistoryReasoning: false });
+      if (rr2.ok) {
+        await streamText({
+          model: rr2.model,
+          messages: [
+            { role: "user", content: "hi" },
+            { role: "assistant", content: [{ type: "reasoning", text: "内心独白" }] as never },
+            { role: "user", content: "继续" },
+          ],
+        }).usage;
+        const asst2 = (stripBody as { messages?: { role: string; reasoning_content?: string }[] } | null)?.messages?.find((m) => m.role === "assistant");
+        check("22.9 stripHistoryReasoning=false 透传", !!asst2 && asst2.reasoning_content === "内心独白", JSON.stringify(asst2));
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+      stripBody = null;
     }
   }
 

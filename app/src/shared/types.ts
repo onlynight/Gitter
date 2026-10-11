@@ -270,7 +270,7 @@ export interface SettingsDTO {
   /** 上下文压缩策略（F7：auto=80% 阈值自动 / manual=仅 /compact / off） */
   agentsCompaction: "auto" | "manual" | "off";
   /** 压缩数据面调参（§20.3.3：threshold ∈ [0.5,0.95]，keepLast ∈ [4,32]） */
-  agentsCompactionPolicy: { threshold?: number; keepLast?: number };
+  agentsCompactionPolicy: { threshold?: number; keepLast?: number; /** §22.9 F13.3：尾部按真实 token 预算保留（优先于 keepLast 条数语义） */ keepTokens?: number };
   /** post-turn 钩子总开关（§20.3.6，默认开） */
   agentsPostTurnHooks: boolean;
   /** D5 任务完成 OS 通知 */
@@ -314,7 +314,7 @@ export interface UserModelProfileDTO {
   params?: { temperature?: number; maxOutputTokens?: number };
   /** 默认思考深度（添加模型时配置，默认 medium；任务输入台可逐次覆盖） */
   thinking?: ThinkingLevel;
-  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; /** D1 多模态：可接收图片输入 */ vision?: boolean };
+  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; /** D1 多模态：可接收图片输入 */ vision?: boolean; /** §22.9 F13.1：剥离历史 reasoning_content（默认开，端点需要 CoT 回传时设 false） */ stripHistoryReasoning?: boolean };
   tags: string[];
 }
 
@@ -347,7 +347,7 @@ export interface ModelProfileDTO {
   keyHint: string | null;
   /** 档案默认思考深度（未配置视为 medium） */
   thinking?: ThinkingLevel;
-  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; vision?: boolean };
+  capabilities: { tools: boolean; streaming: boolean; contextTokens?: number; vision?: boolean; stripHistoryReasoning?: boolean };
   tags: string[];
   isDefault: boolean;
   isFast: boolean;

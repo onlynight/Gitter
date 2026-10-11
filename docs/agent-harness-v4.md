@@ -1290,3 +1290,28 @@ GITTER_UI.registerAgentUI({
 2. 响应侧方言归一：SSE 按行缓冲（跨网络分段安全）、非流式 JSON 直接解析，把 DeepSeek 顶层 `prompt_cache_hit_tokens` 回填为 `prompt_tokens_details.cached_tokens`——按标记逐行/逐体检查，**非 DeepSeek 响应零改动**，Anthropic 走原生映射不受影响。
 
 **回归**：smoke-agent-v4 §12（22.8 六断言：includeUsage 接线 / DeepSeek 流式与非流式 cacheRead 回填 / inputTokens 总数不受影响 / OpenAI 形状透传不破坏）——假 fetch 驱动真实 provider→SDK 转换全链路。
+
+### 22.9 命中率调优——70% → 90% 的四桶归因与落地（2026-10-11）
+
+> 背景：实测 1000 万 prompt token 聚合命中率仅 70%。归因（miss = input − cacheRead 的四桶）：① 结构性首现 token（每步新增工具结果/回复/CoT，永 miss——天花板 = 1 − ΣΔ/ΣC）；② 压缩计划性断点（est 系数 chars/2.5 对代码高估 30-60%，0.8 阈值在真实 ~60% 提前触发，每次压缩 = 摘要调用全 miss + 压缩后重建全 miss）；③ 重启重冻结断点 + 任务/子代理冷启动零共享（worktree 路径在 boundary 槽第 2 段，跨任务公共前缀只到 identity）；④ 子代理与主线程第一句即分叉。cacheGuard 本身无罪（尾部追加、零变化零注入）。
+
+**F13.1 削每步增量（provider.ts，fetch 边界）**：剥离请求历史 assistant 消息的 `reasoning_content`——思考模型每步 1-8k 的 CoT 回传全是首现 token（且 DeepSeek 官方要求不回传）。与 reasoning_effort 注入共用同一次 JSON 解析；剥离规则全量一致不破前缀。档案能力 `capabilities.stripHistoryReasoning`（缺省开）显式关闭。回归 = smoke-agent-v4 §12 ⑤⑥。
+
+**F13.2 工具面体量收紧（builtinTools.ts）**：repo_read_file 默认 2000 行/96KB → 400 行/24KB（分页续读机制不变）；终端返回体 HEAD_TAIL 8000→3000 字符（RING_CAP 是内存环顺手减半，不进历史）。96KB 单结果 ≈3 万 token，一次读吃掉一大块天花板。
+
+**F13.3 压缩校准（compaction.ts + session.ts）**：
+- `tokenCal` 滑动自校准：usageHistory 真实 inputTokens ÷ 轮末 est 当量，EWMA（α=0.25，clamp 0.6-1.6）——est 触发阈值回到真实 80%；
+- `keepTokens`（默认 16k）替代 keepLast=8 固定条数：尾部按真实 token 预算保留（从尾向前累计 est×cal），不再拖着大工具结果抬高重建起点；设置页调参同步（`agentsCompactionPolicy.keepTokens`）；显式传 null 回退条数语义；
+- 摘要转录 cap 按 cal 折算 ~15k 真实 token（clamp 20k-90k 字符）。
+
+**F13.4 共享前缀工程（seams.ts / prompts.ts / manifest）**：
+- PROMPT_SLOT_ORDER 把 context 槽（worktree/分支/AGENTS.md 等任务本地内容）从第 3 位垫底到末位——identity→output 全段跨任务字节一致，新任务冷启动直接命中平台已缓存前缀；AGENTS.md 会话中修改只断尾部；
+- boundary 槽去 `{{worktree.path}}`（移入文末 context 段）；identity 收敛单文本（主/子代理不分叉）；
+- composeSubagentPrompt 改「共享槽（identity/boundary/workflow/tools）+ subagent 角色槽 + 预设 addendum + 锚定行 + 环境尾 + thinking」——同任务各预设子代理共享前缀延伸到 addendum，主↔子共享到 tools；mode 附录含 plan_submit 指引（子代理不可用）不注入。
+
+**F13.5 断点观测与重启治理（tasks.ts / session.ts / UI）**：
+- `SessionFile.frozenCtx` 持久化冻结副本：重启续跑分支一致则复用（跨重启零断点），分支变了才重冻结（必要断点，状态漂移由 cacheGuard 尾部提醒纠偏）——§22.5「重启重冻结」断点消除；
+- UsageEntry `note` 断点注记（压缩后重建/备用模型/重启续跑/模式切换）随条目入账；
+- `computeStats.cacheHitRate` 从最后一条现算改为全量加权 ΣcacheRead/Σinput（与平台口径一致）；新增 `cacheMissTotal`/`cacheBreaks`，用量明细弹层展示未命中 token 与断点轮数。
+
+**回归**：smoke-agent-v4（keepTokens 预算切点/回退语义 + §12 剥离⑤⑥）、smoke-agent-e2e 全绿（E10 字节一致/append-only 断言在槽位重排后依旧成立）。顺带修复 E2 遗留失败：断言要求独立任务 worktree 而默认主 worktree 模式跳过自动 checkpoint——场景内显式 `agentsTaskWorktree: true`。遗留（非本次）：smoke-seams-f「L2 注册循环入册」在 HEAD 基线同样失败，与缓存调优无关。

@@ -6212,6 +6212,8 @@ WARNING: This link could potentially be dangerous`)) {
     on: (method, cb) => U().on(method, cb),
     t: (key, ...args) => U().t(key, ...args),
     navigate: (page) => U().navigate(page),
+    taskPanels: () => [],
+    requestFileFocus: (path) => U().requestFileFocus(path),
     openSettings: (section) => U().openSettings(section),
     toast: (title, body) => U().toast(title, body),
     refresh: () => U().refresh(),

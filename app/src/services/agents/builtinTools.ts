@@ -173,12 +173,12 @@ registerAgentTool({
 registerAgentTool({
   name: "repo_read_file",
   description:
-    "读取 worktree 内文本文件（带行号）。默认从第 1 行读 2000 行 / 96KB；续读传 offsetLine。" +
+    "读取 worktree 内文本文件（带行号）。默认从第 1 行读 400 行 / 24KB；续读传 offsetLine。" +
     "编辑前必须先读本文件（写前读校验）",
   parametersSchema: z.object({
     path: z.string().min(1),
     offsetLine: z.number().int().min(1).optional().describe("起始行（1 起）"),
-    lineCount: z.number().int().min(1).max(2000).optional().describe("读取行数（默认 2000）"),
+    lineCount: z.number().int().min(1).max(2000).optional().describe("读取行数（默认 400，最多 2000）"),
   }),
   permissionClass: "auto",
   source: "builtin",
@@ -209,11 +209,13 @@ registerAgentTool({
     if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
     const total = lines.length;
     const offset = Math.max(1, Number(args.offsetLine ?? 1));
-    const count = Math.min(Number(args.lineCount ?? 2000), 2000);
+    // §22.9 F13.2：默认 400 行/24KB（前 96KB 单结果 ≈3 万 token，一次读就吃掉一大块缓存天花板），
+    // 续读走 offsetLine 分页——工具描述已引导
+    const count = Math.min(Number(args.lineCount ?? 400), 2000);
     const slice = lines.slice(offset - 1, offset - 1 + count);
     let out = "";
     let used = 0;
-    const capChars = 96_000;
+    const capChars = 24_000;
     let shown = 0;
     for (let i = 0; i < slice.length; i++) {
       const line = `${String(offset + i).padStart(6)}\t${slice[i]}`;
@@ -225,7 +227,7 @@ registerAgentTool({
     env.readLog.set(normRel(path.relative(env.worktreePath, abs)), { mtimeMs: st.mtimeMs, size: st.size });
     const tail =
       shown < slice.length
-        ? `…（96KB 截断）\n`
+        ? `…（24KB 截断）\n`
         : "";
     const endLine = offset + shown - 1;
     const note =
@@ -573,8 +575,10 @@ registerAgentTool({
 
 // ================ 命令面（F4） ================
 
-const HEAD_TAIL = 8000;
-const RING_CAP = 64_000;
+// §22.9 F13.2：HEAD_TAIL 是进历史的返回体上限（8k×2 字符 ≈6.4k token/步，直接压缓存天花板），
+// 收到 3k×2；RING_CAP 只是内存环（terminal_poll 可见窗口），顺手减半
+const HEAD_TAIL = 3000;
+const RING_CAP = 32_000;
 
 function headTail(out: string): string {
   if (out.length <= HEAD_TAIL * 2) return out;

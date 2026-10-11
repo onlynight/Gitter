@@ -19,8 +19,11 @@ export type PromptSlot =
 /** L1/L2 公开槽位白名单（identity/boundary/compaction/subagent 为内置/专用槽，不开放声明） */
 export type PromptPublicSlot = Exclude<PromptSlot, "identity" | "boundary" | "compaction" | "subagent">;
 
+// §22.9 F13.4：context 槽（worktree/分支/AGENTS.md 等任务本地内容）物理垫底——
+// 前面 identity→output 全段在所有任务间字节一致，跨任务/跨子代理的公共前缀延伸到工具定义段，
+// 新任务冷启动直接命中平台已缓存的前缀块；AGENTS.md 会话中修改也只断尾部（§22.2 K1 同源教训）。
 export const PROMPT_SLOT_ORDER: PromptSlot[] = [
-  "identity", "context", "workflow", "tools", "skills", "mode", "task", "free", "output",
+  "identity", "boundary", "workflow", "tools", "skills", "mode", "task", "free", "output", "context",
 ];
 
 export interface PromptRenderEnv {
@@ -161,6 +164,10 @@ export interface CompactionInput {
   signal?: AbortSignal;
   threshold?: number;
   keepLast?: number;
+  /** §22.9 F13.3：尾部按真实 token 预算保留（优先于 keepLast 条数语义） */
+  keepTokens?: number | null;
+  /** §22.9 F13.3：est → 真实 token 校准系数（session 侧滑动自校准） */
+  calibration?: number;
 }
 
 export interface CompactionOutput {

@@ -205,6 +205,8 @@ async function main() {
       toolChunks("file_patch", { path: "a.txt", edits: [{ oldString: "world", newString: "WORLD" }] }),
       textChunks("已把 world 改成 WORLD"),
     ]);
+    // checkpoint 断言要求独立任务 worktree（主 worktree 模式不做托管提交，自动 checkpoint 被跳过）
+    env.settings.update({ agentsTaskWorktree: true });
     const record = await env.agents.createTask({ prompt: "把 world 改成 WORLD" });
     await waitFor("E2 turn end", () => env.agents.listTasks()[0]?.state === "awaiting-input");
     check("E2 worktree 文件已修改", fs.readFileSync(path.join(record.worktreePath, "a.txt"), "utf8").includes("WORLD"));

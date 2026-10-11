@@ -223,6 +223,10 @@ export interface AgentContextStats {
   /** 最近一轮输出 token 与生成速度（tok/s） */
   lastOutput?: number;
   tokPerSec?: number;
-  /** 最近一轮缓存命中率（cacheRead / input，0~1） */
+  /** §22.9 F13.5：缓存命中率全量加权（ΣcacheRead / Σinput，与平台口径一致；原为最后一条现算） */
   cacheHitRate?: number;
+  /** 累计未命中输入 token（仅 cacheRead 已知条目；Σinput−ΣcacheRead） */
+  cacheMissTotal?: number;
+  /** 断点轮数（带 note 注记：压缩/换模型/重启续跑/模式切换） */
+  cacheBreaks?: number;
 }

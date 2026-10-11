@@ -118,7 +118,7 @@ export class Bridge {
         }
         const key = this.decryptProfileKey(p.apiKeyProtected);
         // 思考深度：任务/输入台显式值 > 档案默认（添加模型时配置）> medium
-        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking: thinking ?? p.thinking ?? "medium" });
+        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking: thinking ?? p.thinking ?? "medium", stripHistoryReasoning: p.capabilities?.stripHistoryReasoning });
         return r.ok
           ? { ok: true as const, model: r.model, profileRef: p.id, contextWindow: p.capabilities?.contextTokens ?? 128_000 }
           : { ok: false as const, error: r.error };
@@ -137,7 +137,7 @@ export class Bridge {
         const key = this.decryptProfileKey(p.apiKeyProtected);
         // 降级换模型不换思考深度：沿用当前任务档位（输入台显式值优先，其次档案默认）
         const eff = thinking ?? p.thinking ?? "medium";
-        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking: eff });
+        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking: eff, stripHistoryReasoning: p.capabilities?.stripHistoryReasoning });
         return r.ok
           ? { ok: true as const, model: r.model, profileRef: p.id, contextWindow: p.capabilities?.contextTokens ?? 128_000 }
           : { ok: false as const, error: r.error };

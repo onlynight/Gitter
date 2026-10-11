@@ -81,7 +81,7 @@ export class SettingsStore {
       agentsOnExit: "terminate",
       agentRules: [],
       agentsCompaction: "auto",
-      agentsCompactionPolicy: { threshold: 0.8, keepLast: 8 },
+      agentsCompactionPolicy: { threshold: 0.8, keepLast: 8, keepTokens: 16_000 },
       agentsPostTurnHooks: true,
       agentsNotify: true,
       agentsMaxSubagents: 3,

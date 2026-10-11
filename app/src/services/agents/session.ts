@@ -108,6 +108,10 @@ interface LiveSession {
   checkpointNoted?: boolean;
   /** 本轮开始时刻（§20.3.6 turn.completed durationMs） */
   turnStartTs: number;
+  /** §22.9 F13.3：est→真实 token 校准系数（EWMA，滑动自校准；1=未校准） */
+  tokenCal: number;
+  /** §22.9 F13.5：本轮 usage 记录携带的断点注记（压缩/换模型/重启续跑），入账后清空 */
+  turnBreakNote?: string;
 }
 
 const BUILTIN_HARNESS_ID = "builtin/gitter-agent";
@@ -340,6 +344,8 @@ export class AgentSessionManager {
     const existing = this.live.get(args.taskId);
     if (existing && existing.messages.length > sf.messages.length) sf.messages = existing.messages;
     const live = this.ensureLive(record, tt.spec, record.worktreePath, sf.messages, sf);
+    // §22.9 F13.5：应用重启后的首次续跑（内存无 live 且盘上有历史）→ 命中率观测按断点轮记账
+    if (!existing && sf.messages.length > 0) live.turnBreakNote = live.turnBreakNote ?? "重启续跑";
     const mention = this.resolveTaskMentions(record, args.prompt.trim());
     const imgs = await this.ingestAttachments(record, args.attachments);
     const textPart = { type: "text" as const, text: mention.prompt };
@@ -389,6 +395,8 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       contextWindow: 1_000_000, // 手动模式不限预算
       systemEstTokens: live.systemEst,
       model: rr.model,
+      keepTokens: this.deps.settings.current.agentsCompactionPolicy?.keepTokens ?? 16_000,
+      calibration: live.tokenCal,
     });
     if (!result) return { ok: false };
     live.messages.length = 0;
@@ -976,6 +984,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         lastInProgress: null,
         toolFails: new Map(),
         turnStartTs: Date.now(),
+        tokenCal: 1,
       };
       this.live.set(record.taskId, live);
     }
@@ -1017,16 +1026,23 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       }
 
       // §22.4 E2：UI 状态行逐轮刷新；提示词面用会话首冻结副本（前缀稳定——分支/状态不逐轮变化）
+      // §22.9 F13.5：冻结副本持久化（frozenCtx）——重启续跑分支一致则复用盘上副本（跨重启零断点），
+      // 分支变了才重冻结（信息必须更新，属必要断点）；状态漂移由 cacheGuard 尾部提醒纠偏
       const ctx = await collectRepoContext(record.worktreePath);
-      live.turnCtx = live.turnCtx ?? ctx;
+      if (!live.turnCtx) {
+        const saved = live.sessionFile.frozenCtx ?? null;
+        live.turnCtx = saved && saved.branch === ctx.branch ? { branch: saved.branch, statusSummary: saved.statusSummary } : ctx;
+        live.sessionFile.frozenCtx = { branch: live.turnCtx.branch, statusSummary: live.turnCtx.statusSummary };
+      }
       const frozen = live.turnCtx;
       this.emit(record, { type: "status", phase: "editing", summary: `分支 ${ctx.branch ?? "?"} · ${ctx.statusSummary}` });
 
       const mode: PermissionMode = record.permissionMode ?? "default";
       const slotCtx = { worktreePath: record.worktreePath, repoPath: this.repoOrNull(), branch: frozen.branch, statusSummary: frozen.statusSummary, mode, taskTypeId: live.taskType.fullId, isSubtask: false };
       // §14.5/§20.3.2 接缝：内置 agentsMd 采集器 + 插件采集器（易变采集器已退役 → §22.2 K2/K3）；技能清单（F7.5）
+      // §22.9 F13.4：context 槽（含 worktree 路径）物理垫底——共享前缀延伸到最后一个任务本地内容之后
       const contextSections = await runContextCollectors(slotCtx);
-      const contextText = [`- 分支：${frozen.branch ?? "未知"}`, ...contextSections].join("\n");
+      const contextText = [`- worktree：${record.worktreePath}`, `- 分支：${frozen.branch ?? "未知"}`, ...contextSections].join("\n");
       const skills = this.deps.store.skillsOf().map((s) => ({ name: s.name, description: s.description }));
       const skillsText = skills.length > 0
         ? ["可用技能（人类 /skill 或任务模板引用时展开）：", ...skills.map((s) => `- ${s.name}：${s.description}`)].join("\n")
@@ -1042,7 +1058,9 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       });
       live.systemEst = estimateMessagesTokens([{ role: "user", content: system }]);
 
-      // 自动压缩（F7.2；§20.3.3 选择链 taskType.compactor → builtin；数据面调参 threshold/keepLast）
+      // 自动压缩（F7.2；§20.3.3 选择链 taskType.compactor → builtin；数据面调参 threshold/keepLast/keepTokens）
+      // §22.9 F13.3：tokenCal 滑动自校准——usageHistory 真实 inputTokens 回归 est 系数，
+      // 修复 chars/2.5 对代码高估 30-60% 导致的压缩早触发（每次压缩 = 全量缓存断点）
       const compactionMode = this.deps.settings.current.agentsCompaction ?? "auto";
       if (compactionMode === "auto") {
         const compactor = (live.taskType.compactor && getCompactorById(live.taskType.compactor)) || activeCompactor();
@@ -1055,11 +1073,14 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           signal: live.abort.signal,
           threshold: policy.threshold,
           keepLast: policy.keepLast,
+          keepTokens: policy.keepTokens ?? 16_000,
+          calibration: live.tokenCal,
         });
         if (compacted) {
           live.messages.length = 0;
           live.messages.push(...compacted.messages);
           live.sessionFile.compactions.push(compacted.record);
+          live.turnBreakNote = live.turnBreakNote ?? "压缩后重建";
           this.emit(record, {
             type: "log", level: "info",
             text: `上下文已压缩：${compacted.record.removedCount} 条消息 → 摘要（${compacted.record.tokensBefore} → ${compacted.record.tokensAfter} tokens）`,
@@ -1162,7 +1183,15 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       // 原先仅 completed 记账，会话失败率高时 累计输入/输出/速度/缓存命中率 长期「—」
       if (result.usage) {
         this.deps.addUsage(rr.profileRef, result.usage);
-        live.sessionFile.usageHistory.push({ ts: new Date().toISOString(), input: result.usage.input, output: result.usage.output, elapsedMs: result.usage.elapsedMs, cacheRead: result.usage.cacheRead });
+        // §22.9 F13.5：断点轮注记（压缩/换模型/重启续跑/模式切换）随条目入账，命中率观测据此归因
+        live.sessionFile.usageHistory.push({ ts: new Date().toISOString(), input: result.usage.input, output: result.usage.output, elapsedMs: result.usage.elapsedMs, cacheRead: result.usage.cacheRead, note: live.turnBreakNote });
+        live.turnBreakNote = undefined;
+        // §22.9 F13.3：校准 EWMA——真实 input / 轮末 est 当量（多步轮分母含轮内增量，比值偏高由阻尼吸收）
+        const estEnd = estimateMessagesTokens(live.messages) + live.systemEst;
+        if (result.usage.input && result.usage.input >= 200 && estEnd > 0) {
+          const clamped = Math.min(1.6, Math.max(0.6, result.usage.input / estEnd));
+          live.tokenCal = live.tokenCal * 0.75 + clamped * 0.25;
+        }
       }
 
       if (result.outcome === "cancelled") {
@@ -1199,6 +1228,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           live.forceModelRef = alt.profileRef;
           this.emit(record, { type: "log", level: "warn", text: `模型 ${rr.profileRef} 失败（${(result.error ?? "").slice(0, 100)}），自动切换至备用模型 ${alt.profileRef} 继续本轮` });
           live.messages.push({ role: "user", content: wrapReminder(`上一模型调用持续失败，已切换至备用模型 ${alt.profileRef}。请从中断处继续当前任务。`) });
+          live.turnBreakNote = live.turnBreakNote ?? "备用模型"; // §22.9 F13.5：换模型 = 换缓存域，必断
           continue;
         }
         record.state = "failed";
@@ -1248,6 +1278,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           role: "user",
           content: wrapReminder(`计划已获人类批准，请立即开始执行。先用 todo_write 把步骤落成清单，然后逐步执行并更新状态。\n\n${plan}`),
         });
+        live.turnBreakNote = live.turnBreakNote ?? "模式切换"; // §22.9 F13.5：plan→default 工具面/模式附录重建，计划性断点
         humanNote = "计划批准 → 执行轮";
         autoTurns++;
         continue;
@@ -1317,6 +1348,18 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     const last = hist.length > 0 ? hist[hist.length - 1] : undefined;
     const totalInput = hist.reduce((a, e) => a + (e.input ?? 0), 0);
     const totalOutput = hist.reduce((a, e) => a + (e.output ?? 0), 0);
+    // §22.9 F13.5：命中率全量加权（原为最后一条现算，与平台口径不一致易误读）；
+    // miss 只在 cacheRead 已知的条目上累计；断点轮 = 带注记的条目数
+    let totalCacheRead = 0;
+    let knownInput = 0;
+    let breaks = 0;
+    for (const e of hist) {
+      if (e.cacheRead != null && e.input != null) {
+        totalCacheRead += e.cacheRead;
+        knownInput += e.input;
+      }
+      if (e.note) breaks++;
+    }
     return {
       estTokens,
       contextWindow,
@@ -1328,7 +1371,9 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       totalOutput: totalOutput > 0 ? totalOutput : undefined,
       lastOutput: last?.output,
       tokPerSec: last?.output && last.elapsedMs ? Math.max(1, Math.round(last.output / (last.elapsedMs / 1000))) : undefined,
-      cacheHitRate: last?.cacheRead != null && last.input ? Math.min(1, last.cacheRead / last.input) : undefined,
+      cacheHitRate: knownInput > 0 ? Math.min(1, totalCacheRead / knownInput) : undefined,
+      cacheMissTotal: knownInput > 0 ? knownInput - totalCacheRead : undefined,
+      cacheBreaks: breaks > 0 ? breaks : undefined,
     };
   }
 

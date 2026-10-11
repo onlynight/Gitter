@@ -24,6 +24,10 @@ export interface ProviderConfig {
   params?: { temperature?: number; maxOutputTokens?: number };
   /** 思考深度（硬通道）：openai-compatible 端点注入请求体 reasoning_effort；off/undefined 不注入 */
   thinking?: "off" | "low" | "medium" | "high";
+  /** §22.9 F13.1：剥离请求历史中 assistant 消息的 reasoning_content（默认开）。
+   * 思考模型每步 1–8k 的 CoT 回传全是"首现 token"（永 miss 且 DeepSeek 官方要求不回传）；
+   * 剥离发生在每条请求的组装出口，规则全量一致 → 前缀稳定性不破。端点确实需要 CoT 回传时显式关掉。 */
+  stripHistoryReasoning?: boolean;
 }
 
 export type ResolveResult = { ok: true; model: LanguageModel } | { ok: false; error: string };
@@ -43,12 +47,21 @@ export function resolveProfileModel(cfg: ProviderConfig): ResolveResult {
   // 硬通道：请求体注入 reasoning_effort（@ai-sdk/openai-compatible 不透传任意 providerOptions，
   // 用自定义 fetch 改写 JSON 体；仅 openai-compatible 且非 off 时注入，严格端点可设 思考深度=关闭）
   const inject = cfg.thinking && cfg.thinking !== "off";
+  // §22.9 F13.1：默认剥离历史 reasoning_content（与 reasoning_effort 注入共用同一次解析）
+  const stripReasoning = cfg.stripHistoryReasoning !== false;
   const fetchPatched: typeof fetch = async (input, init) => {
-    if (inject && init?.body && typeof init.body === "string") {
+    if ((inject || stripReasoning) && init?.body && typeof init.body === "string") {
       try {
         const j = JSON.parse(init.body);
         if (j && typeof j === "object" && !Array.isArray(j)) {
-          j.reasoning_effort = cfg.thinking;
+          if (inject) j.reasoning_effort = cfg.thinking;
+          if (stripReasoning && Array.isArray(j.messages)) {
+            for (const m of j.messages) {
+              if (m && typeof m === "object" && m.role === "assistant" && "reasoning_content" in m) {
+                delete m.reasoning_content;
+              }
+            }
+          }
           init = { ...init, body: JSON.stringify(j) };
         }
       } catch {

@@ -38,6 +38,8 @@ export interface UsageEntry {
   elapsedMs?: number;
   /** 本轮命中缓存的输入 token 数（cache_hit_rate = cacheRead / input） */
   cacheRead?: number;
+  /** §22.9 F13.5：断点注记（压缩后重建/备用模型/重启续跑/模式切换）——该轮前缀已知断裂，命中率归因用 */
+  note?: string;
 }
 
 export interface SessionFile {
@@ -46,6 +48,13 @@ export interface SessionFile {
   messages: ModelMessage[];
   compactions: CompactionRecord[];
   usageHistory: UsageEntry[];
+  /** §22.9 F13.5：会话首冻结副本持久化——重启续跑分支一致时复用，跨重启不断前缀 */
+  frozenCtx?: FrozenContext | null;
+}
+
+export interface FrozenContext {
+  branch: string | null;
+  statusSummary: string;
 }
 
 // ---- 任务账本（<repo>/.git/gitter/agent-tasks.json）----
@@ -140,6 +149,7 @@ export function loadSessionFile(repoDir: string, taskId: string): SessionFile {
       messages: Array.isArray(raw.messages) ? (raw.messages as ModelMessage[]) : [],
       compactions: Array.isArray(raw.compactions) ? raw.compactions : [],
       usageHistory: Array.isArray(raw.usageHistory) ? raw.usageHistory : [],
+      frozenCtx: raw.frozenCtx && typeof raw.frozenCtx === "object" && "branch" in raw.frozenCtx ? raw.frozenCtx : null,
     };
     if (Array.isArray(raw.events) && raw.events.length > 0 && !fs.existsSync(journalDirOf(repoDir, taskId))) {
       appendJournalFile(repoDir, taskId, raw.events as SessionJournalEntry[]);

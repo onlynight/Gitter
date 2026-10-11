@@ -35,12 +35,43 @@ export function budgetOf(contextWindow: number, reservedOutput = 8192): number {
 }
 
 /**
- * 找压缩切点：保留最近 keepLast 条；从候选切点向后找首个 user 边界；
- * 找不到则回退全文首个 user 边界（保底切在合法块边界）。返回被压缩段末索引（不含）。
+ * 找压缩切点。尾部保留两种语义：
+ * - keepTokens（§22.9 F13.3，优先）：按真实 token 预算从尾向前累计（est × calibration），
+ *   预算内能留多少留多少（1..len-1 条）——避免 keepLast=8 固定条数拖着大工具结果、压缩后起点过高；
+ * - keepLast：固定条数（旧语义，显式传 keepTokens: null 时回退）。
+ * 切点从候选向后找首个 user 边界；找不到回退全文首个 user 边界。返回被压缩段末索引（不含）。
  */
-export function findCompactionCut(messages: ModelMessage[], keepLast = 8): number | null {
-  if (messages.length <= keepLast) return null;
-  const candidate = messages.length - keepLast;
+export interface CutOptions {
+  keepLast?: number;
+  keepTokens?: number | null;
+  /** est → 真实 token 校准系数（session 侧 usageHistory 滑动比值；缺省 1） */
+  calibration?: number;
+}
+
+export function findCompactionCut(messages: ModelMessage[], opts: CutOptions | number = {}): number | null {
+  const o: CutOptions = typeof opts === "number" ? { keepLast: opts } : opts;
+  const cal = o.calibration ?? 1;
+  if (messages.length < 2) return null;
+  let keepCount: number;
+  if (o.keepTokens != null) {
+    const estOf = (m: ModelMessage) => estimateMessagesTokens([m]) * cal;
+    let total = 0;
+    let n = 0;
+    while (n < messages.length) {
+      const cost = estOf(messages[messages.length - 1 - n]);
+      if (total + cost > o.keepTokens) break;
+      total += cost;
+      n++;
+    }
+    if (n >= messages.length) return null; // 全史在预算内：无可压缩
+    if (n === 0) n = 1; // 末条自身超预算：至少保留末条
+    keepCount = n;
+  } else {
+    keepCount = o.keepLast ?? 8;
+    if (messages.length <= keepCount) return null;
+  }
+  const candidate = messages.length - keepCount;
+  if (candidate < 1) return null;
   for (let i = candidate; i < messages.length; i++) {
     if (messages[i].role === "user") return i;
   }
@@ -90,6 +121,10 @@ export interface CompactOptions {
   /** 0.8 默认触发阈值 */
   threshold?: number;
   keepLast?: number;
+  /** §22.9 F13.3：尾部保留按真实 token 预算（设置项；null = 回退 keepLast 条数语义） */
+  keepTokens?: number | null;
+  /** §22.9 F13.3：est → 真实 token 校准系数（session 侧滑动自校准；修复 chars/2.5 对代码高估 30-60% 致压缩早触发） */
+  calibration?: number;
 }
 
 export interface CompactResult {
@@ -97,18 +132,28 @@ export interface CompactResult {
   record: CompactionRecord;
 }
 
+/** 摘要转录 cap：目标 ~15k 真实 token，按校准系数折回 est 字符（clamp 20k-90k）。 */
+function transcriptCapChars(calibration: number): number {
+  return Math.min(90_000, Math.max(20_000, Math.round((15_000 * 2.5) / calibration)));
+}
+
 /** 预算检查 + 压缩；未触发/失败返回 null（绝不因压缩失败中断任务）。 */
 export async function maybeCompact(opts: CompactOptions): Promise<CompactResult | null> {
   const budget = budgetOf(opts.contextWindow);
-  const est = estimateMessagesTokens(opts.messages) + opts.systemEstTokens;
+  const cal = opts.calibration ?? 1;
+  const est = (estimateMessagesTokens(opts.messages) + opts.systemEstTokens) * cal;
   const threshold = opts.threshold ?? 0.8;
   if (est <= budget * threshold) return null;
 
-  const cut = findCompactionCut(opts.messages, opts.keepLast ?? 8);
+  const cut = findCompactionCut(opts.messages, {
+    keepLast: opts.keepLast,
+    keepTokens: opts.keepTokens,
+    calibration: cal,
+  });
   if (cut === null || cut < 1) return null;
 
   try {
-    const transcript = transcriptOf(opts.messages.slice(0, cut));
+    const transcript = transcriptOf(opts.messages.slice(0, cut), transcriptCapChars(cal));
     const r = await generateText({
       model: opts.model,
       system: await compactionSystemPromptText(),
@@ -129,8 +174,8 @@ export async function maybeCompact(opts: CompactOptions): Promise<CompactResult 
       record: {
         ts: new Date().toISOString(),
         removedCount: cut,
-        tokensBefore: est,
-        tokensAfter: estimateMessagesTokens(next) + opts.systemEstTokens,
+        tokensBefore: Math.round(est),
+        tokensAfter: Math.round((estimateMessagesTokens(next) + opts.systemEstTokens) * cal),
         summary: summary.slice(0, 2000),
       },
     };
