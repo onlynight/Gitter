@@ -202,7 +202,8 @@ export function SettingsPage() {
           const p2 = pkgById.get(r.packageId);
           if (!p2) continue;
           consumed.add(p2.id);
-          mountees.push({ pkg: p2, note: `挂载：时间线渲染器 ×${r.renderers} · 输入台 provider ×${r.providers}（${tierLabel(r.tier)}层）` });
+          const panelNote = r.panels > 0 ? ` · 分栏面板 ×${r.panels}` : "";
+          mountees.push({ pkg: p2, note: `挂载：时间线渲染器 ×${r.renderers} · 输入台 provider ×${r.providers}${panelNote}（${tierLabel(r.tier)}层）` });
         }
         for (const [pid, names] of cmdsByPkg) {
           if (pid === pg.packageId) continue;
@@ -1060,14 +1061,15 @@ export function SettingsPage() {
                     const v = Math.min(95, Math.max(50, Number(e.target.value) || 80)) / 100;
                     void patch({ agentsCompactionPolicy: { ...(s.agentsCompactionPolicy ?? {}), threshold: v } });
                   }} />
-                % · 保留最近
-                <input className="input" style={{ width: 70, marginLeft: 4 }} type="number" min={4} max={32}
-                  value={s.agentsCompactionPolicy?.keepLast ?? 8}
+                % · 尾部保留
+                <input className="input" style={{ width: 70, marginLeft: 4 }} type="number" min={4} max={64}
+                  title="压缩后保留尾部的真实 token 预算（按预算而非固定条数，避免拖着大工具结果抬高重建起点）"
+                  value={Math.round((s.agentsCompactionPolicy?.keepTokens ?? 16000) / 1000)}
                   onChange={(e) => {
-                    const v = Math.min(32, Math.max(4, Number(e.target.value) || 8));
-                    void patch({ agentsCompactionPolicy: { ...(s.agentsCompactionPolicy ?? {}), keepLast: v } });
+                    const v = Math.min(64, Math.max(4, Number(e.target.value) || 16));
+                    void patch({ agentsCompactionPolicy: { ...(s.agentsCompactionPolicy ?? {}), keepTokens: v * 1000 } });
                   }} />
-                条
+                k tok
               </span>
             </div>
             <div className="settings-row">

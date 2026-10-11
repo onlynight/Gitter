@@ -247,7 +247,7 @@ export interface SettingsDTO {
   /** 上下文压缩策略（F7） */
   agentsCompaction: "auto" | "manual" | "off";
   /** 压缩数据面调参（§20.3.3） */
-  agentsCompactionPolicy: { threshold?: number; keepLast?: number };
+  agentsCompactionPolicy: { threshold?: number; keepLast?: number; keepTokens?: number };
   /** post-turn 钩子总开关（§20.3.6） */
   agentsPostTurnHooks: boolean;
   /** D5 任务完成 OS 通知 */
@@ -464,7 +464,12 @@ export type AgentContextStatsDTO = {
   totalOutput?: number;
   lastOutput?: number;
   tokPerSec?: number;
+  /** 全量加权缓存命中率（ΣcacheRead/Σinput，与平台口径一致） */
   cacheHitRate?: number;
+  /** 累计未命中输入 token */
+  cacheMissTotal?: number;
+  /** 断点轮数（压缩/换模型/重启续跑/模式切换） */
+  cacheBreaks?: number;
 };
 
 export type AgentPermissionPayloadDTO = {
