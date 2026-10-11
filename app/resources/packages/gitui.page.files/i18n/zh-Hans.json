@@ -68,5 +68,14 @@
   "Editor_WelcomeOpen": "打开文件",
   "Editor_WelcomeTree": "文件树",
   "Editor_WelcomeChanges": "查看 Git 变更",
-  "Editor_WelcomeExternal": "在外部编辑器中打开项目"
+  "Editor_WelcomeExternal": "在外部编辑器中打开项目",
+  "Files_ImgFailed": "图片加载失败",
+  "Files_ImgTooLarge": "图片超过 50MB，无法预览",
+  "Files_Retry": "重试",
+  "Files_ExternalOpen": "用外部程序打开",
+  "Files_ZoomIn": "放大",
+  "Files_ZoomOut": "缩小",
+  "Files_ZoomReset": "重置缩放",
+  "Editor_PreviewMode": "预览",
+  "Editor_EditSource": "编辑源文件"
 }

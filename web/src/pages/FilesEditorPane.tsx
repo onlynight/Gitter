@@ -16,6 +16,7 @@ import { FilesMonacoEditor } from "./FilesMonacoEditor";
 import { createTextModel, disposeTextModel, languageForPath, languageLabel } from "./filesMonaco";
 import { documentOpened, documentChanged, documentClosed } from "./filesLsp";
 import { viewerForPath } from "./filesViewers";
+import { isMdPath } from "./externalPreview";
 
 type MonacoModel = import("monaco-editor").editor.ITextModel;
 
@@ -81,6 +82,13 @@ export function EditorPane(props: {
 
   // 最后一个就绪的 model：新文件加载期间保留其画面，避免 Monaco 卸载重挂造成的闪烁
   const lastReady = useRef<{ path: string; model: MonacoModel } | null>(null);
+
+  // 文本模式覆盖：查看器接管的路径（md 预览等）被用户要求回 Monaco 编辑——
+  // 覆盖登记后画布走文本流，预览 HUD 可切回。ref 镜像供 loadFile 守卫同步读。
+  const [textMode, setTextMode] = useState<Set<string>>(new Set());
+  const textModeRef = useRef<Set<string>>(textMode);
+  textModeRef.current = textMode;
+
   const statusOf = useCallback(
     (path: string | null) => (path ? props.statusByPath[path] ?? null : null),
     [props.statusByPath],
@@ -93,9 +101,10 @@ export function EditorPane(props: {
   const theme = useAppState().theme;
   const editorBg = theme?.tokens?.Base ?? "var(--c-base)";
 
-  // 加载文件内容（画布查看器接管的路径——office 预览等——不走文本流，无 model/脏态）
+  // 加载文件内容（画布查看器接管的路径——office 预览等——不走文本流，无 model/脏态；
+  // 被文本模式覆盖的查看器路径除外）
   const loadFile = useCallback(async (path: string) => {
-    if (viewerForPath(path) || models.current.has(path)) return; // 已加载（keep-alive）
+    if ((viewerForPath(path) && !textModeRef.current.has(path)) || models.current.has(path)) return; // 已加载（keep-alive）
 
     setEditors((prev) => {
       const next = new Map(prev);
@@ -182,6 +191,24 @@ export function EditorPane(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t]);
 
+  // 查看器回退卡请求切文本：登记覆盖并补加载 model（查看器路径平时不走文本流；
+  // ref 先行更新——loadFile 守卫读的是 ref 而非本轮 state）
+  const requestTextMode = useCallback((path: string) => {
+    if (!textModeRef.current.has(path)) {
+      const next = new Set(textModeRef.current);
+      next.add(path);
+      textModeRef.current = next;
+      setTextMode(next);
+    }
+    void loadFile(path);
+  }, [loadFile]);
+  const exitTextMode = useCallback((path: string) => {
+    const next = new Set(textModeRef.current);
+    next.delete(path);
+    textModeRef.current = next;
+    setTextMode(next);
+  }, []);
+
   // 保存文件（带 mtime 冲突检测）
   const doSave = useCallback(async (path: string, overwrite = false) => {
     const editor = editors.get(path);
@@ -265,6 +292,9 @@ export function EditorPane(props: {
     documentClosed(path);
     disposeTextModel(models.current.get(path) ?? null);
     models.current.delete(path);
+    // 文本模式覆盖随标签消亡：重开该文件恢复默认（查看器/预览优先）
+    const next = new Set(textModeRef.current);
+    if (next.delete(path)) { textModeRef.current = next; setTextMode(next); }
     props.onCloseTab(path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -369,8 +399,9 @@ export function EditorPane(props: {
 
   const activeEditor = props.activeTab ? editors.get(props.activeTab) : null;
   const activeModel = props.activeTab ? (models.current.get(props.activeTab) ?? null) : null;
-  // 画布查看器（office 预览等）接管：命中即替换 Monaco 画布，标签条/面包屑/页脚不变
-  const ActiveViewer = props.activeTab ? viewerForPath(props.activeTab) : null;
+  // 画布查看器（office 预览等）接管：命中即替换 Monaco 画布，标签条/面包屑/页脚不变；
+  // 文本模式覆盖的路径（md 切回编辑）不接管
+  const ActiveViewer = props.activeTab && !textMode.has(props.activeTab) ? viewerForPath(props.activeTab) : null;
   const crumbs = props.activeTab ? props.activeTab.split("/") : [];
   const lang = props.activeTab ? languageLabel(languageForPath(props.activeTab)) : "";
 
@@ -415,7 +446,7 @@ export function EditorPane(props: {
         </div>
       </div>
 
-      {/* 面包屑：路径段（点击 → 树中揭示） */}
+      {/* 面包屑：路径段（点击 → 树中揭示）；最右侧 = md 预览/源码切换（图标互斥） */}
       <div className="edcrumbs" style={{ background: editorBg }}>
         {crumbs.map((seg, i) => {
           const p = crumbs.slice(0, i + 1).join("/");
@@ -430,6 +461,23 @@ export function EditorPane(props: {
             </span>
           );
         })}
+        <div className="edcrumbs-acts">
+          {props.activeTab && textMode.has(props.activeTab) && viewerForPath(props.activeTab) ? (
+            <button className="files-ibtn" title={t("Editor_PreviewMode")} onClick={() => exitTextMode(props.activeTab!)}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M1.3 8C2.2 5.9 4.8 3.5 8 3.5S13.8 5.9 14.7 8c-.9 2.1-3.5 4.5-6.7 4.5S2.2 10.1 1.3 8Z" stroke="currentColor" strokeWidth="1.2" />
+                <circle cx="8" cy="8" r="1.9" stroke="currentColor" strokeWidth="1.2" />
+              </svg>
+            </button>
+          ) : props.activeTab && !textMode.has(props.activeTab) && isMdPath(props.activeTab) ? (
+            <button className="files-ibtn" title={t("Editor_EditSource")} onClick={() => requestTextMode(props.activeTab!)}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M11.3 2.1a1.4 1.4 0 0 1 2 2L6 11.4l-2.8.8.8-2.8 7.3-7.3Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                <path d="M2.5 14h11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* 编辑区：Monaco 实例常驻（新文件加载期保留上一个画面 + Loading 覆盖层，
@@ -437,7 +485,11 @@ export function EditorPane(props: {
           画布查看器（office 预览）命中时接管整个画布。 */}
       <div style={{ flex: 1, overflow: "hidden", position: "relative", minHeight: 0 }}>
         {ActiveViewer && props.activeTab ? (
-          <ActiveViewer key={props.activeTab} path={props.activeTab} />
+          <ActiveViewer
+            key={props.activeTab}
+            path={props.activeTab}
+            onEditText={requestTextMode}
+          />
         ) : activeEditor && activeEditor.binary ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 20, textAlign: "center", opacity: 0.7 }}>{t("Editor_ErrorBinary")}</div>
         ) : activeEditor && activeEditor.error && !activeEditor.content ? (

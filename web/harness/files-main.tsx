@@ -1,8 +1,8 @@
 /**
  * Files 页视觉验收 harness（dev only, 不随应用发布）：
  * stub window.GITTER_UI / window.GITTER_KIT（与宿主注入面同构）+ mock RPC
- * （repo.tree / file.content / file.write / shell.*），装载构建产物
- * gitui.page.files/page.js（Monaco 已整包内联，无需额外 stub）。
+ * （repo.tree / file.content / file.write / file.stat / file.readBinary / shell.*），
+ * 装载构建产物 gitui.page.files/page.js（Monaco 已整包内联，无需额外 stub）。
  *
  * 关键 gap 补齐（旧 P2 计划 5.2）：notifyRepoChanged 实现为 repoChangedTick 递增
  * + 快照整体替换 + 订阅者通知（React #185 稳定性约束），让树刷新链路在 harness 可测。
@@ -76,6 +76,9 @@ const FILES: Record<string, string> = {
 };
 const MTIMES = new Map<string, number>(Object.keys(FILES).map((p) => [p, 1728460000000 + p.length * 37]));
 const TREE_ENTRIES = [
+  { path: "README.md", isDir: false, status: "A", touchedByAgent: false },
+  { path: "assets", isDir: true, status: null, touchedByAgent: false },
+  { path: "assets/banner.png", isDir: false, status: "?", touchedByAgent: false },
   { path: "src", isDir: true, status: null, touchedByAgent: false },
   { path: "src/mod0", isDir: true, status: null, touchedByAgent: false },
   { path: "src/mod1", isDir: true, status: null, touchedByAgent: false },
@@ -271,10 +274,26 @@ const TREE_ENTRIES = [
   { path: "src/mod9/file177.ts", isDir: false, status: null, touchedByAgent: false },
   { path: "src/mod10/file178.ts", isDir: false, status: null, touchedByAgent: false },
   { path: "src/mod11/file179.ts", isDir: false, status: null, touchedByAgent: false },
-  { path: "README.md", isDir: false, status: "A", touchedByAgent: false },
   { path: "package.json", isDir: false, status: "?", touchedByAgent: false },
 ];
 const SETTINGS: Record<string, unknown> = { editorAutoSave: true, language: "zh-Hans" };
+
+// 图片预览 fixture：canvas 现画一张 320×200 非方形 PNG（右下角透明，验证棋盘格背板
+// 与「宽高比不变形」——方形 mock 图看不出比例 bug）
+const IMG_PATH = "assets/banner.png";const IMAGE_PNG_B64 = (() => {
+  const c = document.createElement("canvas");
+  c.width = 320; c.height = 200;
+  const g = c.getContext("2d")!;
+  const grad = g.createLinearGradient(0, 0, 320, 200);
+  grad.addColorStop(0, "#6BABF5"); grad.addColorStop(1, "#E3B341");
+  g.fillStyle = grad; g.fillRect(0, 0, 320, 200);
+  g.fillStyle = "#14161B";
+  for (let i = 40; i < 320; i += 80) g.fillRect(i, 60, 40, 40); // 参照方块列
+  g.strokeStyle = "#F0655A"; g.lineWidth = 6;
+  g.strokeRect(10, 10, 300, 180); // 边框参照（缩放后应仍是矩形，不得拉变形）
+  g.clearRect(240, 120, 80, 80); // 透明角 → 棋盘格透出
+  return c.toDataURL("image/png").slice("data:image/png;base64,".length);
+})();
 
 let lastWritten: { path: string; content: string } | null = null;
 
@@ -282,6 +301,43 @@ function mockRpc(method: string, params?: Record<string, unknown>): unknown {
   switch (method) {
     case "repo.tree":
       return { entries: TREE_ENTRIES, hasMore: false };
+    case "file.stat":
+      return String(params?.path ?? "") === IMG_PATH
+        ? { size: IMAGE_PNG_B64.length * 0.75 | 0, mtime: 1728460000000 }
+        : null;
+    case "file.readBinary":
+      return String(params?.path ?? "") === IMG_PATH
+        ? { base64: IMAGE_PNG_B64, size: IMAGE_PNG_B64.length * 0.75 | 0, truncated: false }
+        : null;
+    case "file.preview": {
+      // 模拟外部 L2 插件的 provider 形态（com.gitter.markdown-preview 装载后的返回）
+      const p = String(params?.path ?? "");
+      if (!/\.md$/i.test(p)) return null;
+      return {
+        kind: "html",
+        content: "<h1>demo 仓库</h1><p>外部 <b>markdown-preview</b> 插件渲染（harness mock）。</p>"
+          + "<ul><li>列表项一</li><li>列表项 <code>code</code></li></ul>"
+          + "<pre><code class=\"language-ts\">const greeting = \"hello 世界\";\nfunction add(a: number, b: number): number {\n  return a + b; // 求和\n}\n</code></pre>"
+          + "<pre><code>无语言标注块（plain，不走高亮）</code></pre>",
+      };
+    }
+    case "highlight.snippet": {
+      // 模拟 TextMate 返回形态：按行 TokenRun（关键词/字符串/注释三色，验证渲染端注入链路）
+      const code = String(params?.code ?? "");
+      const syntaxColors = { keyword: "#C792EA", string: "#C3E88D", comment: "#5C6773" };
+      const lines = code.split("\n").map((line) => {
+        const runs: { start: number; end: number; style: string }[] = [];
+        const kw = /\b(const|function|return|import|export|from)\b/g;
+        let m: RegExpExecArray | null;
+        while ((m = kw.exec(line)) !== null) runs.push({ start: m.index, end: m.index + m[0].length, style: "keyword" });
+        const str = /"[^"]*"/g;
+        while ((m = str.exec(line)) !== null) runs.push({ start: m.index, end: m.index + m[0].length, style: "string" });
+        const cm = line.indexOf("//");
+        if (cm >= 0) runs.push({ start: cm, end: line.length, style: "comment" });
+        return runs.sort((a, b) => a.start - b.start);
+      });
+      return { language: "typescript", lines, syntaxColors };
+    }
     case "file.content": {
       const p = String(params?.path ?? "");
       const content = FILES[p];
@@ -368,6 +424,15 @@ const I18N: Record<string, string> = {
   Editor_TabCloseRight: "关闭右侧标签",
   Editor_TabCloseAll: "关闭所有",
   Editor_KeptDirty: "{0} 个未保存标签已保留",
+  Files_ImgFailed: "图片加载失败",
+  Files_ImgTooLarge: "图片超过 50MB，无法预览",
+  Files_Retry: "重试",
+  Files_ExternalOpen: "用外部程序打开",
+  Files_ZoomIn: "放大",
+  Files_ZoomOut: "缩小",
+  Files_ZoomReset: "重置缩放",
+  Editor_PreviewMode: "预览",
+  Editor_EditSource: "编辑源文件",
   Common_Cancel: "取消",
   Common_Close: "关闭",
   Common_Choose: "选择",
@@ -460,6 +525,15 @@ function replaceState(patch: Record<string, unknown>) {
 };
 
 applyTheme("dark");
+
+// bridge/client（window.gitter）适配：preload 同构桩——invoke 走 mockRpc（外部预览
+// externalPreview.tsx 等走桥客户端的模块在 harness 内可用）
+(window as any).gitter = {
+  invoke: async (method: string, params?: unknown) => ({ ok: true as const, data: await Promise.resolve(mockRpc(method, params)) }),
+  onEvent: () => () => {},
+  winAction: () => {},
+  isMaximized: async () => false,
+};
 
 // ---------- 装载构建产物并挂载 ----------
 await import("../../app/resources/packages/gitui.page.files/page.js");
