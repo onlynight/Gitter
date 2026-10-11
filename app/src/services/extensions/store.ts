@@ -34,7 +34,7 @@ interface Entry extends PackageRecord {
 const ALL_KINDS = [
   "theme", "grammar", "commands", "configuration",
   "menus", "keybindings", "terminalProfiles", "safetyRules",
-  "skills", "mcpServers", "emptyHints", "pages",
+  "skills", "mcpServers", "emptyHints", "pages", "libraries",
   "harness", "models", "taskTypes",
   "agentTools", "promptSections", "subagentPresets",
   "contextFiles", "commandRiskRules", "agentPermissionRules",
@@ -152,6 +152,7 @@ export class PackageStore {
     if (c.mcpServers.length) kinds.push("mcpServers");
     if (c.emptyHints.length) kinds.push("emptyHints");
     if (c.pages.length) kinds.push("pages");
+    if (c.libraries.length) kinds.push("libraries");
     if (c.agentTools.length) kinds.push("agentTools");
     if (c.promptSections.length) kinds.push("promptSections");
     if (c.subagentPresets.length) kinds.push("subagentPresets");
@@ -359,19 +360,56 @@ export class PackageStore {
   }
 
   /** 空状态提示包（emptyHints 接缝，E 阶段收尾）：按插槽返回追加文案。 */
+  /** 库贡献索引（GITTER_LIBS 机制）：lib id → 提供方解析。
+   *  D1 裁决：v1 库提供方限内置包（用户包 contributes.libraries 忽略）；
+   *  libraries kind 被单独停用的包不参与解析。 */
+  private libraryIndex(): Map<string, { packageId: string; version: string; entryAbs: string; global: string }> {
+    const out = new Map<string, { packageId: string; version: string; entryAbs: string; global: string }>();
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest) continue;
+      if (!e.isBuiltIn) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.libraries === false) continue;
+      for (const lib of e.manifest.contributes.libraries) {
+        out.set(lib.id, {
+          packageId: e.manifest.id,
+          version: lib.version,
+          entryAbs: path.join(e.dir, lib.entry),
+          global: lib.global,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** 库贡献列表（设置页展示 / 未来 RPC 面）。 */
+  librariesOf(): { packageId: string; id: string; version: string; entryAbs: string; global: string }[] {
+    return [...this.libraryIndex().entries()].map(([id, v]) => ({ id, ...v }));
+  }
+
   /** 渲染层页面贡献（pages 接缝，U1）：装载由渲染层 loader 执行。
-   * 内置包页面恒返回（信任随应用分发）；用户包页面由 bridge 按 allowCodePlugins 门过滤（R0/A3）。 */
+   * 内置包页面恒返回（信任随应用分发）；用户包页面由 bridge 按 allowCodePlugins 门过滤（R0/A3）。
+   * dependencies = 依赖库解析结果（loader 按序注入：required 库全部 ok 才注入页面 entry，
+   * required:false 可选库缺席只降级不阻塞）。 */
   pagesOf(): {
     packageId: string; id: string; slot: string; title: string;
     entryAbs: string; permissions: string[]; styles: string[]; lazy: boolean; isBuiltIn: boolean;
     icon: string | null; svg: string | null;
     /** manifest.contributes.pages[].docs（lang → 包内相对路径）原样透出；渲染层按语言选译读文件 */
     docs: Record<string, string> | null;
+    dependencies: {
+      lib: string; packageId: string | null; entryAbs: string | null; version: string | null; global: string | null;
+      ok: boolean; reason: string | null; required: boolean;
+    }[];
   }[] {
+    const libIndex = this.libraryIndex();
     const out: {
       packageId: string; id: string; slot: string; title: string;
       entryAbs: string; permissions: string[]; styles: string[]; lazy: boolean; isBuiltIn: boolean;
       icon: string | null; svg: string | null; docs: Record<string, string> | null;
+      dependencies: {
+        lib: string; packageId: string | null; entryAbs: string | null; version: string | null; global: string | null;
+        ok: boolean; reason: string | null; required: boolean;
+      }[];
     }[] = [];
     for (const e of this.scanAll()) {
       if (e.state !== "active" || !e.manifest) continue;
@@ -390,6 +428,23 @@ export class PackageStore {
           icon: pg.icon,
           svg: pg.svg,
           docs: pg.docs ? { ...pg.docs } : null,
+          dependencies: (pg.dependencies ?? []).map((d) => {
+            const required = d.required ?? true;
+            const hit = libIndex.get(d.lib);
+            if (!hit || (d.package !== null && hit.packageId !== d.package)) {
+              return {
+                lib: d.lib, packageId: hit?.packageId ?? d.package ?? null, entryAbs: null, version: null, global: null,
+                ok: false, reason: `依赖库 ${d.lib} 无可用提供方（${d.package ?? "任意内置包"} 未启用或不提供该库）`, required,
+              };
+            }
+            if (d.semver !== null && !semver.satisfies(hit.version, d.semver, { includePrerelease: true })) {
+              return {
+                lib: d.lib, packageId: hit.packageId, entryAbs: null, version: hit.version, global: hit.global,
+                ok: false, reason: `依赖库 ${d.lib} 版本 ${hit.version}（${hit.packageId}）不满足声明区间 ${d.semver}`, required,
+              };
+            }
+            return { lib: d.lib, packageId: hit.packageId, entryAbs: hit.entryAbs, version: hit.version, global: hit.global, ok: true, reason: null, required };
+          }),
         });
       }
     }
@@ -421,6 +476,32 @@ export class PackageStore {
     for (const [slot, providers] of activeProviders) {
       if (!providers.includes(packageId)) continue;
       if (providers.length === 1) out.push(slot);
+    }
+    return out;
+  }
+
+  /**
+   * 依库停用守卫（S1，D4 的库扩展）：假想 packageId 的库贡献全部失效
+   * （整包停用，或 libraries kind 单独停用）后，**其他**已启用页面包将失去的依赖库列表。
+   * 页面对自身包库的依赖（office→officeview）不算——包停用时页面与库一起消失，无孤儿；
+   * required:false 的可选依赖不算——可选库缺席只降级能力，不构成阻塞依赖。
+   * 返回项 = { pagePackageId, slot, lib }；非空 = bridge 应拒绝并以此作为原因。纯函数，供冒烟直测。
+   */
+  dependentPagesAfterDisable(packageId: string): { pagePackageId: string; slot: string; lib: string }[] {
+    const out: { pagePackageId: string; slot: string; lib: string }[] = [];
+    const libProviders = this.libraryIndex(); // 当前活跃（目标包未停时）的库索引
+    for (const e of this.scanAll()) {
+      if (e.state !== "active" || !e.manifest || e.manifest.id === packageId) continue;
+      if (this.ledgerOf()[e.manifest.id]?.kinds?.pages === false) continue;
+      for (const pg of e.manifest.contributes.pages) {
+        for (const d of pg.dependencies ?? []) {
+          if (d.required === false) continue;
+          if (d.package !== null && d.package !== packageId) continue;
+          const hit = libProviders.get(d.lib);
+          if (!hit || hit.packageId !== packageId) continue;
+          out.push({ pagePackageId: e.manifest.id, slot: pg.slot ?? `ext.${e.manifest.id}.${pg.id}`, lib: d.lib });
+        }
+      }
     }
     return out;
   }

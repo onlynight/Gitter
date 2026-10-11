@@ -3,7 +3,9 @@
  * a) checkCallerAccess 权限闭环（R0/A1）：声明 permissions 参与 __caller 强制、缺省回退 DEFAULT_PAGE_SCOPES
  * b) pagesOf 形状（R0-2/R0-7）：slot（显式与缺省）/styles/lazy/isBuiltIn
  * c) 停用守卫（R0-3/D4）：soleProviderSlotsAfterDisable——有替换者放行、最后提供者拦截
- * d) 静态守卫：bridge 门分离（内置页面包免 allowCodePlugins）+ extensions.changed 热刷新 + sdk __caller 携带
+ * e) 库机制（GITTER_LIBS，页面包拆分方案 S1）：依赖解析/semver/提供方 D1/依库停用守卫
+ * d) 静态守卫：bridge 门分离（内置页面包免 allowCodePlugins）+ extensions.changed 热刷新
+ *    + sdk __caller 携带 + loader 库先行装载序
  * 运行：npm run build && node dist/smoke-ui-runtime.js
  */
 import * as fs from "fs";
@@ -29,7 +31,7 @@ function writePagePackage(
   root: string,
   dirName: string,
   id: string,
-  page: { id: string; slot?: string; permissions?: string[]; styles?: string[]; lazy?: boolean },
+  page: { id: string; slot?: string; permissions?: string[]; styles?: string[]; lazy?: boolean; dependencies?: { lib: string; package?: string; semver?: string; required?: boolean }[] },
 ): void {
   const dir = path.join(root, dirName);
   fs.mkdirSync(dir, { recursive: true });
@@ -47,6 +49,7 @@ function writePagePackage(
         ...(page.permissions ? { permissions: page.permissions } : {}),
         ...(page.styles ? { styles: page.styles } : {}),
         ...(page.lazy !== undefined ? { lazy: page.lazy } : {}),
+        ...(page.dependencies ? { dependencies: page.dependencies } : {}),
       }],
     },
   };
@@ -56,6 +59,28 @@ function writePagePackage(
 
 function makeStore(builtinRoot: string, userRoot: string, ledger: Record<string, { enabled?: boolean; kinds?: Record<string, boolean> }> = {}): PackageStore {
   return new PackageStore([builtinRoot], [userRoot], "0.1.0", () => ledger);
+}
+
+/** 造一个最小库包（libraries 贡献 + entry 占位）。 */
+function writeLibPackage(
+  root: string,
+  dirName: string,
+  id: string,
+  libs: { id: string; version: string; entry?: string; global?: string }[],
+): void {
+  const dir = path.join(root, dirName);
+  fs.mkdirSync(dir, { recursive: true });
+  const manifest = {
+    schemaVersion: 2,
+    id,
+    name: id,
+    version: "1.0.0",
+    contributes: {
+      libraries: libs.map((l) => ({ id: l.id, version: l.version, entry: l.entry ?? "lib.js", global: l.global ?? `GITTER_LIBS.${l.id}` })),
+    },
+  };
+  fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest));
+  for (const l of libs) fs.writeFileSync(path.join(dir, l.entry ?? "lib.js"), "// lib entry");
 }
 
 async function main() {
@@ -132,6 +157,84 @@ async function main() {
     });
     check("已单独停用 pages 的包再停无新增影响",
       store3.soleProviderSlotsAfterDisable("gitui.page.log", "pages").length === 0);
+
+    // ---- e) 库机制（GITTER_LIBS，页面包拆分方案 S1）：依赖解析 / semver / D1 / 依库停用守卫 ----
+    out("\n-- e) 库机制（GITTER_LIBS） --");
+    writeLibPackage(builtinRoot, "b-lib", "gitui.lib.fake", [{ id: "fakelib", version: "1.2.0" }]);
+    // 用户包同 id 库：D1 裁决——v1 库提供方限内置包，用户包 libraries 被忽略
+    writeLibPackage(userRoot, "u-lib", "user.fake.lib", [{ id: "fakelib", version: "9.9.9" }]);
+    writePagePackage(builtinRoot, "b-dep", "gitui.page.dep", {
+      id: "dep", dependencies: [{ lib: "fakelib", semver: "^1.0.0" }],
+    });
+    const libStore = makeStore(builtinRoot, userRoot);
+    const depPage = libStore.pagesOf().find((p) => p.packageId === "gitui.page.dep");
+    const dep = depPage?.dependencies[0];
+    check("依赖库解析：ok + 提供方/entryAbs/global 透出",
+      !!dep && dep.ok === true && dep.packageId === "gitui.lib.fake" &&
+      dep.entryAbs === path.join(builtinRoot, "b-lib", "lib.js") &&
+      dep.version === "1.2.0" && dep.global === "GITTER_LIBS.fakelib",
+      dep ? `provider=${dep.packageId} v${dep.version}` : "页面未找到");
+    check("D1：用户包同 id 库被忽略（内置提供方胜出）",
+      !!dep && dep.packageId !== "user.fake.lib" && libStore.librariesOf().length === 1);
+
+    writePagePackage(builtinRoot, "b-sem", "gitui.page.sem", {
+      id: "sem", dependencies: [{ lib: "fakelib", semver: "^2.0.0" }],
+    });
+    const semDep = makeStore(builtinRoot, userRoot).pagesOf().find((p) => p.packageId === "gitui.page.sem")?.dependencies[0];
+    check("semver 不满足 → ok=false + 原因带区间",
+      !!semDep && semDep.ok === false && (semDep.reason ?? "").includes("^2.0.0"),
+      semDep?.reason ?? "未找到");
+
+    writePagePackage(builtinRoot, "b-miss", "gitui.page.miss", {
+      id: "miss", dependencies: [{ lib: "no.such.lib" }],
+    });
+    const missDep = makeStore(builtinRoot, userRoot).pagesOf().find((p) => p.packageId === "gitui.page.miss")?.dependencies[0];
+    check("无提供方 → ok=false + 原因点名",
+      !!missDep && missDep.ok === false && missDep.packageId === null && (missDep.reason ?? "").length > 0,
+      missDep?.reason ?? "未找到");
+
+    writePagePackage(builtinRoot, "b-pin", "gitui.page.pin", {
+      id: "pin", dependencies: [{ lib: "fakelib", package: "no.such.pkg" }],
+    });
+    const pinDep = makeStore(builtinRoot, userRoot).pagesOf().find((p) => p.packageId === "gitui.page.pin")?.dependencies[0];
+    check("package 钉住不存在的提供方 → ok=false",
+      !!pinDep && pinDep.ok === false, pinDep?.reason ?? "未找到");
+
+    // b-dep 与 b-sem 都依赖 fakelib——守卫应把两页一起点名
+    const guardHit = libStore.dependentPagesAfterDisable("gitui.lib.fake").map((d) => d.pagePackageId).sort();
+    check("依库停用守卫：停用库提供方 → 依赖页被点名",
+      JSON.stringify(guardHit) === JSON.stringify(["gitui.page.dep", "gitui.page.sem"]),
+      JSON.stringify(guardHit));
+    check("依库停用守卫：自依赖不算（office→officeview 语义）",
+      libStore.dependentPagesAfterDisable("gitui.page.dep").length === 0);
+
+    const libKindOff = makeStore(builtinRoot, userRoot, {
+      "gitui.lib.fake": { kinds: { libraries: false } },
+    });
+    const kindDep = libKindOff.pagesOf().find((p) => p.packageId === "gitui.page.dep")?.dependencies[0];
+    check("libraries kind 单独停用 → 依赖解析失败",
+      !!kindDep && kindDep.ok === false, kindDep?.reason ?? "未找到");
+
+    // ---- e2) 可选依赖（required:false，S5：gitui.lib.chart 之于 pptx 图表的语义）----
+    out("\n-- e2) 可选依赖（required:false） --");
+    writePagePackage(builtinRoot, "b-opt", "gitui.page.opt", {
+      id: "opt", dependencies: [{ lib: "no.such.lib", required: false }, { lib: "fakelib" }],
+    });
+    const optPage = makeStore(builtinRoot, userRoot).pagesOf().find((p) => p.packageId === "gitui.page.opt");
+    const optMiss = optPage?.dependencies.find((d) => d.lib === "no.such.lib");
+    const optHave = optPage?.dependencies.find((d) => d.lib === "fakelib");
+    check("可选依赖缺席：ok=false 但 required=false（loader 跳过不阻塞）",
+      !!optMiss && optMiss.ok === false && optMiss.required === false,
+      optMiss?.reason ?? "未找到");
+    check("required 缺省 = true（同页必选依赖不受影响）",
+      !!optHave && optHave.ok === true && optHave.required === true);
+    writeLibPackage(builtinRoot, "b-chart", "gitui.lib.optchart", [{ id: "optchart", version: "1.0.0" }]);
+    writePagePackage(builtinRoot, "b-opt2", "gitui.page.opt2", {
+      id: "opt2", dependencies: [{ lib: "optchart", package: "gitui.lib.optchart", required: false }],
+    });
+    const guardOpt = makeStore(builtinRoot, userRoot).dependentPagesAfterDisable("gitui.lib.optchart");
+    check("可选依赖不触发依库停用守卫（chart 缺席只降级）",
+      guardOpt.length === 0, JSON.stringify(guardOpt));
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -153,6 +256,14 @@ async function main() {
     sdkSrc.includes("makeCtx(packageId, permissions)"));
   check("sdk context() 暴露共享上下文镜像（R2：context = repo + store.context 展开）",
     sdkSrc.includes("context: () => ({ repo: getState().repo, ...getState().context })"));
+  const loaderSrc = fs.readFileSync(path.resolve(__dirname, "..", "..", "web", "src", "pageLoader.ts"), "utf8");
+  check("pageLoader 依赖库先于页面 entry 注入（D3 装载序：库在 caller 窗口之前）",
+    loaderSrc.indexOf("ensureLibraryLoaded(dep)") !== -1 &&
+    loaderSrc.indexOf("ensureLibraryLoaded(dep)") < loaderSrc.indexOf("beginExternalPackage(m.packageId"));
+  check("pageLoader 依赖失败带原因冒泡（诚实呈现）",
+    loaderSrc.includes("依赖库 ${dep.lib} 不可用"));
+  check("pageLoader 可选依赖缺席降级（required:false 只记录不阻塞）",
+    loaderSrc.includes("!dep.ok && !dep.required"));
 
   out(failures === 0 ? "\n全部通过 ✓" : `\n${failures} 项失败 ✗`);
   process.exit(failures === 0 ? 0 : 1);

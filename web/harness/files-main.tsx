@@ -2,7 +2,8 @@
  * Files 页视觉验收 harness（dev only, 不随应用发布）：
  * stub window.GITTER_UI / window.GITTER_KIT（与宿主注入面同构）+ mock RPC
  * （repo.tree / file.content / file.write / file.stat / file.readBinary / shell.*），
- * 装载构建产物 gitui.page.files/page.js（Monaco 已整包内联，无需额外 stub）。
+ * 装载构建产物：依赖库（gitui.lib.monaco / gitui.page.office/officeview）先行，
+ * 再装 gitui.page.files/page.js（GITTER_LIBS 机制，页面包拆分方案 S2/S3）。
  *
  * 关键 gap 补齐（旧 P2 计划 5.2）：notifyRepoChanged 实现为 repoChangedTick 递增
  * + 快照整体替换 + 订阅者通知（React #185 稳定性约束），让树刷新链路在 harness 可测。
@@ -353,6 +354,41 @@ function mockRpc(method: string, params?: Record<string, unknown>): unknown {
       (window as any).__lastWrite = lastWritten; // 截图/断言钩子
       return { ok: true, size: content.length, mtime: MTIMES.get(p) ?? 0 };
     }
+    case "file.create": {
+      const p = String(params?.path ?? "");
+      if (FILES[p] !== undefined) return { ok: false, path: p, error: "exists" };
+      FILES[p] = "";
+      MTIMES.set(p, (MTIMES.get(p) ?? 0) + 1);
+      return { ok: true, path: p };
+    }
+    case "file.rename": {
+      const from = String(params?.path ?? "");
+      const name = String(params?.name ?? "");
+      if (FILES[from] === undefined) return { ok: false, path: from, error: "not_found" };
+      const to = from.includes("/") ? `${from.slice(0, from.lastIndexOf("/"))}/${name}` : name;
+      if (FILES[to] !== undefined) return { ok: false, path: to, error: "exists" };
+      FILES[to] = FILES[from];
+      delete FILES[from];
+      return { ok: true, path: to };
+    }
+    case "file.delete": {
+      const p = String(params?.path ?? "");
+      if (FILES[p] === undefined) return { ok: false, path: p, error: "not_found" };
+      delete FILES[p];
+      return { ok: true, path: p };
+    }
+    case "file.paste": {
+      const from = String(params?.from ?? "");
+      const toDir = String(params?.toDir ?? "");
+      const cut = params?.cut === true;
+      if (FILES[from] === undefined) return { ok: false, path: from, error: "not_found" };
+      const base = from.split("/").pop() ?? from;
+      const to = toDir ? `${toDir}/${base}` : base;
+      if (FILES[to] !== undefined) return { ok: false, path: to, error: "exists" };
+      FILES[to] = FILES[from];
+      if (cut) delete FILES[from];
+      return { ok: true, path: to };
+    }
     case "settings.get":
       return SETTINGS;
     case "lsp.status":
@@ -549,6 +585,13 @@ applyTheme("dark");
 };
 
 // ---------- 装载构建产物并挂载 ----------
+// 依赖库先行（GITTER_LIBS 机制，页面包拆分方案 S2/S3/S5）：与 pageLoader.doInjectPackage
+// 同序——先注入依赖库脚本（monaco / chart / officeview 各自挂 window.GITTER_LIBS.*），
+// 再装页面 entry。harness 经 vite 静态服务 file 产物，动态 import 即脚本注入。
+(window as any).GITTER_LIBS = (window as any).GITTER_LIBS ?? {};
+await import("../../app/resources/packages/gitui.lib.monaco/monaco.js");
+await import("../../app/resources/packages/gitui.lib.chart/chart.js");
+await import("../../app/resources/packages/gitui.page.office/officeview.js");
 await import("../../app/resources/packages/gitui.page.files/page.js");
 
 const mount = (window as any).__mountPage as (c: HTMLElement) => () => void;

@@ -92,6 +92,34 @@ export interface PageContribution {
   lazy: boolean | null;
   /** 页面文档多语言表（lang → 包内相对路径）；整篇 markdown 走本段，i18n/<lang>.json 只管短文案 */
   docs: Record<string, string> | null;
+  /** 页面依赖库（页面包拆分声明，重资产库机制）：loader 保证库脚本先于页面 entry 注入 */
+  dependencies: PageLibDependency[];
+}
+
+/** 页面依赖声明（缺省 semver = *；package 缺省 = 任意内置提供方；required 缺省 = true）。
+ *  required:false = 可选增强库：提供方缺席/停用只降级相关能力，不阻塞页面装载、
+ *  不触发依库停用守卫（如 gitui.lib.chart 之于 pptx 内嵌图表）。 */
+export interface PageLibDependency {
+  lib: string;
+  package: string | null;
+  semver: string | null;
+  required: boolean | null;
+}
+
+/**
+ * 库贡献（GITTER_LIBS 机制）：重资产库（Monaco/office 预览运行时）独立包化，
+ * 经典 script 注入后把 API 面挂到 window.<global>，页面同步取用。
+ * 库脚本不做 RPC（无 caller 窗口注入）；v1 仅内置包可提供（D1）。
+ */
+export interface LibraryContribution {
+  /** 库 id（跨包唯一；页面 dependencies.lib 按此引用） */
+  id: string;
+  /** 库版本（semver；页面依赖区间校验依据） */
+  version: string;
+  /** 库入口（经典 script，相对包目录） */
+  entry: string;
+  /** 注册全局（须以 GITTER_LIBS. 开头，如 "GITTER_LIBS.monaco"） */
+  global: string;
 }
 
 export interface EmptyHintContribution {
@@ -280,6 +308,7 @@ export interface Manifest {
     mcpServers: McpServerContribution[];
     emptyHints: EmptyHintContribution[];
     pages: PageContribution[];
+    libraries: LibraryContribution[];
     harnesses: HarnessContribution[];
     models: ModelContribution[];
     taskTypes: TaskTypeContribution[];
@@ -404,6 +433,28 @@ const manifestV2 = z.object({
              *  整篇 markdown 走本段，避免大段手册文案塞进 Strings.tsv/resx。 */
             docs: z.record(z.string(), z.string().min(1)).nullish(),
             lazy: z.boolean().nullish(),
+            dependencies: z
+              .array(
+                z.object({
+                  lib: z.string().min(1),
+                  package: z.string().min(1).nullish(),
+                  semver: z.string().min(1).nullish(),
+                  required: z.boolean().nullish(),
+                }),
+              )
+              .nullish(),
+          }),
+        )
+        .optional(),
+      libraries: z
+        .array(
+          z.object({
+            id: z.string().min(1),
+            version: z.string().min(1),
+            entry: z.string().min(1),
+            global: z
+              .string()
+              .regex(/^GITTER_LIBS\.[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/, "global 必须以 GITTER_LIBS. 开头（如 GITTER_LIBS.monaco）"),
           }),
         )
         .optional(),
@@ -716,6 +767,10 @@ export function normalizeManifest(raw: unknown): ManifestResult {
             styles: [...(pg.styles ?? [])],
             lazy: pg.lazy ?? null,
             docs: pg.docs ? { ...pg.docs } : null,
+            dependencies: (pg.dependencies ?? []).map((d) => ({ lib: d.lib, package: d.package ?? null, semver: d.semver ?? null, required: d.required ?? null })),
+          })),
+          libraries: (c.libraries ?? []).map((lib) => ({
+            id: lib.id, version: lib.version, entry: lib.entry, global: lib.global,
           })),
           skills: (c.skills ?? []).map((k) => ({
             id: k.id, name: k.name, description: k.description, instructions: k.instructions, tools: [...(k.tools ?? [])],
@@ -878,6 +933,7 @@ export function normalizeManifest(raw: unknown): ManifestResult {
         mcpServers: [],
         emptyHints: [],
         pages: [],
+        libraries: [],
         harnesses: [],
         models: [],
         taskTypes: [],

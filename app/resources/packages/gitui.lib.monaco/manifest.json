@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.lib.monaco",
+  "name": "内置库：Monaco 编辑器内核",
+  "version": "0.52.2",
+  "description": "Gitter 内置库（GITTER_LIBS 机制，页面包拆分 S3）——Monaco 编辑器全量：editor.main + basic-languages Monarch 语法 + json/css/html/typescript 语言服务，五语言 worker 经 base64 内联（Blob URL 加载），CSS/字体经 JS 自注入。声明依赖的页面包（gitui.page.files）由页装载器先注入本库再注入页面 entry；升级 Monaco 只重建本包（build-pages.mjs 断言 manifest version 与 web/package.json 一致）",
+  "contributes": {
+    "libraries": [
+      {
+        "id": "monaco",
+        "version": "0.52.2",
+        "entry": "monaco.js",
+        "global": "GITTER_LIBS.monaco"
+      }
+    ]
+  }
+}

@@ -1136,6 +1136,12 @@ export class Bridge {
         if (sole.length > 0) {
           throw new BridgeError(`无法停用：以下页面槽位将没有任何已启用的提供者——请先启用替换页面包：${sole.join("、")}`, sole.join(","));
         }
+        // 依库停用守卫（S1/D4 库扩展）：该包的库被其他已启用页面依赖时拒绝
+        const libs = this.shared.pkgStore.dependentPagesAfterDisable(args.id);
+        if (libs.length > 0) {
+          const detail = libs.map((d) => `${d.pagePackageId}（${d.slot}）依赖库 ${d.lib}`).join("、");
+          throw new BridgeError(`无法停用：以下页面依赖该包提供的库——${detail}`, libs.map((d) => d.lib).join(","));
+        }
       }
       this.patchLedger(args.id, { enabled: !!args.enabled });
       this.refreshExtensions();
@@ -1146,6 +1152,13 @@ export class Bridge {
         const sole = this.shared.pkgStore.soleProviderSlotsAfterDisable(args.id, "pages");
         if (sole.length > 0) {
           throw new BridgeError(`无法停用页面能力：以下槽位将没有任何已启用的提供者——请先启用替换页面包：${sole.join("、")}`, sole.join(","));
+        }
+      }
+      if (args.kind === "libraries" && args.enabled === false) {
+        const libs = this.shared.pkgStore.dependentPagesAfterDisable(args.id);
+        if (libs.length > 0) {
+          const detail = libs.map((d) => `${d.pagePackageId}（${d.slot}）依赖库 ${d.lib}`).join("、");
+          throw new BridgeError(`无法停用库能力：以下页面依赖该包提供的库——${detail}`, libs.map((d) => d.lib).join(","));
         }
       }
       const cur = this.shared.settings.current.packages?.[args.id] ?? {};
@@ -1195,6 +1208,12 @@ export class Bridge {
       const sole = this.shared.pkgStore.soleProviderSlotsAfterDisable(args.id, "package");
       if (sole.length > 0) {
         throw new BridgeError(`无法卸载：以下页面槽位将没有任何已启用的提供者——${sole.join("、")}`, sole.join(","));
+      }
+      // 依库停用守卫同款（S1）：卸载库提供方先拒
+      const libs = this.shared.pkgStore.dependentPagesAfterDisable(args.id);
+      if (libs.length > 0) {
+        const detail = libs.map((d) => `${d.pagePackageId}（${d.slot}）依赖库 ${d.lib}`).join("、");
+        throw new BridgeError(`无法卸载：以下页面依赖该包提供的库——${detail}`, libs.map((d) => d.lib).join(","));
       }
       uninstallPackageDir(all.dir);
       this.refreshExtensions();

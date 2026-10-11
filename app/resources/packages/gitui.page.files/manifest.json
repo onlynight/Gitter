@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "id": "gitui.page.files",
   "name": "内置页面：项目文件树",
-  "version": "0.1.0",
-  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——项目文件树 + Monaco 代码编辑器，支持手动编辑与 git 状态/agent 回合高亮",
+  "version": "0.2.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——项目文件树 + Monaco 代码编辑器，支持手动编辑与 git 状态/agent 回合高亮。重资产走 GITTER_LIBS 依赖库：Monaco（gitui.lib.monaco）与 Office 预览运行时（gitui.page.office/officeview）由 loader 按声明先行注入",
   "contributes": {
     "pages": [
       {
@@ -11,7 +11,7 @@
         "slot": "files",
         "title": "%Nav_Files%",
         "entry": "page.js",
-        "icon": "",
+        "icon": "",
         "svg": null,
         "lazy": true,
         "permissions": [
@@ -22,7 +22,12 @@
         ],
         "docs": {
           "zh-Hans": "docs/zh-Hans.md"
-        }
+        },
+        "dependencies": [
+          { "lib": "monaco", "package": "gitui.lib.monaco", "semver": "^0.52.0" },
+          { "lib": "officeview", "package": "gitui.page.office" },
+          { "lib": "chart", "package": "gitui.lib.chart", "required": false }
+        ]
       }
     ]
   }

@@ -14,6 +14,18 @@ import { uiPage, unregisterUiPagesByPackage, upsertExternalPageMeta, type UIPage
  * loader 不再重复判门——内置页面包（未来 gitui.page.*）不受用户代码门影响。
  */
 
+export interface PageDependency {
+  lib: string; // 库 id（跨包唯一）
+  packageId: string | null; // 提供方包 id（解析失败时 null）
+  entryAbs: string | null; // 库脚本绝对路径（解析失败时 null）
+  version: string | null;
+  global: string | null; // GITTER_LIBS.* 注册点（解析失败时 null）
+  ok: boolean; // false = 解析失败（缺提供方/semver 不满足）
+  reason: string | null;
+  /** true（缺省）= 解析失败即页面装载失败；false = 可选增强库，缺席只降级（如 chart 之于 pptx 图表） */
+  required: boolean;
+}
+
 export interface ExternalPageInfo {
   id: string; // ext.<pkg>.<pid>
   slot: string; // 竞争槽位（缺省 = id）
@@ -28,15 +40,66 @@ export interface ExternalPageInfo {
   svg: string | null; // 16×16 SVG path（侧栏图标第二形态）
   /** 文档多语言表（lang → markdown 绝对路径）；null = 该页未声明多语言文档 */
   docs: Record<string, string> | null;
+  /** 依赖库解析结果（store.pagesOf 解析；loader 保证全部 ok 的库先于页面 entry 注入） */
+  dependencies: PageDependency[];
 }
 
 let metas: ExternalPageInfo[] = [];
 const loadedPackages = new Set<string>();
 const styleEls = new Map<string, HTMLLinkElement[]>();
 
+// ---- 依赖库装载（GITTER_LIBS 机制，重资产库拆分方案 S1）----
+// key = "<packageId>:<libId>" → 已注入时的 entryAbs（entryAbs 变了 = 库更新，强制重注入）
+const loadedLibs = new Map<string, string>();
+/** 注入中的库（并发去重：files/office 两页同时首导航 → officeview 只注入一次）。 */
+const injectingLibs = new Map<string, Promise<void>>();
+
 function fileUrl(absPath: string): string {
   const norm = absPath.replace(/\\/g, "/");
   return norm.startsWith("file:") ? norm : `file:///${norm.replace(/^\/+/, "")}`;
+}
+
+function resolveGlobal(path_: string): unknown {
+  return path_.split(".").reduce<unknown>((o, k) => (o == null ? o : (o as Record<string, unknown>)[k]), window as unknown as Record<string, unknown>);
+}
+
+function ensureLibsRoot(): void {
+  const w = window as unknown as { GITTER_LIBS?: Record<string, unknown> };
+  if (!w.GITTER_LIBS) w.GITTER_LIBS = {};
+}
+
+/**
+ * 注入一个依赖库脚本并断言注册全局就绪（幂等 + 并发去重）。
+ * 库脚本在 caller 窗口之外注入（库不做 RPC，无权限语义）；脚本同步挂全局，
+ * onload 后短轮询兜底（脚本异常未挂全局 → 2s 超时报错，页面装载走失败路径）。
+ */
+async function ensureLibraryLoaded(dep: PageDependency): Promise<void> {
+  if (!dep.ok || !dep.entryAbs || !dep.global) {
+    throw new Error(`依赖库 ${dep.lib} 不可用：${dep.reason ?? "解析失败"}`);
+  }
+  const { lib, packageId, entryAbs, global } = dep; // 闭包内保住非空收窄
+  const key = `${packageId}:${lib}`;
+  if (loadedLibs.get(key) === entryAbs) return;
+  const inflight = injectingLibs.get(key);
+  if (inflight) return inflight;
+  const job = (async () => {
+    ensureLibsRoot();
+    await injectScript(fileUrl(entryAbs));
+    const deadline = Date.now() + 2000;
+    while (resolveGlobal(global) == null) {
+      if (Date.now() > deadline) {
+        throw new Error(`库脚本已注入但未注册全局 ${global}（${packageId}/${lib}）：脚本执行异常？`);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    loadedLibs.set(key, entryAbs);
+  })();
+  injectingLibs.set(key, job);
+  try {
+    await job;
+  } finally {
+    injectingLibs.delete(key);
+  }
 }
 
 function injectScript(src: string): Promise<void> {
@@ -103,6 +166,16 @@ async function injectPackage(m: ExternalPageInfo): Promise<void> {
 
 async function doInjectPackage(m: ExternalPageInfo): Promise<void> {
   if (loadedPackages.has(m.packageId)) return;
+  // 依赖库先行（D3 装载序裁决）：库脚本全部就绪后才注入页面 entry——
+  // 页面脚本可同步取 window.GITTER_LIBS.*，= import 提升语义，页面代码零等待。
+  // required:false 可选库解析失败只降级（console 记录），不阻塞页面装载。
+  for (const dep of m.dependencies) {
+    if (!dep.ok && !dep.required) {
+      console.info(`[pages] ${m.id} 可选依赖库缺席（降级）: ${dep.lib}——${dep.reason ?? "解析失败"}`);
+      continue;
+    }
+    await ensureLibraryLoaded(dep);
+  }
   if (m.styles.length > 0) injectStyles(m.packageId, m.styles);
   try {
     beginExternalPackage(m.packageId, m.permissions, m.isBuiltIn, { docs: m.docs });
@@ -122,6 +195,7 @@ export function unloadExternalPages(): void {
   }
   metas = [];
   loadedPackages.clear();
+  loadedLibs.clear();
 }
 
 /** reload 串行化：extensions.changed 与语言切换可能几乎同时各触发一次 reload——
@@ -179,11 +253,20 @@ async function doLoadExternalPages(allowCode: boolean, lang?: string): Promise<n
     }
   }
   metas = list;
+  // 依赖库差量：清单里不再出现的库（提供方包消失/停用）与 entryAbs 变更的库（包内容更新）
+  // 从已装载账本剔除——下次依赖解析时强制重注入
+  const expectedLibs = new Map<string, string>();
+  for (const m of list) for (const d of m.dependencies) if (d.ok && d.entryAbs) expectedLibs.set(`${d.packageId}:${d.lib}`, d.entryAbs);
+  for (const [key, abs] of [...loadedLibs]) {
+    if (expectedLibs.get(key) !== abs) loadedLibs.delete(key);
+  }
   let ok = 0;
   for (const m of list) {
     upsertExternalPageMeta(metaToDef(m));
     const prev = prevMetaById.get(m.id);
-    const entryChanged = !prev || prev.entryAbs !== m.entryAbs;
+    // entryAbs 或依赖解析结果变化（库更新/提供方变化）都视为包内容更新 → 强制重注入
+    const depsChanged = !prev || JSON.stringify(prev.dependencies) !== JSON.stringify(m.dependencies);
+    const entryChanged = !prev || prev.entryAbs !== m.entryAbs || depsChanged;
     const wasLoaded = loadedPackages.has(m.packageId);
     if (!entryChanged && wasLoaded) {
       ok++; // 未变化：注册表与脚本原样保留（已 mount 页面零闪动，不再有任何清空窗口）

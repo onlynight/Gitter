@@ -16,6 +16,12 @@ const FORBIDDEN = [
   { re: /from\s+["'][^"']*bridge\/client["']/, why: "桥直连（应经 pageSdk.call/on）" },
   { re: /from\s+["'][^"']*state\/store["']/, why: "全局状态直连（应经 pageSdk/useAppState）" },
   { re: /window\.gitter\b/, why: "物理绕过 sdk（in-process 极限之外的自弃行为）" },
+  // 重资产库（GITTER_LIBS 机制，页面包拆分 S3）：monaco 本体在 gitui.lib.monaco 库包，
+  // 页面运行时经 build-pages.mjs 的 ^monaco-editor$ alias 投影到 external/monacoLibAccess；
+  // 但源码仍允许 `import * as monaco from "monaco-editor"`（tsc 走真实类型）。
+  // 禁止的是 worker/CSS 级深导入（?worker&inline / esm/vs/**）——那属于库包构建（src/libs/monacoLib.ts）。
+  { re: /from\s+["']monaco-editor\/(esm|min)\//, why: "monaco 深导入（worker/CSS 归 gitui.lib.monaco 库构建，页面经 monacoLibAccess 取命名空间）" },
+  { re: /from\s+["']virtual:/, why: "构建期虚拟模块内联（重资产一律走 GITTER_LIBS 库贡献）" },
 ];
 
 let violations = 0;

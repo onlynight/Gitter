@@ -237,3 +237,9 @@ PageSurface v2 + GITTER_KIT + context() 扩面在 R1 稳定后 DATA_API_VERSION 
 - **R8 性能门如实记录**：懒装载本身是启动收益（主 bundle 687→284KB，七页按需注入）；"万级提交滚动不劣化"需真机人工对比，未自动化——回滚手段 = git revert 单页包 + boot 断言。
 - **boot 断言终态**：GITTER_UI/GITTER_KIT 已装 ∧ 七槽位全部解析到 `isBuiltInPackage` 提供者 ∧ 当前页真挂载（.toolbar 存在）∧ 首导航 = projects ∧ nav ≥ 7。
 
+### R10（2026-10-12）：页面包重资产拆分——GITTER_LIBS 库机制
+
+- **背景与实施**：files 页 page.js 16MB（Monaco 全量 ~12MB + office 预览运行时字符串 ~3.5MB×2 份重复）。新贡献点 `contributes.libraries` + 页面 `dependencies` 声明 + loader 依赖先行注入（`window.GITTER_LIBS.*` 哑全局，import 提升语义）——Monaco 拆为 `gitui.lib.monaco`（12.0MB，独立版本，升级只重建该包）、office 预览运行时收敛为 `gitui.page.office/officeview.js` 唯一副本；files 页 16MB→**184KB**、office 页 3.5MB→**28KB**，页面包 minify 例外取消（回归纯自研代码）。裁决/机制/验收全记录见 `page-lib-split-plan.md`。
+- **对 §八「不做页面间依赖图」的边界澄清**：库依赖是"页面→库"单向一层的**窄而声明式**依赖（manifest dependencies + semver + 依库停用守卫 `dependentPagesAfterDisable`），非服务发现；v1 库提供方限内置包（store.libraryIndex 按 isBuiltIn 过滤）。
+- **对 D2 的延伸**：GITTER_KIT（宿主组装，内核组件，不可替换）之外新增 GITTER_LIBS（包组装，重资产库，独立版本/启停）；React externals 的「window 全局 + 构建期 external」先例沿用——monaco 在页面构建期经 `^monaco-editor$` alias 投影到库访问面，页面源码保持 `import * as monaco from "monaco-editor"` 零改动（tsc 走 node_modules 真实类型）。
+

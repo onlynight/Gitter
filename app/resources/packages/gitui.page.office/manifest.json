@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "id": "gitui.page.office",
-  "name": "\u5185\u7f6e\u9875\u9762\uff1aOffice \u6587\u6863",
-  "version": "0.2.0",
-  "description": "Gitter \u5185\u7f6e\u9875\u9762\uff08\u5bbf\u4e3b\u7f3a\u7701\u63d0\u4f9b\u8005\uff0c\u4e0d\u53ef\u5378\u8f7d\u3001\u53ef\u88ab\u540c\u69fd\u4f4d\u63d2\u4ef6\u66ff\u6362\uff09\u2014\u2014\u9879\u76ee\u5185 Office \u6587\u6863\u7684\u9875\u5185\u9884\u89c8\uff08iframe \u6587\u6863\u9694\u79bb\u6e32\u67d3\uff0c\u7f16\u8f91\u4e00\u5f8b\u4ea4\u7ed9\u5916\u90e8\u5e94\u7528\uff1boffice-integration-plan.md \u00a710 \u9884\u89c8-only\uff09",
+  "name": "内置页面：Office 文档",
+  "version": "0.3.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——项目内 Office 文档的页内预览（iframe 文档隔离渲染，编辑一律交给外部应用；office-integration-plan.md §10 预览-only）。officeview 库贡献 = iframe 预览运行时字符串唯一副本（GITTER_LIBS 机制），office/files 两页按依赖声明经 loader 先行注入",
   "contributes": {
     "pages": [
       {
@@ -20,7 +20,19 @@
         ],
         "docs": {
           "zh-Hans": "docs/zh-Hans.md"
-        }
+        },
+        "dependencies": [
+          { "lib": "officeview", "package": "gitui.page.office" },
+          { "lib": "chart", "package": "gitui.lib.chart", "required": false }
+        ]
+      }
+    ],
+    "libraries": [
+      {
+        "id": "officeview",
+        "version": "1.0.0",
+        "entry": "officeview.js",
+        "global": "GITTER_LIBS.officeview"
       }
     ]
   }

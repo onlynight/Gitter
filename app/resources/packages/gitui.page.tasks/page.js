@@ -393,6 +393,15 @@ li { margin: .25em 0; }
       ] })
     ] }) });
   }
+  function nativeSepOf(workDir) {
+    return workDir.replace(/[\\/]+$/, "").includes("\\") ? "\\" : "/";
+  }
+  function absPathOf(workDir, rel) {
+    const base = workDir.replace(/[\\/]+$/, "");
+    const sep = nativeSepOf(workDir);
+    const tail = rel.replace(/\\/g, "/").replace(/^[/\\]+/, "");
+    return base + sep + tail.split("/").join(sep);
+  }
   const IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i;
   function imgMime(path) {
     var _a2;
@@ -570,7 +579,7 @@ li { margin: .25em 0; }
     }, []);
     const openExternal = react.useCallback((useExternalEditor) => {
       if (!activePath) return;
-      const full = `${props.worktreePath.replace(/[\\/]+$/, "")}/${activePath.replace(/\\/g, "/")}`;
+      const full = absPathOf(props.worktreePath, activePath);
       void call$1("shell.openPath", { path: full, editor: useExternalEditor || void 0 }).catch((e) => setErr(e.message));
     }, [activePath, props.worktreePath]);
     const fileTabNodes = tabs.filter((t2) => typeof t2 !== "string");

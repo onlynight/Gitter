@@ -1,26 +1,17 @@
 /**
- * Monaco 页面私有装配（inline-editor-plan.md §2.2/§2.3/§6.2）：
- * monaco-editor 作为 gitui.page.files 的私有依赖整包打进 page.js——不走 window.GITTER_KIT
- * 共享、不 external（Monaco 自带 worker 体系与独立 CSS，单页自治，其他页面零负担）。
+ * Monaco 页面装配（inline-editor-plan.md §2.3/§4.4；页面包拆分方案 S3 改造）：
+ * monaco-editor 本体已拆为 gitui.lib.monaco 库包（window.GITTER_LIBS.monaco，
+ * 由页装载器按 manifest dependencies 先于本页 entry 注入），本模块只做页面侧
+ * 装配——TS 语言服务编译档、主题映射、扩展名→语言表、编辑器构造选项。
+ * monaco 命名空间一律经 ../external/monacoLibAccess 访问面取用。
  *
- * 全量入口：editor.main（编辑器 contrib + basic-languages Monarch + json/css/html/typescript
- * 语言服务）——智能提示/补全/校验开箱即用（TS/JS/JSON/CSS/HTML），不依赖外部 LSP；
- * 其余语言（Python/Go…）的 LSP 通道是 P3+ 可选增强（§4.5）。
- *
- * Worker：file:// + webSecurity 下 `new Worker(相对 URL)` 被同源策略拦截；
- * `?worker&inline` + `worker: { format: "iife" }`（build-pages.mjs）把五个 worker 编译为
- * base64 内联、运行期经 Blob URL 构造，无跨源问题（§8.3 风险裁决）。
- * 必须用 &inline：普通 `?worker` 会附带产出 assets/*.worker-*.js（~16MB 死重）。
+ * Worker 装配（MonacoEnvironment + 五语言 worker）随 monaco 本体在库包内——
+ * `?worker&inline` + Blob URL 的 file:// 约束由 gitui.lib.monaco/monaco.js 承接。
  *
  * 主题：defineTheme 把宿主主题包 syntax 表（9 键，与 DiffView 同源）映射为 Monaco
  * token 规则；亮暗随 pageSdk.theme().base 切换（FilesMonacoEditor 订阅 useAppState 重应用）。
  */
 import * as monaco from "monaco-editor";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker&inline";
-import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker&inline";
-import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker&inline";
-import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker&inline";
-import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker&inline";
 import { pageSdk } from "../pageSdk";
 
 /** 宿主主题的页面侧结构投影（避免页面打包宿主 store 模块；字段语义同 ThemeStateDTO）。 */
@@ -31,19 +22,6 @@ interface EditorTheme {
   /** 基础语义色（Text/Text2/Text3/Accent…） */
   tokens?: Record<string, string>;
 }
-
-self.MonacoEnvironment = {
-  getWorker(_workerId: string, label: string): Worker {
-    switch (label) {
-      case "json": return new jsonWorker();
-      case "css": return new cssWorker();
-      case "html": return new htmlWorker();
-      case "typescript":
-      case "javascript": return new tsWorker();
-      default: return new editorWorker();
-    }
-  },
-};
 
 // TS/JS 语言服务编译档：显式 bundler 解析（默认 classic 解不开 "./boot" 相对导入）+
 // 宽松校验（编辑器不是 CI——类型噪音少些，补全照常）。model 挂真实 file URI 后

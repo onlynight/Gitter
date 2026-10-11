@@ -1,6 +1,6 @@
 # 内建代码编辑器技术方案（Monaco + 项目文件树）
 
-> 状态：设计稿（Phase 1 待启动）
+> 状态：设计稿（Phase 1 待启动）；**§2.2「Monaco 页面私有依赖」与 §6.2 包体构成已被 `page-lib-split-plan.md`（GITTER_LIBS 库机制，2026-10-12 实施）推翻执行**——monaco-editor 拆为 gitui.lib.monaco 库包、office 预览运行时拆为 office 包 officeview 库贡献，files 页 page.js 16MB → 184KB；worker/CSS 内联与 file:// 约束的结论随构建迁入库包，仍然有效。
 > 关联：`winui3-to-web-migration.md` §P5 Monaco 取舍、`ui-full-pluginization-plan.md` 页面包链路、`code-highlight-framework.md` 高亮管线
 
 ---
@@ -86,6 +86,8 @@ app/resources/packages/gitui.page.files/
 `web/scripts/build-pages.mjs` 的 `PAGES` 数组加 `"files"`。
 
 **Monaco 处理决策：作为页面私有依赖，不 external。**
+
+> ⚠️ 本决策已被 `page-lib-split-plan.md` 推翻执行（2026-10-12）：monaco-editor 拆为 gitui.lib.monaco 库包（GITTER_LIBS 机制），files 页经构建期 alias 投影到 window.GITTER_LIBS.monaco。下述理由 1/3 描述的"共享机制"由库访问面（monacoLibAccess.ts）承接；理由 2（worker 体系）随构建迁入库包。保留原文作历史对照。
 
 理由：
 1. Monaco 不是 React 单例，不需要走 `window.GITTER_KIT` 共享。
@@ -406,6 +408,8 @@ build: {
 
 ### 6.2 产物体积（P4 优化后实测）
 
+> ⚠️ 已被 `page-lib-split-plan.md` 取代（2026-10-12）：Monaco 与 office 预览运行时拆为 GITTER_LIBS 库包后，gitui.page.files/page.js 实测 **183KB**（纯页面代码，minify 例外取消）；gitui.lib.monaco/monaco.js 12.0MB（minify，独立版本）；officeview.js 3.5MB（唯一副本，原两包各内联一份）。下文为拆分前的历史账目。
+
 - `gitui.page.files/page.js`：**~12.6 MB**（minify，esbuild）。构成：Monaco 核心（editor.main + basic-languages）~3.5 MB + 五个语言 worker base64 内联（ts.worker 压缩后仍最大）。
 - 其余七页合计 ~1 MB 不变（Monaco 仅 files 页私有依赖，`minify: false` 页面包缺省策略不变）。
 
@@ -448,6 +452,7 @@ build: {
 ### Phase 4：优化（按需）——已落地（P4）
 
 1. 按需加载语言包 → 以 files 槽 minify（24.8 → 12.6 MB）替代；worker 本身已按语言懒 spawn，IIFE 单文件内联的 base64 无法懒载，真分包列为后续优化
+   → **真分包已落地**（`page-lib-split-plan.md`，2026-10-12）：Monaco 整包拆出为 gitui.lib.monaco 库，随依赖声明由页装载器懒注入；按语言再分包仍不做（§7 明确不做）
 2. 多光标编辑体验优化 → `multiCursorModifier: "alt"` / 平滑光标与滚动 / 关闭无障碍层重排，显式固定（`filesMonaco.EDITOR_OPTIONS`）
 3. 编辑器联动（多个标签同步滚动）→ 单栏布局下无意义，不适用；视图状态按标签 keep-alive（P2 的 viewState 存取）已覆盖"切回不丢位置"诉求，分屏编辑再议
 

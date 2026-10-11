@@ -812,6 +812,12 @@ v2 的核心教训是注入 CSS 污染宿主（§10.1）。预览-only 方案把
   宿主 30s 超时兜底；iframe `sandbox="allow-scripts"`（opaque origin）。
 - 双阶段构建：`build-pages.mjs` 先把运行时单独构建为 minified IIFE，经
   `virtual:officePreviewRuntime` 内联进 office 页 page.js；`</script` 转义防提前闭合。
+  > **S2/S5 备忘（2026-10-12，页面包拆分方案）**：virtual 内联已退役——运行时字符串改为
+  > office 包库贡献 `gitui.page.office/officeview.js`（GITTER_LIBS.officeview，运行时字符串
+  > 唯一副本，office/files 两页经 loader 依赖声明先行注入）；srcdoc 组装改走
+  > `officeview.srcdocScripts()`（`officeDocPreview.tsx` buildSrcdoc），echarts 从运行时
+  > 剥离为独立库包 `gitui.lib.chart`（图表幻灯片 SVG 渲染，可选依赖缺席只降级该类文档）。
+  > iframe sandbox/opaque origin/postMessage 安全模型原样未动。
 - 宿主 OfficePage：列表（含 legacy 格式，徽标 PDF 红/表格族绿）→ 顶栏（体积/页数/外部打开）
   → iframe 容器 + 加载态 + 失败兜底卡（重试/外部打开）。csv/tsv 走 `file.content` 文本通道，
   其余走 `file.readBinary`；treex 白名单扩 `.pdf` `.ods`（`isBinaryDocPath`）。

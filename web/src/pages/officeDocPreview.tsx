@@ -2,15 +2,16 @@
  * Office 文档预览共享内核（office-integration-plan.md §10.5）：
  * iframe sandbox 预览容器（PreviewFrame）+ srcdoc 静态组装 + 缩放档位，
  * Office 页与文件页编辑器画布（OfficeDocViewer）共用同一实现。
- * 预览渲染库内联在 sandbox iframe（opaque origin）文档内，与宿主零样式/异常交集；
+ * 预览渲染库（GITTER_LIBS.officeview 库贡献，gitui.page.office/officeview.js）内联在
+ * sandbox iframe（opaque origin）文档内，与宿主零样式/异常交集；
  * 宿主只管载荷加载（file.stat/readBinary）、加载态与错误兜底卡。
  * 编辑一律交给外部应用（shell.openPath）——页内不回写字节。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pageSdk } from "../pageSdk";
 import { formatSize, officeKindOf, previewerOf } from "./officeShared";
-import previewRuntimeJs from "virtual:officePreviewRuntime";
 import { IFRAME_CSS } from "./officePreview/iframeCss";
+import { absPathOf } from "./filesPaths";
 
 export type PreviewRenderer = NonNullable<ReturnType<typeof previewerOf>>;
 export type Payload = { base64?: string; text?: string };
@@ -18,9 +19,29 @@ export type PreviewPhase = "loading" | "rendering" | "ready" | "error" | "legacy
 
 export const PREVIEW_MSG_SRC = "gitter-office-preview";
 
-// srcdoc 静态拼装一次：内联样式 + 预览运行时（</script 转义防提前闭合标签）
-const PREVIEW_JS = previewRuntimeJs.replace(/<\/script/gi, "<\\/script>");
-const SRCDOC = `<!doctype html><html><head><meta charset="utf-8"><style>${IFRAME_CSS}</style></head><body><div id="gitter-preview-root"></div><script>${PREVIEW_JS}</script></body></html>`;
+/**
+ * srcdoc 静态拼装（组件首渲染时执行一次）：内联样式 + 脚本序列（</script 转义防提前闭合标签）。
+ * 脚本序来自 GITTER_LIBS.officeview.srcdocScripts()（S5）：chart 运行时在前（挂
+ * self.GITTER_CHART 供 pptx 图表幻灯片；gitui.lib.chart 可选依赖——缺席时 wrapper 自动
+ * 降级为只装预览运行时），预览运行时在后。运行时字符串来自 GITTER_LIBS.officeview 库
+ * 贡献（office 包 officeview.js，S2 拆分）——loader 依赖序保证页面 entry 执行时库已就绪；
+ * 在首次渲染时取值（而非模块顶层），缺库时异常落在渲染期，由槽位 ErrorBoundary 呈现
+ * 错误卡而不是脚本静默半死。
+ */
+function buildSrcdoc(): string {
+  const lib = (window as unknown as { GITTER_LIBS?: Record<string, unknown> }).GITTER_LIBS?.officeview as
+    | { runtimeJs?: unknown; srcdocScripts?: () => unknown[] }
+    | undefined;
+  if (typeof lib?.runtimeJs !== "string" || !lib.runtimeJs) {
+    throw new Error("GITTER_LIBS.officeview 未注册——officeview 库（gitui.page.office）未装载");
+  }
+  const scripts = typeof lib.srcdocScripts === "function" ? lib.srcdocScripts() : [lib.runtimeJs];
+  const body = scripts
+    .filter((s): s is string => typeof s === "string" && s.length > 0)
+    .map((s) => `<script>${s.replace(/<\/script/gi, "<\\/script>")}<\/script>`)
+    .join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${IFRAME_CSS}</style></head><body><div id="gitter-preview-root"></div>${body}</body></html>`;
+}
 
 /** 缩放档位（宿主为唯一事实源；iframe 里 Ctrl+滚轮只发步进请求） */
 export const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 3, 4];
@@ -52,6 +73,8 @@ export function PreviewFrame(props: {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const sentRef = useRef(false);
   const settledRef = useRef(false);
+  // srcdoc 只拼装一次（运行时字符串 ~3.5MB，转义 + 模板拼接不为重复渲染买单）
+  const [srcdoc] = useState(buildSrcdoc);
   const onDoneRef = useRef(props.onDone);
   onDoneRef.current = props.onDone;
   const onErrorRef = useRef(props.onError);
@@ -142,7 +165,7 @@ export function PreviewFrame(props: {
       className="office-preview-frame"
       sandbox="allow-scripts"
       title={props.name}
-      srcDoc={SRCDOC}
+      srcDoc={srcdoc}
     />
   );
 }
@@ -219,7 +242,7 @@ export function OfficeDocViewer(props: { path: string }) {
     setNonce((n) => n + 1);
   }, []);
   const openExternal = useCallback(() => {
-    if (repo) void pageSdk.call("shell.openPath", { path: `${repo.workDir}/${props.path}`, editor: true });
+    if (repo) void pageSdk.call("shell.openPath", { path: absPathOf(repo.workDir, props.path), editor: true });
   }, [repo, props.path]);
 
   return (

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.lib.chart",
+  "name": "内置库：echarts 图表运行时",
+  "version": "5.6.0",
+  "description": "Gitter 内置库（GITTER_LIBS 机制，页面包拆分 S5）——echarts 图表运行时（含 SVG 渲染器），字符串资产库：echarts 代码只存在于 iframe 预览文档内（self.GITTER_CHART），宿主文档零执行。消费方 = officeview 预览运行时（pptx 内嵌图表幻灯片经 srcdocScripts 组合注入，渲染走 SVG 渲染器）；页面以 required:false 可选依赖声明——本库缺席/停用只降级图表幻灯片（文档级错误卡），pdf/docx/xlsx 与无图表幻灯片不受影响，不阻塞页面装载",
+  "contributes": {
+    "libraries": [
+      {
+        "id": "chart",
+        "version": "5.6.0",
+        "entry": "chart.js",
+        "global": "GITTER_LIBS.chart"
+      }
+    ]
+  }
+}
