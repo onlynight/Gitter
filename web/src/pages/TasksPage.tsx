@@ -269,135 +269,100 @@ export function TasksPage() {
     const v = Number(localStorage.getItem("gitter.taskSplitRatio"));
     return Number.isFinite(v) && v >= 0.2 && v <= 0.85 ? v : 4 / 7; // 默认 4fr/3fr
   });
-  // ── 面板展开/收起动画（400ms，v3.2 设计稿）：JS 逐帧补间 grid 列模板。
-  // 不用 CSS transition——Chromium 对 minmax(px,fr) 轨道列表的过渡在部分环境按离散跳变
-  // 处理（实测内嵌浏览器/自动化上下文），逐帧直写（与分割线拖拽同机制）在所有环境可靠。
-  // 进入 = 从右往左滑入（对话 fr 从 1 收敛到 splitRatio、面板轨道从 0 展开），
-  // 退出 = 向右滑出（面板轨道收敛到 0），min 280px 同步收敛到 0 避免 280px 处的终态跳变。
-  // 内容锁宽（容器 overflow hidden 裁剪）保证滑动而非回流挤压；收起结束才卸载面板。
-  const PANEL_CLOSED_TPL = "minmax(0px, 1fr) 6px minmax(0px, 0fr)";
+  // ── 面板展开/收起动画（400ms，v3.2 设计稿）：transform 滑动，不做布局动画。
+  // 逐帧补间 grid 模板 = 逐帧全量重排两个面板（时间线数百节点）——掉帧 + 轨道亚像素取整
+  // 来回跳（用户实测左右抖动）。改为「状态一次落位 + transform 滑动」（纯合成器动画，
+  // 零逐帧布局，transform 过渡在所有环境可靠插值）：
+  //   展开 = 网格瞬落 3 列（对话列一次让位），面板在自身轨道内 translateX(100%→0) 滑入；
+  //   收起 = 面板提升为绝对定位覆盖（宽度冻结=轨道宽），网格瞬落 1 列（对话列一次回占），
+  //          面板 translateX(0→100%) 滑出后卸载（抽屉式）。
+  // 中断（快速连点）只重定 transform 目标，从当前位置续滑；结束清理是惰性写入
+  // （transform:none == translateX(0)，无布局变更，不闪）。锁宽/ResizeObserver 机制随
+  // 布局动画一并移除——轨道不再逐帧变化，内容跟随 flex 自然填充，无挤压问题。
   const panelTemplate = (r: number) => `minmax(280px, ${r.toFixed(4)}fr) 6px minmax(280px, ${(1 - r).toFixed(4)}fr)`;
+  const PANEL_TRANSFORM_TRANSITION = "transform 400ms var(--ease-std)";
   const panelWrapRef = useRef<HTMLDivElement | null>(null);
-  const panelInnerRef = useRef<HTMLDivElement | null>(null);
-  const panelAnimRef = useRef<{ cancelled: boolean } | null>(null);
+  const panelTimerRef = useRef<number | null>(null);
+  const closeWRef = useRef(0); // 收起覆盖态冻结的面板宽
   // 动画目标态：点击即翻转（不等 React 提交），快速连点时 toggle 按意图取反而非按
   // 仍在动画中的旧状态；不随渲染回写（动画期间 changesPanelOpen 尚未提交）。
   const panelTargetRef = useRef(true);
-  const splitRatioRef = useRef(splitRatio);
-  splitRatioRef.current = splitRatio;
-  // 动画期间锁面板内容宽（容器 overflow hidden 裁剪）——列宽收缩时内容平移而非回流挤压。
-  // 宽度按「目标模板」测量（临时换上目标模板量完立即换回，同帧无绘制）：中断续动时当前
-  // 轨道 ≠ 目标，锁当前宽会让内容全程被压小、结束瞬间弹开；锁目标宽则滑动期间内容全尺寸、
-  // 由裁剪窗逐步揭示，结束时锁宽 == 轨道宽。已锁时也更新（中断重入按新目标重锁）。
-  const lockInner = () => {
-    const grid = detailRef.current, wrap = panelWrapRef.current, inner = panelInnerRef.current;
-    if (!grid || !wrap || !inner) return;
-    const saved = grid.style.gridTemplateColumns;
-    grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
-    const w = Math.round(wrap.getBoundingClientRect().width);
-    grid.style.gridTemplateColumns = saved;
-    if (w > 4) { inner.style.width = w + "px"; inner.style.flex = "none"; }
-    // 锁是常驻的（见下），锁定的元素随挂载更换，这里换观察目标
-    const ro = ensurePanelRO();
-    if (ro && observedWrapRef.current !== wrap) { ro.disconnect(); ro.observe(wrap); observedWrapRef.current = wrap; }
+  const [panelClosing, setPanelClosing] = useState(false); // 收起滑出中（覆盖态）
+  const panelClosingRef = useRef(false);
+  const openRef = useRef(changesPanelOpen);
+  panelClosingRef.current = panelClosing;
+  openRef.current = changesPanelOpen;
+  const clearPanelTimer = () => {
+    if (panelTimerRef.current != null) { window.clearTimeout(panelTimerRef.current); panelTimerRef.current = null; }
   };
-  // 锁一旦加上就不再解锁（解锁 = 一次额外的布局变更 = mica/acrylic 透明窗口上可复现的
-  // 结束闪烁）。动画结束后零写入：锁宽与轨道的亚像素差、窗口缩放、分割线拖拽均由
-  // ResizeObserver 在同一帧的布局后回调里被动追平（补间进行中除外——那时内容宽由锁保证）。
-  const panelRORef = useRef<ResizeObserver | null>(null);
-  const observedWrapRef = useRef<HTMLDivElement | null>(null);
-  const ensurePanelRO = () => {
-    if (panelRORef.current || typeof ResizeObserver !== "function") return panelRORef.current;
-    panelRORef.current = new ResizeObserver(() => {
-      if (panelAnimRef.current) return; // 补间帧内不追，防挤压
-      const wrap = panelWrapRef.current, inner = panelInnerRef.current;
-      if (!wrap || !inner || !inner.style.width) return;
-      const w = wrap.getBoundingClientRect().width;
-      if (w > 4) inner.style.width = w + "px"; // keep-alive 隐藏（w=0）时保持原锁
-    });
-    return panelRORef.current;
+  // 入场结束的惰性清理：transform:none 与 translateX(0) 视觉等价，纯合成器无布局变更
+  const finishOpenCleanup = () => {
+    const wrap = panelWrapRef.current;
+    if (wrap) { wrap.style.transition = ""; wrap.style.transform = ""; }
+    panelTimerRef.current = null;
   };
-  // 取消在途补间（中断/拖拽抢占）
-  const cancelPanelTween = () => {
-    if (panelAnimRef.current) { panelAnimRef.current.cancelled = true; panelAnimRef.current = null; }
-  };
-  // 当前对话列份额（解析计算后的轨道像素，中断时从实时位置续动）
-  const currentChatRatio = () => {
-    const grid = detailRef.current;
-    if (!grid) return panelTargetRef.current ? splitRatioRef.current : 1;
-    const nums = getComputedStyle(grid).gridTemplateColumns.split(" ").map((v) => parseFloat(v)).filter((n) => Number.isFinite(n));
-    if (nums.length >= 3 && nums[0] + nums[2] > 1) return nums[0] / (nums[0] + nums[2]);
-    return panelTargetRef.current ? splitRatioRef.current : 1;
-  };
-  // rAF 驱动逐帧；rAF 被挂起的环境（部分自动化/嵌入上下文）由 setTimeout 看门狗兜底，
-  // 牺牲帧率保证动画可见
-  const schedulePanelFrame = (fn: () => void) => {
-    if (typeof requestAnimationFrame !== "function") { window.setTimeout(fn, 16); return; }
-    let fired = false;
-    const h = requestAnimationFrame(() => { fired = true; fn(); });
-    window.setTimeout(() => { if (!fired) { cancelAnimationFrame(h); fn(); } }, 50);
-  };
-  // from/to = 对话列份额（1=全宽对话，splitRatio=分栏）；opening 决定 min 280px 的收敛方向
-  const tweenPanel = (from: number, to: number, opening: boolean, done: () => void) => {
-    const grid = detailRef.current;
-    if (!grid) { done(); return; }
-    const token = { cancelled: false };
-    panelAnimRef.current = token;
-    const t0 = performance.now();
-    const DUR = 400;
-    const ease = (t: number) => 1 - Math.pow(1 - t, 3); // easeOutCubic
-    const step = () => {
-      if (token.cancelled || panelAnimRef.current !== token) return;
-      const p = Math.min(1, (performance.now() - t0) / DUR);
-      const e = ease(p);
-      const chatFr = from + (to - from) * e;
-      const min = 280 * (opening ? e : 1 - e);
-      grid.style.gridTemplateColumns = `minmax(${min.toFixed(1)}px, ${chatFr.toFixed(4)}fr) 6px minmax(${min.toFixed(1)}px, ${(1 - chatFr).toFixed(4)}fr)`;
-      if (p < 1) schedulePanelFrame(step);
-      else { panelAnimRef.current = null; done(); }
-    };
-    schedulePanelFrame(step);
+  const slideWrap = (offscreen: boolean) => {
+    const wrap = panelWrapRef.current;
+    if (!wrap) return;
+    wrap.style.transition = PANEL_TRANSFORM_TRANSITION;
+    wrap.style.transform = offscreen ? "translateX(100%)" : "translateX(0)";
   };
   const animatePanel = (open: boolean) => {
-    if (open === panelTargetRef.current && panelAnimRef.current == null) return; // 稳态无操作
-    panelTargetRef.current = open;
-    cancelPanelTween(); // 中断在途补间，从实时位置续动
-    const grid = detailRef.current;
-    if (!grid) { setChangesPanelOpen(open); return; }
-    if (open && !panelWrapRef.current) { setChangesPanelOpen(true); return; } // 未挂载路径交 layout effect 入场
-    if (open) lockInner();
-    const from = currentChatRatio();
-    const to = open ? splitRatioRef.current : 1;
-    tweenPanel(from, to, open, () => {
-      // 结束零布局变更：锁不解除（RO 已在末帧同帧追平亚像素），只把模板落成与 React vdom
-      // 一致的精确串；收起路径卸载面板
-      if (open) {
-        grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
-      } else {
-        grid.style.gridTemplateColumns = PANEL_CLOSED_TPL;
-        setChangesPanelOpen(false);
-      }
-    });
+    panelTargetRef.current = open; // 目标即翻转：toggle 按意图取反，不依赖提交态
+    clearPanelTimer();
+    if (open) {
+      if (panelClosingRef.current) { setPanelClosing(false); return; } // 覆盖滑出中 → 拉回续滑到 0（flip effect）
+      if (openRef.current) return; // 稳态开
+      setChangesPanelOpen(true); // 未挂载 → 入场 effect 滑入
+    } else {
+      if (!openRef.current) return; // 稳态关
+      if (panelClosingRef.current) return; // 已在收起滑出，幂等
+      const wrap = panelWrapRef.current;
+      if (!wrap) { setChangesPanelOpen(false); return; }
+      closeWRef.current = wrap.offsetWidth; // 布局宽（不含 transform），冻结覆盖尺寸
+      setPanelClosing(true); // flip effect 滑出 + 卸载
+    }
   };
   const openPanel = () => animatePanel(true);
   const closePanel = () => animatePanel(false);
   const togglePanel = () => animatePanel(!panelTargetRef.current);
-  // 入场动画：面板从未挂载 → 挂载。本帧渲染即目标模板——必须同步先写收起态再进补间：
-  // 若提交落在当帧 rAF 阶段之后，会先绘制一帧「全开面板」再塌缩起滑（用户实测展开首/尾闪烁）。
+  // 入场（从未挂载 → 挂载）：先同步置 100%（首帧不可见，防提交帧全开闪现），强制回流后
+  // 开过渡滑入
   const prevOpenRef = useRef(changesPanelOpen);
   useLayoutEffect(() => {
     const wasOpen = prevOpenRef.current;
     prevOpenRef.current = changesPanelOpen;
     if (!changesPanelOpen || wasOpen) return;
-    const grid = detailRef.current;
-    if (!grid || !panelWrapRef.current) return;
-    lockInner(); // 按目标模板量目标宽（本帧渲染即目标模板）
-    grid.style.gridTemplateColumns = PANEL_CLOSED_TPL; // 同步塌缩，首帧即收起态
-    tweenPanel(1, splitRatioRef.current, true, () => {
-      grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
-    });
+    const wrap = panelWrapRef.current;
+    if (!wrap) return;
+    wrap.style.transition = "none";
+    wrap.style.transform = "translateX(100%)";
+    void wrap.offsetWidth;
+    slideWrap(false);
+    panelTimerRef.current = window.setTimeout(finishOpenCleanup, 420);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [changesPanelOpen]);
+  // 覆盖态切换：进入 = 从当前位置滑出屏幕（结束卸载）；退出（被展开打断）= 拉回续滑到 0
+  const prevClosingRef = useRef(panelClosing);
+  useLayoutEffect(() => {
+    const was = prevClosingRef.current;
+    prevClosingRef.current = panelClosing;
+    if (panelClosing && !was) {
+      const wrap = panelWrapRef.current;
+      if (!wrap) { setChangesPanelOpen(false); setPanelClosing(false); return; }
+      void wrap.offsetWidth; // 覆盖样式（absolute + 冻结宽）已提交
+      slideWrap(true);
+      panelTimerRef.current = window.setTimeout(() => {
+        panelTimerRef.current = null;
+        setChangesPanelOpen(false);
+        setPanelClosing(false);
+      }, 420);
+    } else if (!panelClosing && was && openRef.current) {
+      slideWrap(false); // 拉回网格内续滑到 0
+      panelTimerRef.current = window.setTimeout(finishOpenCleanup, 420);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelClosing]);
   // 分割线拖拽：拖拽中直写 grid 列（不经 React 渲染，无抖动），松手落比例
   const startListDrag = (e: { currentTarget: HTMLElement; preventDefault(): void }) => {
     e.preventDefault();
@@ -426,7 +391,6 @@ export function TasksPage() {
     const split = grip.parentElement;
     if (!split) return;
     grip.classList.add("drag");
-    cancelPanelTween(); // 拖拽抢占：停在途补间，避免逐帧模板互踩（内容宽由 RO 被动跟随）
     const move = (ev: PointerEvent) => {
       const rect = split.getBoundingClientRect();
       const r = Math.max(0.2, Math.min(0.8, (ev.clientX - rect.left - 3) / rect.width));
@@ -1212,7 +1176,7 @@ export function TasksPage() {
       {/* v3.2 设计稿 detail 级 grid：页签行只跨对话列，变更面板 + 分割线从页签行 band 起全高、
           三页签常驻（切换改动/检查点不卸面板）；minWidth: 0 = grid item 自动最小尺寸回收，
           对话内容的 min-content 宽度不再把 1fr 轨道撑破窗口 */}
-      <div ref={detailRef} style={{ display: "grid", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }}>
+      <div ref={detailRef} style={{ display: "grid", position: "relative", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen && !panelClosing ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }}>
         <div className="tk-tabs" style={{ gridColumn: "1", gridRow: "1" }}>
           {([["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount]] as const).map(([id, label, n]) => (
             <div key={id} className={"tk-tab" + (tab === id ? " on" : "")} onClick={() => setTab(id)}>
@@ -1467,21 +1431,21 @@ export function TasksPage() {
         </div>
 
         {/* 对话|变更面板 分割线 + 面板：detail 级全高（页签行 band 起），三页签常驻；拖拽调比例（localStorage 持久化）。
-            wrap overflow hidden + inner 锁宽 = 收起/展开动画期间内容平移裁剪而非回流挤压 */}
+            收起动画（panelClosing）：网格瞬落 1 列、分割线隐藏，面板提升为绝对定位覆盖（宽度冻结）滑出 */}
         {selected && changesPanelOpen && (
           <>
-            <div className="tk-vdiv" style={{ gridColumn: "2", gridRow: "1 / 3" }} title="拖拽调整分栏比例" onPointerDown={startSplitDrag}><span className="tk-vdiv-grip" /></div>
-            <div ref={panelWrapRef} style={{ gridColumn: "3", gridRow: "1 / 3", minHeight: 0, minWidth: 0, display: "flex", overflow: "hidden" }}>
-              <div ref={panelInnerRef} style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex" }}>
-                <TaskChangesPanel
-                  taskId={selected.taskId}
-                  worktreePath={selected.worktreePath}
-                  tick={changesTick}
-                  request={panelReq}
-                  onCollapse={closePanel}
-                  onEditInFilesPage={(path) => { pageSdk.requestFileFocus(path); pageSdk.navigate("files"); }}
-                />
-              </div>
+            <div className="tk-vdiv" style={{ gridColumn: "2", gridRow: "1 / 3", display: panelClosing ? "none" : undefined }} title="拖拽调整分栏比例" onPointerDown={startSplitDrag}><span className="tk-vdiv-grip" /></div>
+            <div ref={panelWrapRef} style={panelClosing
+              ? { position: "absolute", right: 0, top: 0, bottom: 0, width: closeWRef.current + "px", zIndex: 5, display: "flex", overflow: "hidden" }
+              : { gridColumn: "3", gridRow: "1 / 3", minHeight: 0, minWidth: 0, display: "flex", overflow: "hidden" }}>
+              <TaskChangesPanel
+                taskId={selected.taskId}
+                worktreePath={selected.worktreePath}
+                tick={changesTick}
+                request={panelReq}
+                onCollapse={closePanel}
+                onEditInFilesPage={(path) => { pageSdk.requestFileFocus(path); pageSdk.navigate("files"); }}
+              />
             </div>
           </>
         )}

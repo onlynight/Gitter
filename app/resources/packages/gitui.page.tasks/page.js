@@ -280,6 +280,53 @@
   function isProviderResult(r) {
     return !!r && typeof r.kind === "string" && typeof r.content === "string";
   }
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function runsToHtml(line, runs, colors) {
+    let out = "";
+    let pos = 0;
+    for (const r of runs) {
+      if (r.start > pos) out += escapeHtml(line.slice(pos, r.start));
+      const seg = escapeHtml(line.slice(r.start, r.end));
+      const color = r.color ?? colors[r.style];
+      out += color ? `<span style="color:${color}">${seg}</span>` : seg;
+      pos = r.end;
+    }
+    if (pos < line.length) out += escapeHtml(line.slice(pos));
+    return out;
+  }
+  async function injectCodeHighlight(html) {
+    if (!html.includes("<code")) return html;
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const codes = [...doc.querySelectorAll("pre > code")];
+    if (codes.length === 0) return html;
+    const results = await Promise.all(codes.map(async (el) => {
+      var _a2;
+      const lang = ((_a2 = /language-([\w+#.-]+)/.exec(el.className)) == null ? void 0 : _a2[1]) ?? null;
+      if (!lang) return null;
+      const code = el.textContent ?? "";
+      if (!code.trim()) return null;
+      try {
+        const r = await call$1(
+          "highlight.snippet",
+          { code, lang }
+        );
+        if (!r || r.lines.length === 0) return null;
+        const htmlLines = code.split("\n").map((line, i) => runsToHtml(line, r.lines[i] ?? [], r.syntaxColors));
+        return { el, html: htmlLines.join("\n") };
+      } catch {
+        return null;
+      }
+    }));
+    let changed = false;
+    for (const res of results) {
+      if (!res) continue;
+      res.el.innerHTML = res.html;
+      changed = true;
+    }
+    return changed ? doc.body.innerHTML : html;
+  }
   function mdSrcdoc(html, dark) {
     const c = dark ? { bg: "#14161B", fg: "#D4D4D4", fg2: "#A8B0BC", border: "#FFFFFF21", thumb: "#FFFFFF40", thumbHover: "#FFFFFF59", codeBg: "#FFFFFF12", link: "#6BABF5" } : { bg: "#FFFFFF", fg: "#1B1B1B", fg2: "#5C5C5C", border: "#E5E5E5", thumb: "#C9C9CE", thumbHover: "#AFAFB5", codeBg: "#F2F2F3", link: "#0B6BCB" };
     return `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -309,22 +356,25 @@ li { margin: .25em 0; }
 </style></head><body>${html}</body></html>`;
   }
   function ExternalFilePreview(props) {
-    const dark = props.dark ?? (document.documentElement.getAttribute("data-base") ?? "dark") !== "light";
+    const theme = useAppState().theme;
+    const dark = props.dark ?? ((theme == null ? void 0 : theme.base) ?? "dark") !== "light";
     const [phase, setPhase] = react.useState({ kind: "loading" });
     react.useEffect(() => {
       let stale = false;
       setPhase({ kind: "loading" });
-      call$1("file.preview", { path: props.path }).then((r) => {
+      call$1("file.preview", { path: props.path }).then(async (r) => {
         if (stale) return;
-        if (isProviderResult(r)) setPhase({ kind: r.kind, content: r.content });
-        else setPhase({ kind: "fallback" });
+        if (isProviderResult(r)) {
+          const content = r.kind === "html" ? await injectCodeHighlight(r.content).catch(() => r.content) : r.content;
+          if (!stale) setPhase({ kind: r.kind, content });
+        } else setPhase({ kind: "fallback" });
       }).catch(() => {
         if (!stale) setPhase({ kind: "fallback" });
       });
       return () => {
         stale = true;
       };
-    }, [props.path]);
+    }, [props.path, dark]);
     const name = props.path.split("/").pop() ?? props.path;
     return /* @__PURE__ */ jsxRuntime.jsx("div", { style: { position: "absolute", inset: 0 }, children: phase.kind === "loading" ? null : phase.kind === "html" ? /* @__PURE__ */ jsxRuntime.jsx(
       "iframe",
@@ -2295,125 +2345,58 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       const v = Number(localStorage.getItem("gitter.taskSplitRatio"));
       return Number.isFinite(v) && v >= 0.2 && v <= 0.85 ? v : 4 / 7;
     });
-    const PANEL_CLOSED_TPL = "minmax(0px, 1fr) 6px minmax(0px, 0fr)";
     const panelTemplate = (r) => `minmax(280px, ${r.toFixed(4)}fr) 6px minmax(280px, ${(1 - r).toFixed(4)}fr)`;
+    const PANEL_TRANSFORM_TRANSITION = "transform 400ms var(--ease-std)";
     const panelWrapRef = react.useRef(null);
-    const panelInnerRef = react.useRef(null);
-    const panelAnimRef = react.useRef(null);
+    const panelTimerRef = react.useRef(null);
+    const closeWRef = react.useRef(0);
     const panelTargetRef = react.useRef(true);
-    const splitRatioRef = react.useRef(splitRatio);
-    splitRatioRef.current = splitRatio;
-    const lockInner = () => {
-      const grid = detailRef.current, wrap = panelWrapRef.current, inner = panelInnerRef.current;
-      if (!grid || !wrap || !inner) return;
-      const saved = grid.style.gridTemplateColumns;
-      grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
-      const w = Math.round(wrap.getBoundingClientRect().width);
-      grid.style.gridTemplateColumns = saved;
-      if (w > 4) {
-        inner.style.width = w + "px";
-        inner.style.flex = "none";
-      }
-      const ro = ensurePanelRO();
-      if (ro && observedWrapRef.current !== wrap) {
-        ro.disconnect();
-        ro.observe(wrap);
-        observedWrapRef.current = wrap;
+    const [panelClosing, setPanelClosing] = react.useState(false);
+    const panelClosingRef = react.useRef(false);
+    const openRef = react.useRef(changesPanelOpen);
+    panelClosingRef.current = panelClosing;
+    openRef.current = changesPanelOpen;
+    const clearPanelTimer = () => {
+      if (panelTimerRef.current != null) {
+        window.clearTimeout(panelTimerRef.current);
+        panelTimerRef.current = null;
       }
     };
-    const panelRORef = react.useRef(null);
-    const observedWrapRef = react.useRef(null);
-    const ensurePanelRO = () => {
-      if (panelRORef.current || typeof ResizeObserver !== "function") return panelRORef.current;
-      panelRORef.current = new ResizeObserver(() => {
-        if (panelAnimRef.current) return;
-        const wrap = panelWrapRef.current, inner = panelInnerRef.current;
-        if (!wrap || !inner || !inner.style.width) return;
-        const w = wrap.getBoundingClientRect().width;
-        if (w > 4) inner.style.width = w + "px";
-      });
-      return panelRORef.current;
-    };
-    const cancelPanelTween = () => {
-      if (panelAnimRef.current) {
-        panelAnimRef.current.cancelled = true;
-        panelAnimRef.current = null;
+    const finishOpenCleanup = () => {
+      const wrap = panelWrapRef.current;
+      if (wrap) {
+        wrap.style.transition = "";
+        wrap.style.transform = "";
       }
+      panelTimerRef.current = null;
     };
-    const currentChatRatio = () => {
-      const grid = detailRef.current;
-      if (!grid) return panelTargetRef.current ? splitRatioRef.current : 1;
-      const nums = getComputedStyle(grid).gridTemplateColumns.split(" ").map((v) => parseFloat(v)).filter((n) => Number.isFinite(n));
-      if (nums.length >= 3 && nums[0] + nums[2] > 1) return nums[0] / (nums[0] + nums[2]);
-      return panelTargetRef.current ? splitRatioRef.current : 1;
-    };
-    const schedulePanelFrame = (fn) => {
-      if (typeof requestAnimationFrame !== "function") {
-        window.setTimeout(fn, 16);
-        return;
-      }
-      let fired = false;
-      const h = requestAnimationFrame(() => {
-        fired = true;
-        fn();
-      });
-      window.setTimeout(() => {
-        if (!fired) {
-          cancelAnimationFrame(h);
-          fn();
-        }
-      }, 50);
-    };
-    const tweenPanel = (from, to, opening, done) => {
-      const grid = detailRef.current;
-      if (!grid) {
-        done();
-        return;
-      }
-      const token = { cancelled: false };
-      panelAnimRef.current = token;
-      const t0 = performance.now();
-      const DUR = 400;
-      const ease = (t2) => 1 - Math.pow(1 - t2, 3);
-      const step = () => {
-        if (token.cancelled || panelAnimRef.current !== token) return;
-        const p = Math.min(1, (performance.now() - t0) / DUR);
-        const e = ease(p);
-        const chatFr = from + (to - from) * e;
-        const min = 280 * (opening ? e : 1 - e);
-        grid.style.gridTemplateColumns = `minmax(${min.toFixed(1)}px, ${chatFr.toFixed(4)}fr) 6px minmax(${min.toFixed(1)}px, ${(1 - chatFr).toFixed(4)}fr)`;
-        if (p < 1) schedulePanelFrame(step);
-        else {
-          panelAnimRef.current = null;
-          done();
-        }
-      };
-      schedulePanelFrame(step);
+    const slideWrap = (offscreen) => {
+      const wrap = panelWrapRef.current;
+      if (!wrap) return;
+      wrap.style.transition = PANEL_TRANSFORM_TRANSITION;
+      wrap.style.transform = offscreen ? "translateX(100%)" : "translateX(0)";
     };
     const animatePanel = (open) => {
-      if (open === panelTargetRef.current && panelAnimRef.current == null) return;
       panelTargetRef.current = open;
-      cancelPanelTween();
-      const grid = detailRef.current;
-      if (!grid) {
-        setChangesPanelOpen(open);
-        return;
-      }
-      if (open && !panelWrapRef.current) {
-        setChangesPanelOpen(true);
-        return;
-      }
-      if (open) lockInner();
-      const from = currentChatRatio();
-      const to = open ? splitRatioRef.current : 1;
-      tweenPanel(from, to, open, () => {
-        if (open) {
-          grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
-        } else {
-          grid.style.gridTemplateColumns = PANEL_CLOSED_TPL;
-          setChangesPanelOpen(false);
+      clearPanelTimer();
+      if (open) {
+        if (panelClosingRef.current) {
+          setPanelClosing(false);
+          return;
         }
-      });
+        if (openRef.current) return;
+        setChangesPanelOpen(true);
+      } else {
+        if (!openRef.current) return;
+        if (panelClosingRef.current) return;
+        const wrap = panelWrapRef.current;
+        if (!wrap) {
+          setChangesPanelOpen(false);
+          return;
+        }
+        closeWRef.current = wrap.offsetWidth;
+        setPanelClosing(true);
+      }
     };
     const closePanel = () => animatePanel(false);
     const togglePanel = () => animatePanel(!panelTargetRef.current);
@@ -2422,14 +2405,37 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       const wasOpen = prevOpenRef.current;
       prevOpenRef.current = changesPanelOpen;
       if (!changesPanelOpen || wasOpen) return;
-      const grid = detailRef.current;
-      if (!grid || !panelWrapRef.current) return;
-      lockInner();
-      grid.style.gridTemplateColumns = PANEL_CLOSED_TPL;
-      tweenPanel(1, splitRatioRef.current, true, () => {
-        grid.style.gridTemplateColumns = panelTemplate(splitRatioRef.current);
-      });
+      const wrap = panelWrapRef.current;
+      if (!wrap) return;
+      wrap.style.transition = "none";
+      wrap.style.transform = "translateX(100%)";
+      void wrap.offsetWidth;
+      slideWrap(false);
+      panelTimerRef.current = window.setTimeout(finishOpenCleanup, 420);
     }, [changesPanelOpen]);
+    const prevClosingRef = react.useRef(panelClosing);
+    react.useLayoutEffect(() => {
+      const was = prevClosingRef.current;
+      prevClosingRef.current = panelClosing;
+      if (panelClosing && !was) {
+        const wrap = panelWrapRef.current;
+        if (!wrap) {
+          setChangesPanelOpen(false);
+          setPanelClosing(false);
+          return;
+        }
+        void wrap.offsetWidth;
+        slideWrap(true);
+        panelTimerRef.current = window.setTimeout(() => {
+          panelTimerRef.current = null;
+          setChangesPanelOpen(false);
+          setPanelClosing(false);
+        }, 420);
+      } else if (!panelClosing && was && openRef.current) {
+        slideWrap(false);
+        panelTimerRef.current = window.setTimeout(finishOpenCleanup, 420);
+      }
+    }, [panelClosing]);
     const startListDrag = (e) => {
       e.preventDefault();
       const grip = e.currentTarget;
@@ -2461,7 +2467,6 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       const split = grip.parentElement;
       if (!split) return;
       grip.classList.add("drag");
-      cancelPanelTween();
       const move = (ev) => {
         const rect = split.getBoundingClientRect();
         const r = Math.max(0.2, Math.min(0.8, (ev.clientX - rect.left - 3) / rect.width));
@@ -3344,7 +3349,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", title: "拖拽调整任务列表宽度", onPointerDown: startListDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: detailRef, style: { display: "grid", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: detailRef, style: { display: "grid", position: "relative", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen && !panelClosing ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-tabs", style: { gridColumn: "1", gridRow: "1" }, children: [["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tab" + (tab === id ? " on" : ""), onClick: () => setTab(id), children: [
           label,
           n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-tab-n", children: n }) : null
@@ -3671,8 +3676,8 @@ ${stateChip(task.state).label} · ${task.branch}`,
           tab === "cp" && selected && /* @__PURE__ */ jsxRuntime.jsx(CheckpointsTab, { taskId: selected.taskId, branch: selected.branch, tick: changesTick, setError, onCount: setCpCount, onViewDiff: () => setTab("diff"), onMutate: () => setChangesTick((n) => n + 1) })
         ] }),
         selected && changesPanelOpen && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", style: { gridColumn: "2", gridRow: "1 / 3" }, title: "拖拽调整分栏比例", onPointerDown: startSplitDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { ref: panelWrapRef, style: { gridColumn: "3", gridRow: "1 / 3", minHeight: 0, minWidth: 0, display: "flex", overflow: "hidden" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { ref: panelInnerRef, style: { flex: 1, minWidth: 0, minHeight: 0, display: "flex" }, children: /* @__PURE__ */ jsxRuntime.jsx(
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", style: { gridColumn: "2", gridRow: "1 / 3", display: panelClosing ? "none" : void 0 }, title: "拖拽调整分栏比例", onPointerDown: startSplitDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { ref: panelWrapRef, style: panelClosing ? { position: "absolute", right: 0, top: 0, bottom: 0, width: closeWRef.current + "px", zIndex: 5, display: "flex", overflow: "hidden" } : { gridColumn: "3", gridRow: "1 / 3", minHeight: 0, minWidth: 0, display: "flex", overflow: "hidden" }, children: /* @__PURE__ */ jsxRuntime.jsx(
             TaskChangesPanel,
             {
               taskId: selected.taskId,
@@ -3685,7 +3690,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
                 pageSdk.navigate("files");
               }
             }
-          ) }) })
+          ) })
         ] }),
         (() => {
           const slot = document.getElementById("tbPageActions");
