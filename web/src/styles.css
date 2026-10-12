@@ -1923,6 +1923,7 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
 /* 面包屑最右侧动作区：md 预览/源码切换图标钮（24px 钮贴 24px 条高） */
 .edcrumbs-acts { margin-left: auto; flex: none; display: flex; align-items: center; gap: 2px; }
 .edcrumbs-acts .files-ibtn { width: 20px; height: 20px; }
+.edcrumbs-diffcount { flex: none; min-width: 14px; text-align: center; font-size: 11px; color: var(--c-text3); font-variant-numeric: tabular-nums; }
 
 /* ---- 编辑器页脚（光标/缩进/编码/EOL/语言） ---- */
 .edfoot {
@@ -2213,3 +2214,53 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
 /* M3.1 更新下载进度条 */
 .upd-progress { width: 140px; height: 6px; border-radius: 3px; background: var(--c-bg3); overflow: hidden; }
 .upd-progress-bar { height: 100%; background: var(--c-accent, var(--c-selected, #4a9eff)); transition: width 0.3s ease; }
+
+/* ---- stash 入口角标 / Push 拆分 / 多选选择条 / amend（design/stash·changes-discard·changes-amend-push-mockup 实现） ---- */
+.stash-btn { position: relative; }
+.stash-badge {
+  position: absolute; top: -4px; right: -5px; min-width: 13px; height: 13px; padding: 0 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px; background: var(--c-link); color: var(--c-on-accent, #fff);
+  font-size: 9px; font-weight: 600; line-height: 1; pointer-events: none;
+}
+.push-split { display: inline-flex; align-items: center; }
+.push-split .icon-btn:first-child { border-radius: 6px 0 0 6px; }
+.push-split .push-more { width: 17px; margin-left: -1px; border-radius: 0 6px 6px 0; }
+.chg-row.multi-sel { background: color-mix(in srgb, var(--c-link) 14%, transparent); }
+.chg-row.multi-sel:hover { background: color-mix(in srgb, var(--c-link) 18%, transparent); }
+.icon-btn.discard:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 14%, transparent); color: var(--c-red); }
+.sel-strip {
+  display: flex; align-items: center; gap: 6px; margin: 6px 2px 2px; padding: 4px 6px 4px 9px; flex: none;
+  border: 1px solid color-mix(in srgb, var(--c-link) 35%, transparent);
+  background: color-mix(in srgb, var(--c-link) 8%, var(--c-panel));
+  border-radius: 8px; font-size: 11.5px; color: var(--c-text2);
+}
+.amend-pill {
+  height: 26px; padding: 0 10px 0 8px; font: inherit; font-size: 12px; cursor: pointer; flex: none;
+  display: inline-flex; align-items: center; gap: 6px; color: var(--c-text2);
+  background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: 6px;
+}
+.amend-pill:hover:not(:disabled) { background: var(--c-hover); }
+.amend-pill:disabled { opacity: .6; cursor: default; }
+.amend-box {
+  width: 13px; height: 13px; border: 1px solid var(--c-border-strong); border-radius: 3px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center; color: #fff;
+}
+.amend-pill.on { color: var(--c-text); border-color: var(--c-link); background: color-mix(in srgb, var(--c-link) 10%, var(--c-panel2)); }
+.amend-pill.on .amend-box { background: var(--c-link); border-color: var(--c-link); }
+.amend-warn {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 11.5px; flex: none;
+  border: 1px solid color-mix(in srgb, var(--c-amber) 30%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--c-amber) 9%, var(--c-panel)); color: var(--c-text);
+}
+.discard-list {
+  border: 1px solid var(--c-border); border-radius: var(--radius-md); background: var(--c-panel);
+  padding: 6px 10px; max-height: 132px; overflow-y: auto; margin-top: 8px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.discard-file {
+  display: flex; gap: 8px; align-items: center; min-width: 0;
+  font-family: var(--mono); font-size: 11px; color: var(--c-text2);
+  word-break: break-all; user-select: text;
+}

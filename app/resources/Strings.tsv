@@ -454,6 +454,8 @@ Cmd_GotoChanges	Go to Changes	转到变更
 Cmd_GotoBranches	Go to Branches	转到分支
 Cmd_GotoTasks	Go to Tasks	转到任务
 Cmd_GotoTerminal	Go to Terminal	转到终端
+Cmd_GotoFiles	Go to Files	转到文件
+Cmd_GotoOffice	Go to Office	转到 Office 文档
 Cmd_GotoSettings	Go to Settings	转到设置
 Cmd_RefreshPage	Refresh page	刷新当前页
 Cmd_NewWindow	New window	新窗口
@@ -875,6 +877,29 @@ Settings_ScInterrupt	Interrupt running task	中断运行中的任务
 Settings_ScInterruptNote	Press twice within 500 ms to open checkpoints	500ms 内按两次可打开检查点
 Settings_ScPermCycle	Cycle permission mode	循环切换权限模式
 Settings_ScUnavailable	Not available now — condition not met	当前不可用——条件未满足
+Settings_ShortcutsSearch	Search commands or keys…	搜索命令或按键…
+Settings_ShortcutsNoMatches	No matching shortcuts	没有匹配的快捷键
+Settings_ScGroupMonaco	Code editor (Monaco)	代码编辑器（Monaco）
+Settings_ScGroupMonacoNote	Active while the code editor is focused	代码编辑器聚焦时生效
+Settings_ScToggleComment	Toggle line comment	切换行注释
+Settings_ScToggleBlockComment	Toggle block comment	切换块注释
+Settings_ScMoveLine	Move line up / down	上移 / 下移行
+Settings_ScCopyLine	Copy line up / down	向上 / 向下复制行
+Settings_ScDeleteLine	Delete line	删除行
+Settings_ScInsertLine	Insert line below / above	下方 / 上方插入行
+Settings_ScAddCursorNext	Add next find match to selection	添加下一个匹配到选区
+Settings_ScSelectOccurrences	Select all occurrences	选中所有出现位置
+Settings_ScAddCursor	Insert cursor / add above / below	插入光标 / 上方 / 下方加光标
+Settings_ScAddCursorNote	Shift+Alt+drag = column selection	Shift+Alt 拖动 = 列选择
+Settings_ScGotoLine	Go to line…	转到行…
+Settings_ScGotoSymbol	Go to symbol…	转到符号…
+Settings_ScGotoDef	Go to definition	转到定义
+Settings_ScFind	Find / replace	查找 / 替换
+Settings_ScFindNext	Find next / previous	查找下一个 / 上一个
+Settings_ScIndent	Indent / outdent line	增加 / 减少缩进
+Settings_ScFormatDoc	Format document	格式化文档
+Settings_ScNextProblem	Next / previous problem	下一个 / 上一个问题
+Settings_ScTriggerSuggest	Trigger suggestions	触发补全建议
 Settings_SafetyNetSection	Commit Safety Net	提交安全网
 Settings_SafetyNetHint	Scan staged content before commit; blocked findings stop the commit	提交前扫描暂存内容；block 档命中即拦截（agent 提交同样受限）
 Settings_AgentSection	Agent Runtime	Agent 运行时
@@ -1168,3 +1193,76 @@ Settings_GitRemoteUrl	Remote URL	远程 URL
 Settings_NoRepoHint	No repository open; repository-level config is unavailable	当前未打开仓库，无法编辑仓库级配置
 Settings_Unset	Unset	未设置
 Extensions_OpenFolder	Open plugins folder	打开插件目录
+# ==== Changes（stash 管理——stash-mockup.html）====
+Changes_StashManage	Stashes	Stash 管理
+Changes_StashHint	Stash uncommitted changes to get a clean worktree; apply them back anytime.	把当前未提交的修改暂存起来，工作区恢复干净；随时可应用回来。
+Changes_StashMessagePlaceholder	Message (optional, default "WIP on <branch>")	消息（可选，默认「WIP + 分支名」）
+Changes_StashSave	Stash changes	暂存修改
+Changes_StashEmpty	No stashes	没有 stash
+Changes_StashPop	Apply & drop	应用并删除
+Changes_StashPopTip	git stash pop: apply and remove this entry	git stash pop：应用并删除此条（推荐）
+Changes_StashApply	Apply	仅应用
+Changes_StashApplyTip	git stash apply: apply but keep this entry	git stash apply：应用但保留此条
+Changes_StashDrop	Drop	删除
+Changes_StashSaved	Stashed; the worktree is clean	已 stash，工作区已恢复干净
+Changes_StashAppliedPop	Applied {0} to worktree (entry removed)	已应用 {0}（条目已删除）
+Changes_StashApplied	Applied {0} (entry kept)	已应用 {0}（条目保留）
+Changes_StashDropped	Dropped {0}	已删除 {0}
+Changes_StashConflictHint	If applying conflicts with the worktree, the stash entry is kept and conflicted files land in Changes for the conflict assistant.	应用时若与工作区冲突：该 stash 条目保留不删，冲突文件落入变更页，走冲突助手解决。
+# ==== Changes（放弃修改 discard：右键 / 悬停 / 多选批量——changes-discard-mockup.html）====
+Changes_DiscardFileMenu	Discard changes…	放弃修改…
+Changes_DeleteFileMenu	Delete file…	删除文件…
+Changes_DiscardTitle	Discard changes	放弃修改
+Changes_DiscardOneBody	Discard uncommitted changes to {0}? The file reverts to the last commit (HEAD).	确定放弃 {0} 的未提交修改？文件将回到上次提交（HEAD）的版本。
+Changes_DiscardManyBody	Discard uncommitted changes in the following {0} files? They revert to the last commit (HEAD).	将放弃以下 {0} 个文件的未提交修改，文件回到上次提交（HEAD）的版本。
+Changes_Irreversible	This cannot be undone.	此操作不可撤销。
+Changes_DiscardConfirm	Discard	放弃修改
+Changes_DiscardManyBtn	Discard {0} file(s)	放弃 {0} 个文件
+Changes_DeleteTitle	Delete file	删除文件
+Changes_DeleteOneBody	Delete untracked file {0}?	确定删除未跟踪文件 {0}？
+Changes_DeleteManyBody	Delete {0} untracked files?	确定删除 {0} 个未跟踪文件？
+Changes_DeleteUnrecoverable	These files were never committed; they cannot be recovered from git.	这些文件从未提交过，删除后无法从 git 恢复。
+Changes_DeleteConfirm	Delete file	删除文件
+Changes_Deleted	Deleted {0}	已删除 {0}
+Changes_Discarded	Discarded changes in {0} file(s)	已放弃 {0} 个文件的修改
+Changes_DiscardHover	Discard changes (back to HEAD)	放弃修改（回到 HEAD）
+Changes_DeleteHover	Delete file (never committed; unrecoverable)	删除文件（从未提交，无法从 git 恢复）
+Changes_MixedWarning	Untracked files in the selection are deleted permanently.	所选中的未跟踪文件将被永久删除。
+Changes_SelCount	{0} file(s) selected	已选 {0} 个文件
+Changes_SelStage	Stage	暂存
+Changes_SelDiscard	Discard…	放弃修改…
+Changes_SelClear	Clear selection	取消选择
+# ==== Changes（amend 修改上次提交 + 强推/推送 tags——changes-amend-push-mockup.html）====
+Changes_Amend	Amend last commit	修改上次提交
+Changes_AmendBtn	Amend commit	修改提交
+Changes_AmendStat	Amends into last commit {0}	将并入上次提交 {0}
+Changes_AmendPushedWarn	Last commit {0} is already on the remote — updating it requires a force push.	上次提交 {0} 已推送到远端，修改后需要强制推送才会更新远端。
+Changes_AmendNoHead	Nothing to amend: repository has no commits yet	无法修改：仓库还没有提交
+Changes_Amended	Last commit amended	已修改上次提交
+Changes_PushMore	More push actions	更多推送操作
+Changes_PushTags	Push tags	推送 tags
+Changes_PushTagsDone	Tags pushed	已推送 tags
+Changes_ForcePush	Force push (--force-with-lease)…	强制推送（--force-with-lease）…
+Changes_ForcePushTitle	Force push	强制推送
+Changes_ForcePushBody	This overwrites the remote branch with local {0}. The following remote commits will be removed from the branch:	将用本地 {0} 覆盖远端。以下远端提交会被移出分支：
+Changes_ForcePushNone	None — remote will be aligned to local	无——远端将直接对齐到本地
+Changes_ForcePushLease	Uses --force-with-lease: the push is rejected if the remote has commits you do not have — pull first.	使用 --force-with-lease：若远端有你本地没有的新提交，推送会被拒绝并提示先拉取。
+Changes_ForcePushBtn	Force push	强制推送
+Changes_ForcePushed	Force pushed (--force-with-lease)	已强制推送（--force-with-lease）
+# ==== Log（revert / cherry-pick——log-revert-cherry-pick-mockup.html）====
+Log_Revert	Revert this commit…	Revert 此提交…
+Log_CherryPick	Cherry-pick onto current branch	Cherry-pick 到当前分支
+Log_RevertTitle	Revert commit	Revert 提交
+Log_RevertIntro	Creates a new commit that undoes the changes of this commit; history is preserved:	将创建一个新提交来自动撤销以下提交的改动，历史完整保留：
+Log_RevertCommitNow	Commit immediately	立即提交
+Log_RevertCommitNowSub	Unchecked: reversed changes are staged in Changes for you to review and commit (recommended)	不勾选：反向改动暂存到变更页，由你确认信息后提交（推荐）
+Log_RevertEffectStaged	→ The reversed changes will appear staged in Changes; message prefilled with Revert "…".	→ 该提交的反向改动将出现在变更页（已暂存），提交信息预填「Revert "…"」。
+Log_RevertEffectNow	→ The revert commit is created directly (no stop at Changes).	→ 将直接创建 revert 提交，不打扰变更页。
+Log_RevertBtn	Create revert commit	创建 Revert 提交
+Log_RevertBtnNow	Revert now	立即 Revert
+Log_RevertDoneStaged	Reversed changes staged in Changes	反向改动已暂存到变更页
+Log_RevertDone	Revert commit created	已创建 revert 提交
+Log_CherryPicked	Cherry-picked {0}	已拣选 {0}
+# ==== Branches（命令面板 branches.checkout 快速检出）====
+Branches_CheckoutTitle	Checkout branch	检出分支
+Branches_CheckoutPick	Branch	分支

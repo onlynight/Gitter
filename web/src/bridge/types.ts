@@ -78,6 +78,45 @@ export interface ChangesStateDTO {
   behind: number | null;
 }
 
+// ---- stash / amend / 强推 / revert（DATA_API_VERSION v4）----
+
+export interface StashEntryDTO {
+  /** stash@{n} 的 n（新条目在前） */
+  index: number;
+  selector: string;
+  /** 去掉 "On <branch>:" / "WIP on <branch>:" 前缀后的消息 */
+  message: string;
+  /** 所在分支（subject 解析不出为 null） */
+  branch: string | null;
+  /** 原始 reflog subject */
+  subject: string;
+  /** unix 秒 */
+  timestamp: number;
+}
+
+export interface StashFileDTO {
+  /** name-status 字母：A/M/D/R… */
+  code: string;
+  path: string;
+}
+
+/** HEAD 提交信息（amend 预填 + 已推警告 + 日志页 cherry-pick 顶端禁用判定）。 */
+export interface HeadCommitInfoDTO {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  message: string;
+  /** HEAD 已在任一远端分支上（amend 后需强推） */
+  pushed: boolean;
+  branch: string | null;
+}
+
+/** 远端独有提交（强推确认框列出将被移出远端的提交）。 */
+export interface RemoteOnlyCommitDTO {
+  shortSha: string;
+  subject: string;
+}
+
 export interface BranchItemDTO {
   name: string;
   shortSha: string;

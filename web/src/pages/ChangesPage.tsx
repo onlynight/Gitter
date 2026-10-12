@@ -3,7 +3,8 @@ import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
 import { Banner, DiffView, Modal, ScrollArea, SplitPane, SyncBar, useSyncProgress, useContextMenu, type CtxMenuItem } from "../kit";
 import { TlIcon } from "./taskIcons";
-import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
+import { StashDialog } from "./StashDialog";
+import type { ChangesStateDTO, DiffDTO, FileStatusDTO, HeadCommitInfoDTO, RemoteOnlyCommitDTO } from "../bridge/types";
 import { ConflictAssist } from "./ConflictAssist";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -153,6 +154,18 @@ export function ChangesPage() {
   const [explainText, setExplainText] = useState<{ title: string; text: string } | null>(null);
   const [createBranch, setCreateBranch] = useState<string | null>(null);
   const [pushErrorKind, setPushErrorKind] = useState<string | null>(null);
+  // stash 入口（收件箱图标钮 + 计数角标 → StashDialog）
+  const [stashOpen, setStashOpen] = useState(false);
+  const [stashCount, setStashCount] = useState(0);
+  // 多选放弃：Ctrl/Cmd+点击行勾选（点行仍是打开差异），仅 更改/未跟踪 组可入选
+  const [multiSel, setMultiSel] = useState<Set<string>>(new Set());
+  const [discardTarget, setDiscardTarget] = useState<string[] | null>(null);
+  // amend（修改上次提交）：勾选预填 HEAD 信息，已推远端时黄条警告
+  const [amend, setAmend] = useState(false);
+  const [amendDraft, setAmendDraft] = useState<string | null>(null);
+  const [headInfo, setHeadInfo] = useState<HeadCommitInfoDTO | null>(null);
+  // 强推确认：列出将被移出远端分支的提交（--force-with-lease 拒绝盲覆盖）
+  const [forcePreview, setForcePreview] = useState<{ branch: string; commits: RemoteOnlyCommitDTO[] } | null>(null);
   const { showMenu, menuElement } = useContextMenu();
   const transientTimer = useRef<number | null>(null);
   const [syncProgress, clearSyncProgress] = useSyncProgress();
@@ -175,6 +188,12 @@ export function ChangesPage() {
     } catch (e) {
       setError((e as Error).message);
       setErrorDetail((e as { detail?: string }).detail ?? null);
+    }
+    // stash 计数（角标）：失败不影响页面
+    try {
+      setStashCount((await call<unknown[]>("stash.list", {})).length);
+    } catch {
+      setStashCount(0);
     }
   }, [repo]);
 
@@ -200,6 +219,13 @@ export function ChangesPage() {
     if (transientTimer.current) window.clearTimeout(transientTimer.current);
     transientTimer.current = window.setTimeout(() => setTransient(null), 5000);
   };
+
+  // Esc 清空多选（选择条消失）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMultiSel(new Set()); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const run = async (fn: () => Promise<string | void>) => {
     setBusy(true);
@@ -283,6 +309,12 @@ export function ChangesPage() {
     [state],
   );
 
+  // 多选有效集：仅 更改/未跟踪 组（已暂存/冲突不参与放弃）；状态刷新后自动剪掉已消失的路径
+  const selPaths = useMemo(
+    () => (state ? [...multiSel].filter((p) => state.changes.some((f) => f.path === p) || state.unversioned.some((f) => f.path === p)) : []),
+    [multiSel, state],
+  );
+
   const stagedPaths = useMemo(
     () => allFiles.filter((f) => checked.has(f.path) && f.category !== "staged" && f.category !== "conflicts").map((f) => f.path),
     [allFiles, checked],
@@ -306,7 +338,9 @@ export function ChangesPage() {
     !!state &&
     (state.staged.some((f) => !excludedStaged.has(f.path)) || stagedPaths.length > 0) &&
     message.trim().length > 0 &&
-    !busy;
+    !busy &&
+    // amend 只在拿到 HEAD 信息后可用（toggleAmend 成功才会置 amend）
+    (!amend || headInfo !== null);
 
   const doCommit = async (push: boolean) => {
     if (!canCommit) return;
@@ -317,14 +351,17 @@ export function ChangesPage() {
         push,
         toStage: stagedPaths,
         toUnstage: [...excludedStaged],
+        amend,
       });
       setMessage("");
       setChecked(new Set());
+      setAmend(false);
+      setAmendDraft(null);
       if (r.pushError) {
         setError(t("Changes_PushFailed", r.pushError));
         setErrorDetail(null);
       } else {
-        showTransient(push ? t("Changes_CommittedAndPushed") : t("Changes_Committed"));
+        showTransient(push ? t("Changes_CommittedAndPushed") : amend ? t("Changes_Amended") : t("Changes_Committed"));
       }
       notifyRepoChanged();
     } catch (e) {
@@ -333,6 +370,29 @@ export function ChangesPage() {
       setErrorDetail(err.detail ?? null);
     } finally {
       clearSyncProgress();
+      setBusy(false);
+    }
+  };
+
+  // amend 勾选：拉 HEAD 信息 → 预填提交信息（勾选前先存用户草稿，取消时还原）
+  const toggleAmend = async () => {
+    if (amend) {
+      setAmend(false);
+      setHeadInfo(null);
+      if (amendDraft !== null) { setMessage(amendDraft); setAmendDraft(null); }
+      return;
+    }
+    setBusy(true);
+    try {
+      const h = await call<HeadCommitInfoDTO | null>("changes.headInfo", {});
+      if (!h) { showTransient(t("Changes_AmendNoHead")); return; }
+      setHeadInfo(h);
+      setAmendDraft(message);
+      setMessage(h.message);
+      setAmend(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
       setBusy(false);
     }
   };
@@ -365,18 +425,18 @@ export function ChangesPage() {
     }
   };
 
-  // 推送（失败分类进横幅；noUpstream 附带自助修复动作）
-  const doPush = async () => {
+  // 推送（失败分类进横幅；noUpstream 附带自助修复动作）。变体：tags / forceWithLease（强推）
+  const doPushEx = async (opts: { forceWithLease?: boolean; tags?: boolean }) => {
     setBusy(true);
     try {
-      const err = await call<string | null>("changes.push", {});
+      const err = await call<string | null>("changes.push", opts);
       if (err) {
         setPushErrorKind(err);
         setError(t("Changes_PushFailed", err));
         setErrorDetail(null);
       } else {
         setPushErrorKind(null);
-        showTransient(t("Changes_Pushed"));
+        showTransient(opts.forceWithLease ? t("Changes_ForcePushed") : opts.tags ? t("Changes_PushTagsDone") : t("Changes_Pushed"));
         notifyRepoChanged();
       }
     } catch (e) {
@@ -387,6 +447,37 @@ export function ChangesPage() {
       setBusy(false);
     }
   };
+
+  const doPush = () => doPushEx({});
+
+  // 强推确认：先取远端独有提交（将被移出远端的清单）再弹 danger 确认
+  const openForcePush = async () => {
+    setBusy(true);
+    try {
+      const commits = await call<RemoteOnlyCommitDTO[]>("changes.pushPreview", {});
+      setForcePreview({ branch: state?.branch ?? "HEAD", commits });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 多选放弃：面板 → danger 确认 → changes.discardFiles
+  const askDiscard = (paths: string[]) => { if (paths.length > 0) setDiscardTarget(paths); };
+  const doDiscard = async () => {
+    const paths = discardTarget ?? [];
+    setDiscardTarget(null);
+    setMultiSel(new Set());
+    await run(async () => { await call("changes.discardFiles", { paths }); return t("Changes_Discarded", paths.length); });
+  };
+  const toggleMulti = (path: string) =>
+    setMultiSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
 
   // 一键设置上游并推送（noUpstream 错误的修复动作）
   const doSetUpstreamPush = async () => {
@@ -457,8 +548,16 @@ export function ChangesPage() {
     return (
       <div
         key={f.category + f.path}
-        className={"chg-row" + (selected?.path === f.path && selected?.staged === stagedView ? " selected" : "") + (isConflict ? " conflict" : "")}
-        onClick={() => select(f, stagedView)}
+        className={"chg-row" + (selected?.path === f.path && selected?.staged === stagedView ? " selected" : "") + (isConflict ? " conflict" : "") + (multiSel.has(f.path) ? " multi-sel" : "")}
+        onClick={(e) => {
+          // Ctrl/Cmd+点击 = 多选勾选（仅 更改/未跟踪）；普通点击仍是打开差异
+          if (!stagedView && !isConflict && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            toggleMulti(f.path);
+            return;
+          }
+          select(f, stagedView);
+        }}
         onContextMenu={(e) => {
           // menus 接缝（extension-system-v2.md §16.5）：本地动作 + 内置文件菜单（走接缝） + 包菜单
           void (async () => {
@@ -467,6 +566,15 @@ export function ChangesPage() {
                 ? { label: t("Changes_UnstageFile"), action: unstageOne }
                 : { label: t("Changes_StageFile"), action: stageOne },
               ...(isConflict ? [{ label: t("Changes_MarkResolved"), action: stageOne }] : []),
+              // 放弃入口：已跟踪「放弃修改…」（回 HEAD）/ 未跟踪「删除文件…」（不可从 git 恢复）
+              ...(!stagedView && !isConflict
+                ? [
+                    { sep: true, label: "", action: () => {} },
+                    f.category === "unversioned"
+                      ? { label: t("Changes_DeleteFileMenu"), action: () => askDiscard([f.path]) }
+                      : { label: t("Changes_DiscardFileMenu"), action: () => askDiscard([f.path]) },
+                  ]
+                : []),
               { sep: true, label: "", action: () => {} },
             ];
             showMenu(e, [...local, ...(await seamMenuItems("changesFile", f.path))]);
@@ -500,10 +608,17 @@ export function ChangesPage() {
                   <TlIcon name="down" size={12} />
                 </button>
               ) : (
-                <button className="icon-btn" data-tip={t("Changes_StageFile")} disabled={busy}
-                  onClick={(e) => { e.stopPropagation(); stageOne(); }}>
-                  <TlIcon name="up" size={12} />
-                </button>
+                <>
+                  <button className="icon-btn" data-tip={t("Changes_StageFile")} disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); stageOne(); }}>
+                    <TlIcon name="up" size={12} />
+                  </button>
+                  <button className="icon-btn discard" data-tip={f.category === "unversioned" ? t("Changes_DeleteHover") : t("Changes_DiscardHover")}
+                    disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); askDiscard([f.path]); }}>
+                    {f.category === "unversioned" ? <TlIcon name="trash" size={12} /> : <DiscardIcon size={12} />}
+                  </button>
+                </>
               )}
             </span>
           )}
@@ -732,9 +847,28 @@ export function ChangesPage() {
             <button className="icon-btn" data-tip={t("Changes_PullRebase")} disabled={busy} onClick={() => void run(async () => { await call("changes.pull", { rebase: true }); return t("Changes_PulledRebase"); })}>
               <TlIcon name="down" size={13} />
             </button>
-            <button className="icon-btn" data-tip={t("Changes_Push")} disabled={busy} onClick={() => void doPush()}>
-              <TlIcon name="up" size={13} />
+            {/* stash 管理入口（收件箱图标 + 条数角标 → StashDialog，stash-mockup.html ①） */}
+            <button className="icon-btn stash-btn" data-tip={t("Changes_StashManage")} disabled={busy} onClick={() => setStashOpen(true)}>
+              <TlIcon name="archive" size={13} />
+              {stashCount > 0 && <span className="stash-badge">{stashCount > 99 ? "99+" : stashCount}</span>}
             </button>
+            {/* Push 拆分：左半推送（行为不变），右半菜单 = 推送 tags / 强制推送（changes-amend-push-mockup.html ③） */}
+            <span className="push-split">
+              <button className="icon-btn" data-tip={t("Changes_Push")} disabled={busy} onClick={() => void doPush()}>
+                <TlIcon name="up" size={13} />
+              </button>
+              <button className="icon-btn push-more" data-tip={t("Changes_PushMore")} disabled={busy} aria-haspopup="menu"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  showMenu(e, [
+                    { label: t("Changes_PushTags"), action: () => void doPushEx({ tags: true }) },
+                    { sep: true, label: "", action: () => {} },
+                    { label: t("Changes_ForcePush"), action: () => void openForcePush() },
+                  ]);
+                }}>
+                <TlIcon name="chevron-down" size={9} />
+              </button>
+            </span>
             <button className="icon-btn" data-tip={t("Branches_CreateTitle")} onClick={() => setCreateBranch("")}>
               <TlIcon name="plus" size={13} />
             </button>
@@ -756,6 +890,26 @@ export function ChangesPage() {
               </button>
             )}
           </div>
+
+          {/* 多选选择条（Ctrl/Cmd+点击行勾选后出现；Esc 或 ✕ 清空） */}
+          {selPaths.length > 0 && (
+            <div className="sel-strip">
+              <span>{t("Changes_SelCount", selPaths.length)}</span>
+              <span style={{ flex: 1 }} />
+              <button className="tool-btn sm" disabled={busy}
+                onClick={() => { const paths = [...selPaths]; void run(async () => { await call("changes.stage", { paths }); setMultiSel(new Set()); return t("Changes_Staged"); }); }}>
+                <TlIcon name="up" size={11} />
+                {t("Changes_SelStage")}
+              </button>
+              <button className="tool-btn sm danger" disabled={busy} onClick={() => askDiscard([...selPaths])}>
+                <DiscardIcon size={11} />
+                {t("Changes_SelDiscard")}
+              </button>
+              <button className="tool-btn sm icon" data-tip={t("Changes_SelClear")} disabled={busy} onClick={() => setMultiSel(new Set())}>
+                <TlIcon name="x" size={11} />
+              </button>
+            </div>
+          )}
 
           <ScrollArea className="file-scroll" style={{ flex: 1 }}>
             {state && (
@@ -826,21 +980,40 @@ export function ChangesPage() {
                 if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); void doCommit(false); }
               }}
             />
+            {/* amend 已推警告：上次提交在远端时，amend 后需要强推（不阻断） */}
+            {amend && headInfo?.pushed && (
+              <div className="amend-warn">
+                <span style={{ color: "var(--c-amber)", fontWeight: 700, flex: "none" }}>⚠</span>
+                <span>{t("Changes_AmendPushedWarn", headInfo.shortSha)}</span>
+              </div>
+            )}
             <div className="commit-actions" style={{ alignItems: "center", justifyContent: "flex-start" }}>
+              {/* amend 勾选（changes-amend-push-mockup.html ①）：预填上次提交信息，按钮文案随之切换 */}
+              <button className={"amend-pill" + (amend ? " on" : "")} aria-pressed={amend} data-tip={t("Changes_Amend")}
+                disabled={busy} onClick={() => void toggleAmend()}>
+                <span className="amend-box">{amend && <TlIcon name="check" size={9} />}</span>
+                {t("Changes_Amend")}
+              </button>
               <span className="chg-sum">
-                {t("Changes_CommitStat", commitStat.n)}
-                {(commitStat.added > 0 || commitStat.deleted > 0) && (
+                {amend && headInfo ? (
+                  t("Changes_AmendStat", headInfo.shortSha)
+                ) : (
                   <>
-                    {" · "}
-                    <span className="diff-stats-add">+{commitStat.added}</span>{" "}
-                    <span className="diff-stats-del">−{commitStat.deleted}</span>
+                    {t("Changes_CommitStat", commitStat.n)}
+                    {(commitStat.added > 0 || commitStat.deleted > 0) && (
+                      <>
+                        {" · "}
+                        <span className="diff-stats-add">+{commitStat.added}</span>{" "}
+                        <span className="diff-stats-del">−{commitStat.deleted}</span>
+                      </>
+                    )}
                   </>
                 )}
               </span>
               <span style={{ flex: 1 }} />
               <button className="tool-btn solid" data-tip={t("Changes_Commit")} disabled={!canCommit} onClick={() => void doCommit(false)}>
                 <TlIcon name="check" size={12} />
-                {t("Changes_Commit")}
+                {amend ? t("Changes_AmendBtn") : t("Changes_Commit")}
               </button>
               <button className="tool-btn icon" data-tip={t("Changes_CommitAndPush")} disabled={!canCommit} onClick={() => void doCommit(true)}>
                 <TlIcon name="up" size={13} />
@@ -971,6 +1144,72 @@ export function ChangesPage() {
           />
         </Modal>
       )}
+      {discardTarget && (() => {
+        const untrackedSet = new Set(state?.unversioned.map((f) => f.path) ?? []);
+        const tracked = discardTarget.filter((p) => !untrackedSet.has(p));
+        const untracked = discardTarget.filter((p) => untrackedSet.has(p));
+        const single = discardTarget.length === 1;
+        const isDelete = single && untracked.length === 1;
+        return (
+          <Modal
+            title={isDelete ? t("Changes_DeleteTitle") : t("Changes_DiscardTitle")}
+            confirmText={single ? (isDelete ? t("Changes_DeleteConfirm") : t("Changes_DiscardConfirm")) : t("Changes_DiscardManyBtn", discardTarget.length)}
+            danger
+            onClose={() => setDiscardTarget(null)}
+            onConfirm={() => void doDiscard()}
+          >
+            <div style={{ fontSize: 12, color: "var(--c-text2)", lineHeight: 1.6, wordBreak: "break-all" }}>
+              {single
+                ? isDelete ? t("Changes_DeleteOneBody", discardTarget[0]) : t("Changes_DiscardOneBody", discardTarget[0])
+                : t("Changes_DiscardManyBody", discardTarget.length)}
+            </div>
+            {!single && tracked.length > 0 && (
+              <div className="discard-list">
+                {tracked.map((p) => <span key={p} className="discard-file">{p}</span>)}
+              </div>
+            )}
+            {isDelete ? (
+              <div style={{ color: "var(--c-red)", fontSize: 11.5 }}>{t("Changes_DeleteUnrecoverable")}</div>
+            ) : (
+              <>
+                {untracked.length > 0 && <div style={{ color: "var(--c-red)", fontSize: 11.5 }}>{t("Changes_MixedWarning")}</div>}
+                <div style={{ color: "var(--c-red)", fontSize: 11.5 }}>{t("Changes_Irreversible")}</div>
+              </>
+            )}
+          </Modal>
+        );
+      })()}
+      {forcePreview && (
+        <Modal
+          title={t("Changes_ForcePushTitle")}
+          confirmText={t("Changes_ForcePushBtn")}
+          danger
+          onClose={() => setForcePreview(null)}
+          onConfirm={() => { setForcePreview(null); void doPushEx({ forceWithLease: true }); }}
+        >
+          <div style={{ fontSize: 12, color: "var(--c-text2)", lineHeight: 1.6 }}>
+            {t("Changes_ForcePushBody", forcePreview.branch)}
+            <div className="discard-list">
+              {forcePreview.commits.length === 0 ? (
+                <span style={{ color: "var(--c-text3)", fontFamily: "inherit" }}>{t("Changes_ForcePushNone")}</span>
+              ) : forcePreview.commits.map((c) => (
+                <span key={c.shortSha} className="discard-file">
+                  <span style={{ color: "var(--c-text3)" }}>{c.shortSha}</span>
+                  <span className="trim" style={{ flex: 1, minWidth: 0 }}>{c.subject}</span>
+                </span>
+              ))}
+            </div>
+            <div style={{ color: "var(--c-text3)", fontSize: 11.5, marginTop: 8 }}>{t("Changes_ForcePushLease")}</div>
+          </div>
+        </Modal>
+      )}
+      {stashOpen && (
+        <StashDialog
+          hasChanges={(state?.changes.length ?? 0) + (state?.staged.length ?? 0) + (state?.unversioned.length ?? 0) + (state?.conflicts.length ?? 0) > 0}
+          onChanged={() => notifyRepoChanged()}
+          onClose={() => setStashOpen(false)}
+        />
+      )}
       {menuElement}
     </>
   );
@@ -984,6 +1223,17 @@ function letterOf(f: FileStatusDTO): string {
   if (f.category === "unversioned") return "?";
   if (f.category === "staged") return "A";
   return "M";
+}
+
+/** 放弃修改图标（↩ 逆时针回退箭头，Lucide rotate-ccw 缩放 2/3）——「回到 HEAD」语义，区别于删除的 trash。 */
+function DiscardIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7}
+      strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none" }} aria-hidden="true">
+      <path d="M2 8a6 6 0 1 0 6-6 6.5 6.5 0 0 0-4.49 1.83L2 5.33" />
+      <path d="M2 2v3.33h3.33" />
+    </svg>
+  );
 }
 
 /** 路径分层：目录段（淡显、左截断）+ 文件名（全亮）。 */
