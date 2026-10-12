@@ -89,10 +89,12 @@ export function ConflictAssist(props: { repo: string | null; conflictPath: strin
     setBusy(true);
     setErr(null);
     try {
-      const base = ops.kind === "rebase" ? "git.rebase" : "git.merge";
-      if (ops.kind === "rebase" || ops.kind === "merge") {
-        await call(kind === "continue" ? `${base}Continue` : `${base}Abort`, {});
-      }
+      // 四种进行中操作都接续行/中止 RPC（此前 cherry-pick/revert 只显示横幅不产生调用——死按钮）
+      const base = ops.kind === "rebase" ? "git.rebase"
+        : ops.kind === "merge" ? "git.merge"
+        : ops.kind === "cherry-pick" ? "git.cherryPick"
+        : "git.revert";
+      await call(kind === "continue" ? `${base}Continue` : `${base}Abort`, {});
       props.onChanged();
       await refreshOps();
     } catch (e) {

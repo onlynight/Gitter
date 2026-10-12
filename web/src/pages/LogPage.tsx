@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
 import { Banner, DiffView, Modal, ReflogDialog, ScrollArea, Select, SplitPane, useContextMenu, type CtxMenuItem } from "../kit";
-import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO } from "../bridge/types";
+import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO, HeadCommitInfoDTO } from "../bridge/types";
 import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -70,8 +70,21 @@ export function LogPage() {
   const [branchTarget, setBranchTarget] = useState<CommitDTO | null>(null);
   const [branchName, setBranchName] = useState("");
   const [branchCheckout, setBranchCheckout] = useState(true);
+  // revert / cherry-pick（log-revert-cherry-pick-mockup.html）：revert 默认反向暂存到变更页
+  const [revertTarget, setRevertTarget] = useState<CommitDTO | null>(null);
+  const [revertNow, setRevertNow] = useState(false);
+  // HEAD sha：cherry-pick 顶端提交无意义 → 菜单项禁用
+  const [headSha, setHeadSha] = useState<string | null>(null);
+  const [transient, setTransient] = useState<string | null>(null);
+  const transientTimer = useRef<number | null>(null);
   const { showMenu, menuElement } = useContextMenu();
   const listRef = useRef<HTMLDivElement>(null);
+
+  const showTransient = (text: string) => {
+    setTransient(text);
+    if (transientTimer.current) window.clearTimeout(transientTimer.current);
+    transientTimer.current = window.setTimeout(() => setTransient(null), 5000);
+  };
 
   const loadPage = useCallback(
     async (skip: number, replace: boolean) => {
@@ -131,6 +144,14 @@ export function LogPage() {
   useEffect(() => {
     if (!repo) return;
     void loadBranches();
+  }, [repo, app.repoChangedTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // HEAD sha（cherry-pick 菜单顶端禁用判定）
+  useEffect(() => {
+    if (!repo) { setHeadSha(null); return; }
+    call<HeadCommitInfoDTO | null>("changes.headInfo", {})
+      .then((h) => setHeadSha(h?.sha ?? null))
+      .catch(() => setHeadSha(null));
   }, [repo, app.repoChangedTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -279,6 +300,35 @@ export function LogPage() {
     }
   };
 
+  // revert：默认 --no-commit（反向改动进变更页由用户确认提交），勾选「立即提交」才直接落提交
+  const doRevert = async () => {
+    if (!revertTarget) return;
+    try {
+      await call("log.revert", { sha: revertTarget.sha, commitNow: revertNow });
+      setError(null);
+      showTransient(revertNow ? t("Log_RevertDone") : t("Log_RevertDoneStaged"));
+      setRevertTarget(null);
+      setSelectedSha(null); // 历史前进：选中上下文作废
+      setCompareBase(null);
+      notifyRepoChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  // cherry-pick：直接拣选到当前分支；冲突时走冲突助手横幅（git.cherryPickAbort/Continue）
+  const doCherryPick = async (c: CommitDTO) => {
+    try {
+      await call("log.cherryPick", { sha: c.sha });
+      setError(null);
+      showTransient(t("Log_CherryPicked", c.shortSha));
+      setSelectedSha(null);
+      notifyRepoChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   if (!repo) {
     return <div className="empty-state"><div className="big">⏱</div>{t("Common_NoProjectSelected")}</div>;
   }
@@ -304,6 +354,7 @@ export function LogPage() {
       </div>
 
       {error && <Banner text={error} error onClose={() => setError(null)} />}
+      {transient && <Banner text={transient} onClose={() => setTransient(null)} />}
       {compareBase && detail && (
         <Banner
           text={t("Log_ComparingWith", compareBase.shortSha)}
@@ -391,6 +442,10 @@ export function LogPage() {
                         { sep: true, label: "", action: () => {} },
                         { label: t("Log_CreateTag"), action: () => { setTagName(""); setTagMessage(""); setTagTarget(c); } },
                         { label: t("Log_CreateBranch"), action: () => { setBranchName(""); setBranchCheckout(true); setBranchTarget(c); } },
+                        // Revert = 生成反向提交（非破坏，不标红）；Cherry-pick 顶端提交无意义 → 禁用
+                        { label: t("Log_Revert"), action: () => { setRevertNow(false); setRevertTarget(c); } },
+                        { label: t("Log_CherryPick"), disabled: c.sha === headSha, action: () => void doCherryPick(c) },
+                        { sep: true, label: "", action: () => {} },
                         { label: t("Log_ViewReflog"), action: () => setReflogBranch(branch || branches.current || "HEAD") },
                         {
                           label: t("Log_CompareWithSelected"),
@@ -493,6 +548,32 @@ export function LogPage() {
             {resetMode === "hard" && (
               <div style={{ color: "var(--c-red)", fontSize: 11.5, marginTop: 8 }}>{t("Log_ResetHardWarning")}</div>
             )}
+          </div>
+        </Modal>
+      )}
+      {revertTarget && (
+        <Modal
+          title={t("Log_RevertTitle")}
+          confirmText={revertNow ? t("Log_RevertBtnNow") : t("Log_RevertBtn")}
+          onClose={() => setRevertTarget(null)}
+          onConfirm={() => void doRevert()}
+        >
+          <div style={{ userSelect: "text", fontSize: 12, color: "var(--c-text2)", lineHeight: 1.6 }}>
+            <div>{t("Log_RevertIntro")}</div>
+            <div style={{ marginTop: 8, padding: "8px 10px", border: "1px solid var(--c-border)", borderRadius: "var(--radius-md)", background: "var(--c-panel)" }}>
+              <span className="mono" style={{ color: "var(--c-text3)" }}>{revertTarget.shortSha}</span>{" "}
+              <span style={{ color: "var(--c-text)" }}>{revertTarget.subject}</span>
+            </div>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={revertNow} onChange={(e) => setRevertNow(e.target.checked)} style={{ marginTop: 2 }} />
+              <span style={{ color: "var(--c-text)" }}>
+                {t("Log_RevertCommitNow")}
+                <div style={{ fontSize: 11, color: "var(--c-text3)" }}>{t("Log_RevertCommitNowSub")}</div>
+              </span>
+            </label>
+            <div style={{ fontSize: 11.5, color: "var(--c-text3)", marginTop: 8, borderLeft: "2px solid var(--c-border-strong)", paddingLeft: 8 }}>
+              {revertNow ? t("Log_RevertEffectNow") : t("Log_RevertEffectStaged")}
+            </div>
           </div>
         </Modal>
       )}
