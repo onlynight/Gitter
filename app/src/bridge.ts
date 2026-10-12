@@ -1462,12 +1462,20 @@ export class Bridge {
       const all = this.shared.pkgStore.pagesOf();
       const gate = this.shared.settings.current.allowCodePlugins;
       const lang = args?.lang ?? "en";
+      // monaco 中文语言包按界面语言门控：nls.js 设 zh 全局表是无条件的，非中文界面
+      // 注入即强制中文。monaco 内建 UI 语言在库装载时固化，热切换不生效——App 侧 toast 提示重启。
+      const zhUi = lang === "zh-Hans" || (lang !== "en" && /^zh/i.test(app.getLocale()));
       return (gate ? all : all.filter((p) => p.isBuiltIn)).map((p) => ({
         ...p,
         title: this.shared.commands.resolvePageTitle(p.packageId, p.title, lang),
         docs: p.docs
           ? Object.fromEntries(Object.entries(p.docs).map(([l, rel]) => [l, path.join(path.dirname(p.entryAbs), rel)]))
           : null,
+        dependencies: (p.dependencies ?? []).map((d) =>
+          d.lib === "monaco-nls-zh-cn" && !zhUi
+            ? { ...d, ok: false, entryAbs: null, reason: `界面语言 ${lang} 非中文——跳过 monaco 中文语言包` }
+            : d,
+        ),
       }));
     });
     R("ui.emptyHints", (args?: { slot?: "changes.empty" | "log.empty" | "branches.empty" }) =>

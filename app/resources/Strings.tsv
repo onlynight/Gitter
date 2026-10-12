@@ -1157,6 +1157,9 @@ Editor_DiscardFile	Discard Changes	放弃修改
 Editor_DiscardConfirmTitle	Discard Changes	放弃修改
 Editor_DiscardConfirmBody	Discard uncommitted changes to "{0}"? This cannot be undone.	放弃对「{0}」的未提交修改？此操作不可恢复。
 Editor_DiffHead	Compare with HEAD	与 HEAD 比较差异
+Editor_PrevChange	Go to Previous Change	上一处修改
+Editor_NextChange	Go to Next Change	下一处修改
+Editor_ChangesProgress	Change {0} of {1}	第 {0}/{1} 处修改
 Editor_ExternalChangedDirty	"{0}" was changed on disk; unsaved content is kept and saving will prompt a conflict.	「{0}」在磁盘上已被外部修改；未保存内容已保留，保存时将提示冲突。
 Editor_NoProblems	No problems in the open files	当前打开的文件没有问题
 Editor_PreviewMode	Preview	预览
@@ -1195,3 +1198,5 @@ Settings_GitRemoteUrl	Remote URL	远程 URL
 Settings_NoRepoHint	No repository open; repository-level config is unavailable	当前未打开仓库，无法编辑仓库级配置
 Settings_Unset	Unset	未设置
 Extensions_OpenFolder	Open plugins folder	打开插件目录
+Main_LangSwitchTitle	Language switched	界面语言已切换
+Main_LangEditorRestart	Editor built-in UI (command palette / context menus) applies after app restart.	编辑器内建界面（命令面板/右键菜单）的语言将在重启应用后生效。

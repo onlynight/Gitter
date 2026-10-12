@@ -284,11 +284,13 @@ export function App() {
     );
   }), []);
 
-  // R2：语言切换 → 包标题（%key% 装载时解析）重解析
+  // R2：语言切换 → 包标题（%key% 装载时解析）重解析；monaco 内建 UI（命令面板/右键
+  // 菜单）语言在库装载时固化无法热切换——toast 提示重启生效
   const lang = useApp().i18n?.lang;
   useEffect(() => {
     if (!lang) return;
     void reloadExternalPages(getState().settings?.allowCodePlugins ?? false, lang);
+    pushToast(t("Main_LangSwitchTitle"), t("Main_LangEditorRestart"));
   }, [lang]);
 
   useShortcuts((prefill) => setPalette({ prefill, ts: Date.now() }));
