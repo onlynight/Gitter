@@ -78,6 +78,7 @@ body {
   border-bottom: 1px solid var(--c-border); /* 顶栏全宽分割线（与状态栏 border-top 对称） */
   padding-left: 6px; /* 汉堡中心 x=22 = 侧边栏导航图标中心（展开/折叠一致） */
 }
+.titlebar .tb-logo { width: 16px; height: 16px; flex: none; user-select: none; }
 .titlebar .tb-title { font-size: 12px; font-weight: 600; color: var(--c-text2); }
 .titlebar .tb-spacer { flex: 1; }
 .titlebar button, .titlebar .tb-palette { -webkit-app-region: no-drag; }

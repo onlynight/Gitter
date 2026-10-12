@@ -32,6 +32,7 @@ export function TitleBar() {
       >
         ☰
       </button>
+      <img className="tb-logo" src="./gitter-logo.svg" alt="Gitter" draggable={false} />
       <span className="tb-title">{title}</span>
       <span className="tb-spacer" />
       <button className="tb-palette" onClick={() => window.dispatchEvent(new CustomEvent("gitter:palette"))}>
