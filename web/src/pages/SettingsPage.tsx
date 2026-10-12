@@ -3,7 +3,7 @@ import { pageSdk, useAppState } from "../pageSdk";
 import type { ExtTreeSnapshot } from "../pageSdk";
 import { NavIcon, Select, Modal } from "../kit";
 import { TlIcon } from "./taskIcons";
-import type { ExtensionPackageDTO, ModelDiscoveryEntryDTO, ModelProfileDTO, SettingsDTO, TerminalProfileDTO, ThemePackageDTO } from "../bridge/types";
+import type { CommandDTO, ExtensionPackageDTO, ModelDiscoveryEntryDTO, ModelProfileDTO, SettingsDTO, TerminalProfileDTO, ThemePackageDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
 const { call, t, updateSettings, applySettings, clearSettingsFocus, reloadTheme } = pageSdk;
@@ -32,13 +32,13 @@ const GIT_KEYS = {
 
 // ---- 两级结构声明 ----
 
-type CategoryId = "appearance" | "terminal" | "repo" | "models" | "ai" | "extensions" | "about";
+type CategoryId = "appearance" | "terminal" | "repo" | "models" | "ai" | "extensions" | "shortcuts" | "about";
 type SectionId =
   | "appearance" | "diff" | "terminal"
   | "git" | "monitor" | "editor"
   | "models"
   | "ai" | "safety" | "agent" | "mcp"
-  | "extensions" | "about";
+  | "extensions" | "shortcuts" | "about";
 
 // 图标 = 主侧栏同款设计语言：Segoe Fluent Icons 字形（repo 复用 branches 的 16×16 SVG path），
 // 不再用 mono 文本符号（◑ ⑂ 等）——那些与 .nav-ico .glyph 的 WinUI 风格不符。
@@ -53,6 +53,7 @@ const CATEGORIES: { id: CategoryId; titleKey: string; glyph?: string; svg?: stri
   { id: "models", titleKey: "Settings_CatModels", glyph: "\uE8F1" },
   { id: "ai", titleKey: "Settings_CatAi", glyph: "\uE753" },
   { id: "extensions", titleKey: "Settings_CatExtensions", glyph: "\uE71D" },
+  { id: "shortcuts", titleKey: "Settings_CatShortcuts", glyph: "\uE765" },
   { id: "about", titleKey: "Settings_CatAbout", glyph: "\uE945" },
 ];
 
@@ -69,6 +70,7 @@ const SECTIONS: { id: SectionId; cat: CategoryId; titleKey: string }[] = [
   { id: "agent", cat: "ai", titleKey: "Settings_AgentSection" },
   { id: "mcp", cat: "ai", titleKey: "Settings_McpSection" },
   { id: "extensions", cat: "extensions", titleKey: "Settings_ExtensionsSection" },
+  { id: "shortcuts", cat: "shortcuts", titleKey: "Settings_ShortcutsSection" },
   { id: "about", cat: "about", titleKey: "Settings_AboutSection" },
 ];
 
@@ -105,6 +107,7 @@ const SEARCH_INDEX: { section: SectionId; labelKey: string; kw?: string }[] = [
   { section: "agent", labelKey: "Settings_AgentCompaction", kw: "agent 上下文压缩 compact compaction 摘要" },
   { section: "mcp", labelKey: "Settings_McpEnabled", kw: "mcp server 管道 工具" },
   { section: "extensions", labelKey: "Extensions_Import", kw: "扩展 包 .gpk 导入 卸载 主题 语法 harness" },
+  { section: "shortcuts", labelKey: "Settings_ShortcutsSection", kw: "shortcut 快捷键 键盘 hotkey keybinding kbd" },
   { section: "about", labelKey: "Settings_AboutSection", kw: "about 版本 version git" },
 ];
 
@@ -1183,6 +1186,10 @@ export function SettingsPage() {
                   <span className="hint">视图</span>
                   <button className="tool-btn" style={extView === "tree" ? { borderColor: "var(--c-text)", color: "var(--c-text)" } : undefined} onClick={() => setExtView("tree")}>树状（按页面挂载）</button>
                   <button className="tool-btn" style={extView === "kind" ? { borderColor: "var(--c-text)", color: "var(--c-text)" } : undefined} onClick={() => setExtView("kind")}>类型分组</button>
+                  {/* 打开用户插件根（userData/packages）：手动安装/排查外部 L2 插件的入口 */}
+                  <button className="tool-btn" style={{ marginLeft: "auto" }} onClick={() => void call("extensions.openFolder", {}).catch((e) => setExtError((e as Error).message))}>
+                    {t("Extensions_OpenFolder")}
+                  </button>
                 </div>
                 {exts.length === 0 && <span className="hint">{t("Extensions_Empty")}</span>}
                 {extView === "tree" ? (
@@ -1219,6 +1226,13 @@ export function SettingsPage() {
                 )}
               </div>
             </div>
+          </div>
+        );
+      case "shortcuts":
+        return (
+          <div key={id} className={secCls(id)} id={`set-sec-${id}`}>
+            <h4>{t("Settings_ShortcutsSection")}</h4>
+            <ShortcutsPage />
           </div>
         );
       case "about":
@@ -1294,6 +1308,99 @@ export function SettingsPage() {
           {SECTIONS.filter((x) => x.cat === cat).map((x) => renderSection(x.id))}
         </div>
       </div>
+    </>
+  );
+}
+
+// ---- 快捷键参考页（设置 → 快捷键）：命令注册表（commands.list 的 keyHint）+ 各页硬编码快捷键，分类展示 ----
+
+/** 页面级/全局硬编码快捷键（未走 commands 接缝，由宿主与各页 keydown 处理——与源码保持同步）。 */
+const SC_PAGE_GROUPS: { labelKey: string; entries: { keys: string[]; titleKey: string; noteKey?: string }[] }[] = [
+  {
+    labelKey: "Settings_ScGroupGlobal",
+    entries: [
+      { keys: ["Ctrl+Shift+P"], titleKey: "Palette_Title" },
+      { keys: ["Ctrl+Tab"], titleKey: "Settings_ScCyclePage" },
+    ],
+  },
+  {
+    labelKey: "Settings_ScGroupFiles",
+    entries: [
+      { keys: ["Ctrl+P"], titleKey: "Settings_ScQuickOpen" },
+      { keys: ["Ctrl+Shift+F"], titleKey: "Settings_ScRepoSearch" },
+      { keys: ["Ctrl+B"], titleKey: "Settings_ScToggleTree" },
+      { keys: ["Ctrl+S"], titleKey: "Settings_ScSaveFile" },
+      { keys: ["Ctrl+W"], titleKey: "Settings_ScCloseTab" },
+      { keys: ["Ctrl+Tab"], titleKey: "Settings_ScCycleEditorTabs" },
+      { keys: ["Ctrl+=", "Ctrl+-", "Ctrl+0"], titleKey: "Settings_ScFontZoom" },
+    ],
+  },
+  {
+    labelKey: "Settings_ScGroupTerminal",
+    entries: [{ keys: ["Ctrl+Tab", "Ctrl+Shift+Tab"], titleKey: "Settings_ScCycleSessions" }],
+  },
+  {
+    labelKey: "Settings_ScGroupTasks",
+    entries: [
+      { keys: ["Ctrl+N"], titleKey: "Settings_ScNewTask" },
+      { keys: ["Esc"], titleKey: "Settings_ScInterrupt", noteKey: "Settings_ScInterruptNote" },
+      { keys: ["Shift+Tab"], titleKey: "Settings_ScPermCycle" },
+    ],
+  },
+];
+
+function ShortcutsPage() {
+  const app = useApp();
+  const lang = app.i18n?.lang ?? "en";
+  const [cmds, setCmds] = useState<CommandDTO[]>([]);
+  useEffect(() => {
+    void call<CommandDTO[]>("commands.list", { lang }).then(setCmds).catch(() => { /* 桥不可用（vite 调试）静默 */ });
+  }, [lang]);
+
+  // 命令注册表组：有 keyHint 的命令按分类分组（内置 = Cat_* i18n 键；包命令 = 包名），注册顺序即展示顺序
+  const cmdGroups = (() => {
+    const byCat = new Map<string, { label: string; entries: { keys: string[]; title: string; enabled: boolean }[] }>();
+    for (const c of cmds) {
+      if (!c.keyHint) continue;
+      const label = (c.categoryKey ? t(c.categoryKey) : c.category) ?? t("Settings_ScGroupGlobal");
+      if (!byCat.has(label)) byCat.set(label, { label, entries: [] });
+      byCat.get(label)!.entries.push({
+        keys: [c.keyHint],
+        title: (c.titleKey ? t(c.titleKey) : c.title) ?? c.id,
+        enabled: c.enabled !== false,
+      });
+    }
+    return [...byCat.values()];
+  })();
+
+  const group = (label: string, rows: ReactNode) => (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontWeight: 600, fontSize: 12, margin: "0 0 4px", color: "var(--c-text2)" }}>{label}</div>
+      <div style={{ display: "flex", flexDirection: "column" }}>{rows}</div>
+    </div>
+  );
+  const row = (props: { title: string; keys: string[]; enabled?: boolean; note?: string }) => (
+    <div
+      className="settings-row"
+      style={{ opacity: props.enabled === false ? 0.45 : 1 }}
+      title={props.enabled === false ? t("Settings_ScUnavailable") : undefined}
+    >
+      <span style={{ flex: 1, fontSize: 12.5 }}>
+        {props.title}
+        {props.note && <span className="hint" style={{ marginLeft: 8 }}>{props.note}</span>}
+      </span>
+      <span style={{ display: "inline-flex", gap: 4, flex: "none" }}>
+        {props.keys.map((k) => <kbd key={k} className="kbd">{k}</kbd>)}
+      </span>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="hint" style={{ marginBottom: 10 }}>{t("Settings_ShortcutsHint")}</div>
+      {group(t("Settings_ScGroupGlobal"), SC_PAGE_GROUPS[0].entries.map((e) => row({ title: t(e.titleKey), keys: e.keys })))}
+      {cmdGroups.map((g) => group(g.label, g.entries.map((e) => row({ title: e.title, keys: e.keys, enabled: e.enabled }))))}
+      {SC_PAGE_GROUPS.slice(1).map((g) => group(t(g.labelKey), g.entries.map((e) => row({ title: t(e.titleKey), keys: e.keys, note: e.noteKey ? t(e.noteKey) : undefined }))))}
     </>
   );
 }

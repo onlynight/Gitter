@@ -1174,6 +1174,13 @@ export class Bridge {
 
     // ---- 扩展包（extension-system-v2.md §五/§六）----
     R("extensions.list", () => this.shared.pkgStore.list());
+    // 打开用户插件根（userData/packages，外部 L2 插件的安装位）：不存在则先建，再交系统文件管理器
+    R("extensions.openFolder", async () => {
+      fs.mkdirSync(this.shared.userPackagesRoot, { recursive: true });
+      const err = await shell.openPath(this.shared.userPackagesRoot);
+      if (err) throw new BridgeError("插件目录打开失败", err);
+      return {};
+    });
     // 停用守卫（ui-full-pluginization-plan.md D4）：槽位恒有 ≥1 已启用提供者，
     // 停用将使某槽位失去唯一提供者时拒绝并把槽位列表作为原因返回。
     R("extensions.setEnabled", (args: { id: string; enabled: boolean }) => {

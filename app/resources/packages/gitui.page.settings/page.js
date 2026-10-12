@@ -142,8 +142,8 @@
     plan: "M8 1.5 14.5 8 8 14.5 1.5 8 8 1.5Zm0 2.1L3.6 8 8 12.4 12.4 8 8 3.6Zm0 3.15a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z",
     // 分叉（Octicons git-branch-16）
     fork: "M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z",
-    // 归档（Octicons archive-16）
-    archive: "M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H14v6.25A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25V6h-.25A1.75 1.75 0 0 1 0 4.25v-1.5ZM3.5 6v6.25c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6h-9ZM1.75 2.5a.25.25 0 0 0-.25.25v1.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H1.75ZM6.25 8h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z",
+    // 归档（Octicons archive-16 改绘：整体下移 0.5 使墨迹中心 = 视框中心 8——原路径上留白 1px/下留白 2px 视觉偏高）
+    archive: "M0 3.25C0 2.284.784 1.5 1.75 1.5h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6.5H14v6.25A1.75 1.75 0 0 1 12.25 14.5h-8.5A1.75 1.75 0 0 1 2 12.75V6.5h-.25A1.75 1.75 0 0 1 0 4.75v-1.5ZM3.5 6.5v6.25c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6.5h-9ZM1.75 3a.25.25 0 0 0-.25.25v1.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H1.75ZM6.25 8.5h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z",
     // 外开新窗（Octicons external-link-16）
     external: "M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z",
     // 展开箭头（Octicons chevron-right-16）：默认指向右，展开时由 CSS 旋转 90°
@@ -169,7 +169,11 @@
     // 分屏（VS Code split-editor 同构：外框 + 中缝，左右栏挖孔）
     "splitpane": "M2 3h12v10H2V3Zm1 1v8h4.5V4H3Zm5.5 0v8H13V4H8.5Z",
     // 灯泡（思考深度；Octicons light-bulb-16 改绘）——密齿 gear 缩到 13px 糊成一团（v3 设计稿 task-page-v3-mockup）
-    "bulb": "M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319a8.456 8.456 0 0 0-.542.68c-.207.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"
+    "bulb": "M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319a8.456 8.456 0 0 0-.542.68c-.207.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z",
+    // 排序（Octicons arrow-up-down-16）：列表工具条排序下拉（task-page-wrapup-and-list-design.md v3.4）
+    "sort": "M4.25 3.5a.75.75 0 0 1 .75.75v7.44l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 1 1 1.06-1.06l1.72 1.72V4.25a.75.75 0 0 1 .75-.75Zm7.5 9a.75.75 0 0 1-.75-.75V4.31L9.28 6.03a.75.75 0 0 1-1.06-1.06l3-3a.75.75 0 0 1 1.06 0l3 3a.75.75 0 1 1-1.06 1.06l-1.72-1.72v7.44a.75.75 0 0 1-.75.75Z",
+    // 筛选漏斗（Octicons filter-16 改绘：整体上移 1.25 使墨迹中心 = 视框中心 8，与排序/归档钮对齐）
+    "filter": "M.75 1.75h14.5a.75.75 0 0 1 .587 1.219L10.5 9.25v4.25a.75.75 0 0 1-.908.733l-3.5-.875A.75.75 0 0 1 5.5 12.25v-3L.163 2.97A.75.75 0 0 1 .75 1.75Zm1.7 1.5L7 8.495v3.63l2 .5V8.495l4.55-5.245H2.45Z"
   };
   function TlIcon(props) {
     const d = PATHS[props.name];
@@ -207,6 +211,7 @@
     { id: "models", titleKey: "Settings_CatModels", glyph: "" },
     { id: "ai", titleKey: "Settings_CatAi", glyph: "" },
     { id: "extensions", titleKey: "Settings_CatExtensions", glyph: "" },
+    { id: "shortcuts", titleKey: "Settings_CatShortcuts", glyph: "" },
     { id: "about", titleKey: "Settings_CatAbout", glyph: "" }
   ];
   const SECTIONS = [
@@ -222,6 +227,7 @@
     { id: "agent", cat: "ai", titleKey: "Settings_AgentSection" },
     { id: "mcp", cat: "ai", titleKey: "Settings_McpSection" },
     { id: "extensions", cat: "extensions", titleKey: "Settings_ExtensionsSection" },
+    { id: "shortcuts", cat: "shortcuts", titleKey: "Settings_ShortcutsSection" },
     { id: "about", cat: "about", titleKey: "Settings_AboutSection" }
   ];
   const SEARCH_INDEX = [
@@ -256,6 +262,7 @@
     { section: "agent", labelKey: "Settings_AgentCompaction", kw: "agent 上下文压缩 compact compaction 摘要" },
     { section: "mcp", labelKey: "Settings_McpEnabled", kw: "mcp server 管道 工具" },
     { section: "extensions", labelKey: "Extensions_Import", kw: "扩展 包 .gpk 导入 卸载 主题 语法 harness" },
+    { section: "shortcuts", labelKey: "Settings_ShortcutsSection", kw: "shortcut 快捷键 键盘 hotkey keybinding kbd" },
     { section: "about", labelKey: "Settings_AboutSection", kw: "about 版本 version git" }
   ];
   function SettingsPage() {
@@ -1386,7 +1393,8 @@
                 /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center", margin: "6px 0" }, children: [
                   /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "视图" }),
                   /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: extView === "tree" ? { borderColor: "var(--c-text)", color: "var(--c-text)" } : void 0, onClick: () => setExtView("tree"), children: "树状（按页面挂载）" }),
-                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: extView === "kind" ? { borderColor: "var(--c-text)", color: "var(--c-text)" } : void 0, onClick: () => setExtView("kind"), children: "类型分组" })
+                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: extView === "kind" ? { borderColor: "var(--c-text)", color: "var(--c-text)" } : void 0, onClick: () => setExtView("kind"), children: "类型分组" }),
+                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { marginLeft: "auto" }, onClick: () => void call("extensions.openFolder", {}).catch((e) => setExtError(e.message)), children: t("Extensions_OpenFolder") })
                 ] }),
                 exts.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: t("Extensions_Empty") }),
                 extView === "tree" ? (
@@ -1426,6 +1434,11 @@
                 ] })
               ] })
             ] })
+          ] }, id);
+        case "shortcuts":
+          return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("h4", { children: t("Settings_ShortcutsSection") }),
+            /* @__PURE__ */ jsxRuntime.jsx(ShortcutsPage, {})
           ] }, id);
         case "about":
           return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
@@ -1484,6 +1497,88 @@
         ] }),
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "settings-content", children: SECTIONS.filter((x) => x.cat === cat).map((x) => renderSection(x.id)) })
       ] })
+    ] });
+  }
+  const SC_PAGE_GROUPS = [
+    {
+      labelKey: "Settings_ScGroupGlobal",
+      entries: [
+        { keys: ["Ctrl+Shift+P"], titleKey: "Palette_Title" },
+        { keys: ["Ctrl+Tab"], titleKey: "Settings_ScCyclePage" }
+      ]
+    },
+    {
+      labelKey: "Settings_ScGroupFiles",
+      entries: [
+        { keys: ["Ctrl+P"], titleKey: "Settings_ScQuickOpen" },
+        { keys: ["Ctrl+Shift+F"], titleKey: "Settings_ScRepoSearch" },
+        { keys: ["Ctrl+B"], titleKey: "Settings_ScToggleTree" },
+        { keys: ["Ctrl+S"], titleKey: "Settings_ScSaveFile" },
+        { keys: ["Ctrl+W"], titleKey: "Settings_ScCloseTab" },
+        { keys: ["Ctrl+Tab"], titleKey: "Settings_ScCycleEditorTabs" },
+        { keys: ["Ctrl+=", "Ctrl+-", "Ctrl+0"], titleKey: "Settings_ScFontZoom" }
+      ]
+    },
+    {
+      labelKey: "Settings_ScGroupTerminal",
+      entries: [{ keys: ["Ctrl+Tab", "Ctrl+Shift+Tab"], titleKey: "Settings_ScCycleSessions" }]
+    },
+    {
+      labelKey: "Settings_ScGroupTasks",
+      entries: [
+        { keys: ["Ctrl+N"], titleKey: "Settings_ScNewTask" },
+        { keys: ["Esc"], titleKey: "Settings_ScInterrupt", noteKey: "Settings_ScInterruptNote" },
+        { keys: ["Shift+Tab"], titleKey: "Settings_ScPermCycle" }
+      ]
+    }
+  ];
+  function ShortcutsPage() {
+    var _a2;
+    const app = useApp();
+    const lang = ((_a2 = app.i18n) == null ? void 0 : _a2.lang) ?? "en";
+    const [cmds, setCmds] = react.useState([]);
+    react.useEffect(() => {
+      void call("commands.list", { lang }).then(setCmds).catch(() => {
+      });
+    }, [lang]);
+    const cmdGroups = (() => {
+      const byCat = /* @__PURE__ */ new Map();
+      for (const c of cmds) {
+        if (!c.keyHint) continue;
+        const label = (c.categoryKey ? t(c.categoryKey) : c.category) ?? t("Settings_ScGroupGlobal");
+        if (!byCat.has(label)) byCat.set(label, { label, entries: [] });
+        byCat.get(label).entries.push({
+          keys: [c.keyHint],
+          title: (c.titleKey ? t(c.titleKey) : c.title) ?? c.id,
+          enabled: c.enabled !== false
+        });
+      }
+      return [...byCat.values()];
+    })();
+    const group = (label, rows) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 16 }, children: [
+      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontWeight: 600, fontSize: 12, margin: "0 0 4px", color: "var(--c-text2)" }, children: label }),
+      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", flexDirection: "column" }, children: rows })
+    ] });
+    const row = (props) => /* @__PURE__ */ jsxRuntime.jsxs(
+      "div",
+      {
+        className: "settings-row",
+        style: { opacity: props.enabled === false ? 0.45 : 1 },
+        title: props.enabled === false ? t("Settings_ScUnavailable") : void 0,
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { flex: 1, fontSize: 12.5 }, children: [
+            props.title,
+            props.note && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", style: { marginLeft: 8 }, children: props.note })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { display: "inline-flex", gap: 4, flex: "none" }, children: props.keys.map((k) => /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "kbd", children: k }, k)) })
+        ]
+      }
+    );
+    return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", style: { marginBottom: 10 }, children: t("Settings_ShortcutsHint") }),
+      group(t("Settings_ScGroupGlobal"), SC_PAGE_GROUPS[0].entries.map((e) => row({ title: t(e.titleKey), keys: e.keys }))),
+      cmdGroups.map((g) => group(g.label, g.entries.map((e) => row({ title: e.title, keys: e.keys, enabled: e.enabled })))),
+      SC_PAGE_GROUPS.slice(1).map((g) => group(t(g.labelKey), g.entries.map((e) => row({ title: t(e.titleKey), keys: e.keys, note: e.noteKey ? t(e.noteKey) : void 0 }))))
     ] });
   }
   const AGENT_RULE_TOOLS = [
