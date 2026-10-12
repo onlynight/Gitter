@@ -12,5 +12,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // build-pages 的 monaco 库构建 outDir 在 web 树内（emptyOutDir 期间文件锁/删）——
+    // 监视器撞上会 EBUSY 未捕获崩溃（dev server 与页面包重建并发的实际事故），排除之
+    watch: {
+      ignored: ["**/.vite-monaco-lib/**"],
+    },
   },
 });
