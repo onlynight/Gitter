@@ -78,7 +78,6 @@ body {
   border-bottom: 1px solid var(--c-border); /* 顶栏全宽分割线（与状态栏 border-top 对称） */
   padding-left: 6px; /* 汉堡中心 x=22 = 侧边栏导航图标中心（展开/折叠一致） */
 }
-.titlebar .tb-logo { width: 16px; height: 16px; flex: none; user-select: none; }
 .titlebar .tb-title { font-size: 12px; font-weight: 600; color: var(--c-text2); }
 .titlebar .tb-spacer { flex: 1; }
 .titlebar button, .titlebar .tb-palette { -webkit-app-region: no-drag; }
@@ -1414,14 +1413,22 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 
 /* commit message box */
 .commit-box { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-top: 1px solid var(--c-border); flex: none; }
-.commit-box .prefix-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.prefix-chip {
-  font-family: var(--mono); font-size: 11px; padding: 2px 10px; border-radius: var(--r-pill, 999px);
-  border: 1px solid var(--c-border-strong); background: transparent; color: var(--c-text2); cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std), background var(--dur-fast) var(--ease-std);
+/* 提交类型前缀：图标钮 + 向上弹菜单（changes-commit-prefix-dropdown-design.md；token 对齐 .select-pop） */
+.commit-box .prefix-row { display: flex; gap: 6px; align-items: center; position: relative; }
+.prefix-chev { margin-left: -2px; }
+.prefix-pop {
+  position: absolute; bottom: calc(100% + 6px); left: 0; width: 218px; z-index: 120; padding: 4px;
+  background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
 }
-.prefix-chip:hover { border-color: var(--c-text3); color: var(--c-text); }
-.prefix-chip.on, .prefix-chip:checked { background: var(--c-selected); border-color: var(--c-text3); color: var(--c-text); }
+.pitem {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 5px 8px; text-align: left;
+  font: inherit; color: var(--c-text); background: none; border: none; border-radius: var(--radius); cursor: pointer;
+}
+.pitem:hover, .pitem.hi { background: var(--c-hover); }
+.pitem .pfx { font-family: var(--mono); font-size: 11.5px; }
+.pitem .desc { margin-left: auto; font-size: 11px; color: var(--c-text3); }
+.pop-hint { padding: 5px 8px 3px; margin-top: 3px; border-top: 1px solid var(--c-border); font-size: 10.5px; color: var(--c-text3); }
 .commit-box textarea {
   width: 100%; min-height: 68px; resize: vertical;
   background: var(--c-panel); color: var(--c-text);

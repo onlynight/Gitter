@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>设计稿：变更页·提交类型前缀下拉（6 chips → 1 图标钮）</title>
+<style>
+  /* ---- 应用主题 token（themes.ts BUILTIN 亮/暗档实测值，alpha 已对底色扁平化） ---- */
+  :root, body.dark {
+    --c-base: #14161B; --c-panel: #1D1F24; --c-panel2: #25272B;
+    --c-hover: #272930; --c-selected: #3C3E43;
+    --c-border: #303237; --c-border-strong: #4F5157;
+    --c-text: #EAEAEA; --c-text2: #A8B0BC; --c-text3: #78828E;
+    --c-link: #6BABF5; --c-green: #3FB950; --c-red: #F0655A;
+    --radius: 4px; --radius-md: 6px; --radius-lg: 10px;
+    --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  body.light {
+    --c-base: #F2F2F3; --c-panel: #F7F7F8; --c-panel2: #EFEFF1;
+    --c-hover: #EBEBEC; --c-selected: #E0E1E3;
+    --c-border: #E4E4E6; --c-border-strong: #CFCFD2;
+    --c-text: #1B1B1B; --c-text2: #5C5C5C; --c-text3: #8F8F8F;
+    --c-link: #0B6BCB; --c-green: #1A7F37; --c-red: #CF222E;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--c-base); color: var(--c-text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    padding: 20px 24px;
+  }
+  .page-head { display: flex; align-items: center; gap: 12px; color: var(--c-text3); font-size: 12px; letter-spacing: .5px; }
+  .theme-toggle { display: flex; gap: 0; border: 1px solid var(--c-border-strong); border-radius: var(--radius-md); overflow: hidden; }
+  .theme-toggle button {
+    padding: 2px 10px; font: inherit; font-size: 11px; cursor: pointer; border: none;
+    background: transparent; color: var(--c-text3);
+  }
+  .theme-toggle button.on { background: var(--c-selected); color: var(--c-text); }
+
+  /* ---- 前后对比条 ---- */
+  .compare { display: flex; align-items: center; gap: 14px; font-size: 11.5px; color: var(--c-text3); }
+  .compare .chip { font-family: var(--mono); font-size: 11px; padding: 2px 10px; border-radius: 999px;
+    border: 1px solid var(--c-border-strong); color: var(--c-text2); opacity: .55; }
+  .compare .arrow { color: var(--c-text3); }
+  .compare .new { display: inline-flex; align-items: center; justify-content: center; gap: 2px;
+    width: 24px; height: 24px; border-radius: 6px; background: var(--c-hover); color: var(--c-text); }
+
+  /* ---- 主舞台：模拟变更页面板（文件区 + 提交框） ---- */
+  .stage {
+    width: 560px; height: 430px; display: flex; flex-direction: column;
+    background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--radius-lg);
+    box-shadow: 0 12px 32px color-mix(in srgb, #000 18%, transparent); overflow: visible;
+  }
+  /* 文件区（现状保留，仅作上下文） */
+  .file-area { flex: 1; padding: 10px 12px; overflow: hidden; font-size: 12px; color: var(--c-text2); }
+  .group-head { font-size: 10.5px; font-weight: 600; letter-spacing: .6px; color: var(--c-text3);
+    text-transform: uppercase; margin: 6px 0 4px; }
+  .frow { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: var(--radius); }
+  .frow .st { font-family: var(--mono); font-size: 10px; width: 14px; height: 14px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; }
+  .st-M { background: color-mix(in srgb, var(--c-amber, #E3B341) 22%, transparent); color: var(--c-amber, #E3B341); }
+  body.light .st-M { background: color-mix(in srgb, #BF8700 18%, transparent); color: #BF8700; }
+  .frow .path { font-family: var(--mono); font-size: 11px; color: var(--c-text2); }
+
+  /* ---- 提交框（对齐 .commit-box：纵向 gap 10px，border-top） ---- */
+  .commit-box { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-top: 1px solid var(--c-border); flex: none; }
+  .prefix-row { position: relative; display: flex; align-items: center; gap: 6px; }
+
+  /* 图标钮（对齐 .icon-btn：24×24、透明底、text3、6px 圆角） */
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; padding: 0; flex: none;
+    background: transparent; border: none; border-radius: 6px;
+    color: var(--c-text3); cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--c-hover); color: var(--c-text); }
+  .icon-btn[aria-expanded="true"] { background: var(--c-hover); color: var(--c-text); }
+  .icon-btn .chev { margin-left: -1px; }
+
+  /* ---- 前缀菜单（弹层向上：bottom: 100%，对齐 .select-pop token） ---- */
+  .prefix-pop {
+    position: absolute; bottom: calc(100% + 6px); left: 0; width: 218px; z-index: 30;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
+    display: none; overflow: hidden; padding: 4px;
+  }
+  .prefix-pop.open { display: block; }
+  .pitem {
+    display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 5px 8px; text-align: left;
+    font: inherit; background: none; border: none; border-radius: var(--radius); cursor: pointer;
+  }
+  .pitem:hover, .pitem.hi { background: var(--c-hover); }
+  .pitem .pfx { font-family: var(--mono); font-size: 11.5px; color: var(--c-text); }
+  .pitem .desc { margin-left: auto; font-size: 11px; color: var(--c-text3); }
+  .pop-hint {
+    padding: 5px 8px 3px; margin-top: 3px; border-top: 1px solid var(--c-border);
+    font-size: 10.5px; color: var(--c-text3);
+  }
+
+  /* AI 生成块提示（CommitBlocks 现状样式示意） */
+  .commit-hint { font-size: 11.5px; color: var(--c-text3); white-space: pre-wrap; }
+
+  .commit-box textarea {
+    width: 100%; height: 68px; resize: none;
+    background: var(--c-panel); color: var(--c-text);
+    border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    padding: 10px 12px; font-family: inherit; font-size: 13px; outline: none; user-select: text;
+  }
+  .commit-box textarea:focus { border-color: var(--c-link); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-link) 18%, transparent); }
+  .commit-actions { display: flex; align-items: center; gap: 8px; }
+  .chg-sum { font-size: 11.5px; color: var(--c-text3); }
+  .add { color: var(--c-green); } .del { color: var(--c-red); }
+  .tool-btn {
+    height: 26px; padding: 0 12px; font: inherit; font-size: 12px; color: var(--c-text); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  }
+  .tool-btn:hover { background: var(--c-hover); }
+  .tool-btn.solid { background: var(--c-selected); border-color: var(--c-border-strong); font-weight: 600; }
+  .tool-btn.icon { width: 26px; padding: 0; justify-content: center; }
+
+  /* ---- 注释条 ---- */
+  .notes { width: 560px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--c-text3); line-height: 1.7; }
+  .notes b { color: var(--c-text2); font-weight: 600; }
+</style>
+</head>
+<body class="light">
+
+<div class="page-head">
+  设计稿：变更页 · 提交类型前缀下拉（6 chips → 1 图标钮）
+  <span class="theme-toggle">
+    <button id="tLight" class="on">亮</button><button id="tDark">暗</button>
+  </span>
+</div>
+
+<!-- 前后对比 -->
+<div class="compare">
+  <span style="display:inline-flex; gap:4px;">
+    <span class="chip">feat:</span><span class="chip">fix:</span><span class="chip">docs:</span>
+    <span class="chip">test:</span><span class="chip">build:</span><span class="chip">chore:</span>
+  </span>
+  <span class="arrow">⟶</span>
+  <span class="new" title="变更后">
+    <svg width="13" height="13" viewBox="0 0 16 16"><path fill="currentColor" d="M1 7.25h2.5v1.5H1v-1.5Zm11.5 0H15v1.5h-2.5v-1.5ZM8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Zm0 1.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"/></svg>
+    <svg width="9" height="9" viewBox="0 0 16 16" style="margin-left:-3px"><path fill="currentColor" d="M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>
+  </span>
+  <span>一个图标钮，前缀收进向上菜单</span>
+</div>
+
+<!-- 主舞台 -->
+<div class="stage">
+  <div class="file-area">
+    <div class="group-head">已暂存 2</div>
+    <div class="frow"><span class="st st-M">M</span><span class="path">web/src/pages/ChangesPage.tsx</span></div>
+    <div class="frow"><span class="st st-M">M</span><span class="path">app/resources/Strings.tsv</span></div>
+    <div class="group-head">更改 1</div>
+    <div class="frow"><span class="st st-M">M</span><span class="path">web/src/styles.css</span></div>
+  </div>
+
+  <div class="commit-box">
+    <div class="prefix-row">
+      <!-- 新：前缀下拉触发钮（commit 图标 + 小 chevron） -->
+      <button class="icon-btn" id="prefixTrigger" aria-haspopup="menu" aria-expanded="false" data-tip="提交类型前缀" title="提交类型前缀">
+        <svg width="13" height="13" viewBox="0 0 16 16"><path fill="currentColor" d="M1 7.25h2.5v1.5H1v-1.5Zm11.5 0H15v1.5h-2.5v-1.5ZM8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Zm0 1.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"/></svg>
+        <svg class="chev" width="9" height="9" viewBox="0 0 16 16"><path fill="currentColor" d="M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>
+      </button>
+      <span style="flex:1"></span>
+      <!-- AI 生成（现状保留） -->
+      <button class="icon-btn" title="AI 生成">
+        <svg width="13" height="13" viewBox="0 0 16 16"><path fill="currentColor" d="M7 1c.55 3.5 2 4.95 5.5 5.5C9 7.05 7.55 8.5 7 12c-.55-3.5-2-4.95-5.5-5.5C5 5.95 6.45 4.5 7 1Zm5.5 8.4c.3 1.9 1.1 2.7 3 3-1.9.3-2.7 1.1-3 3-.3-1.9-1.1-2.7-3-3 1.9-.3 2.7-1.1 3-3Z"/></svg>
+      </button>
+
+      <!-- 新：前缀菜单（向上弹） -->
+      <div class="prefix-pop" id="prefixPop" role="menu" aria-label="提交类型前缀">
+        <button class="pitem" role="menuitem" data-pfx="feat:"><span class="pfx">feat:</span><span class="desc">新功能</span></button>
+        <button class="pitem" role="menuitem" data-pfx="fix:"><span class="pfx">fix:</span><span class="desc">缺陷修复</span></button>
+        <button class="pitem" role="menuitem" data-pfx="docs:"><span class="pfx">docs:</span><span class="desc">文档</span></button>
+        <button class="pitem" role="menuitem" data-pfx="test:"><span class="pfx">test:</span><span class="desc">测试</span></button>
+        <button class="pitem" role="menuitem" data-pfx="build:"><span class="pfx">build:</span><span class="desc">构建与依赖</span></button>
+        <button class="pitem" role="menuitem" data-pfx="chore:"><span class="pfx">chore:</span><span class="desc">杂项维护</span></button>
+        <div class="pop-hint">仅空消息时插入 · Esc / 点击外部关闭</div>
+      </div>
+    </div>
+
+    <div class="commit-hint" id="commitHint" style="display:none">▸ feat(web): 变更页提交前缀改下拉（web）（claude-code）</div>
+
+    <textarea id="msg" placeholder="提交信息（Ctrl+Enter 提交）" spellcheck="false"></textarea>
+
+    <div class="commit-actions">
+      <span class="chg-sum">将提交 2 个文件 · <span class="add">+24</span> <span class="del">−6</span></span>
+      <span style="flex:1"></span>
+      <button class="tool-btn solid"><svg width="12" height="12" viewBox="0 0 16 16"><path fill="currentColor" d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>提交</button>
+      <button class="tool-btn icon" title="提交并推送"><svg width="13" height="13" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5 12 6.5H9.75V11h-3.5V6.5H4L8 2.5ZM3 12.5h10V14H3v-1.5Z"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <div><b>① 触发按钮</b>：前缀行左端一枚 <b>.icon-btn</b>（24×24，commit 图标 + 9px chevron-down），与右侧 AI 生成钮同排同款；tooltip「提交类型前缀」。</div>
+  <div><b>② 菜单</b>：6 项 = 现 PREFIXES 原样搬运（mono 前缀 + 中文释义），菜单底部一行灰字说明插入规则；不扩 refactor/perf/ci 等新类型。</div>
+  <div><b>③ 弹层方向</b>：向上弹（bottom: 100% + 6px）——提交框贴窗口底缘，向下会被 textarea/操作行截断；左对齐触发钮。</div>
+  <div><b>④ 行为语义不变</b>：点选仅当消息为空时插入「前缀 + 空格」，非空不动文本（与现 chips 一致）；选后关菜单并聚焦输入框。</div>
+  <div><b>⑤ 键盘</b>：↑↓ 循环移动高亮，Enter 选中，Esc 关闭；aria-haspopup="menu" / aria-expanded / role="menu"。</div>
+  <div><b>试玩</b>：点左下图标钮开菜单 → ↑↓/Enter 或点击插入前缀；输入框非空时再选＝无操作。</div>
+</div>
+
+<script>
+  const trigger = document.getElementById("prefixTrigger");
+  const pop = document.getElementById("prefixPop");
+  const msg = document.getElementById("msg");
+  const hint = document.getElementById("commitHint");
+  let hi = -1;
+
+  const items = () => [...pop.querySelectorAll(".pitem")];
+  const setOpen = (open) => {
+    pop.classList.toggle("open", open);
+    trigger.setAttribute("aria-expanded", String(open));
+    if (!open) { hi = -1; items().forEach((x) => x.classList.remove("hi")); }
+  };
+  const isOpen = () => pop.classList.contains("open");
+
+  trigger.addEventListener("click", (e) => { e.stopPropagation(); setOpen(!isOpen()); if (isOpen()) items()[0]?.focus(); });
+
+  // 键盘：↑↓ 循环高亮、Enter 选中、Esc 关闭（焦点在触发钮或菜单项上都生效）
+  [trigger, pop].forEach((el) => el.addEventListener("keydown", (e) => {
+    if (!isOpen()) return;
+    const list = items();
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      hi = e.key === "ArrowDown" ? (hi + 1) % list.length : (hi - 1 + list.length) % list.length;
+      list.forEach((x, i) => x.classList.toggle("hi", i === hi));
+      list[hi].focus();
+    } else if (e.key === "Escape") {
+      setOpen(false); trigger.focus();
+    }
+  }));
+
+  // 点选：仅空消息时插入「前缀 + 空格」，随后关菜单、聚焦输入框（语义与现 chips 一致）
+  pop.addEventListener("click", (e) => {
+    const b = e.target.closest(".pitem");
+    if (!b) return;
+    if (!msg.value.trim()) {
+      msg.value = b.dataset.pfx + " ";
+      hint.style.display = "none";
+    }
+    msg.focus(); msg.setSelectionRange(msg.value.length, msg.value.length);
+    setOpen(false);
+  });
+
+  document.addEventListener("click", (e) => { if (isOpen() && !pop.contains(e.target) && e.target !== trigger) setOpen(false); });
+  msg.addEventListener("input", () => { if (msg.value.trim()) hint.style.display = "none"; });
+
+  // 主题切换
+  const tL = document.getElementById("tLight"), tD = document.getElementById("tDark");
+  tL.onclick = () => { document.body.className = "light"; tL.classList.add("on"); tD.classList.remove("on"); };
+  tD.onclick = () => { document.body.className = "dark"; tD.classList.add("on"); tL.classList.remove("on"); };
+</script>
+</body>
+</html>

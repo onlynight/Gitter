@@ -13,7 +13,11 @@ export function TitleBar() {
     isMaximized().then(setMaxed);
     return onEvent("win.maximized", (p: { value: boolean }) => setMaxed(p.value));
   }, []);
-  const title = repo ? t("Main_WindowTitle", repo.name) : "Gitter";
+  // 标题栏与系统窗口标题（任务栏/Alt-Tab）都显示项目名；无仓库时回落应用名占位
+  const title = repo ? repo.name : "Gitter";
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
   return (
     <div className="titlebar">
       <button
@@ -28,7 +32,6 @@ export function TitleBar() {
       >
         ☰
       </button>
-      <img className="tb-logo" src="./gitter-logo.svg" alt="Gitter" draggable={false} />
       <span className="tb-title">{title}</span>
       <span className="tb-spacer" />
       <button className="tb-palette" onClick={() => window.dispatchEvent(new CustomEvent("gitter:palette"))}>
