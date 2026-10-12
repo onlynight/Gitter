@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>设计稿：变更页 · 放弃修改（discard）：悬停图标 / 右键 / 多选批量</title>
+<style>
+  :root, body.dark {
+    --c-base: #14161B; --c-panel: #1D1F24; --c-panel2: #25272B;
+    --c-hover: #272930; --c-selected: #3C3E43;
+    --c-border: #303237; --c-border-strong: #4F5157;
+    --c-text: #EAEAEA; --c-text2: #A8B0BC; --c-text3: #78828E;
+    --c-link: #6BABF5; --c-green: #3FB950; --c-red: #F0655A; --c-amber: #E3B341;
+    --radius: 4px; --radius-md: 6px; --radius-lg: 10px;
+    --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  body.light {
+    --c-base: #F2F2F3; --c-panel: #F7F7F8; --c-panel2: #EFEFF1;
+    --c-hover: #EBEBEC; --c-selected: #E0E1E3;
+    --c-border: #E4E4E6; --c-border-strong: #CFCFD2;
+    --c-text: #1B1B1B; --c-text2: #5C5C5C; --c-text3: #8F8F8F;
+    --c-link: #0B6BCB; --c-green: #1A7F37; --c-red: #CF222E; --c-amber: #BF8700;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--c-base); color: var(--c-text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 20px 24px;
+  }
+  .page-head { display: flex; align-items: center; gap: 12px; color: var(--c-text3); font-size: 12px; letter-spacing: .5px; }
+  .theme-toggle { display: flex; border: 1px solid var(--c-border-strong); border-radius: var(--radius-md); overflow: hidden; }
+  .theme-toggle button { padding: 2px 10px; font: inherit; font-size: 11px; cursor: pointer; border: none; background: transparent; color: var(--c-text3); }
+  .theme-toggle button.on { background: var(--c-selected); color: var(--c-text); }
+  .compare { display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: var(--c-text3); }
+  .compare .chip { font-family: var(--mono); font-size: 11px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--c-border-strong); color: var(--c-text2); opacity: .55; }
+
+  .trio { display: flex; gap: 18px; align-items: flex-start; }
+  .scene { position: relative; width: 452px; }
+  .scene-label { font-size: 11.5px; color: var(--c-text3); text-align: center; margin-bottom: 6px; }
+  .scene-label b { color: var(--c-text2); }
+  .stage {
+    width: 452px; height: 420px; display: flex; flex-direction: column;
+    background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--radius-lg);
+    box-shadow: 0 12px 32px color-mix(in srgb, #000 18%, transparent); overflow: hidden; position: relative;
+  }
+  .overlay {
+    position: absolute; inset: 0; z-index: 40; display: none;
+    align-items: center; justify-content: center;
+    background: color-mix(in srgb, #000 25%, transparent);
+  }
+  .overlay.open { display: flex; }
+  .overlay.bottom { align-items: flex-end; padding-bottom: 14px; }
+
+  /* ---- 工具栏：全面图标钮（与 stash 设计稿同一套图标） ---- */
+  .toolbar { display: flex; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--c-border); }
+  .tool-btn {
+    height: 26px; padding: 0 12px; font: inherit; font-size: 12px; color: var(--c-text); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  }
+  .tool-btn:hover:not(:disabled) { background: var(--c-hover); }
+  .tool-btn:disabled { color: var(--c-text3); border-color: var(--c-border); cursor: default; opacity: .6; }
+  .tool-btn.danger { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 40%, transparent); }
+  .tool-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 12%, transparent); }
+  .tool-btn.danger-solid { background: var(--c-red); border-color: var(--c-red); color: #fff; font-weight: 600; }
+  .tool-btn.danger-solid:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 85%, var(--c-text)); }
+  .tool-btn.icon { width: 26px; padding: 0; justify-content: center; }
+  .tool-btn.sm { height: 22px; padding: 0 8px; font-size: 11px; }
+  .split { display: inline-flex; }
+  .split .tool-btn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+  .split .tool-btn:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; margin-left: -1px; width: 18px; padding: 0; justify-content: center; }
+
+  /* ---- 选择条（多选批量）：选中 ≥1 时出现在工具栏下方 ---- */
+  .sel-strip {
+    display: none; align-items: center; gap: 6px;
+    margin: 8px 10px 0; padding: 5px 8px;
+    border: 1px solid color-mix(in srgb, var(--c-link) 35%, transparent);
+    background: color-mix(in srgb, var(--c-link) 8%, var(--c-panel));
+    border-radius: var(--radius-md); font-size: 11.5px; color: var(--c-text2);
+  }
+  .sel-strip.show { display: flex; }
+  .sel-strip b { color: var(--c-text); }
+  .sel-strip .tool-btn.sm.icon { width: 22px; padding: 0; justify-content: center; }
+
+  /* ---- 文件区 ---- */
+  .file-area { flex: 1; padding: 8px 12px; overflow: hidden; font-size: 12px; color: var(--c-text2); }
+  .group-head { font-size: 10.5px; font-weight: 600; letter-spacing: .6px; color: var(--c-text3); text-transform: uppercase; margin: 6px 0 4px; }
+  .frow { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: var(--radius); cursor: default; }
+  .frow:hover { background: var(--c-hover); }
+  .frow.sel { background: color-mix(in srgb, var(--c-link) 14%, transparent); }
+  .selbox { width: 13px; height: 13px; flex: none; border: 1px solid var(--c-border-strong); border-radius: 3px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 9px; color: #fff; visibility: hidden; }
+  .frow:hover .selbox, .frow.sel .selbox { visibility: visible; }
+  .frow.staged .selbox { display: none; }
+  .frow.sel .selbox { background: var(--c-link); border-color: var(--c-link); }
+  .st { font-family: var(--mono); font-size: 10px; width: 14px; height: 14px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; }
+  .st-M { background: color-mix(in srgb, var(--c-amber) 22%, transparent); color: var(--c-amber); }
+  .st-D { background: color-mix(in srgb, var(--c-red) 20%, transparent); color: var(--c-red); }
+  .st-U { background: color-mix(in srgb, var(--c-green) 18%, transparent); color: var(--c-green); }
+  .frow .path { font-family: var(--mono); font-size: 11px; color: var(--c-text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-acts { display: none; gap: 2px; margin-left: auto; flex: none; }
+  .frow:hover .row-acts, .frow.hover-demo .row-acts { display: flex; }
+  .ricon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: none; border-radius: var(--radius); color: var(--c-text3); cursor: pointer; }
+  .ricon:hover { background: var(--c-selected); color: var(--c-text); }
+  .ricon.red:hover { background: color-mix(in srgb, var(--c-red) 18%, transparent); color: var(--c-red); }
+  .frow .tip-inline { margin-left: auto; font-size: 10px; color: var(--c-text3); }
+
+  /* ---- 右键菜单（对齐 .ctxmenu） ---- */
+  .ctxmenu {
+    position: absolute; z-index: 50; min-width: 190px;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    padding: 4px; box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent); display: none;
+  }
+  .ctxmenu.open { display: block; }
+  .ctxmenu button {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 5px 10px;
+    background: transparent; border: 0; border-radius: var(--radius);
+    color: var(--c-text); font-family: inherit; font-size: 12px; cursor: pointer;
+  }
+  .ctxmenu button:hover { background: var(--c-hover); }
+  .ctxmenu button.red { color: var(--c-red); }
+  .ctxmenu .sep { height: 1px; margin: 4px 6px; background: var(--c-border); }
+
+  /* ---- 危险确认 Modal（kit Modal danger：红底实心确认键） ---- */
+  .modal {
+    width: 396px; background: var(--c-panel2); border: 1px solid var(--c-border-strong);
+    border-radius: var(--radius-lg); padding: 18px; display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 12px 32px color-mix(in srgb, #000 28%, transparent);
+  }
+  .modal h3 { margin: 0; font-size: 13px; font-weight: 600; }
+  .modal .body { font-size: 12px; color: var(--c-text2); line-height: 1.6; }
+  .modal .mono { font-family: var(--mono); font-size: 11px; color: var(--c-text); }
+  .modal .warn { color: var(--c-red); }
+  .modal .filelist { border: 1px solid var(--c-border); border-radius: var(--radius-md); background: var(--c-panel);
+    padding: 6px 10px; max-height: 120px; overflow-y: auto; }
+  .modal .filelist .fp { font-family: var(--mono); font-size: 11px; color: var(--c-text2); padding: 2px 0;
+    display: flex; gap: 6px; align-items: center; }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  .toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 60; white-space: nowrap;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
+    padding: 6px 14px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity 160ms ease; }
+  .toast.show { opacity: 1; }
+  .toast .ok { color: var(--c-green); }
+
+  .notes { width: 1392px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--c-text3); line-height: 1.7; }
+  .notes b { color: var(--c-text2); font-weight: 600; }
+</style>
+</head>
+<body class="light">
+
+<div class="page-head">
+  设计稿：变更页 · 放弃修改（discard）：悬停图标 / 右键 / 多选批量
+  <span class="theme-toggle"><button id="tLight" class="on">亮</button><button id="tDark">暗</button></span>
+</div>
+
+<div class="compare">
+  <span class="chip">现状：变更页无入口，仅文件页 tab 菜单可达</span>
+  <span>⟶</span>
+  <span>行悬停图标 + 右键菜单 + 多选批量（选择条）；工具栏全面图标化</span>
+</div>
+
+<div class="trio">
+  <!-- ═══════════ 场景 A：多选批量放弃 ═══════════ -->
+  <div class="scene">
+    <div class="scene-label"><b>场景 A · 多选批量</b>——行首勾选 → 选择条 → 批量确认</div>
+    <div class="stage" id="stageA">
+      <div class="toolbar">
+        <button class="tool-btn icon" title="Fetch"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .14.11.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.44V2.75a.75.75 0 0 1 1.5 0v4.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 9.78a.75.75 0 0 1-1.06 0L4.22 6.53a.75.75 0 0 1 1.06-1.06Z"/></svg></button>
+        <div class="split">
+          <button class="tool-btn icon" title="Pull（merge）"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 11a.75.75 0 0 1-.53-.22l-3.25-3.25a.75.75 0 0 1 1.06-1.06l1.97 1.97V2.75a.75.75 0 0 1 1.5 0v5.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 10.78A.75.75 0 0 1 8 11Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+          <button class="tool-btn icon" title="Pull 选项（merge / --rebase）"><svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg></button>
+        </div>
+        <button class="tool-btn icon" title="Push"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.5a.75.75 0 0 1 .53.22l3.25 3.25a.75.75 0 1 1-1.06 1.06L8.75 7.06v5.69a.75.75 0 0 1-1.5 0V7.06L5.28 9.03a.75.75 0 0 1-1.06-1.06l3.25-3.25A.75.75 0 0 1 8 4.5Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+        <button class="tool-btn icon" title="Stash 管理"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.25 2.25a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H2a.75.75 0 0 1-.75-.75Z"/><path d="M2 4.5h12a.75.75 0 0 1 .75.75v7.5c0 .69-.56 1.25-1.25 1.25H2.5c-.69 0-1.25-.56-1.25-1.25v-7.5A.75.75 0 0 1 2 4.5Zm.75 1.5v6.5h10.5V6H2.75Z"/><path d="M5.75 8h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5Z"/></svg></button>
+        <span style="flex:1"></span>
+        <button class="tool-btn icon" title="新建分支"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+      </div>
+
+      <div class="sel-strip show" id="stripA">
+        <span>已选 <b id="selCount">2</b> 个文件</span>
+        <span style="flex:1"></span>
+        <button class="tool-btn sm" id="stageBatchBtn" title="暂存所选"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg> 暂存</button>
+        <button class="tool-btn sm danger" id="discardBatchBtn" title="放弃所选修改"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2.5V7h4.5"/><path d="M2.9 11a5.6 5.6 0 1 0 .4-5.9L2 7"/></svg> 放弃修改…</button>
+        <button class="tool-btn sm icon" id="clearSelBtn" title="取消选择">✕</button>
+      </div>
+
+      <div class="file-area">
+        <div class="group-head">已暂存 1</div>
+        <div class="frow staged"><span class="selbox"></span><span class="st st-M">M</span><span class="path">web/src/api/auth.ts</span><span class="tip-inline">已暂存组不可勾选放弃</span></div>
+        <div class="group-head">更改 3</div>
+        <div class="frow sel"><span class="selbox">✓</span><span class="st st-M">M</span><span class="path">web/src/styles.css</span></div>
+        <div class="frow sel"><span class="selbox">✓</span><span class="st st-M">M</span><span class="path">web/src/kit/DiffView.tsx</span></div>
+        <div class="frow"><span class="selbox"></span><span class="st st-D">D</span><span class="path">web/src/pages/old.tsx</span></div>
+        <div class="tip" style="font-size:11px;color:var(--c-text3);padding:6px 2px 0">行首勾选（悬停出现）/ Ctrl、Shift 多选；点行 = 打开差异（不变）</div>
+      </div>
+
+      <div class="overlay bottom" id="ovA">
+        <div class="modal">
+          <h3>放弃修改</h3>
+          <div class="body">
+            将放弃以下 <b id="modalCount">2</b> 个文件的未提交修改，文件回到上次提交（HEAD）的版本。<span class="warn">此操作不可撤销。</span>
+            <div class="filelist" id="modalList" style="margin-top:8px">
+              <div class="fp"><span class="st st-M">M</span>web/src/styles.css</div>
+              <div class="fp"><span class="st st-M">M</span>web/src/kit/DiffView.tsx</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="tool-btn" id="cancelA">取消</button>
+            <button class="tool-btn danger-solid" id="confirmA">放弃 2 个文件</button>
+          </div>
+        </div>
+      </div>
+      <div class="toast" id="toastA"><span class="ok">✓</span> 已放弃 2 个文件的修改</div>
+    </div>
+  </div>
+
+  <!-- ═══════════ 场景 B：单文件右键 ═══════════ -->
+  <div class="scene">
+    <div class="scene-label"><b>场景 B · 单文件右键</b>（保留）——「放弃修改…」</div>
+    <div class="stage" id="stageB">
+      <div class="toolbar">
+        <button class="tool-btn icon" title="Fetch"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .14.11.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.44V2.75a.75.75 0 0 1 1.5 0v4.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 9.78a.75.75 0 0 1-1.06 0L4.22 6.53a.75.75 0 0 1 1.06-1.06Z"/></svg></button>
+        <div class="split">
+          <button class="tool-btn icon" title="Pull（merge）"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 11a.75.75 0 0 1-.53-.22l-3.25-3.25a.75.75 0 0 1 1.06-1.06l1.97 1.97V2.75a.75.75 0 0 1 1.5 0v5.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 10.78A.75.75 0 0 1 8 11Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+          <button class="tool-btn icon" title="Pull 选项（merge / --rebase）"><svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg></button>
+        </div>
+        <button class="tool-btn icon" title="Push"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.5a.75.75 0 0 1 .53.22l3.25 3.25a.75.75 0 1 1-1.06 1.06L8.75 7.06v5.69a.75.75 0 0 1-1.5 0V7.06L5.28 9.03a.75.75 0 0 1-1.06-1.06l3.25-3.25A.75.75 0 0 1 8 4.5Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+        <button class="tool-btn icon" title="Stash 管理"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.25 2.25a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H2a.75.75 0 0 1-.75-.75Z"/><path d="M2 4.5h12a.75.75 0 0 1 .75.75v7.5c0 .69-.56 1.25-1.25 1.25H2.5c-.69 0-1.25-.56-1.25-1.25v-7.5A.75.75 0 0 1 2 4.5Zm.75 1.5v6.5h10.5V6H2.75Z"/><path d="M5.75 8h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5Z"/></svg></button>
+        <span style="flex:1"></span>
+        <button class="tool-btn icon" title="新建分支"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+      </div>
+
+      <div class="file-area">
+        <div class="group-head">更改 2</div>
+        <div class="frow" id="rowB"><span class="selbox"></span><span class="st st-M">M</span><span class="path">web/src/styles.css</span>
+          <span class="row-acts">
+            <button class="ricon" title="暂存"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+            <button class="ricon red" title="放弃修改（回到 HEAD）"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2.5V7h4.5"/><path d="M2.9 11a5.6 5.6 0 1 0 .4-5.9L2 7"/></svg></button>
+          </span>
+        </div>
+        <div class="frow"><span class="selbox"></span><span class="st st-M">M</span><span class="path">web/src/kit/DiffView.tsx</span>
+          <span class="row-acts">
+            <button class="ricon" title="暂存"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+            <button class="ricon red" title="放弃修改（回到 HEAD）"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2.5V7h4.5"/><path d="M2.9 11a5.6 5.6 0 1 0 .4-5.9L2 7"/></svg></button>
+          </span>
+        </div>
+        <div class="tip" style="font-size:11px;color:var(--c-text3);padding:6px 2px 0">悬停出图标钮（＋ 暂存 / ↩ 放弃）；右键呼出菜单（点行演示）</div>
+      </div>
+
+      <div class="ctxmenu" id="menuB" style="left: 190px; top: 118px;">
+        <button>暂存</button>
+        <div class="sep"></div>
+        <button>在编辑器打开</button>
+        <button>资源管理器中显示</button>
+        <div class="sep"></div>
+        <button class="red" data-act="discard">放弃修改…</button>
+      </div>
+
+      <div class="overlay" id="ovB">
+        <div class="modal">
+          <h3>放弃修改</h3>
+          <div class="body">
+            确定放弃 <span class="mono">web/src/styles.css</span> 的未提交修改？<br>
+            文件将回到上次提交（HEAD）的版本。<span class="warn">此操作不可撤销。</span>
+          </div>
+          <div class="actions">
+            <button class="tool-btn" data-close="ovB">取消</button>
+            <button class="tool-btn danger-solid" id="confirmB">放弃修改</button>
+          </div>
+        </div>
+      </div>
+      <div class="toast" id="toastB"><span class="ok">✓</span> 已放弃 web/src/styles.css 的修改</div>
+    </div>
+  </div>
+
+  <!-- ═══════════ 场景 C：未跟踪文件 ═══════════ -->
+  <div class="scene">
+    <div class="scene-label"><b>场景 C · 未跟踪文件</b>——悬停 🗑 / 「删除文件…」</div>
+    <div class="stage" id="stageC">
+      <div class="toolbar">
+        <button class="tool-btn icon" title="Fetch"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .14.11.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.44V2.75a.75.75 0 0 1 1.5 0v4.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 9.78a.75.75 0 0 1-1.06 0L4.22 6.53a.75.75 0 0 1 1.06-1.06Z"/></svg></button>
+        <div class="split">
+          <button class="tool-btn icon" title="Pull（merge）"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 11a.75.75 0 0 1-.53-.22l-3.25-3.25a.75.75 0 0 1 1.06-1.06l1.97 1.97V2.75a.75.75 0 0 1 1.5 0v5.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 10.78A.75.75 0 0 1 8 11Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+          <button class="tool-btn icon" title="Pull 选项（merge / --rebase）"><svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg></button>
+        </div>
+        <button class="tool-btn icon" title="Push"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.5a.75.75 0 0 1 .53.22l3.25 3.25a.75.75 0 1 1-1.06 1.06L8.75 7.06v5.69a.75.75 0 0 1-1.5 0V7.06L5.28 9.03a.75.75 0 0 1-1.06-1.06l3.25-3.25A.75.75 0 0 1 8 4.5Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+        <button class="tool-btn icon" title="Stash 管理"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.25 2.25a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H2a.75.75 0 0 1-.75-.75Z"/><path d="M2 4.5h12a.75.75 0 0 1 .75.75v7.5c0 .69-.56 1.25-1.25 1.25H2.5c-.69 0-1.25-.56-1.25-1.25v-7.5A.75.75 0 0 1 2 4.5Zm.75 1.5v6.5h10.5V6H2.75Z"/><path d="M5.75 8h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5Z"/></svg></button>
+        <span style="flex:1"></span>
+        <button class="tool-btn icon" title="新建分支"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+      </div>
+
+      <div class="file-area">
+        <div class="group-head">更改 1</div>
+        <div class="frow"><span class="selbox"></span><span class="st st-M">M</span><span class="path">web/src/styles.css</span></div>
+        <div class="group-head">未跟踪 2</div>
+        <div class="frow hover-demo" id="rowC"><span class="selbox"></span><span class="st st-U">U</span><span class="path">assets/banner-draft.png</span>
+          <span class="row-acts">
+            <button class="ricon" title="暂存"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+            <button class="ricon red" id="trashC" title="删除文件（从未提交，删后无法从 git 恢复）"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h11"/><path d="M5.5 4.5V3a.8.8 0 0 1 .8-.8h3.4a.8.8 0 0 1 .8.8v1.5"/><path d="M4 4.5l.7 8.7c.04.44.4.8.85.8h4.9c.45 0 .8-.36.85-.8l.7-8.7"/><path d="M6.6 7.5v3.5M9.4 7.5v3.5"/></svg></button>
+          </span>
+        </div>
+        <div class="frow"><span class="selbox"></span><span class="st st-U">U</span><span class="path">notes.txt</span></div>
+        <div class="tip" style="font-size:11px;color:var(--c-text3);padding:6px 2px 0">未跟踪文件悬停出 🗑（无「↩ 放弃」——没有可回退的版本）；右键 = 「删除文件…」</div>
+      </div>
+
+      <div class="ctxmenu" id="menuC" style="left: 190px; top: 152px;">
+        <button>暂存</button>
+        <div class="sep"></div>
+        <button>在编辑器打开</button>
+        <button>资源管理器中显示</button>
+        <div class="sep"></div>
+        <button class="red" data-act="discard">删除文件…</button>
+      </div>
+
+      <div class="overlay" id="ovC">
+        <div class="modal">
+          <h3>删除文件</h3>
+          <div class="body">
+            确定删除未跟踪文件 <span class="mono">assets/banner-draft.png</span>？<br>
+            <span class="warn">该文件从未提交过，删除后无法从 git 恢复。</span>
+          </div>
+          <div class="actions">
+            <button class="tool-btn" data-close="ovC">取消</button>
+            <button class="tool-btn danger-solid" id="confirmC">删除文件</button>
+          </div>
+        </div>
+      </div>
+      <div class="toast" id="toastC"><span class="ok">✓</span> 已删除 assets/banner-draft.png</div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <div><b>① 三个入口并存</b>：a) <b>行悬停图标</b>（＋ 暂存 / <b>↩ 放弃修改</b>；未跟踪 = 🗑 删除）——扩展现有悬停暂存钮的位置与样式；b) <b>右键菜单</b>（保留，文案按文件状态二分：已跟踪「放弃修改…」/ 未跟踪「删除文件…」）；c) <b>多选批量</b>：行首勾选框（悬停出现）+ Ctrl/Shift 多选，选中 ≥1 时列表顶部浮出「选择条」（已选 N · 暂存 · <b>放弃修改…</b> · ✕）。三个入口最终走同一个 changes.discardFile（多选新增 paths 数组参数或循环调用）。</div>
+  <div><b>② 多选与打开差异不冲突</b>：点行仍是打开差异（现状不变）；勾选只认行首 checkbox 与 Ctrl/Shift 修饰键。<b>已暂存组不参与放弃</b>：勾选框在已暂存组不出现（行尾灰字提示），多选范围仅「更改 / 未跟踪」组——维持上版「已暂存内容必须先取消暂存才能放弃」的防手滑决策。</div>
+  <div><b>③ 批量确认框</b>：同一 Modal danger 模式（红底实心键），逐行列出文件与状态字母；按钮文案带数量「放弃 N 个文件」。混合已跟踪 + 未跟踪时按类分行：<span class="mono">已跟踪 = 回到 HEAD；未跟踪 = 永久删除（红字）</span>，两类后果都写明。</div>
+  <div><b>④ 工具栏全面图标化</b>：Fetch / Pull ▾ / Push / Stash / ＋新建分支全部 26px 图标钮 + tooltip（与 stash 设计稿同一套图标），废弃文字按钮；图标语义 ↩ = 放弃（回 HEAD）、🗑 = 删除（不可从 git 恢复），红色 = 不可逆。</div>
+  <div><b>⑤ 选择条消失时机</b>：✕ 或 Esc 清空选择；执行暂存/放弃后自动清空；切换页面/刷新仓库时清空。</div>
+  <div><b>试玩</b>：A 场景点行勾选/取消 → 选择条计数联动 → 「放弃修改…」看批量确认框（列出所选）→ 确认后行消失；B 场景点行呼出菜单、悬停行看 ↩ 图标；C 场景 hover-demo 行常显 🗑，点击直达删除确认。</div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const showToast = (id, html) => { const t = $(id); t.innerHTML = html; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); };
+
+  /* 场景 A：多选批量 */
+  const syncA = () => {
+    const sel = document.querySelectorAll("#stageA .frow.sel").length;
+    $("selCount").textContent = sel;
+    $("stripA").classList.toggle("show", sel > 0);
+  };
+  document.querySelectorAll("#stageA .frow").forEach((r) => r.addEventListener("click", (e) => {
+    if (e.target.closest(".tip") || r.classList.contains("staged")) return;
+    r.classList.toggle("sel");
+    const box = r.querySelector(".selbox");
+    box.textContent = r.classList.contains("sel") ? "✓" : "";
+    syncA();
+  }));
+  $("clearSelBtn").onclick = () => { document.querySelectorAll("#stageA .frow.sel").forEach((r) => { r.classList.remove("sel"); r.querySelector(".selbox").textContent = ""; }); syncA(); };
+  $("stageBatchBtn").onclick = () => showToast("toastA", '<span class="ok">✓</span> 已暂存所选文件（演示）');
+  $("discardBatchBtn").onclick = () => {
+    const sel = [...document.querySelectorAll("#stageA .frow.sel")];
+    if (!sel.length) return;
+    $("modalCount").textContent = sel.length;
+    $("confirmA").textContent = "放弃 " + sel.length + " 个文件";
+    $("modalList").innerHTML = sel.map((r) => '<div class="fp"><span class="' + r.querySelector(".st").className + '">' + r.querySelector(".st").textContent + "</span>" + r.querySelector(".path").textContent + "</div>").join("");
+    $("ovA").classList.add("open");
+  };
+  $("cancelA").onclick = () => $("ovA").classList.remove("open");
+  $("confirmA").onclick = () => {
+    document.querySelectorAll("#stageA .frow.sel").forEach((r) => r.remove());
+    $("ovA").classList.remove("open"); syncA();
+    showToast("toastA", '<span class="ok">✓</span> 已放弃所选文件的修改');
+  };
+
+  /* 场景 B：右键 + 悬停图标 */
+  $("rowB").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (e.target.closest(".ricon")) return;
+    $("menuB").classList.toggle("open");
+  });
+  $("menuB").addEventListener("click", (e) => {
+    $("menuB").classList.remove("open");
+    if (e.target.dataset.act === "discard") $("ovB").classList.add("open");
+  });
+  $("confirmB").onclick = () => { $("ovB").classList.remove("open"); $("rowB").remove(); showToast("toastB", '<span class="ok">✓</span> 已放弃 web/src/styles.css 的修改'); };
+
+  /* 场景 C：未跟踪 */
+  $("rowC").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (e.target.closest("#trashC")) { $("ovC").classList.add("open"); return; }
+    if (e.target.closest(".ricon")) return;
+    $("menuC").classList.toggle("open");
+  });
+  $("menuC").addEventListener("click", (e) => {
+    $("menuC").classList.remove("open");
+    if (e.target.dataset.act === "discard") $("ovC").classList.add("open");
+  });
+  $("confirmC").onclick = () => { $("ovC").classList.remove("open"); $("rowC").remove(); showToast("toastC", '<span class="ok">✓</span> 已删除 assets/banner-draft.png'); };
+
+  document.querySelectorAll("[data-close]").forEach((b) => b.onclick = () => $(b.dataset.close).classList.remove("open"));
+  document.addEventListener("click", () => document.querySelectorAll(".ctxmenu").forEach((m) => m.classList.remove("open")));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { document.querySelectorAll(".ctxmenu").forEach((m) => m.classList.remove("open")); document.querySelectorAll(".overlay").forEach((o) => o.classList.remove("open")); } });
+
+  $("tLight").onclick = () => { document.body.className = "light"; $("tLight").classList.add("on"); $("tDark").classList.remove("on"); };
+  $("tDark").onclick = () => { document.body.className = "dark"; $("tDark").classList.add("on"); $("tLight").classList.remove("on"); };
+</script>
+</body>
+</html>

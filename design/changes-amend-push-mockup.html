@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>设计稿：变更页 · amend 修改上次提交 + Push 拆分按钮（强推 / push tags）</title>
+<style>
+  :root, body.dark {
+    --c-base: #14161B; --c-panel: #1D1F24; --c-panel2: #25272B;
+    --c-hover: #272930; --c-selected: #3C3E43;
+    --c-border: #303237; --c-border-strong: #4F5157;
+    --c-text: #EAEAEA; --c-text2: #A8B0BC; --c-text3: #78828E;
+    --c-link: #6BABF5; --c-green: #3FB950; --c-red: #F0655A; --c-amber: #E3B341;
+    --radius: 4px; --radius-md: 6px; --radius-lg: 10px;
+    --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  body.light {
+    --c-base: #F2F2F3; --c-panel: #F7F7F8; --c-panel2: #EFEFF1;
+    --c-hover: #EBEBEC; --c-selected: #E0E1E3;
+    --c-border: #E4E4E6; --c-border-strong: #CFCFD2;
+    --c-text: #1B1B1B; --c-text2: #5C5C5C; --c-text3: #8F8F8F;
+    --c-link: #0B6BCB; --c-green: #1A7F37; --c-red: #CF222E; --c-amber: #BF8700;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--c-base); color: var(--c-text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 20px 24px;
+  }
+  .page-head { display: flex; align-items: center; gap: 12px; color: var(--c-text3); font-size: 12px; letter-spacing: .5px; }
+  .theme-toggle { display: flex; border: 1px solid var(--c-border-strong); border-radius: var(--radius-md); overflow: hidden; }
+  .theme-toggle button { padding: 2px 10px; font: inherit; font-size: 11px; cursor: pointer; border: none; background: transparent; color: var(--c-text3); }
+  .theme-toggle button.on { background: var(--c-selected); color: var(--c-text); }
+  .compare { display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: var(--c-text3); }
+  .compare .chip { font-family: var(--mono); font-size: 11px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--c-border-strong); color: var(--c-text2); opacity: .55; }
+
+  .scene { position: relative; width: 560px; }
+  .stage {
+    width: 560px; height: 470px; display: flex; flex-direction: column;
+    background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--radius-lg);
+    box-shadow: 0 12px 32px color-mix(in srgb, #000 18%, transparent); overflow: visible; position: relative;
+  }
+  .overlay {
+    position: absolute; inset: -1px; z-index: 40; display: none;
+    align-items: center; justify-content: center; border-radius: var(--radius-lg);
+    background: color-mix(in srgb, #000 25%, transparent);
+  }
+  .overlay.open { display: flex; }
+
+  /* 工具栏：Push 变拆分按钮 */
+  .toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--c-border); }
+  .tool-btn {
+    height: 26px; padding: 0 12px; font: inherit; font-size: 12px; color: var(--c-text); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  }
+  .tool-btn:hover:not(:disabled) { background: var(--c-hover); }
+  .tool-btn.solid { background: var(--c-selected); font-weight: 600; }
+  .tool-btn.icon { width: 26px; padding: 0; justify-content: center; }
+  .split { display: inline-flex; }
+  .split .tool-btn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+  .split .tool-btn:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; margin-left: -1px; padding: 0 7px; }
+
+  /* Push 下拉菜单（工具栏在页顶，向下弹） */
+  .push-pop {
+    position: absolute; top: 40px; right: 10px; width: 240px; z-index: 30;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
+    padding: 4px; display: none;
+  }
+  .push-pop.open { display: block; }
+  .push-pop button {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left;
+    padding: 6px 10px; background: transparent; border: 0; border-radius: var(--radius);
+    color: var(--c-text); font-family: inherit; font-size: 12px; cursor: pointer;
+  }
+  .push-pop button:hover { background: var(--c-hover); }
+  .push-pop button .sub { font-size: 10.5px; color: var(--c-text3); }
+  .push-pop button.red, .push-pop button.red .sub { color: var(--c-red); }
+  .push-pop .sep { height: 1px; margin: 4px 6px; background: var(--c-border); }
+
+  /* 文件区 */
+  .file-area { flex: 1; padding: 10px 12px; overflow: hidden; font-size: 12px; color: var(--c-text2); }
+  .group-head { font-size: 10.5px; font-weight: 600; letter-spacing: .6px; color: var(--c-text3); text-transform: uppercase; margin: 6px 0 4px; }
+  .frow { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: var(--radius); }
+  .st { font-family: var(--mono); font-size: 10px; width: 14px; height: 14px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center; border-radius: 3px;
+    background: color-mix(in srgb, var(--c-amber) 22%, transparent); color: var(--c-amber); }
+  .frow .path { font-family: var(--mono); font-size: 11px; color: var(--c-text2); }
+
+  /* 提交框 */
+  .commit-box { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-top: 1px solid var(--c-border); flex: none; }
+  .prefix-row { display: flex; align-items: center; gap: 6px; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+    background: transparent; border: none; border-radius: 6px; color: var(--c-text3); cursor: pointer; }
+  .icon-btn:hover { background: var(--c-hover); color: var(--c-text); }
+  .commit-box textarea {
+    width: 100%; height: 62px; resize: none;
+    background: var(--c-panel); color: var(--c-text);
+    border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    padding: 10px 12px; font-family: inherit; font-size: 13px; outline: none; user-select: text;
+  }
+  .commit-box textarea:focus { border-color: var(--c-link); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-link) 18%, transparent); }
+
+  /* amend 警告条（amber，对齐 .banner 语义） */
+  .amend-warn {
+    display: none; align-items: center; gap: 8px; padding: 7px 12px; font-size: 11.5px;
+    border: 1px solid color-mix(in srgb, var(--c-amber) 30%, transparent); border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--c-amber) 9%, var(--c-panel)); color: var(--c-text);
+  }
+  .amend-warn.show { display: flex; }
+  .amend-warn b { color: var(--c-amber); }
+
+  .commit-actions { display: flex; align-items: center; gap: 8px; }
+  .chg-sum { font-size: 11.5px; color: var(--c-text3); }
+  .chg-sum .last { font-family: var(--mono); font-size: 10.5px; }
+
+  /* amend 勾选项：checkable pill */
+  .amend-toggle {
+    height: 26px; padding: 0 10px; font: inherit; font-size: 12px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; color: var(--c-text2);
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  }
+  .amend-toggle:hover { background: var(--c-hover); }
+  .amend-toggle .box { width: 13px; height: 13px; border: 1px solid var(--c-border-strong); border-radius: 3px;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: #fff; }
+  .amend-toggle.on { color: var(--c-text); border-color: var(--c-link); background: color-mix(in srgb, var(--c-link) 10%, var(--c-panel2)); }
+  .amend-toggle.on .box { background: var(--c-link); border-color: var(--c-link); }
+
+  /* 危险确认 Modal */
+  .modal {
+    width: 440px; background: var(--c-panel2); border: 1px solid var(--c-border-strong);
+    border-radius: var(--radius-lg); padding: 18px; display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 12px 32px color-mix(in srgb, #000 28%, transparent);
+  }
+  .modal h3 { margin: 0; font-size: 13px; font-weight: 600; }
+  .modal .body { font-size: 12px; color: var(--c-text2); line-height: 1.6; }
+  .modal .mono { font-family: var(--mono); font-size: 11px; color: var(--c-text); }
+  .modal .commit-ref { padding: 8px 10px; border: 1px solid var(--c-border); border-radius: var(--radius-md);
+    background: var(--c-panel); }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .tool-btn.danger-solid { background: var(--c-red); border-color: var(--c-red); color: #fff; font-weight: 600; }
+  .tool-btn.danger-solid:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 85%, var(--c-text)); }
+
+  .toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 60; white-space: nowrap;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
+    padding: 6px 14px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity 160ms ease; }
+  .toast.show { opacity: 1; }
+  .toast .ok { color: var(--c-green); }
+
+  .notes { width: 560px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--c-text3); line-height: 1.7; }
+  .notes b { color: var(--c-text2); font-weight: 600; }
+</style>
+</head>
+<body class="light">
+
+<div class="page-head">
+  设计稿：变更页 · amend 修改上次提交 + Push 拆分按钮（强推 / push tags）
+  <span class="theme-toggle"><button id="tLight" class="on">亮</button><button id="tDark">暗</button></span>
+</div>
+
+<div class="compare">
+  <span class="chip">现状：提交只能追加；Push 仅单按钮</span>
+  <span>⟶</span>
+  <span>「修改上次提交」勾选项 + Push 下拉（推送 tags / 强制推送）</span>
+</div>
+
+<div class="scene">
+  <div class="stage">
+    <div class="toolbar">
+      <button class="tool-btn icon" title="Fetch"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .14.11.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.44V2.75a.75.75 0 0 1 1.5 0v4.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 9.78a.75.75 0 0 1-1.06 0L4.22 6.53a.75.75 0 0 1 1.06-1.06Z"/></svg></button>
+      <div class="split">
+        <button class="tool-btn icon" title="Pull（merge）"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 11a.75.75 0 0 1-.53-.22l-3.25-3.25a.75.75 0 0 1 1.06-1.06l1.97 1.97V2.75a.75.75 0 0 1 1.5 0v5.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 10.78A.75.75 0 0 1 8 11Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+        <button class="tool-btn icon" title="Pull 选项（merge / --rebase）"><svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg></button>
+      </div>
+      <div class="split">
+        <button class="tool-btn icon" id="pushMain" title="推送"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.5a.75.75 0 0 1 .53.22l3.25 3.25a.75.75 0 1 1-1.06 1.06L8.75 7.06v5.69a.75.75 0 0 1-1.5 0V7.06L5.28 9.03a.75.75 0 0 1-1.06-1.06l3.25-3.25A.75.75 0 0 1 8 4.5Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+        <button class="tool-btn icon" id="pushChevron" aria-haspopup="menu" aria-expanded="false" title="更多推送操作（推送 tags / 强制推送）"><svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <button class="tool-btn icon" title="新建分支"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+    </div>
+
+    <div class="push-pop" id="pushPop" role="menu">
+      <button id="actPush"><span>推送</span><span class="sub">git push（行为与现按钮一致）</span></button>
+      <button id="actTags"><span>推送 tags</span><span class="sub">git push origin --tags</span></button>
+      <div class="sep"></div>
+      <button class="red" id="actForce"><span>强制推送（--force-with-lease）…</span><span class="sub">覆盖远端分支，本地领先时才可用</span></button>
+    </div>
+
+    <div class="file-area">
+      <div class="group-head">更改 1</div>
+      <div class="frow"><span class="st">M</span><span class="path">web/src/styles.css</span></div>
+    </div>
+
+    <div class="commit-box">
+      <div class="prefix-row">
+        <button class="icon-btn" title="提交类型前缀">
+          <svg width="13" height="13" viewBox="0 0 16 16"><path fill="currentColor" d="M1 7.25h2.5v1.5H1v-1.5Zm11.5 0H15v1.5h-2.5v-1.5ZM8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Zm0 1.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"/></svg>
+        </button>
+        <span style="flex:1"></span>
+        <button class="icon-btn" title="AI 生成">
+          <svg width="13" height="13" viewBox="0 0 16 16"><path fill="currentColor" d="M7 1c.55 3.5 2 4.95 5.5 5.5C9 7.05 7.55 8.5 7 12c-.55-3.5-2-4.95-5.5-5.5C5 5.95 6.45 4.5 7 1Zm5.5 8.4c.3 1.9 1.1 2.7 3 3-1.9.3-2.7 1.1-3 3-.3-1.9-1.1-2.7-3-3 1.9-.3 2.7-1.1 3-3Z"/></svg>
+        </button>
+      </div>
+      <textarea id="msg" placeholder="提交信息（Ctrl+Enter 提交）" spellcheck="false"></textarea>
+      <div class="amend-warn" id="amendWarn">
+        <b>⚠</b>
+        <span>上次提交 <b>0f0af88</b> 已推送到 origin/dev，修改后需要<b>强制推送</b>才会更新远端。</span>
+      </div>
+      <div class="commit-actions">
+        <button class="amend-toggle" id="amendBtn" aria-pressed="false" title="git commit --amend">
+          <span class="box" id="amendBox"></span>修改上次提交
+        </button>
+        <span class="chg-sum" id="chgSum">将提交 1 个文件</span>
+        <span style="flex:1"></span>
+        <button class="tool-btn solid" id="commitBtn">提交</button>
+        <button class="tool-btn icon" id="commitPushBtn" title="提交并推送" style="width:26px; padding:0; justify-content:center;">⇧</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="ovForce">
+    <div class="modal">
+      <h3>强制推送</h3>
+      <div class="body">
+        将用本地 <span class="mono">dev</span> 覆盖远端 <span class="mono">origin/dev</span>。
+        以下远端提交会被移出分支（对象仍在远端 reflog，但常规操作不可达）：
+        <div class="commit-ref" style="margin-top:8px">
+          <span class="mono">0f0af88</span> fix(shell): 侧栏折叠/展开动画恢复
+        </div>
+        使用 <span class="mono">--force-with-lease</span>：若远端有你本地没有的新提交，推送会被拒绝并提示先拉取，不会盲覆盖。
+      </div>
+      <div class="actions">
+        <button class="tool-btn" id="forceCancel">取消</button>
+        <button class="tool-btn danger-solid" id="forceConfirm">强制推送</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<div class="notes">
+  <div><b>① amend 勾选项</b>：放提交操作行最左（GitHub Desktop 同位），pill 样式勾选态亮蓝边。勾选 = <b>git commit --amend</b>：提交框预填上次提交信息（可改）、按钮文案「提交」→「修改提交」、「提交并推送」同样生效、汇总行改「将并入上次提交」；取消勾选一切还原（不丢用户已输入内容——预填前先存原稿）。</div>
+  <div><b>② 已推送警告</b>：勾选时若 HEAD 已在远端（现有 ahead/behind 信息即可判定），textarea 下方出 amber 警告条（对齐 .banner 样式）说明需强推，<b>不阻断</b>；本地未推送的提交勾选安静无警告。</div>
+  <div><b>③ Push 拆分图标钮</b>：工具栏同步区全面图标化（Fetch / Pull ▾ / Push，与 stash、discard 设计稿同一套 26px 图标钮）；Push 左半 = 推送（行为不变，高频零成本），右半 chevron = 菜单向下弹（工具栏贴页顶）。菜单项带灰色命令说明副行：「推送 tags」= git push origin --tags；顺序高频在上。</div>
+  <div><b>④ 强制推送</b>：红色项 + 分隔线居底；必须过 danger 确认框，列明将被移出的远端提交（origin/dev..dev 的远端独有提交 = 覆盖面）；固定用 <b>--force-with-lease</b>（远端有他人新提交时拒绝并报错，走错误横幅提示先拉取）。仅本地领先时菜单项可用，否则禁用置灰。</div>
+  <div><b>⑤ 后端</b>：amend 扩展现有 changes.commit（amend 标志）；push 扩展 forceWithLease / tags 参数；强推确认框数据取自现有 log 查询（本地与远端分叉提交），零新表。</div>
+  <div><b>试玩</b>：勾「修改上次提交」看预填/文案/警告条变化 → 再取消还原；点「Push ▾」开菜单 → 「强制推送…」看确认框 → 确认出 toast。</div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const toast = $("toast"); let toastTimer = null;
+  const showToast = (html) => { toast.innerHTML = html; toast.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 2200); };
+
+  const LAST_MSG = "fix(shell): 侧栏折叠/展开动画恢复";
+  let savedDraft = null;
+
+  // amend 勾选
+  $("amendBtn").onclick = () => {
+    const on = !$("amendBtn").classList.contains("on");
+    $("amendBtn").classList.toggle("on", on);
+    $("amendBtn").setAttribute("aria-pressed", String(on));
+    $("amendBox").textContent = on ? "✓" : "";
+    $("amendWarn").classList.toggle("show", on);
+    $("commitBtn").textContent = on ? "修改提交" : "提交";
+    $("chgSum").innerHTML = on ? '将并入上次提交 <span class="last">0f0af88</span>' : "将提交 1 个文件";
+    if (on) { savedDraft = $("msg").value; $("msg").value = LAST_MSG; }
+    else if (savedDraft !== null) { $("msg").value = savedDraft; savedDraft = null; }
+  };
+
+  // Push 下拉
+  const pop = $("pushPop");
+  const setPop = (open) => { pop.classList.toggle("open", open); $("pushChevron").setAttribute("aria-expanded", String(open)); };
+  $("pushChevron").onclick = (e) => { e.stopPropagation(); setPop(!pop.classList.contains("open")); };
+  $("pushMain").onclick = () => showToast('<span class="ok">✓</span> 已推送到 origin/dev');
+  $("actPush").onclick = () => { setPop(false); showToast('<span class="ok">✓</span> 已推送到 origin/dev'); };
+  $("actTags").onclick = () => { setPop(false); showToast('<span class="ok">✓</span> 已推送 2 个 tag 到 origin'); };
+  $("actForce").onclick = () => { setPop(false); $("ovForce").classList.add("open"); };
+  $("forceCancel").onclick = () => $("ovForce").classList.remove("open");
+  $("forceConfirm").onclick = () => { $("ovForce").classList.remove("open"); showToast('<span class="ok">✓</span> 已强制推送（--force-with-lease）'); };
+  document.addEventListener("click", (e) => { if (!pop.contains(e.target)) setPop(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { setPop(false); $("ovForce").classList.remove("open"); } });
+
+  $("tLight").onclick = () => { document.body.className = "light"; $("tLight").classList.add("on"); $("tDark").classList.remove("on"); };
+  $("tDark").onclick = () => { document.body.className = "dark"; $("tDark").classList.add("on"); $("tLight").classList.remove("on"); };
+</script>
+</body>
+</html>

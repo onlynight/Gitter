@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>设计稿：日志页 · 提交右键新增 Revert / Cherry-pick</title>
+<style>
+  :root, body.dark {
+    --c-base: #14161B; --c-panel: #1D1F24; --c-panel2: #25272B;
+    --c-hover: #272930; --c-selected: #3C3E43;
+    --c-border: #303237; --c-border-strong: #4F5157;
+    --c-text: #EAEAEA; --c-text2: #A8B0BC; --c-text3: #78828E;
+    --c-link: #6BABF5; --c-green: #3FB950; --c-red: #F0655A; --c-amber: #E3B341;
+    --radius: 4px; --radius-md: 6px; --radius-lg: 10px;
+    --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  body.light {
+    --c-base: #F2F2F3; --c-panel: #F7F7F8; --c-panel2: #EFEFF1;
+    --c-hover: #EBEBEC; --c-selected: #E0E1E3;
+    --c-border: #E4E4E6; --c-border-strong: #CFCFD2;
+    --c-text: #1B1B1B; --c-text2: #5C5C5C; --c-text3: #8F8F8F;
+    --c-link: #0B6BCB; --c-green: #1A7F37; --c-red: #CF222E; --c-amber: #BF8700;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--c-base); color: var(--c-text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 20px 24px;
+  }
+  .page-head { display: flex; align-items: center; gap: 12px; color: var(--c-text3); font-size: 12px; letter-spacing: .5px; }
+  .theme-toggle { display: flex; border: 1px solid var(--c-border-strong); border-radius: var(--radius-md); overflow: hidden; }
+  .theme-toggle button { padding: 2px 10px; font: inherit; font-size: 11px; cursor: pointer; border: none; background: transparent; color: var(--c-text3); }
+  .theme-toggle button.on { background: var(--c-selected); color: var(--c-text); }
+  .compare { display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: var(--c-text3); }
+  .compare .chip { font-family: var(--mono); font-size: 11px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--c-border-strong); color: var(--c-text2); opacity: .55; }
+
+  .scene { position: relative; width: 640px; }
+  .stage {
+    width: 640px; height: 430px; display: flex; flex-direction: column;
+    background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--radius-lg);
+    box-shadow: 0 12px 32px color-mix(in srgb, #000 18%, transparent); overflow: hidden; position: relative;
+  }
+  .overlay {
+    position: absolute; inset: 0; z-index: 40; display: none;
+    align-items: center; justify-content: center;
+    background: color-mix(in srgb, #000 25%, transparent);
+  }
+  .overlay.open { display: flex; }
+
+  /* 日志列表（现状：分支筛选 + 提交行） */
+  .log-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--c-border); }
+  .tool-btn {
+    height: 26px; padding: 0 12px; font: inherit; font-size: 12px; color: var(--c-text); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  }
+  .tool-btn:hover:not(:disabled) { background: var(--c-hover); }
+  .tool-btn.primary { background: var(--c-link); border-color: var(--c-link); color: #fff; font-weight: 600; }
+  .log-list { flex: 1; overflow: hidden; padding: 4px 0; }
+  .lrow { display: flex; align-items: center; gap: 8px; padding: 5px 12px; min-height: 30px; cursor: context-menu; }
+  .lrow:hover { background: var(--c-hover); }
+  .lrow.active { background: var(--c-selected); }
+  .dot { width: 9px; height: 9px; flex: none; border-radius: 50%; border: 2px solid var(--c-text3); }
+  .lrow.head .dot { border-color: var(--c-green); background: var(--c-green); }
+  .lrow .subj { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lrow .who { flex: none; font-size: 11px; color: var(--c-text3); width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lrow .when { flex: none; font-size: 11px; color: var(--c-text3); width: 56px; text-align: right; }
+  .lrow .ref { flex: none; font-family: var(--mono); font-size: 9.5px; padding: 1px 6px; border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--c-green) 40%, transparent); color: var(--c-green); }
+  .tip { font-size: 11px; color: var(--c-text3); padding: 4px 12px 8px; }
+
+  /* 右键菜单（对齐 .ctxmenu） */
+  .ctxmenu {
+    position: absolute; z-index: 50; min-width: 230px;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    padding: 4px; box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent); display: none;
+  }
+  .ctxmenu.open { display: block; }
+  .ctxmenu button {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 5px 10px;
+    background: transparent; border: 0; border-radius: var(--radius);
+    color: var(--c-text); font-family: inherit; font-size: 12px; cursor: pointer;
+  }
+  .ctxmenu button:hover:not(.dis) { background: var(--c-hover); }
+  .ctxmenu button .ico { display: inline-flex; flex: none; color: var(--c-text2); }
+  .ctxmenu button .lb { flex: 1; min-width: 0; }
+  .ctxmenu button .hint { flex: none; color: var(--c-text3); font-family: var(--mono); font-size: 10.5px; }
+  .ctxmenu button.red { color: var(--c-red); }
+  .ctxmenu button.dis { color: var(--c-text3); opacity: .6; cursor: default; }
+  .ctxmenu .sep { height: 1px; margin: 4px 6px; background: var(--c-border); }
+  .ctxmenu .grp { padding: 3px 10px 1px; font-size: 10px; color: var(--c-text3); letter-spacing: .4px; }
+
+  /* Revert 确认 Modal（非 danger：蓝色主键） */
+  .modal {
+    width: 460px; background: var(--c-panel2); border: 1px solid var(--c-border-strong);
+    border-radius: var(--radius-lg); padding: 18px; display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 12px 32px color-mix(in srgb, #000 28%, transparent);
+  }
+  .modal h3 { margin: 0; font-size: 13px; font-weight: 600; }
+  .modal .body { font-size: 12px; color: var(--c-text2); line-height: 1.6; }
+  .modal .mono { font-family: var(--mono); font-size: 11px; color: var(--c-text); }
+  .modal .commit-ref { padding: 8px 10px; border: 1px solid var(--c-border); border-radius: var(--radius-md); background: var(--c-panel); }
+  .modal label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; font-size: 12px; color: var(--c-text); }
+  .modal label .sub { display: block; font-size: 11px; color: var(--c-text3); margin-top: 1px; }
+  .modal .effect { font-size: 11.5px; color: var(--c-text3); padding: 8px 10px; border-left: 2px solid var(--c-border-strong); }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  .toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 60; white-space: nowrap;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
+    padding: 6px 14px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity 160ms ease; }
+  .toast.show { opacity: 1; }
+  .toast .ok { color: var(--c-green); }
+
+  .notes { width: 640px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--c-text3); line-height: 1.7; }
+  .notes b { color: var(--c-text2); font-weight: 600; }
+</style>
+</head>
+<body class="light">
+
+<div class="page-head">
+  设计稿：日志页 · 提交右键新增 Revert / Cherry-pick
+  <span class="theme-toggle"><button id="tLight" class="on">亮</button><button id="tDark">暗</button></span>
+</div>
+
+<div class="compare">
+  <span class="chip">现状：回退只有 Reset（改历史，危险）</span>
+  <span>⟶</span>
+  <span>新增 Revert（安全反向提交）与 Cherry-pick（跨分支拣选）</span>
+</div>
+
+<div class="scene">
+  <div class="stage">
+    <div class="log-toolbar">
+      <button class="tool-btn">dev ▾</button>
+      <input placeholder="搜索提交…" style="flex:1; height:26px; background:var(--c-panel); color:var(--c-text); border:1px solid var(--c-border-strong); border-radius:6px; padding:0 10px; font:inherit; font-size:12px; outline:none;">
+      <button class="tool-btn">当前分支 ▾</button>
+    </div>
+    <div class="log-list">
+      <div class="lrow head"><span class="dot"></span><span class="ref">HEAD · dev</span><span class="subj">fix(i18n): monaco 中文语言包按界面语言门控</span><span class="who">wyndam</span><span class="when">3 小时前</span></div>
+      <div class="lrow active" id="rowActive"><span class="dot"></span><span class="subj">fix(monaco): F1 命令面板修复——quick input 双缺陷源码级补丁</span><span class="who">wyndam</span><span class="when">昨天</span></div>
+      <div class="lrow"><span class="dot"></span><span class="subj">fix(web): vite dev watch 排除 .vite-monaco-lib</span><span class="who">wyndam</span><span class="when">昨天</span></div>
+      <div class="lrow"><span class="dot"></span><span class="subj">fix(shell): 侧栏折叠/展开动画恢复</span><span class="who">wyndam</span><span class="when">2 天前</span></div>
+      <div class="lrow"><span class="dot"></span><span class="subj">fix(kit): DiffView hideHeader 落到根节点 class</span><span class="who">wyndam</span><span class="when">3 天前</span></div>
+      <div class="lrow"><span class="dot"></span><span class="subj">feat(tasks): 任务收尾支持逐文件挑选合并</span><span class="who">wyndam</span><span class="when">4 天前</span></div>
+    </div>
+    <div class="tip">点第二行（非 HEAD 提交）呼出右键菜单（演示用左键代替）</div>
+
+    <div class="ctxmenu" id="ctxMenu" style="left: 340px; top: 92px;">
+      <button>复制 SHA<span class="hint">4409455</span></button>
+      <button>复制提交信息</button>
+      <div class="sep"></div>
+      <button>创建 Tag…</button>
+      <button>从该提交创建分支…</button>
+      <div class="sep"></div>
+      <button data-act="revert">Revert 此提交…<span class="hint">反向撤销</span></button>
+      <button data-act="pick">Cherry-pick 到当前分支<span class="hint">拣选</span></button>
+      <div class="sep"></div>
+      <div class="grp">危险区</div>
+      <button class="red">Reset 分支到此…<span class="hint">改写历史</span></button>
+      <button>查看当前分支 Reflog</button>
+      <button>与所选提交比较</button>
+    </div>
+
+    <div class="overlay" id="ovRevert">
+      <div class="modal">
+        <h3>Revert 提交</h3>
+        <div class="body">
+          将创建一个<b>新提交</b>来自动撤销以下提交的改动，历史完整保留：
+          <div class="commit-ref" style="margin-top:8px">
+            <span class="mono">4409455</span> fix(monaco): F1 命令面板修复——quick input 双缺陷源码级补丁
+          </div>
+        </div>
+        <label>
+          <input type="checkbox" id="immCommit">
+          <span>立即提交
+            <span class="sub">不勾选：反向改动暂存到变更页，由你确认信息后提交（推荐）</span>
+          </span>
+        </label>
+        <div class="effect" id="effectLine">→ 3 个文件的反向改动将出现在变更页（已暂存），提交信息预填「Revert "…"」。</div>
+        <div class="actions">
+          <button class="tool-btn" id="rvCancel">取消</button>
+          <button class="tool-btn primary" id="rvConfirm">创建 Revert 提交</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+</div>
+
+<div class="notes">
+  <div><b>① 菜单插入位置</b>：现有 commit 右键菜单（LogPage.tsx:384-403）中，「从该提交创建分支…」之后、「Reset/Reflog/比较」分组之前，自成分隔区；每项带 mono 灰字 hint 标注语义。</div>
+  <div><b>② Revert 不标红，Reset 标红</b>：Revert = <b>git revert</b> 生成反向提交，不动既有历史，是非破坏性操作；真正危险的是既有「Reset 分支到此…」（改写历史）——本稿顺带把它移入「危险区」小标题 + 红色（现状无标红，语义应拉开）。</div>
+  <div><b>③ Revert 确认框</b>：默认<b>不勾</b>「立即提交」——反向改动进变更页（等价 revert --no-commit 后的暂存态），提交信息预填 <span class="mono">Revert "原提交信息"</span>，用户在变更页确认后提交，多一道反悔机会；勾选则直接 <b>git revert --no-edit</b> 一步到位。确认键用蓝色主键（非 danger 红）——安全操作不吓唬人。</div>
+  <div><b>④ Cherry-pick</b>：<b>git cherry-pick &lt;sha&gt;</b> 拣选到当前分支；点击直接执行 + toast（可撤：冲突时中止即可）。选中提交 = 当前分支顶端时该项禁用置灰（顶端提交拣选无意义，改信息走 amend，见变更页设计稿）。多选连续拣选随将来多选功能再加。</div>
+  <div><b>⑤ 冲突接续</b>：revert / cherry-pick 遇冲突，冲突助手（ConflictAssist）横幅已有这两种状态的识别（gitops.ts:33-34），但继续/中止按钮当前未接线（bug 清单第 1 条）——实现时需补 <b>git.revertAbort/Continue、git.cherryPickAbort/Continue</b> 四个 RPC 并放开 ConflictAssist.tsx:93 的分支条件，与本功能一并交付。</div>
+  <div><b>⑥ 后端</b>：新增 RPC commits.revert（sha, commitNow）、commits.cherryPick（sha），服务层放 gitbranches.ts 或 gitops.ts（与冲突态同处更内聚）。</div>
+  <div><b>试玩</b>：点提交行呼出菜单 → 「Revert 此提交…」看确认框（切换勾选看效果行变化）→ 确认出 toast；「Cherry-pick 到当前分支」直接出 toast；Esc 关闭菜单/弹窗。</div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const toast = $("toast"); let toastTimer = null;
+  const showToast = (html) => { toast.innerHTML = html; toast.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 2200); };
+
+  $("rowActive").addEventListener("click", (e) => {
+    e.stopPropagation();
+    $("ctxMenu").classList.toggle("open");
+  });
+  $("ctxMenu").addEventListener("click", (e) => {
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    $("ctxMenu").classList.remove("open");
+    if (act === "revert") $("ovRevert").classList.add("open");
+    if (act === "pick") showToast('<span class="ok">✓</span> 已拣选 4409455 到 dev（1 个文件）');
+  });
+  const imm = $("immCommit");
+  imm.onchange = () => {
+    $("effectLine").textContent = imm.checked
+      ? "→ 将直接创建 revert 提交（--no-edit），不打扰变更页。"
+      : "→ 3 个文件的反向改动将出现在变更页（已暂存），提交信息预填「Revert \"…\"」。";
+    $("rvConfirm").textContent = imm.checked ? "立即 Revert" : "创建 Revert 提交";
+  };
+  $("rvCancel").onclick = () => $("ovRevert").classList.remove("open");
+  $("rvConfirm").onclick = () => {
+    $("ovRevert").classList.remove("open");
+    showToast(imm.checked ? '<span class="ok">✓</span> 已创建 revert 提交' : '<span class="ok">✓</span> 反向改动已暂存到变更页');
+  };
+  document.addEventListener("click", () => $("ctxMenu").classList.remove("open"));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { $("ctxMenu").classList.remove("open"); $("ovRevert").classList.remove("open"); } });
+
+  $("tLight").onclick = () => { document.body.className = "light"; $("tLight").classList.add("on"); $("tDark").classList.remove("on"); };
+  $("tDark").onclick = () => { document.body.className = "dark"; $("tDark").classList.add("on"); $("tLight").classList.remove("on"); };
+</script>
+</body>
+</html>

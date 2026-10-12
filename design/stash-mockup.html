@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>设计稿：变更页 · Stash（工具栏入口 + 管理对话框）</title>
+<style>
+  /* ---- 应用主题 token（themes.ts BUILTIN 亮/暗档实测值，alpha 已对底色扁平化） ---- */
+  :root, body.dark {
+    --c-base: #14161B; --c-panel: #1D1F24; --c-panel2: #25272B;
+    --c-hover: #272930; --c-selected: #3C3E43;
+    --c-border: #303237; --c-border-strong: #4F5157;
+    --c-text: #EAEAEA; --c-text2: #A8B0BC; --c-text3: #78828E;
+    --c-link: #6BABF5; --c-green: #3FB950; --c-red: #F0655A; --c-amber: #E3B341;
+    --radius: 4px; --radius-md: 6px; --radius-lg: 10px;
+    --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  body.light {
+    --c-base: #F2F2F3; --c-panel: #F7F7F8; --c-panel2: #EFEFF1;
+    --c-hover: #EBEBEC; --c-selected: #E0E1E3;
+    --c-border: #E4E4E6; --c-border-strong: #CFCFD2;
+    --c-text: #1B1B1B; --c-text2: #5C5C5C; --c-text3: #8F8F8F;
+    --c-link: #0B6BCB; --c-green: #1A7F37; --c-red: #CF222E; --c-amber: #BF8700;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--c-base); color: var(--c-text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    padding: 20px 24px;
+  }
+  .page-head { display: flex; align-items: center; gap: 12px; color: var(--c-text3); font-size: 12px; letter-spacing: .5px; }
+  .theme-toggle { display: flex; border: 1px solid var(--c-border-strong); border-radius: var(--radius-md); overflow: hidden; }
+  .theme-toggle button { padding: 2px 10px; font: inherit; font-size: 11px; cursor: pointer; border: none; background: transparent; color: var(--c-text3); }
+  .theme-toggle button.on { background: var(--c-selected); color: var(--c-text); }
+  .compare { display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: var(--c-text3); }
+  .compare .chip { font-family: var(--mono); font-size: 11px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--c-border-strong); color: var(--c-text2); opacity: .55; }
+
+  /* ---- 场景：变更页 + 对话框覆盖层 ---- */
+  .scene { position: relative; width: 640px; }
+  .stage {
+    width: 640px; height: 430px; display: flex; flex-direction: column;
+    background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--radius-lg);
+    box-shadow: 0 12px 32px color-mix(in srgb, #000 18%, transparent); overflow: hidden;
+  }
+  .overlay {
+    position: absolute; inset: 0; z-index: 40; display: none;
+    align-items: center; justify-content: center;
+    background: color-mix(in srgb, #000 25%, transparent); border-radius: var(--radius-lg);
+  }
+  .overlay.open { display: flex; }
+
+  /* 工具栏（变更页 SyncBar 现状 + 新增 Stash 钮） */
+  .toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--c-border); }
+  .tool-btn {
+    height: 26px; padding: 0 12px; font: inherit; font-size: 12px; color: var(--c-text); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+  }
+  .tool-btn:hover:not(:disabled) { background: var(--c-hover); }
+  .tool-btn:disabled { color: var(--c-text3); border-color: var(--c-border); cursor: default; opacity: .6; }
+  .tool-btn.primary { background: var(--c-link); border-color: var(--c-link); color: #fff; font-weight: 600; }
+  .tool-btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--c-link) 85%, var(--c-text)); }
+  .tool-btn.danger { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 40%, transparent); }
+  .tool-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--c-red) 12%, transparent); }
+  .tool-btn.icon { width: 26px; padding: 0; justify-content: center; position: relative; }
+  .split { display: inline-flex; }
+  .split .tool-btn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+  .split .tool-btn:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; margin-left: -1px; width: 18px; padding: 0; justify-content: center; }
+  .badge { position: absolute; top: -5px; right: -5px; min-width: 14px; height: 14px; padding: 0 3px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 8px; background: var(--c-link); color: #fff; font-size: 9px; font-family: var(--mono); font-weight: 600; }
+
+  /* 文件区（现状，作背景） */
+  .file-area { flex: 1; padding: 10px 12px; overflow: hidden; font-size: 12px; color: var(--c-text2); }
+  .group-head { font-size: 10.5px; font-weight: 600; letter-spacing: .6px; color: var(--c-text3); text-transform: uppercase; margin: 6px 0 4px; }
+  .frow { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: var(--radius); }
+  .st { font-family: var(--mono); font-size: 10px; width: 14px; height: 14px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; }
+  .st-M { background: color-mix(in srgb, var(--c-amber) 22%, transparent); color: var(--c-amber); }
+  .st-D { background: color-mix(in srgb, var(--c-red) 20%, transparent); color: var(--c-red); }
+  .st-U { background: color-mix(in srgb, var(--c-green) 18%, transparent); color: var(--c-green); }
+  .frow .path { font-family: var(--mono); font-size: 11px; color: var(--c-text2); }
+  .empty-area { color: var(--c-text3); font-size: 12px; text-align: center; padding-top: 120px; }
+
+  /* ---- Stash 管理对话框（620px，对齐 ReflogDialog 模式） ---- */
+  .dialog {
+    width: 620px; max-height: 380px; display: flex; flex-direction: column;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-lg);
+    box-shadow: 0 12px 32px color-mix(in srgb, #000 28%, transparent); overflow: hidden;
+  }
+  .dlg-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px 4px; }
+  .dlg-head h3 { flex: 1; margin: 0; font-size: 13px; font-weight: 600; }
+  .dlg-close { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+    background: transparent; border: none; border-radius: 6px; color: var(--c-text3); cursor: pointer; font-size: 12px; }
+  .dlg-close:hover { background: var(--c-hover); color: var(--c-text); }
+  .dlg-hint { padding: 0 16px; font-size: 11.5px; color: var(--c-text3); }
+  .stash-new { display: flex; align-items: center; gap: 6px; padding: 10px 16px; }
+  .stash-new input {
+    flex: 1; height: 26px; background: var(--c-panel); color: var(--c-text);
+    border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    padding: 0 10px; font: inherit; font-size: 12px; outline: none;
+  }
+  .stash-new input:focus { border-color: var(--c-link); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-link) 18%, transparent); }
+  .dlg-list { flex: 1; margin: 0 16px; overflow-y: auto; border: 1px solid var(--c-border); border-radius: var(--radius-md); }
+  .dlg-foot { padding: 8px 16px 12px; font-size: 11px; color: var(--c-text3); }
+
+  .srow { padding: 5px 8px 6px; border-bottom: 1px solid var(--c-border); }
+  .srow:last-child { border-bottom: none; }
+  .srow:hover, .srow.open { background: var(--c-hover); }
+  .srow .top { display: flex; align-items: center; gap: 8px; cursor: default; }
+  .chev { flex: none; display: inline-flex; color: var(--c-text3); transition: transform 120ms ease; cursor: pointer; }
+  .srow.open .chev { transform: rotate(90deg); }
+  .srow .idx { font-family: var(--mono); font-size: 10.5px; color: var(--c-text3); flex: none; width: 62px; }
+  .srow .msg { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .srow .meta { flex: none; font-size: 11px; color: var(--c-text3); }
+  .srow .acts { display: none; gap: 6px; padding: 6px 0 0 70px; }
+  .srow:hover .acts, .srow.open .acts { display: flex; }
+  .acts .tool-btn { height: 22px; padding: 0 8px; font-size: 11px; }
+  .srow .files { display: none; margin: 6px 0 2px 70px; padding: 6px 10px; border-left: 2px solid var(--c-border-strong); }
+  .srow.open .files { display: block; }
+  .srow .files .fp { font-family: var(--mono); font-size: 10.5px; color: var(--c-text2); padding: 1.5px 0; }
+
+  /* toast */
+  .toast { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 60;
+    background: var(--c-panel2); border: 1px solid var(--c-border-strong); border-radius: var(--radius-md);
+    box-shadow: 0 8px 20px color-mix(in srgb, #000 25%, transparent);
+    padding: 6px 14px; font-size: 12px; color: var(--c-text); opacity: 0; pointer-events: none; transition: opacity 160ms ease; }
+  .toast.show { opacity: 1; }
+  .toast .ok { color: var(--c-green); }
+
+  .notes { width: 620px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--c-text3); line-height: 1.7; }
+  .notes b { color: var(--c-text2); font-weight: 600; }
+</style>
+</head>
+<body class="light">
+
+<div class="page-head">
+  设计稿：变更页 · Stash（工具栏入口 + 管理对话框）
+  <span class="theme-toggle"><button id="tLight" class="on">亮</button><button id="tDark">暗</button></span>
+</div>
+
+<div class="compare">
+  <span class="chip">现状：无任何 stash 入口（全项目零支持）</span>
+  <span>⟶</span>
+  <span>工具栏「Stash」常驻钮（带计数角标）+ 管理对话框承载列表与恢复操作</span>
+</div>
+
+<div class="scene">
+  <div class="stage">
+    <div class="toolbar">
+      <button class="tool-btn icon" title="Fetch"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .14.11.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.44V2.75a.75.75 0 0 1 1.5 0v4.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 9.78a.75.75 0 0 1-1.06 0L4.22 6.53a.75.75 0 0 1 1.06-1.06Z"/></svg></button>
+      <div class="split">
+        <button class="tool-btn icon" title="Pull（merge）"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 11a.75.75 0 0 1-.53-.22l-3.25-3.25a.75.75 0 0 1 1.06-1.06l1.97 1.97V2.75a.75.75 0 0 1 1.5 0v5.69l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 10.78A.75.75 0 0 1 8 11Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+        <button class="tool-btn icon" title="Pull 选项（merge / --rebase）"><svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 1 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg></button>
+      </div>
+      <button class="tool-btn icon" title="Push"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.5a.75.75 0 0 1 .53.22l3.25 3.25a.75.75 0 1 1-1.06 1.06L8.75 7.06v5.69a.75.75 0 0 1-1.5 0V7.06L5.28 9.03a.75.75 0 0 1-1.06-1.06l3.25-3.25A.75.75 0 0 1 8 4.5Z"/><path d="M2.75 13h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Z"/></svg></button>
+      <button class="tool-btn icon" id="stashBtn" title="Stash 管理（3）"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.25 2.25a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H2a.75.75 0 0 1-.75-.75Z"/><path d="M2 4.5h12a.75.75 0 0 1 .75.75v7.5c0 .69-.56 1.25-1.25 1.25H2.5c-.69 0-1.25-.56-1.25-1.25v-7.5A.75.75 0 0 1 2 4.5Zm.75 1.5v6.5h10.5V6H2.75Z"/><path d="M5.75 8h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5Z"/></svg><span class="badge" id="stashCnt">3</span></button>
+      <span style="flex:1"></span>
+      <button class="tool-btn icon" title="新建分支"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+    </div>
+    <div class="file-area" id="fileArea">
+      <div class="group-head">更改 3</div>
+      <div class="frow"><span class="st st-M">M</span><span class="path">web/src/pages/Login.tsx</span></div>
+      <div class="frow"><span class="st st-M">M</span><span class="path">web/src/api/auth.ts</span></div>
+      <div class="frow"><span class="st st-U">?</span><span class="path">web/src/pages/LoginForm.css</span></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="dialog">
+      <div class="dlg-head">
+        <h3>Stash</h3>
+        <button class="dlg-close" id="dlgClose" title="关闭">✕</button>
+      </div>
+      <div class="dlg-hint">把当前未提交的修改暂存起来，工作区恢复干净；随时可应用回来。</div>
+      <div class="stash-new">
+        <input id="stashMsg" placeholder="消息（可选，默认「WIP + 分支名」）" spellcheck="false">
+        <button class="tool-btn primary" id="stashSave" title="git stash push">暂存修改</button>
+      </div>
+      <div class="dlg-list" id="dlgList">
+        <div class="srow open">
+          <div class="top">
+            <span class="chev">▶</span>
+            <span class="idx">stash@{0}</span>
+            <span class="msg">WIP: 登录页表单校验</span>
+            <span class="meta">dev · 2 小时前</span>
+          </div>
+          <div class="acts">
+            <button class="tool-btn primary" title="git stash pop：应用并删除此条（推荐）">应用并删除</button>
+            <button class="tool-btn" title="git stash apply：应用但保留此条">仅应用</button>
+            <span style="flex:1"></span>
+            <button class="tool-btn danger" title="git stash drop">删除</button>
+          </div>
+          <div class="files">
+            <div class="fp">M web/src/pages/Login.tsx</div>
+            <div class="fp">M web/src/api/auth.ts</div>
+            <div class="fp">A web/src/pages/LoginForm.css</div>
+          </div>
+        </div>
+        <div class="srow">
+          <div class="top">
+            <span class="chev">▶</span>
+            <span class="idx">stash@{1}</span>
+            <span class="msg">实验：主题色变量抽取</span>
+            <span class="meta">dev · 昨天</span>
+          </div>
+          <div class="acts">
+            <button class="tool-btn primary" title="git stash pop">应用并删除</button>
+            <button class="tool-btn" title="git stash apply">仅应用</button>
+            <span style="flex:1"></span>
+            <button class="tool-btn danger" title="git stash drop">删除</button>
+          </div>
+          <div class="files">
+            <div class="fp">M web/src/styles.css</div>
+            <div class="fp">M web/src/kit/NavIcon.tsx</div>
+          </div>
+        </div>
+        <div class="srow">
+          <div class="top">
+            <span class="chev">▶</span>
+            <span class="idx">stash@{2}</span>
+            <span class="msg">WIP on dev: 0f0af88 fix(shell): 侧栏折叠/展开动画恢复</span>
+            <span class="meta">dev · 3 天前</span>
+          </div>
+          <div class="acts">
+            <button class="tool-btn primary" title="git stash pop">应用并删除</button>
+            <button class="tool-btn" title="git stash apply">仅应用</button>
+            <span style="flex:1"></span>
+            <button class="tool-btn danger" title="git stash drop">删除</button>
+          </div>
+          <div class="files">
+            <div class="fp">M app/src/main.ts</div>
+            <div class="fp">M web/src/styles.css</div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot">应用时若与工作区冲突：该 stash 条目保留不删，冲突文件落入变更页，走冲突助手解决。</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<div class="notes">
+  <div><b>① 入口与承载</b>：变更页工具栏同步区全面图标化（Fetch / Pull ▾ / Push），Push 右侧新增「Stash」<b>收件箱图标钮</b>（26px，与相邻图标钮同规格；右上角圆点角标显示条数 &gt;0 时，tooltip 带数量；打开对话框后刷新）。<b>承载选对话框而非独立页面/侧栏</b>：stash 是暂态操作面（存→走人，回→取走），不值得占导航位；列表＋行内操作＋展开文件需要宽度与滚动，popover 装不下——对齐现有 ReflogDialog 的 620px 列表对话框模式（kit/ReflogDialog.tsx），实现为 kit/StashDialog。</div>
+  <div><b>② 保存</b>：对话框顶部一行 = 消息输入（可选，默认「WIP on &lt;分支&gt;」）＋「暂存修改」主键，等价 <b>git stash push -m</b>（含未跟踪文件，-u）；成功后变更页文件区清空、角标 +1。工作区无变更时按钮禁用。</div>
+  <div><b>③ 恢复（unstash）</b>：行悬停/选中出操作——「应用并删除」= <b>git stash pop</b>（默认推荐），「仅应用」= <b>git stash apply</b>（保留条目，想多地复用时用）。冲突语义按 git：pop 遇冲突时条目<b>不会</b>被删，冲突文件落变更页走冲突助手——底部灰字固定说明，消除「东西丢了吗」的疑虑。</div>
+  <div><b>④ 展开预览</b>：行首 chevron 展开该条涉及的文件清单（git stash show --include-untracked --name-only），辅助决定「应用还是删掉」。</div>
+  <div><b>⑤ 删除</b>：单条「删除」= git stash drop，红色 danger 描边钮（mis-click 有 reflog 可救但不承诺）；<b>不做「清空全部」入口</b>——safety.ts 已把 stash clear 列为危险命令拦截，UI 侧同样不提供。</div>
+  <div><b>⑥ 空态</b>：无 stash 时列表区显示「没有 stash」居中灰字（同 ReflogDialog 空态）。</div>
+  <div><b>⑦ 后端</b>：新增 RPC stash.list / stash.push / stash.pop / stash.apply / stash.drop / stash.show（服务层新文件 gitstash.ts，全部走 gitexec）；stash@{n} 序号展示用 list 顺序推导，不长期持有句柄。</div>
+  <div><b>试玩</b>：点工具栏「Stash」图标钮（收件箱）开对话框 → 填消息点「暂存修改」（工作区清空、角标 +1）→ 行悬停「应用并删除」把文件放回变更页（角标 −1）→ 点 chevron 展开文件 → Esc / ✕ 关闭。</div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const toast = $("toast"); let toastTimer = null;
+  const showToast = (html) => {
+    toast.innerHTML = html; toast.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
+  };
+
+  // 打开/关闭
+  $("stashBtn").onclick = () => $("overlay").classList.add("open");
+  $("dlgClose").onclick = () => $("overlay").classList.remove("open");
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("overlay").classList.remove("open"); });
+
+  // 保存：消息可选；成功 → 工作区清空 + 角标+1 + 列表顶插入
+  $("stashSave").onclick = () => {
+    const n = $("fileArea").querySelectorAll(".frow").length;
+    if (n === 0) return;
+    const msg = $("stashMsg").value.trim() || "WIP: 未命名暂存";
+    $("fileArea").innerHTML = '<div class="empty-area">工作区干净，没有待提交的变更</div>';
+    $("stashMsg").value = "";
+    $("stashSave").disabled = true;
+    bumpCnt(+1);
+    prependRow(msg, n);
+    showToast('<span class="ok">✓</span> 已 stash ' + n + " 个文件，工作区已恢复干净");
+  };
+
+  // 行交互：chevron 展开；pop/apply/drop
+  $("dlgList").addEventListener("click", (e) => {
+    const row = e.target.closest(".srow"); if (!row) return;
+    if (e.target.closest(".chev") || e.target.closest(".top")) { row.classList.toggle("open"); return; }
+    const idx = row.querySelector(".idx").textContent;
+    if (e.target.closest(".primary")) {
+      removeRow(row); bumpCnt(-1); restoreFiles(row);
+      showToast('<span class="ok">✓</span> 已应用 ' + idx + "（pop）到工作区");
+    } else if (e.target.closest(".tool-btn:not(.danger):not(.primary)")) {
+      restoreFiles(row);
+      showToast('<span class="ok">✓</span> 已应用 ' + idx + "（apply），条目已保留");
+    } else if (e.target.closest(".danger")) {
+      removeRow(row); bumpCnt(-1);
+      showToast("已删除 " + idx);
+    }
+  });
+
+  const bumpCnt = (d) => { const el = $("stashCnt"); el.textContent = Math.max(0, parseInt(el.textContent) + d); };
+  const removeRow = (row) => { row.remove(); if (!$("dlgList").children.length) $("dlgList").innerHTML = '<div style="padding:16px;color:var(--c-text3);font-size:12px;text-align:center">没有 stash</div>'; };
+  const restoreFiles = (row) => {
+    const area = $("fileArea");
+    if (area.querySelector(".empty-area")) area.innerHTML = '<div class="group-head">更改</div>';
+    row.querySelectorAll(".files .fp").forEach((fp) => {
+      const t = fp.textContent; const s = t[0] === "A" ? "st-?" : (t[0] === "D" ? "st-D" : "st-M");
+      area.insertAdjacentHTML("beforeend", '<div class="frow"><span class="st ' + s + '">' + t[0] + '</span><span class="path">' + t.slice(2) + "</span></div>");
+    });
+    $("stashSave").disabled = false;
+  };
+  const prependRow = (msg, n) => {
+    if ($("dlgList").children[0]?.classList.contains("srow") === false && $("dlgList").children.length === 1) $("dlgList").innerHTML = "";
+    [...$("dlgList").children].forEach((c) => { const i = c.querySelector(".idx"); if (i) i.textContent = "stash@{" + (parseInt(i.textContent.match(/\d+/)[0]) + 1) + "}"; });
+    $("dlgList").insertAdjacentHTML("afterbegin",
+      '<div class="srow open"><div class="top"><span class="chev">▶</span><span class="idx">stash@{0}</span><span class="msg">' + msg +
+      '</span><span class="meta">dev · 刚刚</span></div><div class="acts"><button class="tool-btn primary">应用并删除</button><button class="tool-btn">仅应用</button><span style="flex:1"></span><button class="tool-btn danger">删除</button></div><div class="files">' +
+      '<div class="fp">M web/src/pages/Login.tsx</div><div class="fp">M web/src/api/auth.ts</div><div class="fp">A web/src/pages/LoginForm.css</div></div></div>');
+  };
+
+  // 主题切换
+  $("tLight").onclick = () => { document.body.className = "light"; $("tLight").classList.add("on"); $("tDark").classList.remove("on"); };
+  $("tDark").onclick = () => { document.body.className = "dark"; $("tDark").classList.add("on"); $("tLight").classList.remove("on"); };
+</script>
+</body>
+</html>
