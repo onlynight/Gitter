@@ -193,6 +193,26 @@ export async function mergeBranch(workDir: string, branch: string, noFastForward
   if (r.code !== 0) throw new GitError(args, r);
 }
 
+/** squash 合并：改动合入索引后显式提交（消息完全可控，可带 trailer）。冲突/提交失败时恢复现场并抛错。 */
+export async function squashMerge(workDir: string, branch: string, message: string, target?: string | null): Promise<void> {
+  if (target) {
+    const cur = (await tryGit(workDir, ["branch", "--show-current"])).stdout.trim();
+    if (cur !== target) await git(workDir, ["checkout", target]);
+  }
+  let args = ["merge", "--squash", branch];
+  let r = await tryGit(workDir, args);
+  if (r.code !== 0) {
+    await tryGit(workDir, ["merge", "--abort"]);
+    throw new GitError(args, r);
+  }
+  args = ["commit", "-m", message];
+  r = await tryGit(workDir, args);
+  if (r.code !== 0) {
+    await tryGit(workDir, ["reset", "--hard"]); // 清掉 squash 留在索引里的合入内容
+    throw new GitError(args, r);
+  }
+}
+
 export async function rebaseBranch(workDir: string, upstream: string): Promise<void> {
   const r = await tryGit(workDir, ["rebase", upstream]);
   if (r.code !== 0) throw new GitError(["rebase", upstream], r);

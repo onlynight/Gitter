@@ -8,7 +8,9 @@ import type { SettingsStore } from "../settings";
 import { tryGit } from "../gitexec";
 import { parseUnifiedDiff, truncateDiff } from "../gitlog";
 import * as status from "../gitstatus";
-import { createTaskWorktree, listWorktrees } from "../worktrees";
+import { deleteBranch, mergeBranch, squashMerge } from "../gitbranches";
+import { createTaskWorktree, listWorktrees, removeTaskWorktree } from "../worktrees";
+import { aheadBehind, collectMergeInfo, currentBranch, dirtyCount, isDirty } from "./merge";
 import { commitCheckpoint, headSha } from "./checkpoint";
 import { resolveTaskType } from "./taskTypes";
 import { buildToolset, type PermissionRequest, type ShellRecord, type ToolEnv } from "./registry";
@@ -27,7 +29,7 @@ import {
   type SessionFile, type SessionJournalEntry,
 } from "./tasks";
 import type {
-  AgentContextStats, AgentHarnessDTO, AgentSessionEvent, AgentTaskRecord, FileChangeKind,
+  AgentContextStats, AgentHarnessDTO, AgentMergeCheckDTO, AgentMergeResultDTO, AgentSessionEvent, AgentTaskRecord, FileChangeKind,
   PermissionMode, PlanHistoryEntry, ThinkingLevel, TodoItem,
 } from "./types";
 
@@ -232,6 +234,7 @@ export class AgentSessionManager {
         const answer = args.answer ?? (args.optionIndex !== undefined ? q.options[args.optionIndex] : undefined) ?? "";
         if (s.record.state === "awaiting-input") {
           s.record.state = "working";
+          s.record.awaitKind = null;
           this.deps.send("agent.tasks.changed", {});
         }
         q.resolve(answer);
@@ -243,6 +246,7 @@ export class AgentSessionManager {
         s.plans.delete(args.requestId);
         if (s.record.state === "awaiting-input") {
           s.record.state = "working";
+          s.record.awaitKind = null;
           this.deps.send("agent.tasks.changed", {});
         }
         plan({ ok: !!args.ok, feedback: args.answer });
@@ -279,6 +283,7 @@ export class AgentSessionManager {
     // 开启后每任务独立 worktree + task/* 分支（互不干扰，可整体合并/丢弃）。
     let wtPath: string;
     let branch: string;
+    let baseBranch: string | null = null;
     if (this.deps.settings.current.agentsTaskWorktree === true) {
       let slug = args.name?.trim() || deriveSlug(title);
       const existing = new Set((await listWorktrees(repo)).map((w) => w.branch));
@@ -286,6 +291,8 @@ export class AgentSessionManager {
       const wt = await createTaskWorktree(repo, slug);
       wtPath = wt.path;
       branch = wt.branch;
+      // 收尾合并目标 = spawn 时主 worktree 当前分支（§3.1；主 worktree 模式用不到不记）
+      baseBranch = (await currentBranch(repo)) ?? null;
     } else {
       wtPath = repo;
       const r = await tryGit(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -314,6 +321,9 @@ export class AgentSessionManager {
       planHistory: [],
       queued: [],
       archived: false,
+      baseBranch,
+      awaitKind: null,
+      wrapup: null,
     };
     this.putRecord(record);
     this.deps.onLifecycle?.("created", record);
@@ -356,6 +366,7 @@ export class AgentSessionManager {
     for (const rel of imgs.rels) this.emit(record, { type: "file-change", path: rel, kind: "read-image" });
     record.state = "starting";
     record.archived = false;
+    record.awaitKind = null;
     record.lastActiveAt = new Date().toISOString();
     if (args.thinking) record.thinking = args.thinking;
     if (args.mode) record.permissionMode = args.mode;
@@ -520,6 +531,8 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     const forkSlug = dedupeSlug(`${slug}-fork`, existing);
     const wt = await createTaskWorktree(repo, forkSlug);
     const baseline = (await headSha(wt.path)) ?? "";
+    // fork worktree 从主 worktree 当前 HEAD 切出 → 收尾合并目标按 fork 时刻重取（§3.1）
+    const forkBaseBranch = (await currentBranch(repo)) ?? source.baseBranch ?? null;
     const messages = loadSessionFile(repo, args.taskId).messages;
     const record: AgentTaskRecord = {
       ...normalizeRecord(source),
@@ -528,6 +541,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       worktreePath: wt.path,
       branch: wt.branch,
       baselineSha: baseline,
+      baseBranch: forkBaseBranch,
       externalSessionId: null,
       state: "awaiting-input",
       exitCode: null,
@@ -536,6 +550,8 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       modelRef: modelRef ?? null,
       queued: [],
       archived: false,
+      awaitKind: null,
+      wrapup: null,
     };
     upsertTask(file, record);
     saveAgentTasks(repo, file);
@@ -559,7 +575,23 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     return record;
   }
 
-  deleteTask(args: { taskId: string }): { ok: boolean } {
+  /** 重命名（纯展示字段：live 任务也允许；分支名创建时已定不受影响）。 */
+  rename(args: { taskId: string; title: string }): AgentTaskRecord | null {
+    const repo = this.needRepo();
+    const live = this.live.get(args.taskId);
+    const file = loadAgentTasks(repo);
+    const record = live?.record ?? findTask(file, args.taskId);
+    if (!record) throw new Error("任务不存在");
+    const title = args.title.trim().replace(/\r?\n/g, " ").slice(0, 60);
+    if (!title) throw new Error("标题不能为空");
+    record.title = title;
+    upsertTask(file, record);
+    saveAgentTasks(repo, file);
+    this.deps.send("agent.tasks.changed", {});
+    return normalizeRecord(record);
+  }
+
+  async deleteTask(args: { taskId: string; cleanup?: boolean }): Promise<{ ok: boolean; cleanup?: { worktreeRemoved: boolean; branchDeleted: boolean } }> {
     const repo = this.needRepo();
     if (this.isRunning(args.taskId)) throw new Error("任务正在运行，无法删除");
     const file = loadAgentTasks(repo);
@@ -572,9 +604,120 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     } catch {
       /* 会话文件缺失不阻塞 */
     }
+    // 收尾清理（best-effort）：worktree 被占用/分支在别处检出时保留，由 Worktree 页手动处理
+    let cleanup: { worktreeRemoved: boolean; branchDeleted: boolean } | undefined;
+    if (args.cleanup && record.worktreePath && record.branch?.startsWith("task/") && !this.isMainWorktree(record.worktreePath)) {
+      cleanup = { worktreeRemoved: false, branchDeleted: false };
+      // 先删 worktree 再删分支（分支被 worktree 检出时 git 拒绝删除）
+      try {
+        await removeTaskWorktree(repo, record.worktreePath);
+        cleanup.worktreeRemoved = true;
+      } catch { /* 保留 */ }
+      if (cleanup.worktreeRemoved) {
+        try {
+          await deleteBranch(repo, record.branch, true);
+          cleanup.branchDeleted = true;
+        } catch { /* 保留 */ }
+      }
+    }
     this.deps.send("agent.tasks.changed", {});
     this.deps.onLifecycle?.("removed", record);
+    return { ok: true, cleanup };
+  }
+
+  /** 后台 shell 终止（taskkill /T /F 杀整树，与超时路径同款）。仅 live 会话有数据。 */
+  async shellKill(args: { taskId: string; shellId: string }): Promise<{ ok: boolean }> {
+    const live = this.live.get(args.taskId);
+    if (!live) throw new Error("任务未在运行（重启后后台 shell 不保留）");
+    const rec = live.shells.get(args.shellId);
+    if (!rec) throw new Error("shellId 不存在");
+    if (rec.running && rec.pid) {
+      const { spawn } = await import("child_process");
+      spawn("taskkill", ["/pid", String(rec.pid), "/T", "/F"], { windowsHide: true });
+    }
+    rec.running = false;
+    rec.exitCode = rec.exitCode ?? -1;
     return { ok: true };
+  }
+
+  // ---- 收尾合并（task-page-wrapup-and-list-design.md §3，工作流 B） ----
+
+  /** 合并预检：目标分支/领先落后/冲突清单/差异统计。 */
+  async mergeCheck(args: { taskId: string }): Promise<AgentMergeCheckDTO> {
+    const repo = this.needRepo();
+    const record = this.recordOf(args.taskId);
+    const empty: AgentMergeCheckDTO = { ok: false, baseBranch: "", mainBranch: "", mainDirty: false, ahead: 0, behind: 0, uncommitted: 0, conflicts: null, diffStat: "" };
+    if (this.isRunning(args.taskId)) return { ...empty, reason: "TASK_LIVE" };
+    if (this.isMainWorktree(record.worktreePath) || !record.branch?.startsWith("task/")) {
+      return { ...empty, reason: "NO_WORKTREE" };
+    }
+    const info = await collectMergeInfo(repo, record.worktreePath, record.branch, record.baseBranch ?? null);
+    return { ok: true, ...info };
+  }
+
+  /** 收尾合并：squash（默认）/ --no-ff；未提交改动先自动收尾提交；可选清理 worktree+分支并归档。 */
+  async mergeTask(args: { taskId: string; strategy: "squash" | "merge"; message?: string; cleanup?: boolean }): Promise<AgentMergeResultDTO> {
+    const repo = this.needRepo();
+    const live = this.live.get(args.taskId);
+    const file = loadAgentTasks(repo);
+    const record = live?.record ?? findTask(file, args.taskId);
+    if (!record) throw new Error("任务不存在");
+    if (this.isRunning(args.taskId)) throw new Error("任务正在运行，无法合并");
+    if (this.isMainWorktree(record.worktreePath) || !record.branch?.startsWith("task/")) {
+      throw new Error("当前分支模式无独立分支可合并（改动已在工作区，请到变更页提交）");
+    }
+    const mainBranch = (await currentBranch(repo)) ?? "";
+    const baseBranch = record.baseBranch || mainBranch;
+    if (await isDirty(repo)) throw new Error("主 worktree 有未提交改动——请先提交或暂存（stash）再合并");
+    const { ahead } = await aheadBehind(repo, baseBranch, record.branch);
+    if (ahead === 0) throw new Error("任务分支相对基线无差异（ahead=0），无需合并");
+    // 任务 worktree 未提交改动 → 自动收尾提交（checkpoint 语义：trailer 齐全；干净则跳过；失败即中止合并）
+    const cp = await commitCheckpoint(record.worktreePath, {
+      summary: "收尾提交（合并前自动 checkpoint）",
+      assistedBy: "gitter-agent",
+      sessionId: record.taskId,
+    });
+    if (cp.skipped && cp.reason && !cp.reason.includes("工作区干净")) throw new Error(`收尾提交失败：${cp.reason}`);
+
+    const message = (args.message?.trim() || record.title).replace(/\r?\n/g, " ").slice(0, 100);
+    const fullMessage = `${message}\n\nAssisted-by: gitter-agent\nGitter-Session: ${record.taskId}`;
+    let mergeSha: string | null = null;
+    try {
+      if (args.strategy === "squash") await squashMerge(repo, record.branch, fullMessage, baseBranch);
+      else await mergeBranch(repo, record.branch, true, fullMessage, baseBranch);
+    } catch (e) {
+      // 预检后的竞态冲突：abort 恢复现场，返回冲突清单（等价预检结果）
+      await tryGit(repo, ["merge", "--abort"]);
+      const u = await tryGit(repo, ["diff", "--name-only", "--diff-filter=U"]);
+      const conflicts = u.stdout.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+      if (conflicts.length > 0) return { ok: false, conflicts, archived: record.archived };
+      throw e;
+    }
+    const shaR = await tryGit(repo, ["rev-parse", "HEAD"]);
+    mergeSha = shaR.code === 0 ? shaR.stdout.trim() : null;
+    record.wrapup = { mergeSha: mergeSha ?? "", mergedAt: new Date().toISOString(), strategy: args.strategy === "merge" ? "merge" : "squash" };
+
+    let cleanup: { worktreeRemoved: boolean; branchDeleted: boolean } | undefined;
+    if (args.cleanup !== false) {
+      cleanup = { worktreeRemoved: false, branchDeleted: false };
+      // 先删 worktree 再删分支（分支被 worktree 检出时 git 拒绝删除）；checkpoint 已保证任务 worktree 干净
+      try {
+        await removeTaskWorktree(repo, record.worktreePath);
+        cleanup.worktreeRemoved = true;
+      } catch { /* 被其他窗口占用：保留，Worktree 页可手动移除 */ }
+      if (cleanup.worktreeRemoved) {
+        try {
+          await deleteBranch(repo, record.branch, true);
+          cleanup.branchDeleted = true;
+        } catch { /* 保留 */ }
+      }
+      record.archived = true;
+    }
+    if (live) this.journalHuman(record, live, `合并到 ${baseBranch}（${record.wrapup.strategy} · ${(mergeSha ?? "").slice(0, 8)}）`);
+    upsertTask(file, record);
+    saveAgentTasks(repo, file);
+    this.deps.send("agent.tasks.changed", {});
+    return { ok: true, mergeSha: mergeSha ?? undefined, cleanup, archived: record.archived };
   }
 
   // ---- 改动预览（F6） ----
@@ -1252,6 +1395,8 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           this.scheduleSave();
         }
       }
+      // awaitKind 只在 awaiting-input 态有意义（stopped/interrupted/failed 一并清空，防脏标）
+      if (record.state !== "awaiting-input") record.awaitKind = null;
       record.exitCode = null;
       record.lastActiveAt = new Date().toISOString();
       live.abort = null;
@@ -1431,6 +1576,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
   ): Promise<string> {
     const requestId = randomUUID();
     record.state = "awaiting-input";
+    record.awaitKind = "question";
     this.deps.send("agent.tasks.changed", {});
     this.emit(record, { type: "question", question, options, requestId, subtaskId });
     this.scheduleSave();
@@ -1447,6 +1593,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     live.planSubmittedThisTurn = true;
     const requestId = randomUUID();
     record.state = "awaiting-input";
+    record.awaitKind = "plan";
     this.deps.send("agent.tasks.changed", {});
     this.emit(record, { type: "plan", plan, requestId });
     this.scheduleSave();

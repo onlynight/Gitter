@@ -30,6 +30,13 @@
     refresh: () => U().refresh(),
     notifyRepoChanged: () => U().notifyRepoChanged(),
     repo: () => U().repo(),
+    pathForFile: (file) => {
+      try {
+        return U().pathForFile(file);
+      } catch {
+        return "";
+      }
+    },
     settings: () => U().settings(),
     theme: () => U().theme(),
     openRepo: (path) => U().openRepo(path),

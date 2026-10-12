@@ -622,6 +622,11 @@ registerAgentTool({
           resolve(err(e));
           return;
         }
+        // pid 挂到 shell 记录（后台 shell 终止 = taskkill /T /F 杀整树）
+        if (id && child.pid) {
+          const rec0 = env.shells.get(id);
+          if (rec0) rec0.pid = child.pid;
+        }
         let out = "";
         let lastFlush = 0;
         const emitDelta = (delta: string) => {

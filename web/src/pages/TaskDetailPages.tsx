@@ -1,12 +1,13 @@
 /**
- * 任务页独立子页：改动（Codex Diff Review × Gitter 语义）+ 检查点（ZCode rewind）。
+ * 任务页独立子页：改动（Codex Diff Review × Gitter 语义）+ 检查点（ZCode rewind）+ 后台 shell（v3.3）。
  * 由 TasksPage 消费（tab 切换挂载）。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { call } from "../bridge/client";
-import type { AgentCheckpointDTO, AgentTaskFileDTO, DiffDTO } from "../bridge/types";
+import type { AgentCheckpointDTO, AgentShellDTO, AgentTaskFileDTO, DiffDTO } from "../bridge/types";
 import { DiffView } from "../kit";
 import { pageSdk } from "../pageSdk";
+import { TlIcon } from "./taskIcons";
 
 const { notifyRepoChanged } = pageSdk;
 
@@ -189,6 +190,84 @@ export function CheckpointsTab(props: {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---- 后台 shell 页（v3.3 工作流 C：agent.task.shells / shellKill；仅 live 会话有数据）----
+
+export function ShellsTab(props: {
+  taskId: string;
+  live: boolean;
+  tick: number;
+  setError: (e: string) => void;
+  /** 上报运行中 shell 数（页签徽标） */
+  onCount: (n: number) => void;
+}) {
+  const { taskId, live, tick } = props;
+  const [shells, setShells] = useState<AgentShellDTO[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    void call<AgentShellDTO[]>("agent.task.shells", { taskId })
+      .then((x) => { setShells(x); props.onCount(x.filter((s) => s.running).length); })
+      .catch(() => { setShells([]); props.onCount(0); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId]);
+
+  useEffect(() => { reload(); }, [reload, tick]);
+  // 页签打开时 2s 轮询刷新（无 shell 输出事件通道，轮询足够）
+  useEffect(() => {
+    const iv = setInterval(reload, 2000);
+    return () => clearInterval(iv);
+  }, [reload]);
+
+  const kill = async (shellId: string) => {
+    setBusyId(shellId);
+    try { await call("agent.task.shellKill", { taskId, shellId }); reload(); }
+    catch (e) { props.setError((e as Error).message); }
+    finally { setBusyId(null); }
+  };
+
+  const fmtDur = (s: AgentShellDTO) => {
+    if (!s.running) return `exit ${s.exitCode ?? "-"}`;
+    return "运行中";
+  };
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)" }}>
+        <b style={{ fontSize: 12.5 }}>后台</b>
+        <span style={{ color: "var(--c-text3)", fontSize: 11 }}>
+          agent 后台 shell（terminal_run 后台模式）· 仅 live 会话有数据 · 2s 轮询
+        </span>
+        <span style={{ flex: 1 }} />
+        <button className="tool-btn" onClick={reload}>刷新</button>
+      </div>
+      <div className="tl-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880, width: "100%", margin: "0 auto" }}>
+        {!live && shells.length === 0 && (
+          <div style={{ color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }}>
+            重启后后台 shell 不保留（仅 live 会话内存）——时间线里 terminal_poll 的输出仍可回看
+          </div>
+        )}
+        {live && shells.length === 0 && (
+          <div style={{ color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }}>暂无后台 shell</div>
+        )}
+        {shells.map((s) => (
+          <div key={s.id} className="tk-shell">
+            <div className="tk-shell-h">
+              <span className="tk-dot" style={{ color: s.running ? "var(--c-amber)" : (s.exitCode ?? 0) === 0 ? "var(--c-green)" : "var(--c-red)", animation: s.running ? "tk-pulse 1.2s infinite" : undefined }} />
+              <span className="tk-shell-cmd" title={s.command}>{s.command}</span>
+              <span className="tk-shell-tm">{fmtDur(s)}</span>
+              {s.running && (
+                <button className="tool-btn" style={{ color: "var(--c-red)", borderColor: "color-mix(in srgb, var(--c-red) 38%, transparent)", flex: "none" }}
+                  disabled={busyId === s.id} onClick={() => void kill(s.id)}>终止</button>
+              )}
+            </div>
+            {s.tail && <div className="tk-shell-tail">{s.tail}</div>}
+          </div>
+        ))}
       </div>
     </div>
   );

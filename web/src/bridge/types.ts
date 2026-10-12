@@ -451,6 +451,45 @@ export type AgentTaskDTO = {
   planHistory?: { ts: string; plan: string; decision: "approved" | "revised"; feedback?: string }[];
   queued?: string[];
   archived: boolean;
+  /** 收尾合并目标分支（spawn/fork 记录；主 worktree 模式为 null） */
+  baseBranch?: string | null;
+  /** awaiting-input 细分（null = 自然收尾=已完成；question=等你回答；plan=待确认计划） */
+  awaitKind?: "question" | "plan" | null;
+  /** 收尾合并结果（有值 = 已合并） */
+  wrapup?: { mergeSha: string; mergedAt: string; strategy: "squash" | "merge" } | null;
+};
+
+/** 收尾合并预检（agent.task.mergeCheck）。 */
+export type AgentMergeCheckDTO = {
+  ok: boolean;
+  reason?: "TASK_LIVE" | "NO_WORKTREE" | "MAIN_DIRTY" | "GIT_FAIL";
+  baseBranch: string;
+  mainBranch: string;
+  mainDirty: boolean;
+  ahead: number;
+  behind: number;
+  uncommitted: number;
+  /** null = 无法预检；[] = 干净；非空 = 冲突清单 */
+  conflicts: string[] | null;
+  diffStat: string;
+};
+
+/** 收尾合并结果（agent.task.merge）。 */
+export type AgentMergeResultDTO = {
+  ok: boolean;
+  mergeSha?: string;
+  conflicts?: string[];
+  cleanup?: { worktreeRemoved: boolean; branchDeleted: boolean };
+  archived: boolean;
+};
+
+/** 后台 shell 条目（agent.task.shells；仅 live 会话有数据）。 */
+export type AgentShellDTO = {
+  id: string;
+  command: string;
+  running: boolean;
+  exitCode: number | null;
+  tail: string;
 };
 
 export type AgentContextStatsDTO = {

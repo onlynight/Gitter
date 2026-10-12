@@ -2,7 +2,7 @@ import { Fragment, forwardRef, useCallback, useEffect, useLayoutEffect, useRef, 
 import { createPortal } from "react-dom";
 import { DiffView, renderMarkdown, Select } from "../kit";
 import type {
-  AgentCheckpointDTO, AgentContextStatsDTO, AgentEventDTO, AgentHarnessDTO, AgentTaskDTO,
+  AgentCheckpointDTO, AgentContextStatsDTO, AgentEventDTO, AgentHarnessDTO, AgentShellDTO, AgentTaskDTO,
   AgentTaskFileDTO, DiffDTO, ModelProfileDTO, TaskTypeDTO, WorktreeDTO,
 } from "../bridge/types";
 import { pageSdk, useAppState, useTaskFocus } from "../pageSdk";
@@ -18,7 +18,8 @@ import {
   TodoList, PermissionCard, QuestionCard, PlanCard, SubtaskBlock,
 } from "./TaskTimeline";
 import { Composer, MentionPopover, SlashPopover, BUILTIN_COMPOSER_PROVIDERS, MODE_ORDER, MODE_META, THINKING_META, type ModelGroupVM } from "./TaskComposer";
-import { ChangesTab, CheckpointsTab } from "./TaskDetailPages";
+import { ChangesTab, CheckpointsTab, ShellsTab } from "./TaskDetailPages";
+import { TaskWrapupDialog, TaskFeedbackDialog } from "./TaskWrapupDialog";
 // 任务页 v3（docs/task-page-v2-design.md）：Codex 信息架构（任务卡列表 + 对话/改动/检查点三独立页）
 // × ZCode 交互（⏺ 工具卡折叠/⎿ 结果、编号授权选项、todo 清单、Esc/Esc×2、Shift+Tab 模式循环、
 // 上下文条、发送/停止合一图标按钮）。页签为全局导航，改动/检查点为完全独立页（无对话元素）。
@@ -52,11 +53,16 @@ const BUILTIN_SLASH: { name: string; arg?: string; hint: string; template?: stri
 ];
 
 
-function stateChip(s: AgentTaskDTO["state"]): { label: string; color: string } {
+function stateChip(s: AgentTaskDTO["state"], awaitKind?: "question" | "plan" | null): { label: string; color: string } {
+  // awaiting-input 按 awaitKind 细分（v3.3）：question=等你回答 / plan=待确认计划 / null=已完成
+  if (s === "awaiting-input") {
+    if (awaitKind === "question") return { label: "等你回答", color: "var(--c-amber)" };
+    if (awaitKind === "plan") return { label: "待确认计划", color: "var(--c-chip-purple-fg, #b490ff)" };
+    return { label: "已完成", color: "var(--c-text3)" };
+  }
   switch (s) {
     case "starting": return { label: "Starting", color: "var(--c-text3)" };
     case "working": return { label: "● Working", color: "var(--c-green)" };
-    case "awaiting-input": return { label: "Awaiting input", color: "var(--c-text)" };
     case "awaiting-permission": return { label: "● 待确认", color: "var(--c-amber)" };
     case "completed": return { label: "Completed", color: "var(--c-accent)" };
     case "failed": return { label: "Failed", color: "var(--c-red)" };
@@ -64,6 +70,30 @@ function stateChip(s: AgentTaskDTO["state"]): { label: string; color: string } {
     case "stopped": return { label: "Stopped", color: "var(--c-text3)" };
   }
 }
+
+/** 列表筛选归类（v3.3 工作流 A）：进行中 / 待处理（授权+提问+计划）/ 已完成 / 失败·中断。 */
+function taskCategory(t: AgentTaskDTO): "run" | "ask" | "done" | "err" {
+  if (t.state === "starting" || t.state === "working") return "run";
+  if (t.state === "awaiting-permission") return "ask";
+  if (t.state === "awaiting-input") return t.awaitKind ? "ask" : "done";
+  if (t.state === "failed" || t.state === "interrupted" || t.state === "stopped") return "err";
+  return "done";
+}
+
+/** 日期分组（lastActiveAt ?? createdAt → 今天/昨天/近 7 天/更早）。 */
+function dateGroupOf(iso: string | null): "today" | "yesterday" | "week" | "older" {
+  const ts = iso ? new Date(iso).getTime() : 0;
+  if (!ts) return "older";
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (ts >= startOfToday) return "today";
+  if (ts >= startOfToday - 86400_000) return "yesterday";
+  if (ts >= startOfToday - 7 * 86400_000) return "week";
+  return "older";
+}
+const DATE_GROUPS: { id: "today" | "yesterday" | "week" | "older"; label: string }[] = [
+  { id: "today", label: "今天" }, { id: "yesterday", label: "昨天" }, { id: "week", label: "近 7 天" }, { id: "older", label: "更早" },
+];
 
 // ---- ZCode 式交互组件 ----
 
@@ -120,12 +150,24 @@ export function TasksPage() {
   const [worktrees, setWorktrees] = useState<WorktreeDTO[] | null>(null);
   const [harnesses, setHarnesses] = useState<AgentHarnessDTO[] | null>(null);
   const [agentTasks, setAgentTasks] = useState<AgentTaskDTO[] | null>(null);
+  // v3.3 列表管理（工作流 A）：搜索 / 状态筛选 / 日期分组 / 归档查看 / 行内重命名 / 删除确认
+  const [listQuery, setListQuery] = useState("");
+  const [listFilter, setListFilter] = useState<"all" | "run" | "ask" | "done" | "err">(() => {
+    const v = localStorage.getItem("gitter.taskListFilter");
+    return v === "run" || v === "ask" || v === "done" || v === "err" ? v : "all";
+  });
+  const [archOpen, setArchOpen] = useState(() => localStorage.getItem("gitter.taskArchOpen") === "1");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [delPopId, setDelPopId] = useState<string | null>(null);
+  const [shellRunning, setShellRunning] = useState(0);
+  const [wrapupOpen, setWrapupOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [taskTypes, setTaskTypes] = useState<TaskTypeDTO[]>([]);
   const [modelProfiles, setModelProfiles] = useState<ModelProfileDTO[]>([]);
   const [taskTypeId, setTaskTypeId] = useState("");
   const [modelId, setModelId] = useState("");
   const [mode, setMode] = useState<"plan" | "default" | "yolo">("default");
-  const [tab, setTab] = useState<"chat" | "diff" | "cp">("chat");
+  const [tab, setTab] = useState<"chat" | "diff" | "cp" | "shells">("chat");
   // 切回对话页：恢复离开时的滚动位置（面板保持挂载，无需重新加载历史）
   useEffect(() => {
     if (tab !== "chat") return;
@@ -489,7 +531,8 @@ export function TasksPage() {
     if (!repo) return;
     try {
       setHarnesses(await call<AgentHarnessDTO[]>("agents.list"));
-      setAgentTasks(await call<AgentTaskDTO[]>("agent.tasks"));
+      // includeArchived：归档查看/恢复（v3.3 工作流 A）——量级小，一次拉全，前端过滤
+      setAgentTasks(await call<AgentTaskDTO[]>("agent.tasks", { includeArchived: true }));
       setTaskTypes(await call<TaskTypeDTO[]>("agent.taskTypes.list"));
       setModelProfiles(await call<ModelProfileDTO[]>("models.list"));
       const cmds = await call<{ id: string; action?: string; packageId?: string; args?: unknown }[]>("commands.list");
@@ -553,6 +596,27 @@ export function TasksPage() {
   const selected = agentTasks?.find((x) => x.taskId === selectedTask) ?? null;
   const runningCount = (agentTasks ?? []).filter((x) => LIVE_STATES.has(x.state)).length;
 
+  // 列表过滤 + 日期分组（纯前端，v3.3 工作流 A）：命中 title/lastMessage/id 前 8 位；归档行仅在开关开 + 「全部」时混入
+  const listQ = listQuery.trim().toLowerCase();
+  const listHit = (t: AgentTaskDTO) =>
+    !listQ || t.title.toLowerCase().includes(listQ) || (t.lastMessage ?? "").toLowerCase().includes(listQ) || t.taskId.slice(0, 8).includes(listQ);
+  const visibleTasks = (agentTasks ?? []).filter((t) => {
+    if (t.archived) return archOpen && listFilter === "all" && listHit(t);
+    if (listFilter !== "all" && taskCategory(t) !== listFilter) return false;
+    return listHit(t);
+  });
+  const listCounts = {
+    all: (agentTasks ?? []).filter((t) => !t.archived).length,
+    run: (agentTasks ?? []).filter((t) => !t.archived && taskCategory(t) === "run").length,
+    ask: (agentTasks ?? []).filter((t) => !t.archived && taskCategory(t) === "ask").length,
+    done: (agentTasks ?? []).filter((t) => !t.archived && taskCategory(t) === "done").length,
+    err: (agentTasks ?? []).filter((t) => !t.archived && taskCategory(t) === "err").length,
+    arch: (agentTasks ?? []).filter((t) => t.archived).length,
+  };
+  const groupedTasks = DATE_GROUPS
+    .map((g) => ({ ...g, tasks: visibleTasks.filter((t) => dateGroupOf(t.lastActiveAt ?? t.createdAt) === g.id) }))
+    .filter((g) => g.tasks.length > 0);
+
   // 运行中工具 + 子代理计数 + 上下文用量
   const runningTool = (() => {
     if (!selectedTask) return null;
@@ -569,17 +633,34 @@ export function TasksPage() {
   useEffect(() => { setStats(null); }, [selectedTask]);
   useEffect(() => { setExpandedTurns(new Set()); }, [selectedTask]);
   useEffect(() => {
-    if (!selectedTask) return;
+    if (!selectedTask) { setShellRunning(0); return; }
     let cancelled = false;
     const pull = () => {
       void call<AgentContextStatsDTO | null>("agent.context.stats", { taskId: selectedTask })
         .then((s) => { if (!cancelled) setStats(s); })
+        .catch(() => {});
+      // 后台 shell 运行数（页签徽标；仅 live 有数据）
+      void call<AgentShellDTO[]>("agent.task.shells", { taskId: selectedTask })
+        .then((x) => { if (!cancelled) setShellRunning(x.filter((s) => s.running).length); })
         .catch(() => {});
     };
     pull();
     const iv = setInterval(pull, 5000);
     return () => { cancelled = true; clearInterval(iv); };
   }, [selectedTask, changesTick]);
+
+  // 删除确认浮层：点外部 / Esc 关闭
+  useEffect(() => {
+    if (!delPopId) return;
+    const close = (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.closest?.(".tk-delpop")) return;
+      setDelPopId(null);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setDelPopId(null); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", esc);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", esc); };
+  }, [delPopId]);
 
   useEffect(() => {
     if (!runningTool) return;
@@ -906,7 +987,7 @@ export function TasksPage() {
     try { await call("agent.task.stop", { taskId }); await reloadAgents(); } catch (e) { setError((e as Error).message); }
   };
 
-  // 任务卡右侧操作（列表极简化后仅存的两个动作）：分叉 = 复制历史到新 worktree；归档 = 从列表隐藏
+  // 任务卡右侧操作（v3.3）：分叉 / 归档·恢复 / 删除（带清理勾选）；双击标题 = 行内重命名
   const forkTask = async (taskId: string) => {
     try {
       const forked = await call<AgentTaskDTO>("agent.task.fork", { taskId });
@@ -915,11 +996,26 @@ export function TasksPage() {
       setTab("chat");
     } catch (e) { setError((e as Error).message); }
   };
-  const archiveTask = async (taskId: string) => {
+  const archiveTask = async (taskId: string, archived: boolean) => {
     try {
-      await call("agent.task.archive", { taskId, archived: true });
+      await call("agent.task.archive", { taskId, archived });
+      if (archived && selectedTask === taskId) setSelectedTask(null);
+      await reloadAgents();
+    } catch (e) { setError((e as Error).message); }
+  };
+  const renameTask = async (taskId: string, title: string) => {
+    try { await call("agent.task.rename", { taskId, title }); await reloadAgents(); }
+    catch (e) { setError((e as Error).message); }
+  };
+  const deleteTaskRow = async (taskId: string, cleanup: boolean) => {
+    try {
+      const r = await call<{ ok: boolean; cleanup?: { worktreeRemoved: boolean; branchDeleted: boolean } }>("agent.task.delete", { taskId, cleanup });
+      setDelPopId(null);
       if (selectedTask === taskId) setSelectedTask(null);
       await reloadAgents();
+      if (cleanup && r.cleanup && !r.cleanup.worktreeRemoved) {
+        setError("记录已删除；worktree/分支清理失败（可能被占用），可到 Worktree 页手动移除");
+      }
     } catch (e) { setError((e as Error).message); }
   };
 
@@ -1099,33 +1195,83 @@ export function TasksPage() {
       ),
     );
 
-  // 任务列表极简行（v3 设计稿 task-page-v3-mockup）：状态点 + 标题一行；
-  // 分叉/归档收敛为悬停行尾图标钮（.tk-quick），细节（分支/状态）走 title 悬停
+  // 任务列表行（v3 设计稿 + v3.3 增强）：状态点 + 标题；悬停行尾 分叉/归档·恢复/删除；
+  // 双击标题行内重命名；归档行半透明 + 恢复入口；已合并任务带「已合并」标
   const agentCard = (task: AgentTaskDTO) => {
     const live = LIVE_STATES.has(task.state);
     const selectedNow = selectedTask === task.taskId;
-    const dotColor = task.state === "failed" ? "var(--c-red)" : task.state === "completed" || task.state === "stopped" ? "var(--c-text3)" : task.permissionMode === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-green)";
+    const chip = stateChip(task.state, task.awaitKind);
+    const dotColor = task.state === "failed" ? "var(--c-red)"
+      : task.state === "interrupted" ? "var(--c-amber)"
+      : task.state === "awaiting-input" ? (task.awaitKind === "question" ? "var(--c-amber)" : task.awaitKind === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-text3)")
+      : task.state === "stopped" || task.state === "completed" ? "var(--c-text3)"
+      : task.permissionMode === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-green)";
     const working = task.state === "working" || task.state === "starting";
     return (
-      <div key={task.taskId} className={"tk-row" + (selectedNow ? " sel" : "")} onClick={() => { setSelectedTask(selectedNow ? null : task.taskId); setTab("chat"); setThinking(task.thinking ?? "medium"); setMode(task.permissionMode ?? "default"); }}
-        title={`${task.title}\n${stateChip(task.state).label} · ${task.branch}`}>
+      <div key={task.taskId} className={"tk-row" + (selectedNow ? " sel" : "") + (task.archived ? " arch" : "")}
+        onClick={() => { setSelectedTask(selectedNow ? null : task.taskId); setTab("chat"); setThinking(task.thinking ?? "medium"); setMode(task.permissionMode ?? "default"); }}
+        title={`${task.title}\n${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.mergeSha.slice(0, 8)}` : ""}${task.archived ? " · 已归档" : ""}`}>
         <span className={"tk-dot" + (working ? " run" : "")} style={{ color: dotColor }} />
-        <span className="tk-row-title">{task.title}</span>
+        {renamingId === task.taskId ? (
+          <input key={`ren-${task.taskId}`} className="tk-ren" autoFocus defaultValue={task.title}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") { const v = (e.target as HTMLInputElement).value.trim(); setRenamingId(null); if (v && v !== task.title) void renameTask(task.taskId, v); }
+              else if (e.key === "Escape") setRenamingId(null);
+            }}
+            onBlur={(e) => { const v = e.target.value.trim(); setRenamingId(null); if (v && v !== task.title) void renameTask(task.taskId, v); }}
+          />
+        ) : (
+          <span className="tk-row-title" title="双击重命名"
+            onDoubleClick={(e) => { e.stopPropagation(); setRenamingId(task.taskId); }}>{task.title}</span>
+        )}
+        {task.wrapup ? <span className="tk-mtag">已合并</span> : null}
         <span className="tk-quick">
-          <button className="icon-btn" title={live ? "运行中不可分叉，请先停止" : "分叉任务（复制对话历史到新分支）"} disabled={live}
-            onClick={(e) => { e.stopPropagation(); void forkTask(task.taskId); }}>
-            <TlIcon name="fork" size={13} />
-          </button>
-          <button className="icon-btn" title={live ? "运行中不可归档，请先停止" : "归档任务（从列表隐藏，可恢复）"} disabled={live}
-            onClick={(e) => { e.stopPropagation(); void archiveTask(task.taskId); }}>
-            <TlIcon name="archive" size={13} />
+          {task.archived ? (
+            <button className="icon-btn" title="恢复到列表（取消归档）"
+              onClick={(e) => { e.stopPropagation(); void archiveTask(task.taskId, false); }}>
+              <TlIcon name="up" size={13} />
+            </button>
+          ) : (
+            <button className="icon-btn" title={live ? "运行中不可分叉，请先停止" : "分叉任务（复制对话历史到新分支）"} disabled={live}
+              onClick={(e) => { e.stopPropagation(); void forkTask(task.taskId); }}>
+              <TlIcon name="fork" size={13} />
+            </button>
+          )}
+          {!task.archived && (
+            <button className="icon-btn" title={live ? "运行中不可归档，请先停止" : "归档任务（从列表隐藏，可恢复）"} disabled={live}
+              onClick={(e) => { e.stopPropagation(); void archiveTask(task.taskId, true); }}>
+              <TlIcon name="archive" size={13} />
+            </button>
+          )}
+          <button className="icon-btn" title="删除任务（会话记录与 journal；可选清理 worktree/分支）"
+            onClick={(e) => { e.stopPropagation(); setDelPopId(delPopId === task.taskId ? null : task.taskId); }}>
+            <TlIcon name="trash" size={13} />
           </button>
         </span>
+        {delPopId === task.taskId && (
+          <div className="tk-delpop" onClick={(e) => e.stopPropagation()}>
+            <div className="t">删除任务？</div>
+            <div className="d">会话记录、journal 与附件将一并删除，不可恢复。</div>
+            <label><input type="checkbox" id={`delclean-${task.taskId}`} defaultChecked />同时清理 worktree 与 task/* 分支</label>
+            <div className="b">
+              <button className="tool-btn" onClick={() => setDelPopId(null)}>取消</button>
+              <button className="tool-btn" style={{ color: "var(--c-red)", borderColor: "color-mix(in srgb, var(--c-red) 38%, transparent)" }}
+                onClick={() => { const el = document.getElementById(`delclean-${task.taskId}`) as HTMLInputElement | null; void deleteTaskRow(task.taskId, el?.checked ?? true); }}>删除</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
 
   const busy = selected ? BUSY_STATES.has(selected.state) : false;
+  // 收尾条（v3.3 工作流 B）：任务空闲且有产出时出现在 pagehead 下沿；worktree 任务=合并入口，主 worktree 任务=提交引导
+  const idle = selected ? !LIVE_STATES.has(selected.state) : false;
+  const isWorktreeTask = !!selected?.branch?.startsWith("task/");
+  const showWrapbar = !!selected && idle && isWorktreeTask && (diffCount > 0 || !!selected.wrapup);
+  const showCommitHint = !!selected && idle && !isWorktreeTask && diffCount > 0;
   // 底部执行提示（DeepSeek 式流光）：优先展示正在跑的工具（秒数随 forceTick 每秒刷新），
   // 其次启动/子代理/通用思考文案；等待授权时已有琥珀提示行，不重复显示
   const busyHint = (() => {
@@ -1162,12 +1308,38 @@ export function TasksPage() {
         <button className="new-task-btn" style={{ margin: "10px 10px 6px", width: "calc(100% - 20px)" }} onClick={startNewTask}>
           ＋ 新任务（描述目标，Ctrl+N）
         </button>
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 10px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
-          {(agentTasks?.length ?? 0) === 0 && (
-            <div style={{ fontSize: 12, color: "var(--c-text3)", padding: "4px 2px" }}>{t("Agents_EmptyHint")}</div>
-          )}
-          {agentTasks?.map(agentCard)}
+        {/* 搜索（纯前端：标题/摘要/id）+ 状态筛选 chips（v3.3 工作流 A） */}
+        <div className={"tk-search" + (listQuery ? " has" : "")}>
+          <TlIcon name="search" size={12} />
+          <input value={listQuery} placeholder="搜索标题 / 摘要 / id" onChange={(e) => setListQuery(e.target.value)} />
+          <button className="tk-search-clr" title="清空" onClick={() => setListQuery("")}>✕</button>
         </div>
+        <div className="tk-fchips">
+          {([["all", "全部", listCounts.all], ["run", "进行中", listCounts.run], ["ask", "待处理", listCounts.ask], ["done", "已完成", listCounts.done], ["err", "失败·中断", listCounts.err]] as const).map(([id, label, n]) => (
+            <button key={id} className={"tk-fchip" + (listFilter === id ? " on" : "")}
+              onClick={() => { setListFilter(id); localStorage.setItem("gitter.taskListFilter", id); }}>
+              {id === "run" && n > 0 ? <span className="d" style={{ color: "var(--c-green)" }} /> : null}
+              {id === "ask" && n > 0 ? <span className="d" style={{ color: "var(--c-amber)" }} /> : null}
+              {label} <span className="n">{n}</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 10px 4px", display: "flex", flexDirection: "column", gap: 2 }}>
+          {groupedTasks.length === 0 && (
+            <div style={{ fontSize: 12, color: "var(--c-text3)", padding: "6px 2px" }}>
+              {(listQ || listFilter !== "all") ? "无匹配任务" : t("Agents_EmptyHint")}
+            </div>
+          )}
+          {groupedTasks.map((g) => (
+            <Fragment key={g.id}>
+              <div className="tk-ghead">{g.label}</div>
+              {g.tasks.map(agentCard)}
+            </Fragment>
+          ))}
+        </div>
+        <button className="tk-arch-toggle" onClick={() => { const n = !archOpen; setArchOpen(n); localStorage.setItem("gitter.taskArchOpen", n ? "1" : "0"); }}>
+          {archOpen ? "▾" : "▸"} {archOpen ? "已归档" : "显示已归档"} ({listCounts.arch})
+        </button>
       </div>
       {/* 任务列表|对话 分割线：拖拽调宽（localStorage 持久化） */}
       <div className="tk-vdiv" title="拖拽调整任务列表宽度" onPointerDown={startListDrag}><span className="tk-vdiv-grip" /></div>
@@ -1178,7 +1350,7 @@ export function TasksPage() {
           对话内容的 min-content 宽度不再把 1fr 轨道撑破窗口 */}
       <div ref={detailRef} style={{ display: "grid", position: "relative", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen && !panelClosing ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }}>
         <div className="tk-tabs" style={{ gridColumn: "1", gridRow: "1" }}>
-          {([["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount]] as const).map(([id, label, n]) => (
+          {([["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount], ["shells", "后台", shellRunning]] as const).map(([id, label, n]) => (
             <div key={id} className={"tk-tab" + (tab === id ? " on" : "")} onClick={() => setTab(id)}>
               {label}{n > 0 ? <span className="tk-tab-n">{n}</span> : null}
             </div>
@@ -1189,11 +1361,11 @@ export function TasksPage() {
         <div style={{ gridColumn: "1", gridRow: "2", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
         {/* ═══ 对话页（保持挂载：切改动/检查点不重新加载历史、不丢滚动位置） ═══ */}
         {selected && (
-          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto minmax(0, 1fr) auto", overflow: "hidden" }}>
+          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto auto minmax(0, 1fr) auto", overflow: "hidden" }}>
             <div className="tk-pagehead" style={{ gridColumn: "1", gridRow: "1" }}>
-              <span className="tk-pill" style={{ color: stateChip(selected.state).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state).color} 9%, transparent)` }}>
+              <span className="tk-pill" style={{ color: stateChip(selected.state, selected.awaitKind).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 9%, transparent)` }}>
                 <span className="tk-pill-dot" />
-                {stateChip(selected.state).label}{busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1000)) + "s" : ""}
+                {stateChip(selected.state, selected.awaitKind).label}{busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1000)) + "s" : ""}
               </span>
               <span className="tk-monochip">{selected.branch}</span>
               {runningTool ? (
@@ -1207,8 +1379,41 @@ export function TasksPage() {
               ) : null}
               <span className="tk-pill dim">子代理 {runningSubs}/{maxSubagents}</span>
               <span style={{ flex: 1 }} />
+              {idle && (
+                <button className="tool-btn" title="对上一轮改动提交验收意见（受限提示开新轮）" onClick={() => setFeedbackOpen(true)}>验收反馈</button>
+              )}
             </div>
-            <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "2" }}>
+            {/* 收尾条（v3.3）：合并入口 / 已合并结果 / 主 worktree 提交引导 */}
+            {showWrapbar && !selected.wrapup && (
+              <div className="tk-wrapbar" style={{ gridColumn: "1", gridRow: "2" }}>
+                <TlIcon name="branch" size={13} color="var(--c-green)" />
+                <span className="meta">任务已完成 · {diffCount} 个文件变更 · 可合并回 <b style={{ color: "var(--c-text2)" }}>{selected.baseBranch || "基线分支"}</b></span>
+                <span className="sp" />
+                <button className="tool-btn" onClick={() => setTab("diff")}>查看改动</button>
+                <button className="tool-btn" style={{ background: "var(--c-selected)", borderColor: "var(--c-selected)", color: "var(--c-text)", fontWeight: 600 }}
+                  onClick={() => setWrapupOpen(true)}>
+                  <TlIcon name="branch" size={12} />合并到 {selected.baseBranch || "基线分支"}
+                </button>
+              </div>
+            )}
+            {showWrapbar && selected.wrapup && (
+              <div className="tk-wrapbar" style={{ gridColumn: "1", gridRow: "2" }}>
+                <TlIcon name="check-circle" size={13} color="var(--c-green)" />
+                <span className="meta" style={{ color: "var(--c-green)" }}>已合并 {(selected.wrapup.mergeSha || "").slice(0, 8) || "?"} · {selected.wrapup.strategy === "merge" ? "merge --no-ff" : "squash"} → {selected.baseBranch || "基线分支"}</span>
+                <span className="meta">worktree 与分支已清理 · 任务已归档</span>
+                <span className="sp" />
+                <button className="tool-btn" onClick={() => pageSdk.navigate("log")}>查看 Log</button>
+              </div>
+            )}
+            {showCommitHint && (
+              <div className="tk-wrapbar" style={{ gridColumn: "1", gridRow: "2" }}>
+                <TlIcon name="diff" size={13} color="var(--c-text3)" />
+                <span className="meta">当前分支模式：改动已直接在工作区（{diffCount} 个文件），无独立分支可合并</span>
+                <span className="sp" />
+                <button className="tool-btn" onClick={() => pageSdk.navigate("changes")}>去变更页提交</button>
+              </div>
+            )}
+            <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "3" }}>
               {/* 错误浮层：悬于时间线之上、顶部状态条正下方；不打断版面流 */}
               {error && <ErrorFloat text={error} maxWidth="calc(100% - 292px)" go={errorGo} onGo={(s) => { openSettings(s); setError(null); }} onClose={() => setError(null)} />}
               <div ref={timelineRef} className="tl-scroll" style={{ height: "100%", overflowY: "auto", overflowX: "hidden" }}
@@ -1292,7 +1497,7 @@ export function TasksPage() {
                 </button>
               )}
             </div>
-            <div style={{ borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "3" }}>
+            <div style={{ borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "4" }}>
               <div style={{ maxWidth: 880, margin: "0 auto", position: "relative" }}>
                 {/* DeepSeek 式执行中提示：脉冲星光 + 流光文字（运行工具名/秒数实时刷新） */}
                 {busy && !pendingPerm && (
@@ -1428,6 +1633,11 @@ export function TasksPage() {
         {tab === "cp" && selected && (
           <CheckpointsTab taskId={selected.taskId} branch={selected.branch} tick={changesTick} setError={setError} onCount={setCpCount} onViewDiff={() => setTab("diff")} onMutate={() => setChangesTick((n) => n + 1)} />
         )}
+
+        {/* ═══ 后台 shell 页（v3.3 工作流 C：terminal_run 后台模式的面板化）═══ */}
+        {tab === "shells" && selected && (
+          <ShellsTab taskId={selected.taskId} live={LIVE_STATES.has(selected.state)} tick={changesTick} setError={setError} onCount={setShellRunning} />
+        )}
         </div>
 
         {/* 对话|变更面板 分割线 + 面板：detail 级全高（页签行 band 起），三页签常驻；拖拽调比例（localStorage 持久化）。
@@ -1466,6 +1676,16 @@ export function TasksPage() {
             slot,
           );
         })()}
+
+        {/* 收尾合并 / 验收反馈 对话框（v3.3 工作流 B/C） */}
+        {wrapupOpen && selected && (
+          <TaskWrapupDialog task={selected} onClose={() => setWrapupOpen(false)} setError={setError}
+            onMerged={() => { setWrapupOpen(false); void reloadAgents(); setChangesTick((n) => n + 1); notifyRepoChanged(); }} />
+        )}
+        {feedbackOpen && selected && (
+          <TaskFeedbackDialog task={selected} onClose={() => setFeedbackOpen(false)} setError={setError}
+            onSent={() => { void reloadAgents(); }} />
+        )}
       </div>
     </div>
   );

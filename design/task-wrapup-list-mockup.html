@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<title>Gitter 任务页 v3.3 设计稿 —— 收尾闭环 × 列表管理</title>
+<style>
+  /* ============ v3.3 设计稿：沿用 v3 视觉语言（1px 发丝线 + 磨砂面板 + 发光状态点 + 双主题）============
+     新增部件：列表搜索框 / 筛选 chips / 日期分组头 / 归档折叠开关 / 行内重命名 / 删除确认浮层；
+     收尾条（wrapbar）/ 合并对话框（干净·冲突两态）/ 后台 shell 页签 / 验收反馈对话框。
+     配套技术方案：docs/task-page-wrapup-and-list-design.md（字段、RPC、流程、验收清单）。 */
+  :root{
+    --bg0:#0b0d11;
+    --bg:rgba(15,17,22,.66);
+    --panel:rgba(255,255,255,.035);
+    --panel2:rgba(255,255,255,.065);
+    --solid:rgba(23,26,33,.96);
+    --border:rgba(255,255,255,.075);
+    --border2:rgba(255,255,255,.15);
+    --sel-border:rgba(255,255,255,.30);
+    --text:#dfe5ec; --dim:#939dab; --dim2:#5f6874;
+    --sel:#c9cfd7; --sel-fg:#0e1114;
+    --green:#7ee787; --red:#ff7b72; --amber:#d5a03c; --purple:#b490ff; --blue:#6babf5;
+    --ring:rgba(107,171,245,.20);
+    --sh1:0 1px 2px rgba(0,0,0,.24);
+    --sh2:0 12px 32px rgba(0,0,0,.38);
+    --mono:"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+  }
+  body.light{
+    --bg0:#e8ebf0;
+    --bg:rgba(252,253,255,.70);
+    --panel:rgba(255,255,255,.58);
+    --panel2:rgba(255,255,255,.95);
+    --solid:rgba(255,255,255,.98);
+    --border:rgba(15,25,45,.10);
+    --border2:rgba(15,25,45,.18);
+    --sel-border:rgba(15,25,45,.34);
+    --text:#1a1e26; --dim:#5a6470; --dim2:#8b95a1;
+    --sel:#414a56; --sel-fg:#ffffff;
+    --green:#1a7f37; --red:#cf222e; --amber:#9a6700; --purple:#8250df; --blue:#0b6bcb;
+    --ring:rgba(11,107,203,.18);
+    --sh1:0 1px 2px rgba(20,35,60,.10);
+    --sh2:0 12px 32px rgba(20,35,60,.16);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg0);color:var(--text);font:13px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;overflow:hidden;letter-spacing:.005em}
+  .ambient{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(640px 420px at 16% -6%, rgba(96,165,250,.11), transparent 68%),
+      radial-gradient(720px 480px at 92% 110%, rgba(168,130,255,.09), transparent 68%),
+      radial-gradient(520px 360px at 62% -12%, rgba(74,222,128,.05), transparent 70%);}
+  body.light .ambient{
+    background:
+      radial-gradient(640px 420px at 16% -6%, rgba(96,165,250,.14), transparent 68%),
+      radial-gradient(720px 480px at 92% 110%, rgba(168,130,255,.10), transparent 68%);}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--border2);border:3px solid transparent;background-clip:padding-box;border-radius:8px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--dim2);border:3px solid transparent;background-clip:padding-box}
+  ::-webkit-scrollbar-corner{background:transparent}
+  svg{display:block}
+
+  /* ============ 顶栏（含场景切换 chips） ============ */
+  .topbar{position:relative;z-index:5;display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;
+    background:var(--bg);backdrop-filter:blur(20px) saturate(1.25);border-bottom:1px solid var(--border)}
+  .topbar .logo{display:flex;align-items:center;gap:8px;font-weight:650;font-size:13px}
+  .topbar .logo .mark{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;background:linear-gradient(135deg,var(--blue),var(--purple));color:#fff;font-size:11px}
+  .topbar .crumb{color:var(--dim);font-size:12px}
+  .topbar .sp{flex:1}
+  .story{display:flex;gap:6px}
+  .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border2);border-radius:999px;padding:2px 11px;font-size:11.5px;color:var(--dim);cursor:pointer;user-select:none;background:transparent}
+  .chip:hover{color:var(--text);border-color:var(--dim2)}
+  .chip.on{background:var(--sel);border-color:var(--sel);color:var(--sel-fg);font-weight:600}
+
+  /* ============ 布局（同 v3：列表 | 分割线 | 详情） ============ */
+  .main{position:relative;z-index:1;display:grid;grid-template-columns:6px 320px minmax(0,1fr);height:calc(100vh - 44px)}
+  .main > .vdiv{grid-column:1;grid-row:1}
+  .main > .list{grid-column:2;grid-row:1}
+  .main > .detail{grid-column:3;grid-row:1}
+  .vdiv{position:relative;cursor:col-resize;background:transparent;flex:none}
+  .vdiv::before{content:"";position:absolute;top:0;bottom:0;left:-7px;right:-7px;cursor:col-resize}
+  .vdiv{z-index:5;overflow:visible}
+  .vdiv::after{content:"";position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--border2);transform:translateX(-50%)}
+  .vdiv:hover::after{width:2px;background:var(--sel)}
+  .vdiv .grip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:34px;border-radius:4px;background:var(--border2);opacity:.6}
+  .vdiv:hover .grip{opacity:1;background:var(--sel)}
+  .list{border-right:none;display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+  .detail{display:grid;grid-template-rows:43px minmax(0,1fr);min-height:0;min-width:0}
+
+  /* ============ 任务列表 v3.3：搜索 + chips + 日期分组 + 归档开关 ============ */
+  .newtask{margin:12px 12px 8px;display:flex;align-items:center;justify-content:center;gap:7px;height:34px;border:1px solid var(--border2);border-radius:9px;color:var(--dim);font-size:12.5px;cursor:pointer;background:var(--panel)}
+  .newtask:hover{color:var(--text);border-color:var(--dim2);background:var(--panel2)}
+  .newtask svg{width:13px;height:13px}
+  .searchbox{margin:0 12px 8px;display:flex;align-items:center;gap:7px;height:30px;border:1px solid var(--border2);border-radius:9px;background:var(--panel);padding:0 10px;flex:none}
+  .searchbox:focus-within{border-color:var(--dim2);box-shadow:0 0 0 3px var(--ring)}
+  .searchbox svg{width:13px;height:13px;color:var(--dim2);flex:none}
+  .searchbox input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--text);font:12.5px inherit}
+  .searchbox input::placeholder{color:var(--dim2)}
+  .searchbox .clr{border:none;background:transparent;color:var(--dim2);cursor:pointer;font-size:12px;padding:2px;display:none}
+  .searchbox.has .clr{display:block}
+  .fchips{display:flex;gap:5px;padding:0 12px 8px;flex-wrap:wrap;flex:none}
+  .fchip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--dim);border:1px solid var(--border2);border-radius:999px;padding:1.5px 9px;cursor:pointer;background:transparent;user-select:none}
+  .fchip:hover{color:var(--text);border-color:var(--dim2)}
+  .fchip.on{background:var(--sel);border-color:var(--sel);color:var(--sel-fg);font-weight:600}
+  .fchip .n{opacity:.7;font-family:var(--mono);font-size:10px}
+  .fchip .dot{width:5px;height:5px;border-radius:50%;background:var(--dim2)}
+  .fchip .dot.g{background:var(--green);box-shadow:0 0 5px color-mix(in srgb,var(--green) 60%,transparent)}
+  .fchip .dot.a{background:var(--amber);box-shadow:0 0 5px color-mix(in srgb,var(--amber) 60%,transparent)}
+  .list .scroll{overflow-y:auto;flex:1;padding:0 8px 8px;display:flex;flex-direction:column;gap:1px}
+  .ghead{display:flex;align-items:center;gap:8px;padding:9px 10px 4px;color:var(--dim2);font-size:10.5px;letter-spacing:.05em;flex:none}
+  .ghead::after{content:"";flex:1;height:1px;background:var(--border)}
+  .trow{position:relative;display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent;font-size:12.5px;transition:background .15s}
+  .trow:hover{background:var(--panel2)}
+  .trow.sel{background:var(--panel2);border-color:var(--sel-border)}
+  .trow .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .trow .title input.ren{width:100%;font:12.5px inherit;color:var(--text);background:var(--panel2);border:1px solid var(--sel-border);border-radius:6px;padding:1px 6px;outline:none}
+  .trow .mtag{flex:none;font-size:10px;color:var(--dim);border:1px solid var(--border2);border-radius:999px;padding:0 6px}
+  .trow .quick{display:none;align-items:center;gap:2px;flex:none}
+  .trow:hover .quick{display:inline-flex}
+  .qbtn{display:grid;place-items:center;width:20px;height:20px;border:none;border-radius:5px;background:transparent;color:var(--dim2);cursor:pointer;padding:0}
+  .qbtn:hover{color:var(--text);background:var(--border)}
+  .qbtn.danger:hover{color:var(--red);background:color-mix(in srgb,var(--red) 10%,transparent)}
+  .qbtn svg{width:12px;height:12px}
+  /* 归档行的显隐由 JS 过滤统一管理（rowVisible），避免 CSS 类与内联样式互相打架 */
+  .arch-toggle{margin:8px 12px 12px;padding:5px 10px;color:var(--dim2);font-size:11.5px;cursor:pointer;border:1px dashed var(--border2);border-radius:8px;text-align:center;flex:none;user-select:none}
+  .arch-toggle:hover{color:var(--dim);border-color:var(--dim2)}
+  /* 删除确认浮层（锚定行内） */
+  .delpop{position:absolute;right:8px;top:26px;z-index:40;width:250px;background:var(--solid);backdrop-filter:blur(20px);border:1px solid var(--border2);border-radius:10px;box-shadow:var(--sh2);padding:10px 12px;font-size:11.5px}
+  .delpop .dp-t{font-weight:650;font-size:12px;margin-bottom:2px}
+  .delpop .dp-d{color:var(--dim);margin-bottom:7px}
+  .delpop label{display:flex;align-items:center;gap:6px;color:var(--dim);cursor:pointer;margin-bottom:9px}
+  .delpop .dp-b{display:flex;justify-content:flex-end;gap:6px}
+  .sdot{width:8px;height:8px;border-radius:50%;flex:none}
+  .sdot.run{background:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 16%,transparent),0 0 9px color-mix(in srgb,var(--green) 55%,transparent);animation:pulse 1.6s infinite}
+  .sdot.ask{background:var(--amber);box-shadow:0 0 0 3px color-mix(in srgb,var(--amber) 15%,transparent)}
+  .sdot.plan{background:var(--purple);box-shadow:0 0 0 3px color-mix(in srgb,var(--purple) 15%,transparent)}
+  .sdot.done{background:var(--dim2)}
+  .sdot.err{background:var(--red);box-shadow:0 0 0 3px color-mix(in srgb,var(--red) 15%,transparent)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+  /* ============ 页签 ============ */
+  .tabs{display:flex;align-items:flex-end;gap:18px;padding:0 18px;border-bottom:1px solid var(--border);background:var(--bg)}
+  .tab{position:relative;padding:10px 2px 9px;font-size:12.5px;color:var(--dim);cursor:pointer;user-select:none;display:flex;align-items:center;gap:7px}
+  .tab:hover{color:var(--text)}
+  .tab.on{color:var(--text);font-weight:600}
+  .tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px 2px 0 0;background:var(--sel)}
+  .tab .n{font-size:10.5px;font-weight:500;color:var(--dim);background:var(--panel2);border:1px solid var(--border);border-radius:999px;padding:0 6px;line-height:15px}
+  .tab .n.live{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+
+  /* ============ 通用部件 ============ */
+  .page{flex:1;min-height:0;display:none}
+  .page.on{display:flex;flex-direction:column;overflow:hidden}
+  .pagehead{display:flex;align-items:center;gap:9px;padding:9px 18px;border-bottom:1px solid var(--border);background:var(--bg);flex-wrap:wrap;flex:none}
+  .pagehead .sp{flex:1}
+  .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:1.5px 10px;font-size:11.5px;border:1px solid transparent}
+  .pill .pdot{width:6px;height:6px;border-radius:50%}
+  .pill.run{color:var(--green);border-color:color-mix(in srgb,var(--green) 32%,transparent);background:color-mix(in srgb,var(--green) 9%,transparent)}
+  .pill.run .pdot{background:var(--green);animation:pulse 1.4s infinite}
+  .pill.ask{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 32%,transparent);background:color-mix(in srgb,var(--amber) 9%,transparent)}
+  .pill.ask .pdot{background:var(--amber)}
+  .pill.planw{color:var(--purple);border-color:color-mix(in srgb,var(--purple) 32%,transparent);background:color-mix(in srgb,var(--purple) 9%,transparent)}
+  .pill.planw .pdot{background:var(--purple)}
+  .pill.done{color:var(--dim);border-color:var(--border2);background:var(--panel)}
+  .pill.done .pdot{background:var(--dim2)}
+  .pill.dim{color:var(--dim);border-color:var(--border2);background:var(--panel)}
+  .pill.dim .pdot{background:var(--dim2)}
+  .mono-chip{font-family:var(--mono);font-size:11px;color:var(--dim);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:1px 8px}
+  .meta{color:var(--dim2);font-size:11px}
+  .meta .add{color:var(--green)} .meta .del{color:var(--red)}
+  .tbtn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border2);background:transparent;color:var(--dim);border-radius:7px;padding:3px 10px;font-size:11.5px;cursor:pointer;white-space:nowrap;font-family:inherit}
+  .tbtn:hover{color:var(--text);border-color:var(--dim2);background:var(--panel)}
+  .tbtn svg{width:12px;height:12px}
+  .tbtn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 38%,transparent)}
+  .tbtn.danger:hover{border-color:var(--red);background:color-mix(in srgb,var(--red) 7%,transparent)}
+  .tbtn.primary{background:var(--sel);border-color:var(--sel);color:var(--sel-fg);font-weight:600}
+  .tbtn.primary:hover{background:var(--sel);border-color:var(--sel);opacity:.92}
+  .tbtn.primary:disabled{opacity:.38;cursor:not-allowed}
+  .kbd{font-family:var(--mono);font-size:10px;color:var(--dim);border:1px solid var(--border2);border-radius:4px;padding:0 5px;background:var(--panel)}
+
+  /* ============ 收尾条（wrapbar）：任务完成 & 有产出 & 无 wrapup 时出现在 pagehead 下沿 ============ */
+  .wrapbar{display:flex;align-items:center;gap:9px;padding:7px 18px;border-bottom:1px solid var(--border);
+    background:color-mix(in srgb,var(--green) 4%,transparent);flex:none}
+  .wrapbar svg{width:13px;height:13px;color:var(--green);flex:none}
+  .wrapbar .wb-meta{color:var(--dim);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wrapbar .sp{flex:1}
+  .mergedbar{display:none}
+  body.merged .wrapbar:not(.mergedbar){display:none}
+  body.merged .mergedbar{display:flex}
+  /* 合并完成后 vite 行→归档组、archMerged 行显示：由 JS 过滤（rowVisible）按 body.merged 统一处理；
+     「已合并」标仅在合并后出现 */
+  #archMerged .mtag{display:none}
+  body.merged #archMerged .mtag{display:inline}
+
+  /* ============ 对话页（完成态任务的精简时间线） ============ */
+  .stream{flex:1;overflow-y:auto;min-height:0}
+  .stream-inner{max-width:860px;margin:0 auto;padding:18px 22px 24px;display:flex;flex-direction:column;gap:13px}
+  .msg-head{display:flex;align-items:center;gap:7px;margin-bottom:5px}
+  .avatar{width:19px;height:19px;border-radius:6px;display:grid;place-items:center;font-size:9.5px;font-weight:700;flex:none}
+  .avatar.you{background:color-mix(in srgb,var(--green) 16%,transparent);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 35%,transparent)}
+  .avatar.ai{background:color-mix(in srgb,var(--purple) 15%,transparent);color:var(--purple);border:1px solid color-mix(in srgb,var(--purple) 35%,transparent)}
+  .msg-head .who{font-size:11.5px;font-weight:600}
+  .msg-head .when{font-size:10.5px;color:var(--dim2);font-family:var(--mono)}
+  .usermsg{border:1px solid color-mix(in srgb,var(--green) 22%,transparent);background:color-mix(in srgb,var(--green) 5%,transparent);border-radius:11px;padding:9px 13px;white-space:pre-wrap;box-shadow:var(--sh1)}
+  .asst p{margin:3px 0}
+  .asst code{font-family:var(--mono);font-size:11.5px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:0 4px}
+  /* 折叠轮（已结束轮摘要行） */
+  .turnsum{border:1px solid var(--border);border-radius:11px;background:var(--panel);box-shadow:var(--sh1);overflow:hidden}
+  .turnsum summary{list-style:none;display:flex;align-items:center;gap:8px;padding:7px 11px;cursor:pointer;color:var(--dim);font-size:11.5px;user-select:none}
+  .turnsum summary:hover{background:var(--panel2);color:var(--text)}
+  .turnsum summary .chev{margin-left:auto;color:var(--dim2);font-size:10px}
+  .turnsum[open] summary .chev::after{content:"收起"}
+  .turnsum summary .chev::after{content:"展开"}
+  .turnsum .titems{border-top:1px solid var(--border);padding:6px 11px;display:flex;flex-direction:column;gap:5px}
+  .titem{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dim);font-family:var(--mono)}
+  .titem .g{width:16px;height:16px;border-radius:5px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--green) 12%,transparent);color:var(--green);font-size:9px}
+  .titem .ms{margin-left:auto;color:var(--dim2);font-size:10px}
+  .cpline{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;color:var(--dim);
+    border:1px solid var(--border);border-radius:9px;background:var(--panel);padding:5px 11px;width:fit-content;max-width:100%}
+  .cpline .sum{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cpline .tip{color:var(--dim2);font-size:10.5px}
+  .turnfoot{display:flex;gap:14px;color:var(--dim2);font-size:10.5px;font-family:var(--mono);padding:0 2px}
+  .sysline{display:flex;align-items:center;gap:8px;color:var(--dim);font-size:11.5px}
+  .sysline svg{width:12px;height:12px;color:var(--dim2);flex:none}
+
+  /* 输入区（精简示意） */
+  .composerwrap{position:relative;border-top:1px solid var(--border);background:var(--bg);backdrop-filter:blur(20px) saturate(1.25);padding:8px 22px 10px;flex:none}
+  .composer{max-width:860px;margin:0 auto}
+  .cbox{border:1px solid var(--border2);border-radius:14px;background:var(--panel);padding:10px 13px 8px;box-shadow:var(--sh1)}
+  .cbox:focus-within{border-color:var(--dim2);box-shadow:0 0 0 3px var(--ring)}
+  .cbox textarea{width:100%;background:transparent;border:none;outline:none;resize:none;color:var(--text);font:13px/1.55 inherit;height:24px}
+  .cbox textarea::placeholder{color:var(--dim2)}
+  .comp-bar{display:flex;align-items:center;gap:2px;margin-top:7px}
+  .comp-item{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border:none;background:transparent;color:var(--dim);border-radius:7px;cursor:pointer;font-size:11.5px;font-family:inherit}
+  .comp-item:hover{color:var(--text);background:var(--panel2)}
+  .comp-send{margin-left:auto;border:none;background:var(--sel);color:var(--sel-fg);border-radius:8px;width:28px;height:28px;cursor:pointer;flex:none;display:grid;place-items:center;font-size:13px}
+
+  /* ============ 改动 / 检查点 / 后台 页 ============ */
+  .subpage{flex:1;overflow-y:auto;min-height:0}
+  .subpage-inner{max-width:860px;margin:0 auto;padding:18px 22px}
+  .cprow{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:11px;padding:8px 12px;margin-bottom:7px;font-size:12px;background:var(--panel);box-shadow:var(--sh1)}
+  .cprow .sha{color:var(--dim);font-family:var(--mono);font-size:11.5px}
+  .cprow .sum{flex:1;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cprow .st{color:var(--dim2);font-size:11px;font-family:var(--mono);white-space:nowrap}
+  .minidiff{font-family:var(--mono);font-size:11.5px;line-height:1.7;border:1px solid var(--border);border-radius:11px;background:color-mix(in srgb,var(--bg0) 40%,transparent);padding:10px 14px;white-space:pre;overflow-x:auto}
+  .ln-add{color:var(--green)} .ln-del{color:var(--red)}
+  /* 后台 shell 页 */
+  .shellrow{border:1px solid var(--border);border-radius:11px;background:var(--panel);margin-bottom:8px;box-shadow:var(--sh1);overflow:hidden}
+  .shellrow .h{display:flex;align-items:center;gap:9px;padding:8px 12px}
+  .shellrow .h .cmd{flex:1;min-width:0;font-family:var(--mono);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .shellrow .h .tm{color:var(--dim2);font-size:10.5px;font-family:var(--mono);flex:none}
+  .shellrow .tail{border-top:1px solid var(--border);padding:8px 12px;font-family:var(--mono);font-size:11.5px;line-height:1.6;color:var(--dim);white-space:pre-wrap;background:color-mix(in srgb,var(--bg0) 40%,transparent);max-height:130px;overflow-y:auto}
+  .shellrow .tail .ok{color:var(--green)}
+
+  /* ============ 对话框（合并 / 验收反馈） ============ */
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);z-index:80;display:none;align-items:center;justify-content:center}
+  .mask.on{display:flex}
+  .modal{width:580px;max-width:94vw;max-height:88vh;overflow-y:auto;background:var(--solid);backdrop-filter:blur(24px);border:1px solid var(--border2);border-radius:14px;box-shadow:var(--sh2)}
+  .m-head{padding:15px 18px 4px;display:flex;align-items:center;gap:10px}
+  .m-head .t{font-weight:650;font-size:14px}
+  .m-sec{padding:10px 18px 0}
+  .m-sec .lb{color:var(--dim);font-size:11px;margin-bottom:5px;display:flex;align-items:center;gap:8px}
+  .m-row{display:flex;align-items:center;gap:9px}
+  .msel{background:var(--panel);border:1px solid var(--border2);border-radius:8px;color:var(--text);font:12.5px inherit;padding:4px 9px;outline:none}
+  .m-hint{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;color:var(--amber)}
+  .m-hint svg{width:12px;height:12px;flex:none}
+  .m-hint.ok{color:var(--green)}
+  .seg{display:flex;margin-top:2px}
+  .seg span{flex:1;text-align:center;font-size:11.5px;color:var(--dim);border:1px solid var(--border2);padding:4px 9px;cursor:pointer;user-select:none;background:var(--panel)}
+  .seg span:first-child{border-radius:8px 0 0 8px}
+  .seg span:last-child{border-radius:0 8px 8px 0;border-left:none}
+  .seg span.on{background:var(--sel);border-color:var(--sel);color:var(--sel-fg);font-weight:600}
+  .m-desc{margin-top:6px;color:var(--dim2);font-size:11px;line-height:1.55}
+  .m-input{width:100%;background:var(--panel);border:1px solid var(--border2);border-radius:8px;color:var(--text);font:12.5px/1.5 inherit;padding:7px 10px;outline:none;resize:vertical}
+  .m-input:focus{border-color:var(--dim2);box-shadow:0 0 0 3px var(--ring)}
+  .m-trailer{font-family:var(--mono);font-size:11px;color:var(--dim2);background:color-mix(in srgb,var(--bg0) 40%,transparent);border:1px solid var(--border);border-radius:8px;padding:7px 11px;margin-top:7px;white-space:pre-wrap}
+  .m-details{border:1px solid var(--border);border-radius:9px;background:var(--panel);margin-top:2px}
+  .m-details summary{list-style:none;padding:6px 11px;font-size:11.5px;color:var(--dim);cursor:pointer;user-select:none}
+  .m-details summary:hover{color:var(--text)}
+  .m-details .dbody{border-top:1px solid var(--border);padding:8px 12px;font-family:var(--mono);font-size:11px;line-height:1.7;color:var(--dim);white-space:pre;overflow-x:auto}
+  .m-check{display:flex;align-items:center;gap:7px;color:var(--dim);font-size:11.5px;cursor:pointer;user-select:none}
+  input[type=checkbox]{accent-color:var(--sel);width:13px;height:13px}
+  .m-conflict{border:1px solid color-mix(in srgb,var(--red) 42%,transparent);background:color-mix(in srgb,var(--red) 6%,transparent);border-radius:10px;padding:10px 12px;margin-top:2px}
+  .m-conflict .ct{display:flex;align-items:center;gap:7px;color:var(--red);font-weight:650;font-size:12px;margin-bottom:6px}
+  .m-conflict .ct svg{width:13px;height:13px}
+  .m-conflict .cf{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;color:var(--text);padding:3px 0}
+  .m-conflict .cf .b{font-size:10px;color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 45%,transparent);border-radius:999px;padding:0 6px;flex:none}
+  .m-conflict .cnote{color:var(--dim);font-size:11px;margin-top:7px;line-height:1.55}
+  .m-foot{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:14px 18px 16px;margin-top:12px;border-top:1px solid var(--border)}
+  .m-foot .left{margin-right:auto;color:var(--dim2);font-size:11px}
+
+  .toast{position:fixed;left:50%;bottom:36px;transform:translateX(-50%);background:var(--solid);backdrop-filter:blur(16px);border:1px solid var(--border2);color:var(--text);border-radius:9px;padding:7px 16px;font-size:12px;box-shadow:var(--sh2);opacity:0;pointer-events:none;transition:opacity .2s;z-index:99;max-width:70vw}
+  .toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div class="ambient"></div>
+
+<div class="topbar">
+  <span class="logo"><span class="mark">⚡</span>Gitter 任务</span>
+  <span class="crumb">v3.3 收尾闭环 × 列表管理 · 单项目（有意设计）· 技术方案 docs/task-page-wrapup-and-list-design.md</span>
+  <span class="sp"></span>
+  <span class="story">
+    <span class="chip on" data-s="list" onclick="setScene('list')">列表管理</span>
+    <span class="chip" data-s="merge" onclick="setScene('merge')">合并对话框</span>
+    <span class="chip" data-s="conflict" onclick="setScene('conflict')">冲突处理</span>
+    <span class="chip" data-s="shells" onclick="setScene('shells')">后台 shell</span>
+    <span class="chip" data-s="feedback" onclick="setScene('feedback')">验收反馈</span>
+    <span class="chip" data-s="merged" onclick="setScene('merged')">合并完成后</span>
+  </span>
+  <span class="chip" onclick="toggleTheme()">外观：暗</span>
+</div>
+
+<div class="main">
+  <!-- ============ 左：任务列表（搜索 + 筛选 + 日期分组 + 归档） ============ -->
+  <div class="list">
+    <div class="newtask" onclick="toast('设计稿示意：新任务（Ctrl+N）')"><span data-ico="plus"></span>新任务<span class="kbd">Ctrl+N</span></div>
+    <div class="searchbox" id="sbox">
+      <span data-ico="search"></span>
+      <input id="searchInput" placeholder="搜索标题 / 摘要 / id（纯前端过滤）">
+      <button class="clr" onclick="clearSearch()">✕</button>
+    </div>
+    <div class="fchips">
+      <span class="fchip on" data-c="all" onclick="setChip(this,'all')">全部 <span class="n" id="nAll">10</span></span>
+      <span class="fchip" data-c="run" onclick="setChip(this,'run')"><span class="dot g"></span>进行中 <span class="n">1</span></span>
+      <span class="fchip" data-c="ask" onclick="setChip(this,'ask')"><span class="dot a"></span>待处理 <span class="n">2</span></span>
+      <span class="fchip" data-c="done" onclick="setChip(this,'done')">已完成 <span class="n">5</span></span>
+      <span class="fchip" data-c="err" onclick="setChip(this,'err')">失败·中断 <span class="n">2</span></span>
+    </div>
+    <div class="scroll" id="listScroll">
+      <div class="gwrap">
+        <div class="ghead">今天</div>
+        <div class="trow" data-cat="run" title="task/fix-diff-lag · 运行中 · npm test 验证中">
+          <span class="sdot run"></span><span class="title">修复 Changes 页 diff 渲染卡顿</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务（运行中禁用）" onclick="event.stopPropagation();toast('运行中不可分叉')"></button><button class="qbtn" data-ico="archive" title="归档（运行中禁用）" onclick="event.stopPropagation();toast('运行中不可归档')"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+        <div class="trow" data-cat="ask" title="awaiting-input + awaitKind=question · ask_user 等你回答">
+          <span class="sdot ask"></span><span class="title">重构 worktree 服务层</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" data-ico="archive" title="归档任务" onclick="event.stopPropagation();archiveRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+        <div class="trow" data-cat="ask" title="awaiting-input + awaitKind=plan · 等待计划批准">
+          <span class="sdot plan"></span><span class="title">Log 页虚拟滚动优化</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" data-ico="archive" title="归档任务" onclick="event.stopPropagation();archiveRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+        <div class="trow sel" data-cat="done" id="rowVite" title="task/vite-upgrade · 已完成（awaitKind=null）· ahead dev ×6 · 双击标题可重命名" onclick="pickCard(this)" ondblclick="pickCard(this)">
+          <span class="sdot done"></span><span class="title" ondblclick="event.stopPropagation();rename(this)">升级 vite 到最新大版本</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" data-ico="archive" title="归档任务" onclick="event.stopPropagation();archiveRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+      </div>
+      <div class="gwrap">
+        <div class="ghead">昨天</div>
+        <div class="trow" data-cat="done" title="task/cp-preview · 已完成">
+          <span class="sdot done"></span><span class="title" ondblclick="event.stopPropagation();rename(this)">检查点页文件预览</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" data-ico="archive" title="归档任务" onclick="event.stopPropagation();archiveRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+        <div class="trow" data-cat="done" title="task/session-race · 已完成">
+          <span class="sdot done"></span><span class="title" ondblclick="event.stopPropagation();rename(this)">session 恢复竞态修复</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" data-ico="archive" title="归档任务" onclick="event.stopPropagation();archiveRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+      </div>
+      <div class="gwrap">
+        <div class="ghead">近 7 天</div>
+        <div class="trow" data-cat="done" title="task/i18n-extract · 已完成">
+          <span class="sdot done"></span><span class="title" ondblclick="event.stopPropagation();rename(this)">i18n 资源键抽取</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" data-ico="archive" title="归档任务" onclick="event.stopPropagation();archiveRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+        <div class="trow" data-cat="err" title="task/release-2-3 · push 被拒绝（保护分支）">
+          <span class="sdot err"></span><span class="title" ondblclick="event.stopPropagation();rename(this)">发布 v2.3 到 GitHub Release</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" data-ico="archive" title="归档任务" onclick="event.stopPropagation();archiveRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+      </div>
+      <div class="gwrap">
+        <div class="ghead">更早</div>
+        <div class="trow" data-cat="done" title="task/term-dnd · 已完成">
+          <span class="sdot done"></span><span class="title" ondblclick="event.stopPropagation();rename(this)">终端 tab 拖拽排序</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" data-ico="archive" title="归档任务" onclick="event.stopPropagation();archiveRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+        <div class="trow" data-cat="err" title="task/cli-migration · 手动停止">
+          <span class="sdot err" style="background:var(--dim2);box-shadow:none"></span><span class="title" ondblclick="event.stopPropagation();rename(this)">旧 CLI 迁移 spike</span>
+          <span class="quick"><button class="qbtn" data-ico="fork" title="分叉任务" onclick="event.stopPropagation();toast('设计稿示意：分叉任务')"></button><button class="qbtn" data-ico="archive" title="归档任务" onclick="event.stopPropagation();archiveRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+      </div>
+      <div class="gwrap">
+        <div class="ghead">已归档</div>
+        <div class="trow" data-cat="arch" id="archMerged" title="已合并归档 · wrapup.mergeSha=9f2e1a7">
+          <span class="sdot done"></span><span class="title">升级 vite 到最新大版本</span><span class="mtag">已合并</span>
+          <span class="quick"><button class="qbtn" data-ico="restore" title="恢复到列表" onclick="event.stopPropagation();restoreRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+        <div class="trow" data-cat="arch" title="已归档 · 恢复入口">
+          <span class="sdot done"></span><span class="title">monaco 渲染层拆分</span>
+          <span class="quick"><button class="qbtn" data-ico="restore" title="恢复到列表" onclick="event.stopPropagation();restoreRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+        <div class="trow" data-cat="arch" title="已归档 · 恢复入口">
+          <span class="sdot done"></span><span class="title">生成 AGENTS.md 初稿</span>
+          <span class="quick"><button class="qbtn" data-ico="restore" title="恢复到列表" onclick="event.stopPropagation();restoreRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+        <div class="trow" data-cat="arch" title="已归档 · 恢复入口">
+          <span class="sdot err"></span><span class="title">废弃 CLI 适配层</span>
+          <span class="quick"><button class="qbtn" data-ico="restore" title="恢复到列表" onclick="event.stopPropagation();restoreRow(this)"></button><button class="qbtn danger" data-ico="trash" title="删除任务" onclick="event.stopPropagation();delPop(this)"></button></span>
+        </div>
+      </div>
+    </div>
+    <div class="arch-toggle" id="archToggle" onclick="toggleArch()">▸ 显示已归档 (<span id="archN">3</span>)</div>
+  </div>
+  <div class="vdiv" title="拖拽调整任务列表宽度"><span class="grip"></span></div>
+
+  <!-- ============ 右：详情（对话 / 改动 / 检查点 / 后台） ============ -->
+  <div class="detail">
+    <div class="tabs">
+      <div class="tab on" data-p="chat" onclick="showTab('chat')">对话</div>
+      <div class="tab" data-p="diff" onclick="showTab('diff')">改动 <span class="n">8</span></div>
+      <div class="tab" data-p="cp" onclick="showTab('cp')">检查点 <span class="n">6</span></div>
+      <div class="tab" data-p="shells" onclick="showTab('shells')">后台 <span class="n live" id="shellN">2</span></div>
+    </div>
+
+    <!-- ===== 对话页：完成态 worktree 任务 + 收尾条 ===== -->
+    <div class="page on" id="p-chat">
+      <div class="pagehead">
+        <span class="pill done"><span class="pdot"></span>已完成</span>
+        <span class="mono-chip">task/vite-upgrade</span>
+        <span class="meta">基线 dev@90cc7d2 · <span class="add">+412</span> <span class="del">−96</span></span>
+        <span class="sp"></span>
+        <button class="tbtn" onclick="openDlg('dlgFeedback')"><span data-ico="msg"></span>验收反馈</button>
+      </div>
+      <!-- 收尾条：非 live && 有独立 worktree && diffCount>0 && 无 wrapup 时出现 -->
+      <div class="wrapbar">
+        <span data-ico="merge"></span>
+        <span class="wb-meta">任务已完成 · 领先 <b>dev</b> 6 个提交 · 基线已前进 2 个提交（可预检冲突）</span>
+        <span class="sp"></span>
+        <button class="tbtn" onclick="showTab('diff')">查看改动</button>
+        <button class="tbtn primary" onclick="openDlg('dlgMerge')"><span data-ico="merge"></span>合并到 dev</button>
+      </div>
+      <!-- 合并完成后：收尾条替换为合并结果 chip -->
+      <div class="wrapbar mergedbar">
+        <span class="pill" style="color:var(--green);border-color:color-mix(in srgb,var(--green) 32%,transparent);background:color-mix(in srgb,var(--green) 8%,transparent)"><span data-ico="check"></span>已合并 9f2e1a7 · squash → dev</span>
+        <span class="meta">worktree 与 task/vite-upgrade 分支已清理 · 任务已归档（「显示已归档」可见）</span>
+        <span class="sp"></span>
+        <button class="tbtn" onclick="toast('设计稿示意：Log 页 · dev 分支 · squash 单提交（带 Gitter-Session trailer，可归组）')">查看 Log</button>
+      </div>
+
+      <div class="stream">
+        <div class="stream-inner">
+          <div>
+            <div class="msg-head"><span class="avatar you">你</span><span class="who">你</span><span class="when">09:12</span></div>
+            <div class="usermsg">把 vite 升级到最新大版本，修复 breaking changes，确保 build 与测试全过</div>
+          </div>
+
+          <details class="turnsum">
+            <summary>执行过程 · 工具 14 · 子代理 1 · 6m12s<span class="chev"></span></summary>
+            <div class="titems">
+              <div class="titem"><span class="g">⌕</span>repo_grep { "vite", "web/" }<span class="ms">0.3s</span></div>
+              <div class="titem"><span class="g">▲</span>terminal_run npm install -D vite@latest<span class="ms">38.2s</span></div>
+              <div class="titem"><span class="g">✎</span>file_patch web/vite.config.ts · 3 处<span class="ms">15ms</span></div>
+              <div class="titem"><span class="g">▸</span>task 子代理 · explore · 升级指南摘要<span class="ms">1m02s</span></div>
+            </div>
+          </details>
+
+          <div>
+            <div class="msg-head"><span class="avatar ai">AI</span><span class="who">agent</span><span class="when">09:18</span></div>
+            <div class="asst"><p>升级完成：vite 5 → 7。处理了 <code>cssCodeSplit</code> 默认值变更与插件 API 两处 breaking change，<code>npm run build</code> 与 214 个测试全部通过。改动共 8 个文件（+412 −96），已在每轮结束自动创建检查点。</p></div>
+          </div>
+
+          <div class="cpline"><span style="color:var(--dim2)">⌸</span><span>cp 3b7e90d</span><span class="sum">vite 7 迁移收尾 · 测试全过</span><span class="tip">· 双击 Esc 回滚 · 检查点页可看该轮 diff</span></div>
+          <div class="turnfoot"><span>⎡ turn #6</span><span>98.3k tokens（71.2k in / 27.1k out）</span><span>6m12s</span><span>context 58%</span></div>
+          <div class="sysline"><span data-ico="check"></span>全部工作完成 —— 可在上方收尾条合并回 dev，或继续补充指令</div>
+        </div>
+      </div>
+
+      <div class="composerwrap">
+        <div class="composer">
+          <div class="cbox">
+            <textarea placeholder="继续指令…（Enter 发送 · / 命令 · @ 引用文件/任务）"></textarea>
+            <div class="comp-bar">
+              <button class="comp-item"><span data-ico="plus"></span></button>
+              <span class="comp-item">● 默认</span>
+              <span class="comp-item">GLM-4.7 ▾</span>
+              <span class="comp-item">思考 medium ▾</span>
+              <button class="comp-send" onclick="toast('设计稿示意：发送（idle 任务会开新轮）')">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 改动页（示意） ===== -->
+    <div class="page" id="p-diff">
+      <div class="pagehead">
+        <b style="font-size:12.5px">改动</b>
+        <span class="mono-chip">task/vite-upgrade</span>
+        <span class="meta">8 个文件 · <span class="add">+412</span> <span class="del">−96</span> · 基于 90cc7d2</span>
+        <span class="sp"></span>
+        <button class="tbtn primary" onclick="openDlg('dlgMerge')"><span data-ico="merge"></span>合并到 dev</button>
+        <button class="tbtn"><span data-ico="ext"></span>在 Changes 中打开</button>
+      </div>
+      <div class="subpage"><div class="subpage-inner">
+        <div class="minidiff"><span class="ln-del">-  export default defineConfig({ plugins: [react()] })</span>
+<span class="ln-add">+  export default defineConfig({</span>
+<span class="ln-add">+    plugins: [react()],</span>
+<span class="ln-add">+    build: { rollupOptions: { output: { manualChunks } } },</span>
+<span class="ln-add">+  })</span>
+<span style="color:var(--dim2)">  … 共 8 个文件，完整 diff 在逐文件视图中查看（目录树/还原此文件同 v3）</span></div>
+      </div></div>
+    </div>
+
+    <!-- ===== 检查点页（示意） ===== -->
+    <div class="page" id="p-cp">
+      <div class="subpage"><div class="subpage-inner">
+        <div class="cprow"><span class="sha">3b7e90d</span><span class="sum">vite 7 迁移收尾 · 测试全过</span><span class="st">09:18 · +48 −12</span><button class="tbtn">查看该轮 diff</button><button class="tbtn danger">回滚到此处</button></div>
+        <div class="cprow"><span class="sha">a1c44f2</span><span class="sum">插件 API breaking change 修复</span><span class="st">09:15 · +120 −38</span><button class="tbtn">查看该轮 diff</button><button class="tbtn danger">回滚到此处</button></div>
+        <div class="cprow"><span class="sha">7d02b19</span><span class="sum">依赖升级 + config 迁移</span><span class="st">09:13 · +244 −46</span><button class="tbtn">查看该轮 diff</button><button class="tbtn danger">回滚到此处</button></div>
+      </div></div>
+    </div>
+
+    <!-- ===== 后台 shell 页（新）：仅 live 会话有数据 · 终止 = taskkill /T /F ===== -->
+    <div class="page" id="p-shells">
+      <div class="pagehead">
+        <b style="font-size:12.5px">后台</b>
+        <span class="meta">agent 后台 shell（terminal_run 后台模式）· 仅 live 会话有数据 · 2s 轮询</span>
+        <span class="sp"></span>
+        <button class="tbtn" onclick="toast('设计稿示意：手动刷新')">刷新</button>
+      </div>
+      <div class="subpage"><div class="subpage-inner">
+        <div class="shellrow">
+          <div class="h"><span class="sdot run"></span><span class="cmd">npm run build</span><span class="tm">42s</span><button class="tbtn danger" onclick="toast('agent.task.shellKill → taskkill /pid &lt;pid&gt; /T /F（杀整树）')">终止</button></div>
+          <div class="tail">▸ vite v7.1.2  building for production...
+✓ 1284 modules transformed.
+dist/index.html                 1.9 MB │ gzip: 412 kB
+dist/assets/index-9f2e1a7.js  842.1 kB │ gzip: 268 kB
+▸ rendering chunks（运行中，tail 实时滚动）…</div>
+        </div>
+        <div class="shellrow">
+          <div class="h"><span class="sdot run"></span><span class="cmd">vite dev --port 5199</span><span class="tm">3m12s</span><button class="tbtn danger" onclick="toast('agent.task.shellKill → taskkill /pid &lt;pid&gt; /T /F')">终止</button></div>
+          <div class="tail">  ➜  Local:   http://localhost:5199/
+  ➜  Network: http://192.168.1.8:5199/
+  ➜  press h + enter to show help（后台常驻，agent 经 terminal_poll 查看输出）</div>
+        </div>
+        <div class="shellrow">
+          <div class="h"><span class="sdot done"></span><span class="cmd">npm test -- run</span><span class="tm">exit 0 · 28s</span></div>
+          <div class="tail"><span class="ok">✓ 214 passed (214)</span>
+Test Files  18 passed (18)</div>
+        </div>
+        <div class="sysline" style="margin-top:10px"><span data-ico="clock"></span>重启后后台 shell 不保留（ShellRecord 仅 live 内存）；时间线内 terminal_poll 的输出仍可回看</div>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 合并对话框（干净态） ============ -->
+<div class="mask" id="dlgMerge" onclick="if(event.target===this)closeDlg('dlgMerge')">
+  <div class="modal">
+    <div class="m-head"><span class="t">合并任务改动</span><span class="mono-chip">task/vite-upgrade</span></div>
+    <div class="m-sec">
+      <div class="lb">合并到分支</div>
+      <div class="m-row">
+        <select class="msel" onchange="toast('设计稿示意：重跑 mergeCheck（目标分支变更）')">
+          <option selected>dev（记录的基线分支）</option>
+          <option>master</option>
+          <option>feat/i18n-keys</option>
+        </select>
+        <span class="meta">任务领先 <b>6</b> 提交 · 基线领先 <b>2</b> 提交 · merge-base 90cc7d2</span>
+      </div>
+      <div class="m-hint"><span data-ico="clock"></span>任务 worktree 有 2 个未提交文件 —— 合并时将自动创建「收尾提交」检查点（带 trailer）</div>
+    </div>
+    <div class="m-sec">
+      <div class="lb">合并策略</div>
+      <div class="seg" id="segStrat">
+        <span class="on" onclick="setStrat(this,'squash')">squash 单提交（默认）</span>
+        <span onclick="setStrat(this,'merge')">merge --no-ff</span>
+      </div>
+      <div class="m-desc" id="stratDesc">压成 1 个干净提交进入 dev；消息带 Assisted-by / Gitter-Session trailer。</div>
+    </div>
+    <div class="m-sec">
+      <div class="lb">提交消息</div>
+      <textarea class="m-input" rows="2">升级 vite 到最新大版本</textarea>
+      <div class="m-trailer">Assisted-by: gitter-agent
+Gitter-Session: 3f9c2a1e-8b4d-4c22-9a10-7f6e5d4c3b21</div>
+    </div>
+    <div class="m-sec">
+      <details class="m-details">
+        <summary>差异预览 · 8 个文件 · +412 −96（diff --stat）</summary>
+        <div class="dbody"> web/package.json                |  12 +++---
+ web/vite.config.ts              |  18 ++++++---
+ web/src/main.tsx                |   4 +-
+ web/src/pages/FilesPage.tsx     |  96 ++++++++++++++---------
+ web/src/pages/LogPage.tsx       |  12 ++--
+ web/src/kit/DiffView.tsx        | 142 ++++++++++++++++++++++---------
+ app/src/main.ts                 |  22 ++--
+ app/src/preload.ts              |   6 +-
+ 8 files changed, 412 insertions(+), 96 deletions(-)</div>
+      </details>
+    </div>
+    <div class="m-sec">
+      <label class="m-check"><input type="checkbox" checked>合并后清理 worktree 与 task/vite-upgrade 分支，并归档任务</label>
+    </div>
+    <div class="m-foot">
+      <span class="left">合并前会重跑预检（防竞态）；主 worktree 必须干净且在目标分支</span>
+      <button class="tbtn" onclick="closeDlg('dlgMerge')">取消</button>
+      <button class="tbtn primary" onclick="doMerge()"><span data-ico="merge"></span>合并</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 合并对话框（冲突态） ============ -->
+<div class="mask" id="dlgConflict" onclick="if(event.target===this)closeDlg('dlgConflict')">
+  <div class="modal">
+    <div class="m-head"><span class="t">合并任务改动</span><span class="mono-chip">task/vite-upgrade</span><span class="pill ask" style="margin-left:auto"><span class="pdot"></span>有冲突</span></div>
+    <div class="m-sec">
+      <div class="lb">合并到分支</div>
+      <div class="m-row"><select class="msel"><option selected>dev（记录的基线分支）</option><option>master</option></select>
+      <span class="meta">任务领先 6 提交 · 基线领先 2 提交</span></div>
+      <div class="m-hint ok"><span data-ico="check"></span>任务 worktree 干净 · 主 worktree 干净（在 dev）</div>
+    </div>
+    <div class="m-sec">
+      <div class="m-conflict">
+        <div class="ct"><span data-ico="warn"></span>merge-tree 预检发现 3 个冲突文件（git merge-tree --write-tree）</div>
+        <div class="cf">web/src/pages/FilesPage.tsx<span class="b">双方修改</span></div>
+        <div class="cf">web/src/kit/DiffView.tsx<span class="b">双方修改</span></div>
+        <div class="cf">app/src/main.ts<span class="b">双方修改</span></div>
+        <div class="cnote">两条出路：① 让 Agent 在任务 worktree 内合并 dev 并解决冲突，完成后重开此对话框重检；② 放弃合并，任务保持原状。手工冲突编辑器不在本期范围。</div>
+      </div>
+    </div>
+    <div class="m-sec">
+      <label class="m-check"><input type="checkbox" checked>合并后清理 worktree 与 task/vite-upgrade 分支，并归档任务</label>
+    </div>
+    <div class="m-foot">
+      <span class="left">冲突未解决前合并按钮禁用</span>
+      <button class="tbtn" onclick="closeDlg('dlgConflict');toast('设计稿示意：resumeTask —— 受限提示让 Agent 在 worktree 内 git merge dev 并逐个解决冲突，完成后汇报')">让 Agent 解决冲突</button>
+      <button class="tbtn" onclick="closeDlg('dlgConflict')">取消</button>
+      <button class="tbtn primary" disabled>合并</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 验收反馈对话框 ============ -->
+<div class="mask" id="dlgFeedback" onclick="if(event.target===this)closeDlg('dlgFeedback')">
+  <div class="modal" style="width:480px">
+    <div class="m-head"><span class="t">验收反馈</span><span class="mono-chip" style="margin-left:auto">task/vite-upgrade</span></div>
+    <div class="m-sec">
+      <div class="lb">对上一轮改动的验收意见（必填）</div>
+      <textarea class="m-input" rows="4" placeholder="例：FilesPage 升级后工具栏图标错位；build 通过但 e2e 里 files.spec 超时，请修复…"></textarea>
+      <div class="m-desc">反馈将作为新一轮启动（受限提示：Agent 只处理这些条目，不自由发挥）；任务会脱离归档并回到 working，结果回到对话时间线。</div>
+    </div>
+    <div class="m-foot">
+      <button class="tbtn" onclick="closeDlg('dlgFeedback')">取消</button>
+      <button class="tbtn primary" onclick="closeDlg('dlgFeedback');toast('agent.task.feedback 已发送 —— 任务重启新轮（受限审查提示注入时间线）')">提交反馈</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  /* ---------- 图标（内联 SVG，与 taskIcons 同风格） ---------- */
+  const S = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+  const I = {
+    search: S('<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>'),
+    plus: S('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'),
+    fork: S('<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>'),
+    archive: S('<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><line x1="10" y1="12" x2="14" y2="12"/>'),
+    restore: S('<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>'),
+    trash: S('<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'),
+    merge: S('<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/>'),
+    check: S('<polyline points="20 6 9 17 4 12"/>'),
+    clock: S('<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>'),
+    msg: S('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
+    ext: S('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'),
+    warn: S('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+  };
+  document.querySelectorAll("[data-ico]").forEach((el) => { el.innerHTML = I[el.dataset.ico] || ""; el.style.display = "inline-flex"; el.children[0] && (el.children[0].style.width = "13px", el.children[0].style.height = "13px"); });
+
+  /* ---------- 主题 / toast ---------- */
+  function toggleTheme(){ const b=document.body.classList.toggle("light"); document.querySelectorAll(".topbar .chip").forEach(c=>{ if(c.textContent.startsWith("外观")) c.textContent=b?"外观：亮":"外观：暗"; }); }
+  let toastT=null;
+  function toast(t){ const el=document.getElementById("toast"); el.textContent=t; el.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove("on"),2600); }
+
+  /* ---------- 场景切换（设计稿导览） ---------- */
+  function setScene(s){
+    document.querySelectorAll(".story .chip").forEach(c=>c.classList.toggle("on",c.dataset.s===s));
+    closeDlg("dlgMerge"); closeDlg("dlgConflict"); closeDlg("dlgFeedback");
+    document.body.classList.remove("merged");
+    if(s==="merge"){ showTab("chat"); openDlg("dlgMerge"); }
+    else if(s==="conflict"){ showTab("chat"); openDlg("dlgConflict"); }
+    else if(s==="shells"){ showTab("shells"); }
+    else if(s==="feedback"){ showTab("chat"); openDlg("dlgFeedback"); }
+    else if(s==="merged"){ showTab("chat"); document.body.classList.add("merged"); setArchCount(4); setArchOpen(true); toast("已合并并归档：任务从列表消失 · 已归档组带「已合并」标 · Log 页出现单条 squash 提交"); }
+    else { showTab("chat"); setArchCount(3); }
+    applyFilter();
+  }
+
+  /* ---------- 页签 ---------- */
+  function showTab(p){
+    document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.p===p));
+    document.querySelectorAll(".page").forEach(pg=>pg.classList.toggle("on",pg.id==="p-"+p));
+  }
+
+  /* ---------- 列表：选中 / 筛选 / 搜索 / 分组 ---------- */
+  function pickCard(row){ document.querySelectorAll("#listScroll .trow").forEach(r=>r.classList.remove("sel")); row.classList.add("sel"); }
+  let curCat="all", curQ="";
+  function setChip(el,c){ curCat=c; document.querySelectorAll(".fchip").forEach(x=>x.classList.toggle("on",x===el)); applyFilter(); }
+  /* 行可见性：纯逻辑判定。不读 DOM 实际可见性——祖先 display:none 会让 offsetParent 失真，
+     造成「组隐藏→行不可见→组继续隐藏」的死锁 */
+  function rowVisible(r){
+    const okQ=!curQ||r.querySelector(".title").textContent.toLowerCase().includes(curQ);
+    if(r.id==="rowVite") return !document.body.classList.contains("merged")&&okQ&&(curCat==="all"||curCat==="done"); // 合并后从正常组消失
+    if(r.dataset.cat==="arch") return archOpen&&curCat==="all"&&okQ; // 归档行：开关打开 + 「全部」
+    const okC=curCat==="all"||r.dataset.cat===curCat;
+    return okC&&okQ;
+  }
+  function applyFilter(){
+    document.querySelectorAll("#listScroll .trow").forEach(r=>{
+      r.style.display=rowVisible(r)?(r.dataset.cat==="arch"?"flex":""):"none";
+    });
+    document.querySelectorAll("#listScroll .gwrap").forEach(g=>{
+      const any=[...g.querySelectorAll(".trow")].some(rowVisible);
+      g.style.display=any?"":"none";
+    });
+  }
+  document.getElementById("searchInput").addEventListener("input",function(){
+    curQ=this.value.trim().toLowerCase();
+    this.closest(".searchbox").classList.toggle("has",!!curQ);
+    applyFilter();
+  });
+  function clearSearch(){ const i=document.getElementById("searchInput"); i.value=""; curQ=""; i.closest(".searchbox").classList.remove("has"); applyFilter(); }
+
+  /* ---------- 归档：折叠开关 / 归档 / 恢复 ---------- */
+  let archOpen=false, archN=3;
+  function archLabel(){ return (archOpen?"▾ 已归档":"▸ 显示已归档")+" (<span id='archN'>"+archN+"</span>)"; }
+  function setArchOpen(open){ archOpen=open; document.body.classList.toggle("archopen",archOpen); document.getElementById("archToggle").innerHTML=archLabel(); applyFilter(); }
+  function setArchCount(n){ archN=n; document.getElementById("archToggle").innerHTML=archLabel(); }
+  function toggleArch(){ setArchOpen(!archOpen); }
+  function archiveRow(btn){ const row=btn.closest(".trow"); const g=document.querySelector("#archMerged").parentElement; row.dataset.cat="arch"; g.appendChild(row); row.classList.remove("sel"); setArchCount(archN+1); applyFilter(); toast("已归档 —— 列表隐藏，「显示已归档」里可恢复"); }
+  function restoreRow(btn){ const row=btn.closest(".trow"); row.dataset.cat="done"; document.querySelectorAll("#listScroll .gwrap")[0].appendChild(row); setArchCount(archN-1); applyFilter(); toast("已恢复到列表（agent.task.archive { archived:false }）"); }
+
+  /* ---------- 行内重命名（双击标题） ---------- */
+  function rename(sp){
+    if(sp.querySelector("input")) return;
+    const old=sp.textContent;
+    sp.textContent="";
+    const inp=document.createElement("input");
+    inp.className="ren"; inp.value=old; sp.appendChild(inp);
+    inp.focus(); inp.select();
+    const done=(commit)=>{ sp.textContent=commit&&inp.value.trim()?inp.value.trim():old; };
+    inp.addEventListener("keydown",e=>{ e.stopPropagation(); if(e.key==="Enter"){e.preventDefault();done(true);} else if(e.key==="Escape"){done(false);} });
+    inp.addEventListener("blur",()=>done(true));
+    inp.addEventListener("click",e=>e.stopPropagation());
+  }
+
+  /* ---------- 删除确认浮层 ---------- */
+  function closeDelPop(){ const p=document.getElementById("delpop"); if(p) p.remove(); }
+  function delPop(btn){
+    closeDelPop();
+    const row=btn.closest(".trow");
+    const pop=document.createElement("div");
+    pop.className="delpop"; pop.id="delpop";
+    pop.innerHTML='<div class="dp-t">删除任务？</div>'
+      +'<div class="dp-d">会话记录、journal 与附件将一并删除，不可恢复。</div>'
+      +'<label><input type="checkbox" id="dpClean" checked>同时清理 worktree 与 task/* 分支</label>'
+      +'<div class="dp-b"><button class="tbtn" id="dpCancel">取消</button><button class="tbtn danger" id="dpGo">删除</button></div>';
+    row.appendChild(pop);
+    pop.querySelector("#dpCancel").onclick=(e)=>{ e.stopPropagation(); closeDelPop(); };
+    pop.querySelector("#dpGo").onclick=(e)=>{ e.stopPropagation(); const clean=pop.querySelector("#dpClean").checked; row.remove(); closeDelPop(); toast("任务已删除"+(clean?"（worktree 与分支已清理）":"（worktree/分支保留）")); };
+  }
+  document.addEventListener("click",(e)=>{ if(!e.target.closest(".delpop")&&!e.target.closest(".qbtn")) closeDelPop(); });
+
+  /* ---------- 合并对话框 ---------- */
+  function openDlg(id){ document.getElementById(id).classList.add("on"); }
+  function closeDlg(id){ document.getElementById(id).classList.remove("on"); }
+  function setStrat(el,name){
+    document.querySelectorAll("#segStrat span").forEach(x=>x.classList.toggle("on",x===el));
+    document.getElementById("stratDesc").textContent = name==="squash"
+      ? "压成 1 个干净提交进入 dev；消息带 Assisted-by / Gitter-Session trailer。"
+      : "保留 6 个 checkpoint 提交 + merge 节点进入 dev；之后可在 Log 页按 Gitter-Session 归组 squash。";
+  }
+  function doMerge(){
+    closeDlg("dlgMerge");
+    document.body.classList.add("merged");
+    setArchCount(archN+1);
+    setArchOpen(true);
+    toast("合并完成：squash → dev · 9f2e1a7 · worktree 与分支已清理 · 任务已归档");
+  }
+
+  /* 初始过滤：隐藏无可见行的分组（如未展开时的「已归档」组头） */
+  applyFilter();
+</script>
+</body>
+</html>

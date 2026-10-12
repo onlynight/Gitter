@@ -169,6 +169,39 @@ export interface AgentTaskRecord {
   queued: string[];
   /** 归档（列表默认过滤，可恢复） */
   archived: boolean;
+  /** 收尾合并目标分支（task-page-wrapup-and-list-design.md §3.1：spawn/fork 时记录的主 worktree 当前分支；主 worktree 模式不记） */
+  baseBranch?: string | null;
+  /** 进入 awaiting-input 的原因（null = 自然收尾 = 已完成；ask_user/plan_submit 置值，回复/续轮清空） */
+  awaitKind?: "question" | "plan" | null;
+  /** 收尾合并结果（mergeTask 成功后写入；有值 = 已合并） */
+  wrapup?: { mergeSha: string; mergedAt: string; strategy: "squash" | "merge" } | null;
+}
+
+/** 收尾合并预检（mergeCheck 返回；conflicts null = 无法预检，[] = 干净）。 */
+export interface AgentMergeCheckDTO {
+  ok: boolean;
+  reason?: "TASK_LIVE" | "NO_WORKTREE" | "MAIN_DIRTY" | "GIT_FAIL";
+  baseBranch: string;
+  mainBranch: string;
+  mainDirty: boolean;
+  /** 任务分支领先基线的提交数（0 = 无差异） */
+  ahead: number;
+  /** 基线领先数（>0 才有冲突风险） */
+  behind: number;
+  /** 任务 worktree 未提交文件数（合并时自动收尾提交） */
+  uncommitted: number;
+  conflicts: string[] | null;
+  diffStat: string;
+}
+
+/** 收尾合并结果。 */
+export interface AgentMergeResultDTO {
+  ok: boolean;
+  mergeSha?: string;
+  /** 实际合并撞上冲突（已 abort 恢复现场） */
+  conflicts?: string[];
+  cleanup?: { worktreeRemoved: boolean; branchDeleted: boolean };
+  archived: boolean;
 }
 
 export type ThinkingLevel = "off" | "low" | "medium" | "high";

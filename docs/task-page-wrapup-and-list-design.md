@@ -1,6 +1,7 @@
 # 任务页 v3.3:任务收尾闭环与列表管理设计
 
-> 状态:设计稿(未动代码) · 2026-10-12 · 范围:P0 修订版
+> 状态:已落地(2026-10-12,后端 + 前端 + smoke-agent-wrapup 冒烟全绿) · 范围:P0 修订版
+> 原型:[../design/task-wrapup-list-mockup.html](../design/task-wrapup-list-mockup.html)(交互式:顶栏 chips 切换六个场景,双主题)
 > 上游:[task-page-v2-design.md](task-page-v2-design.md)(信息架构) · [agent-harness-v4.md](agent-harness-v4.md)(会话/账本) · [task-page-live-changes.md](task-page-live-changes.md)(变更面板)
 > 裁决:
 > 1. **单项目单窗口是有意设计**——列表管理只做单仓库内的搜索/筛选/分组/归档,不引入项目维度(多仓库分组不做)。

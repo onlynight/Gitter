@@ -63,6 +63,8 @@ export interface ShellRecord {
   running: boolean;
   exitCode: number | null;
   startedAt: number;
+  /** 进程树终止用（taskkill /T /F）；spawn 失败时为 null */
+  pid?: number | null;
 }
 
 /** 每会话工具环境：buildToolset 时注入，工具 execute 只经此触达宿主能力。 */

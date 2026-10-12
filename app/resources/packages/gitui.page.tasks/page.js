@@ -30,6 +30,13 @@
     refresh: () => U$1().refresh(),
     notifyRepoChanged: () => U$1().notifyRepoChanged(),
     repo: () => U$1().repo(),
+    pathForFile: (file) => {
+      try {
+        return U$1().pathForFile(file);
+      } catch {
+        return "";
+      }
+    },
     settings: () => U$1().settings(),
     theme: () => U$1().theme(),
     openRepo: (path) => U$1().openRepo(path),
@@ -2105,6 +2112,296 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       ] })
     ] });
   }
+  function ShellsTab(props) {
+    const { taskId, live, tick } = props;
+    const [shells, setShells] = react.useState([]);
+    const [busyId, setBusyId] = react.useState(null);
+    const reload = react.useCallback(() => {
+      void call$1("agent.task.shells", { taskId }).then((x) => {
+        setShells(x);
+        props.onCount(x.filter((s) => s.running).length);
+      }).catch(() => {
+        setShells([]);
+        props.onCount(0);
+      });
+    }, [taskId]);
+    react.useEffect(() => {
+      reload();
+    }, [reload, tick]);
+    react.useEffect(() => {
+      const iv = setInterval(reload, 2e3);
+      return () => clearInterval(iv);
+    }, [reload]);
+    const kill = async (shellId) => {
+      setBusyId(shellId);
+      try {
+        await call$1("agent.task.shellKill", { taskId, shellId });
+        reload();
+      } catch (e) {
+        props.setError(e.message);
+      } finally {
+        setBusyId(null);
+      }
+    };
+    const fmtDur = (s) => {
+      if (!s.running) return `exit ${s.exitCode ?? "-"}`;
+      return "运行中";
+    };
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: "后台" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: "agent 后台 shell（terminal_run 后台模式）· 仅 live 会话有数据 · 2s 轮询" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: reload, children: "刷新" })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880, width: "100%", margin: "0 auto" }, children: [
+        !live && shells.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }, children: "重启后后台 shell 不保留（仅 live 会话内存）——时间线里 terminal_poll 的输出仍可回看" }),
+        live && shells.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }, children: "暂无后台 shell" }),
+        shells.map((s) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-shell", children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-shell-h", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-dot", style: { color: s.running ? "var(--c-amber)" : (s.exitCode ?? 0) === 0 ? "var(--c-green)" : "var(--c-red)", animation: s.running ? "tk-pulse 1.2s infinite" : void 0 } }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-shell-cmd", title: s.command, children: s.command }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-shell-tm", children: fmtDur(s) }),
+            s.running && /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "tool-btn",
+                style: { color: "var(--c-red)", borderColor: "color-mix(in srgb, var(--c-red) 38%, transparent)", flex: "none" },
+                disabled: busyId === s.id,
+                onClick: () => void kill(s.id),
+                children: "终止"
+              }
+            )
+          ] }),
+          s.tail && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-shell-tail", children: s.tail })
+        ] }, s.id))
+      ] })
+    ] });
+  }
+  function TaskWrapupDialog(props) {
+    const { task } = props;
+    const [check, setCheck] = react.useState(null);
+    const [checking, setChecking] = react.useState(true);
+    const [strategy, setStrategy] = react.useState("squash");
+    const [message, setMessage] = react.useState(task.title);
+    const [cleanup, setCleanup] = react.useState(true);
+    const [busy, setBusy] = react.useState(false);
+    const runCheck = (silent = false) => {
+      if (!silent) setChecking(true);
+      void call$1("agent.task.mergeCheck", { taskId: task.taskId }).then((c) => setCheck(c)).catch((e) => props.setError(e.message)).finally(() => setChecking(false));
+    };
+    react.useEffect(() => {
+      runCheck();
+    }, [task.taskId]);
+    const noWorktree = check && !check.ok && check.reason === "NO_WORKTREE";
+    const conflicts = (check == null ? void 0 : check.conflicts) && check.conflicts.length > 0 ? check.conflicts : null;
+    const canMerge = !!(check == null ? void 0 : check.ok) && check.ahead > 0 && !conflicts && !check.mainDirty && !busy;
+    const doMerge = async () => {
+      if (!canMerge) return;
+      setBusy(true);
+      try {
+        const r = await call$1("agent.task.merge", { taskId: task.taskId, strategy, message: message.trim() || void 0, cleanup });
+        if (r.ok) props.onMerged(r);
+        else if (r.conflicts) {
+          props.setError(`合并撞上冲突（${r.conflicts.length} 个文件），已恢复现场——可让 Agent 解决后重试`);
+          runCheck(true);
+        }
+      } catch (e) {
+        props.setError(e.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+    const askAgentResolve = async () => {
+      if (!check) return;
+      try {
+        await call$1("agent.task.resume", {
+          taskId: task.taskId,
+          prompt: [
+            `基线分支 ${check.baseBranch} 已前进，与任务分支产生冲突（文件：${(conflicts ?? []).join("、")}）。`,
+            "请在任务 worktree 内执行 git merge " + check.baseBranch + "，逐个解决冲突（以基线侧为准除非任务侧有意修改），完成后提交并简要汇报解决方式。"
+          ].join("\n")
+        });
+        props.onClose();
+      } catch (e) {
+        props.setError(e.message);
+      }
+    };
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-mask", onMouseDown: (e) => {
+      if (e.target === e.currentTarget) props.onClose();
+    }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal", onClick: (e) => e.stopPropagation(), children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal-head", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "t", children: "合并任务改动" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-monochip", children: task.branch }),
+        conflicts && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill amber", style: { marginLeft: "auto" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-pill-dot" }),
+          "有冲突"
+        ] })
+      ] }),
+      checking && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-modal-sec", style: { color: "var(--c-text3)", fontSize: 12 }, children: "预检中…" }),
+      noWorktree && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-modal-sec", children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-mhint", children: [
+        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 12 }),
+        "当前分支模式（主 worktree）没有独立分支可合并——改动已直接在工作区，请到变更页提交。"
+      ] }) }),
+      (check == null ? void 0 : check.ok) && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal-sec", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lb", children: "合并到分支" }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-monochip", style: { color: "var(--c-text)" }, children: check.baseBranch }),
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: [
+              "任务领先 ",
+              /* @__PURE__ */ jsxRuntime.jsx("b", { style: { color: "var(--c-text2)" }, children: check.ahead }),
+              " 提交 · 基线领先 ",
+              check.behind,
+              " 提交",
+              check.uncommitted > 0 ? ` · worktree 未提交 ${check.uncommitted} 个文件` : ""
+            ] })
+          ] }),
+          check.mainBranch && check.mainBranch !== check.baseBranch && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-mhint", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 12 }),
+            "主 worktree 当前在 ",
+            check.mainBranch,
+            "，合并时会切回 ",
+            check.baseBranch
+          ] }),
+          check.mainDirty && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-mhint", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 12 }),
+            "主 worktree 有未提交改动——请先在变更页处理再合并"
+          ] }),
+          !check.mainDirty && check.uncommitted > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-mhint ok", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check", size: 12 }),
+            "任务 worktree 的未提交改动将在合并前自动创建「收尾提交」检查点"
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal-sec", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lb", children: "合并策略" }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex" }, children: [["squash", "squash 单提交（默认）"], ["merge", "merge --no-ff"]].map(([v, label]) => /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "tk-fchip" + (strategy === v ? " on" : ""),
+              style: { borderRadius: v === "squash" ? "8px 0 0 8px" : "0 8px 8px 0", padding: "4px 10px", flex: 1, justifyContent: "center" },
+              onClick: () => setStrategy(v),
+              children: label
+            },
+            v
+          )) }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-mdesc", children: strategy === "squash" ? "压成 1 个干净提交进入基线；消息带 Assisted-by / Gitter-Session trailer。" : "保留全部 checkpoint 提交 + merge 节点；之后可在 Log 页按 Gitter-Session 归组 squash。" })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal-sec", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lb", children: "提交消息" }),
+          /* @__PURE__ */ jsxRuntime.jsx("textarea", { className: "tk-minput", rows: 2, value: message, onChange: (e) => setMessage(e.target.value) }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-mtrailer", children: [
+            "Assisted-by: gitter-agent",
+            "\n",
+            "Gitter-Session: ",
+            task.taskId
+          ] })
+        ] }),
+        check.diffStat && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-modal-sec", children: /* @__PURE__ */ jsxRuntime.jsxs("details", { className: "tk-mdetails", children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("summary", { children: [
+            "差异预览 · diff --stat（",
+            check.ahead,
+            " 个提交）"
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "dbody", children: check.diffStat })
+        ] }) }),
+        conflicts && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-modal-sec", children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-conflict", children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ct", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13 }),
+            "预检发现 ",
+            conflicts.length,
+            " 个冲突文件（git merge-tree）"
+          ] }),
+          conflicts.map((f) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "cf", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis" }, children: f }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "b", children: "双方修改" })
+          ] }, f)),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "cnote", children: [
+            "两条出路：① 让 Agent 在任务 worktree 内合并 ",
+            check.baseBranch,
+            " 并解决冲突，完成后重开此对话框重检；② 放弃合并，任务保持原状。"
+          ] })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-modal-sec", children: /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "tk-mcheck", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: cleanup, onChange: (e) => setCleanup(e.target.checked) }),
+          "合并后清理 worktree 与 ",
+          task.branch,
+          " 分支，并归档任务"
+        ] }) }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal-foot", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "left", children: "合并前会重跑预检（防竞态）；主 worktree 必须干净" }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: props.onClose, children: "取消" }),
+          conflicts && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void askAgentResolve(), children: "让 Agent 解决冲突" }),
+          /* @__PURE__ */ jsxRuntime.jsxs(
+            "button",
+            {
+              className: "tool-btn",
+              disabled: !canMerge,
+              style: canMerge ? { background: "var(--c-selected)", borderColor: "var(--c-selected)", color: "var(--c-text)", fontWeight: 600 } : void 0,
+              onClick: () => void doMerge(),
+              children: [
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 12 }),
+                "合并"
+              ]
+            }
+          )
+        ] })
+      ] })
+    ] }) });
+  }
+  function TaskFeedbackDialog(props) {
+    const [text, setText] = react.useState("");
+    const [busy, setBusy] = react.useState(false);
+    const send = async () => {
+      if (!text.trim() || busy) return;
+      setBusy(true);
+      try {
+        await call$1("agent.task.feedback", { taskId: props.task.taskId, feedback: text.trim() });
+        props.onSent();
+        props.onClose();
+      } catch (e) {
+        props.setError(e.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-mask", onMouseDown: (e) => {
+      if (e.target === e.currentTarget) props.onClose();
+    }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal", style: { width: 480 }, onClick: (e) => e.stopPropagation(), children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal-head", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "t", children: "验收反馈" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-monochip", style: { marginLeft: "auto" }, children: props.task.branch })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal-sec", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lb", children: "对上一轮改动的验收意见（必填）" }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "textarea",
+          {
+            className: "tk-minput",
+            rows: 4,
+            autoFocus: true,
+            value: text,
+            onChange: (e) => setText(e.target.value),
+            placeholder: "例：导出按钮 hover 态不对；build 过了但 e2e 里 files.spec 超时，请修复…"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-mdesc", children: "反馈将作为新一轮启动（受限提示：Agent 只处理这些条目，不自由发挥）；任务会脱离归档并回到运行态，结果回到对话时间线。" })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-modal-foot", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: props.onClose, children: "取消" }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "button",
+          {
+            className: "tool-btn",
+            disabled: !text.trim() || busy,
+            style: text.trim() && !busy ? { background: "var(--c-selected)", borderColor: "var(--c-selected)", color: "var(--c-text)", fontWeight: 600 } : void 0,
+            onClick: () => void send(),
+            children: "提交反馈"
+          }
+        )
+      ] })
+    ] }) });
+  }
   const { call, on: onEvent, t, openSettings, notifyRepoChanged } = pageSdk;
   const LIVE_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
   const BUSY_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-permission"]);
@@ -2136,14 +2433,17 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       template: "请分析当前仓库（目录结构、构建/测试/lint 命令、代码约定、现有文档），在仓库根生成或更新 AGENTS.md：项目简介、常用命令、目录导览、代码约定与注意事项。已存在时合并改进而非覆盖。${input}"
     }
   ];
-  function stateChip(s) {
+  function stateChip(s, awaitKind) {
+    if (s === "awaiting-input") {
+      if (awaitKind === "question") return { label: "等你回答", color: "var(--c-amber)" };
+      if (awaitKind === "plan") return { label: "待确认计划", color: "var(--c-chip-purple-fg, #b490ff)" };
+      return { label: "已完成", color: "var(--c-text3)" };
+    }
     switch (s) {
       case "starting":
         return { label: "Starting", color: "var(--c-text3)" };
       case "working":
         return { label: "● Working", color: "var(--c-green)" };
-      case "awaiting-input":
-        return { label: "Awaiting input", color: "var(--c-text)" };
       case "awaiting-permission":
         return { label: "● 待确认", color: "var(--c-amber)" };
       case "completed":
@@ -2156,6 +2456,29 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         return { label: "Stopped", color: "var(--c-text3)" };
     }
   }
+  function taskCategory(t2) {
+    if (t2.state === "starting" || t2.state === "working") return "run";
+    if (t2.state === "awaiting-permission") return "ask";
+    if (t2.state === "awaiting-input") return t2.awaitKind ? "ask" : "done";
+    if (t2.state === "failed" || t2.state === "interrupted" || t2.state === "stopped") return "err";
+    return "done";
+  }
+  function dateGroupOf(iso) {
+    const ts = iso ? new Date(iso).getTime() : 0;
+    if (!ts) return "older";
+    const now = /* @__PURE__ */ new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    if (ts >= startOfToday) return "today";
+    if (ts >= startOfToday - 864e5) return "yesterday";
+    if (ts >= startOfToday - 7 * 864e5) return "week";
+    return "older";
+  }
+  const DATE_GROUPS = [
+    { id: "today", label: "今天" },
+    { id: "yesterday", label: "昨天" },
+    { id: "week", label: "近 7 天" },
+    { id: "older", label: "更早" }
+  ];
   function ErrorFloat(props) {
     const [open, setOpen] = react.useState(false);
     const [truncated, setTruncated] = react.useState(false);
@@ -2197,12 +2520,23 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
   }
   registerBuiltinAgentUI();
   function TasksPage() {
-    var _a2, _b2, _c;
+    var _a2, _b2, _c, _d;
     const app = useAppState();
     const repo = app.repo;
     const [worktrees, setWorktrees] = react.useState(null);
     const [harnesses, setHarnesses] = react.useState(null);
     const [agentTasks, setAgentTasks] = react.useState(null);
+    const [listQuery, setListQuery] = react.useState("");
+    const [listFilter, setListFilter] = react.useState(() => {
+      const v = localStorage.getItem("gitter.taskListFilter");
+      return v === "run" || v === "ask" || v === "done" || v === "err" ? v : "all";
+    });
+    const [archOpen, setArchOpen] = react.useState(() => localStorage.getItem("gitter.taskArchOpen") === "1");
+    const [renamingId, setRenamingId] = react.useState(null);
+    const [delPopId, setDelPopId] = react.useState(null);
+    const [shellRunning, setShellRunning] = react.useState(0);
+    const [wrapupOpen, setWrapupOpen] = react.useState(false);
+    const [feedbackOpen, setFeedbackOpen] = react.useState(false);
     const [taskTypes, setTaskTypes] = react.useState([]);
     const [modelProfiles, setModelProfiles] = react.useState([]);
     const [taskTypeId, setTaskTypeId] = react.useState("");
@@ -2568,7 +2902,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       if (!repo) return;
       try {
         setHarnesses(await call("agents.list"));
-        setAgentTasks(await call("agent.tasks"));
+        setAgentTasks(await call("agent.tasks", { includeArchived: true }));
         setTaskTypes(await call("agent.taskTypes.list"));
         setModelProfiles(await call("models.list"));
         const cmds = await call("commands.list");
@@ -2631,6 +2965,22 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     }, [selectedTask, changesTick]);
     const selected = (agentTasks == null ? void 0 : agentTasks.find((x) => x.taskId === selectedTask)) ?? null;
     (agentTasks ?? []).filter((x) => LIVE_STATES.has(x.state)).length;
+    const listQ = listQuery.trim().toLowerCase();
+    const listHit = (t2) => !listQ || t2.title.toLowerCase().includes(listQ) || (t2.lastMessage ?? "").toLowerCase().includes(listQ) || t2.taskId.slice(0, 8).includes(listQ);
+    const visibleTasks = (agentTasks ?? []).filter((t2) => {
+      if (t2.archived) return archOpen && listFilter === "all" && listHit(t2);
+      if (listFilter !== "all" && taskCategory(t2) !== listFilter) return false;
+      return listHit(t2);
+    });
+    const listCounts = {
+      all: (agentTasks ?? []).filter((t2) => !t2.archived).length,
+      run: (agentTasks ?? []).filter((t2) => !t2.archived && taskCategory(t2) === "run").length,
+      ask: (agentTasks ?? []).filter((t2) => !t2.archived && taskCategory(t2) === "ask").length,
+      done: (agentTasks ?? []).filter((t2) => !t2.archived && taskCategory(t2) === "done").length,
+      err: (agentTasks ?? []).filter((t2) => !t2.archived && taskCategory(t2) === "err").length,
+      arch: (agentTasks ?? []).filter((t2) => t2.archived).length
+    };
+    const groupedTasks = DATE_GROUPS.map((g) => ({ ...g, tasks: visibleTasks.filter((t2) => dateGroupOf(t2.lastActiveAt ?? t2.createdAt) === g.id) })).filter((g) => g.tasks.length > 0);
     const runningTool = (() => {
       if (!selectedTask) return null;
       const blocks = evMap[selectedTask] ?? [];
@@ -2648,11 +2998,18 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       setExpandedTurns(/* @__PURE__ */ new Set());
     }, [selectedTask]);
     react.useEffect(() => {
-      if (!selectedTask) return;
+      if (!selectedTask) {
+        setShellRunning(0);
+        return;
+      }
       let cancelled = false;
       const pull = () => {
         void call("agent.context.stats", { taskId: selectedTask }).then((s) => {
           if (!cancelled) setStats(s);
+        }).catch(() => {
+        });
+        void call("agent.task.shells", { taskId: selectedTask }).then((x) => {
+          if (!cancelled) setShellRunning(x.filter((s) => s.running).length);
         }).catch(() => {
         });
       };
@@ -2663,6 +3020,23 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         clearInterval(iv);
       };
     }, [selectedTask, changesTick]);
+    react.useEffect(() => {
+      if (!delPopId) return;
+      const close = (e) => {
+        var _a3, _b3;
+        if ((_b3 = (_a3 = e.target) == null ? void 0 : _a3.closest) == null ? void 0 : _b3.call(_a3, ".tk-delpop")) return;
+        setDelPopId(null);
+      };
+      const esc = (e) => {
+        if (e.key === "Escape") setDelPopId(null);
+      };
+      window.addEventListener("mousedown", close);
+      window.addEventListener("keydown", esc);
+      return () => {
+        window.removeEventListener("mousedown", close);
+        window.removeEventListener("keydown", esc);
+      };
+    }, [delPopId]);
     react.useEffect(() => {
       if (!runningTool) return;
       const iv = setInterval(() => forceTick((n) => n + 1), 1e3);
@@ -3043,11 +3417,32 @@ ${target.instructions}
         setError(e.message);
       }
     };
-    const archiveTask = async (taskId) => {
+    const archiveTask = async (taskId, archived) => {
       try {
-        await call("agent.task.archive", { taskId, archived: true });
+        await call("agent.task.archive", { taskId, archived });
+        if (archived && selectedTask === taskId) setSelectedTask(null);
+        await reloadAgents();
+      } catch (e) {
+        setError(e.message);
+      }
+    };
+    const renameTask = async (taskId, title) => {
+      try {
+        await call("agent.task.rename", { taskId, title });
+        await reloadAgents();
+      } catch (e) {
+        setError(e.message);
+      }
+    };
+    const deleteTaskRow = async (taskId, cleanup) => {
+      try {
+        const r = await call("agent.task.delete", { taskId, cleanup });
+        setDelPopId(null);
         if (selectedTask === taskId) setSelectedTask(null);
         await reloadAgents();
+        if (cleanup && r.cleanup && !r.cleanup.worktreeRemoved) {
+          setError("记录已删除；worktree/分支清理失败（可能被占用），可到 Worktree 页手动移除");
+        }
       } catch (e) {
         setError(e.message);
       }
@@ -3266,12 +3661,13 @@ ${target.instructions}
     const agentCard = (task) => {
       const live = LIVE_STATES.has(task.state);
       const selectedNow = selectedTask === task.taskId;
-      const dotColor = task.state === "failed" ? "var(--c-red)" : task.state === "completed" || task.state === "stopped" ? "var(--c-text3)" : task.permissionMode === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-green)";
+      const chip = stateChip(task.state, task.awaitKind);
+      const dotColor = task.state === "failed" ? "var(--c-red)" : task.state === "interrupted" ? "var(--c-amber)" : task.state === "awaiting-input" ? task.awaitKind === "question" ? "var(--c-amber)" : task.awaitKind === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-text3)" : task.state === "stopped" || task.state === "completed" ? "var(--c-text3)" : task.permissionMode === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-green)";
       const working = task.state === "working" || task.state === "starting";
       return /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
-          className: "tk-row" + (selectedNow ? " sel" : ""),
+          className: "tk-row" + (selectedNow ? " sel" : "") + (task.archived ? " arch" : ""),
           onClick: () => {
             setSelectedTask(selectedNow ? null : task.taskId);
             setTab("chat");
@@ -3279,12 +3675,57 @@ ${target.instructions}
             setMode(task.permissionMode ?? "default");
           },
           title: `${task.title}
-${stateChip(task.state).label} · ${task.branch}`,
+${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.mergeSha.slice(0, 8)}` : ""}${task.archived ? " · 已归档" : ""}`,
           children: [
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-dot" + (working ? " run" : ""), style: { color: dotColor } }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-row-title", children: task.title }),
+            renamingId === task.taskId ? /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                className: "tk-ren",
+                autoFocus: true,
+                defaultValue: task.title,
+                onClick: (e) => e.stopPropagation(),
+                onKeyDown: (e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") {
+                    const v = e.target.value.trim();
+                    setRenamingId(null);
+                    if (v && v !== task.title) void renameTask(task.taskId, v);
+                  } else if (e.key === "Escape") setRenamingId(null);
+                },
+                onBlur: (e) => {
+                  const v = e.target.value.trim();
+                  setRenamingId(null);
+                  if (v && v !== task.title) void renameTask(task.taskId, v);
+                }
+              },
+              `ren-${task.taskId}`
+            ) : /* @__PURE__ */ jsxRuntime.jsx(
+              "span",
+              {
+                className: "tk-row-title",
+                title: "双击重命名",
+                onDoubleClick: (e) => {
+                  e.stopPropagation();
+                  setRenamingId(task.taskId);
+                },
+                children: task.title
+              }
+            ),
+            task.wrapup ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-mtag", children: "已合并" }) : null,
             /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-quick", children: [
-              /* @__PURE__ */ jsxRuntime.jsx(
+              task.archived ? /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "icon-btn",
+                  title: "恢复到列表（取消归档）",
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    void archiveTask(task.taskId, false);
+                  },
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 })
+                }
+              ) : /* @__PURE__ */ jsxRuntime.jsx(
                 "button",
                 {
                   className: "icon-btn",
@@ -3297,7 +3738,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
                   children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "fork", size: 13 })
                 }
               ),
-              /* @__PURE__ */ jsxRuntime.jsx(
+              !task.archived && /* @__PURE__ */ jsxRuntime.jsx(
                 "button",
                 {
                   className: "icon-btn",
@@ -3305,11 +3746,46 @@ ${stateChip(task.state).label} · ${task.branch}`,
                   disabled: live,
                   onClick: (e) => {
                     e.stopPropagation();
-                    void archiveTask(task.taskId);
+                    void archiveTask(task.taskId, true);
                   },
                   children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "archive", size: 13 })
                 }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "icon-btn",
+                  title: "删除任务（会话记录与 journal；可选清理 worktree/分支）",
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    setDelPopId(delPopId === task.taskId ? null : task.taskId);
+                  },
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "trash", size: 13 })
+                }
               )
+            ] }),
+            delPopId === task.taskId && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-delpop", onClick: (e) => e.stopPropagation(), children: [
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "t", children: "删除任务？" }),
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "d", children: "会话记录、journal 与附件将一并删除，不可恢复。" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("label", { children: [
+                /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", id: `delclean-${task.taskId}`, defaultChecked: true }),
+                "同时清理 worktree 与 task/* 分支"
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "b", children: [
+                /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setDelPopId(null), children: "取消" }),
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "button",
+                  {
+                    className: "tool-btn",
+                    style: { color: "var(--c-red)", borderColor: "color-mix(in srgb, var(--c-red) 38%, transparent)" },
+                    onClick: () => {
+                      const el = document.getElementById(`delclean-${task.taskId}`);
+                      void deleteTaskRow(task.taskId, (el == null ? void 0 : el.checked) ?? true);
+                    },
+                    children: "删除"
+                  }
+                )
+              ] })
             ] })
           ]
         },
@@ -3317,6 +3793,10 @@ ${stateChip(task.state).label} · ${task.branch}`,
       );
     };
     const busy = selected ? BUSY_STATES.has(selected.state) : false;
+    const idle = selected ? !LIVE_STATES.has(selected.state) : false;
+    const isWorktreeTask = !!((_b2 = selected == null ? void 0 : selected.branch) == null ? void 0 : _b2.startsWith("task/"));
+    const showWrapbar = !!selected && idle && isWorktreeTask && (diffCount > 0 || !!selected.wrapup);
+    const showCommitHint = !!selected && idle && !isWorktreeTask && diffCount > 0;
     const busyHint = (() => {
       if (runningTool) {
         const label = TOOL_LABELS[runningTool.name] ?? runningTool.name;
@@ -3352,23 +3832,61 @@ ${stateChip(task.state).label} · ${task.branch}`,
       ),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "new-task-btn", style: { margin: "10px 10px 6px", width: "calc(100% - 20px)" }, onClick: startNewTask, children: "＋ 新任务（描述目标，Ctrl+N）" }),
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 10px 10px", display: "flex", flexDirection: "column", gap: 8 }, children: [
-          ((agentTasks == null ? void 0 : agentTasks.length) ?? 0) === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, color: "var(--c-text3)", padding: "4px 2px" }, children: t("Agents_EmptyHint") }),
-          agentTasks == null ? void 0 : agentTasks.map(agentCard)
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-search" + (listQuery ? " has" : ""), children: [
+          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "search", size: 12 }),
+          /* @__PURE__ */ jsxRuntime.jsx("input", { value: listQuery, placeholder: "搜索标题 / 摘要 / id", onChange: (e) => setListQuery(e.target.value) }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tk-search-clr", title: "清空", onClick: () => setListQuery(""), children: "✕" })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-fchips", children: [["all", "全部", listCounts.all], ["run", "进行中", listCounts.run], ["ask", "待处理", listCounts.ask], ["done", "已完成", listCounts.done], ["err", "失败·中断", listCounts.err]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs(
+          "button",
+          {
+            className: "tk-fchip" + (listFilter === id ? " on" : ""),
+            onClick: () => {
+              setListFilter(id);
+              localStorage.setItem("gitter.taskListFilter", id);
+            },
+            children: [
+              id === "run" && n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "d", style: { color: "var(--c-green)" } }) : null,
+              id === "ask" && n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "d", style: { color: "var(--c-amber)" } }) : null,
+              label,
+              " ",
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "n", children: n })
+            ]
+          },
+          id
+        )) }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 10px 4px", display: "flex", flexDirection: "column", gap: 2 }, children: [
+          groupedTasks.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, color: "var(--c-text3)", padding: "6px 2px" }, children: listQ || listFilter !== "all" ? "无匹配任务" : t("Agents_EmptyHint") }),
+          groupedTasks.map((g) => /* @__PURE__ */ jsxRuntime.jsxs(react.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-ghead", children: g.label }),
+            g.tasks.map(agentCard)
+          ] }, g.id))
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tk-arch-toggle", onClick: () => {
+          const n = !archOpen;
+          setArchOpen(n);
+          localStorage.setItem("gitter.taskArchOpen", n ? "1" : "0");
+        }, children: [
+          archOpen ? "▾" : "▸",
+          " ",
+          archOpen ? "已归档" : "显示已归档",
+          " (",
+          listCounts.arch,
+          ")"
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", title: "拖拽调整任务列表宽度", onPointerDown: startListDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: detailRef, style: { display: "grid", position: "relative", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen && !panelClosing ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-tabs", style: { gridColumn: "1", gridRow: "1" }, children: [["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tab" + (tab === id ? " on" : ""), onClick: () => setTab(id), children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-tabs", style: { gridColumn: "1", gridRow: "1" }, children: [["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount], ["shells", "后台", shellRunning]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tab" + (tab === id ? " on" : ""), onClick: () => setTab(id), children: [
           label,
           n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-tab-n", children: n }) : null
         ] }, id)) }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { gridColumn: "1", gridRow: "2", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }, children: [
-          selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto minmax(0, 1fr) auto", overflow: "hidden" }, children: [
+          selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto auto minmax(0, 1fr) auto", overflow: "hidden" }, children: [
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-pagehead", style: { gridColumn: "1", gridRow: "1" }, children: [
-              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill", style: { color: stateChip(selected.state).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state).color} 9%, transparent)` }, children: [
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill", style: { color: stateChip(selected.state, selected.awaitKind).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 9%, transparent)` }, children: [
                 /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-pill-dot" }),
-                stateChip(selected.state).label,
+                stateChip(selected.state, selected.awaitKind).label,
                 busy && selected.lastActiveAt ? " · " + Math.max(0, Math.round((Date.now() - new Date(selected.lastActiveAt).getTime()) / 1e3)) + "s" : ""
               ] }),
               /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-monochip", children: selected.branch }),
@@ -3379,7 +3897,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
                 ((Date.now() - runningTool.startTs) / 1e3).toFixed(1),
                 "s"
               ] }) : null,
-              (((_b2 = selected.queued) == null ? void 0 : _b2.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill amber", children: [
+              (((_c = selected.queued) == null ? void 0 : _c.length) ?? 0) > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill amber", children: [
                 /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "clock", size: 11 }),
                 "排队 ",
                 selected.queued.length
@@ -3390,9 +3908,58 @@ ${stateChip(task.state).label} · ${task.branch}`,
                 "/",
                 maxSubagents
               ] }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+              idle && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "对上一轮改动提交验收意见（受限提示开新轮）", onClick: () => setFeedbackOpen(true), children: "验收反馈" })
             ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "2" }, children: [
+            showWrapbar && !selected.wrapup && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-wrapbar", style: { gridColumn: "1", gridRow: "2" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 13, color: "var(--c-green)" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "meta", children: [
+                "任务已完成 · ",
+                diffCount,
+                " 个文件变更 · 可合并回 ",
+                /* @__PURE__ */ jsxRuntime.jsx("b", { style: { color: "var(--c-text2)" }, children: selected.baseBranch || "基线分支" })
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "sp" }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setTab("diff"), children: "查看改动" }),
+              /* @__PURE__ */ jsxRuntime.jsxs(
+                "button",
+                {
+                  className: "tool-btn",
+                  style: { background: "var(--c-selected)", borderColor: "var(--c-selected)", color: "var(--c-text)", fontWeight: 600 },
+                  onClick: () => setWrapupOpen(true),
+                  children: [
+                    /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 12 }),
+                    "合并到 ",
+                    selected.baseBranch || "基线分支"
+                  ]
+                }
+              )
+            ] }),
+            showWrapbar && selected.wrapup && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-wrapbar", style: { gridColumn: "1", gridRow: "2" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check-circle", size: 13, color: "var(--c-green)" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "meta", style: { color: "var(--c-green)" }, children: [
+                "已合并 ",
+                (selected.wrapup.mergeSha || "").slice(0, 8) || "?",
+                " · ",
+                selected.wrapup.strategy === "merge" ? "merge --no-ff" : "squash",
+                " → ",
+                selected.baseBranch || "基线分支"
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "meta", children: "worktree 与分支已清理 · 任务已归档" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "sp" }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => pageSdk.navigate("log"), children: "查看 Log" })
+            ] }),
+            showCommitHint && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-wrapbar", style: { gridColumn: "1", gridRow: "2" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "diff", size: 13, color: "var(--c-text3)" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "meta", children: [
+                "当前分支模式：改动已直接在工作区（",
+                diffCount,
+                " 个文件），无独立分支可合并"
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "sp" }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => pageSdk.navigate("changes"), children: "去变更页提交" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "3" }, children: [
               error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "calc(100% - 292px)", go: errorGo, onGo: (s) => {
                 openSettings(s);
                 setError(null);
@@ -3513,7 +4080,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
                 }
               )
             ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "3" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "4" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
               busy && !pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 7, padding: "0 2px 7px", fontSize: 12 }, children: [
                 /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 12, color: "var(--c-amber)", className: "tl-pulse" }),
                 /* @__PURE__ */ jsxRuntime.jsx("span", { className: "shimmer-text", children: busyHint })
@@ -3634,7 +4201,7 @@ ${stateChip(task.state).label} · ${task.branch}`,
                   modeLabel: MODE_META[mode].label.replace(/^[●◆◇⚡]\s*/, ""),
                   onMode: setMode,
                   groups: modelGroups,
-                  model: modelId || (((_c = modelProfiles.find((m) => m.isDefault)) == null ? void 0 : _c.id) ?? ""),
+                  model: modelId || (((_d = modelProfiles.find((m) => m.isDefault)) == null ? void 0 : _d.id) ?? ""),
                   onModel: setModelId,
                   thinking,
                   onThinking: setThinking,
@@ -3682,7 +4249,8 @@ ${stateChip(task.state).label} · ${task.branch}`,
               onMutate: () => setChangesTick((n) => n + 1)
             }
           ),
-          tab === "cp" && selected && /* @__PURE__ */ jsxRuntime.jsx(CheckpointsTab, { taskId: selected.taskId, branch: selected.branch, tick: changesTick, setError, onCount: setCpCount, onViewDiff: () => setTab("diff"), onMutate: () => setChangesTick((n) => n + 1) })
+          tab === "cp" && selected && /* @__PURE__ */ jsxRuntime.jsx(CheckpointsTab, { taskId: selected.taskId, branch: selected.branch, tick: changesTick, setError, onCount: setCpCount, onViewDiff: () => setTab("diff"), onMutate: () => setChangesTick((n) => n + 1) }),
+          tab === "shells" && selected && /* @__PURE__ */ jsxRuntime.jsx(ShellsTab, { taskId: selected.taskId, live: LIVE_STATES.has(selected.state), tick: changesTick, setError, onCount: setShellRunning })
         ] }),
         selected && changesPanelOpen && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", style: { gridColumn: "2", gridRow: "1 / 3", display: panelClosing ? "none" : void 0 }, title: "拖拽调整分栏比例", onPointerDown: startSplitDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
@@ -3711,7 +4279,32 @@ ${stateChip(task.state).label} · ${task.branch}`,
             ] }),
             slot
           );
-        })()
+        })(),
+        wrapupOpen && selected && /* @__PURE__ */ jsxRuntime.jsx(
+          TaskWrapupDialog,
+          {
+            task: selected,
+            onClose: () => setWrapupOpen(false),
+            setError,
+            onMerged: () => {
+              setWrapupOpen(false);
+              void reloadAgents();
+              setChangesTick((n) => n + 1);
+              notifyRepoChanged();
+            }
+          }
+        ),
+        feedbackOpen && selected && /* @__PURE__ */ jsxRuntime.jsx(
+          TaskFeedbackDialog,
+          {
+            task: selected,
+            onClose: () => setFeedbackOpen(false),
+            setError,
+            onSent: () => {
+              void reloadAgents();
+            }
+          }
+        )
       ] })
     ] });
   }
