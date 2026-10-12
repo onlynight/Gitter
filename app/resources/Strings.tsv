@@ -1033,7 +1033,7 @@ Editor_Problems	{0} errors {1} warnings	{0} 错误 {1} 警告
 Editor_ProblemsTitle	Problems	问题
 Editor_Indent	Indentation	缩进
 Editor_Spaces	Spaces: {0}	空格: {0}
-Editor_Split	Split editor（coming soon）	分屏编辑（即将推出）
+Editor_Split	Split Editor	分屏编辑
 Editor_WelcomeTitle	Start	开始
 Editor_WelcomeOpen	Open file	打开文件
 Editor_WelcomeTree	File tree	文件树
@@ -1086,3 +1086,81 @@ Office_PageCount	{0} page(s)	{0} 页
 Office_ZoomIn	Zoom in	放大
 Office_ZoomOut	Zoom out	缩小
 Office_ZoomReset	Reset zoom (fit width)	重置缩放（适宽）
+Files_Copy	Copy	复制
+Files_Cut	Cut	剪切
+Files_Paste	Paste	粘贴
+Files_CopyName	Copy Name	复制文件名
+Files_Rename	Rename…	重命名
+Files_Delete	Delete	删除
+Files_DeleteConfirmTitle	Delete	删除
+Files_DeleteConfirmBody	Delete "{0}"? This cannot be undone.	删除「{0}」？此操作不可恢复。
+Files_DeleteConfirmDir	The folder and all its contents will be deleted permanently (not moved to the Recycle Bin).	文件夹将连同其全部内容一并删除，且不移入回收站。
+Files_RenameFailed	Rename failed	重命名失败
+Files_DeleteFailed	Delete failed	删除失败
+Files_PasteFailed	Paste failed	粘贴失败
+Files_MoveFailed	Move failed	移动失败
+Files_GlobalSearch	Search in Repository	在仓库中搜索
+Files_SearchContent	Search content…	搜索内容…
+Files_SearchCaseSensitive	Match Case	区分大小写
+Files_SearchRegex	Regular Expression	正则表达式
+Files_SearchReplace	Replace with…	替换
+Files_ReplaceAll	Replace All	全部替换
+Files_ReplaceConfirm	Replace {1} occurrence(s) in {0} file(s)?	在 {0} 个文件中替换 {1} 处？
+Files_Replaced	Replaced {0} occurrence(s) in {1} file(s)	已替换 {0} 处（{1} 个文件）
+Files_SearchFailed	Search failed	搜索失败
+Files_Searching	Searching…	搜索中…
+Files_SearchTruncated	Too many results; showing the first {0}	结果过多，仅显示前 {0} 条
+Files_SearchFiles	files	个文件
+Files_OutsideRepo	Only files inside the repository can be opened	仅支持打开仓库内的文件
+Editor_PinTab	Pin Tab	固定标签
+Editor_UnpinTab	Unpin Tab	取消固定
+Editor_OpenInSplit	Open in Split View	在分屏打开
+Editor_SplitOff	Close Split	关闭分屏
+Editor_Outline	Go to Symbol (Ctrl+Shift+O)	转到符号（Ctrl+Shift+O）
+Editor_TabsIndent	Indent with Tabs	Tab 缩进
+Editor_EncodingTitle	File Encoding (click to switch/reopen)	文件编码（点击切换/重新打开）
+Editor_ReopenTitle	Reopen with Encoding	以指定编码重新打开
+Editor_ReopenDirty	"{0}" has unsaved changes; reopening will discard them.	「{0}」有未保存的更改，重新打开将丢弃这些更改。
+Editor_EolTitle	End of Line Sequence (click to toggle, applied on save)	行尾序列（点击互转，保存生效）
+Editor_StageFile	Stage This File	暂存此文件
+Editor_DiscardFile	Discard Changes	放弃修改
+Editor_DiscardConfirmTitle	Discard Changes	放弃修改
+Editor_DiscardConfirmBody	Discard uncommitted changes to "{0}"? This cannot be undone.	放弃对「{0}」的未提交修改？此操作不可恢复。
+Editor_DiffHead	Compare with HEAD	与 HEAD 比较差异
+Editor_ExternalChangedDirty	"{0}" was changed on disk; unsaved content is kept and saving will prompt a conflict.	「{0}」在磁盘上已被外部修改；未保存内容已保留，保存时将提示冲突。
+Editor_NoProblems	No problems in the open files	当前打开的文件没有问题
+Editor_PreviewMode	Preview	预览
+Editor_EditSource	Edit Source	编辑源文件
+Files_ExternalOpen	Open with External App	用外部程序打开
+Files_ImgFailed	Image failed to load	图片加载失败
+Files_ImgTooLarge	Image exceeds 50MB and cannot be previewed	图片超过 50MB，无法预览
+Files_Retry	Retry	重试
+Files_ZoomIn	Zoom In	放大
+Files_ZoomOut	Zoom Out	缩小
+Files_ZoomReset	Reset Zoom	重置缩放
+Changes_ConflictCompareHint	Comparing the staged version with the worktree; stage/unstage to update the comparison.	暂存版与工作区内容对比；暂存/取消暂存后对比随之更新。
+Changes_PreviewStaged	Staged version	暂存版
+Changes_PreviewWorktree	Worktree version	工作区版本
+Changes_PreviewTooLarge	File too large to preview	文件过大，无法预览
+Changes_SetUpstreamPush	Set upstream and push	设置上游并推送
+Changes_UpstreamPushed	Pushed to {0}/{1}	已推送到 {0}/{1}
+Common_GoToSettings	Open Settings	前往设置
+Log_EmptyRepo	No commits yet	暂无提交
+Settings_GitSection	Git	Git
+Settings_GitScope	Config scope	配置层级
+Settings_GitRepoLevel	Repository	仓库级
+Settings_GitGlobalLevel	Global	全局
+Settings_GitInheritGlobal	Inherited from global: {0}	继承自全局：{0}
+Settings_GitUserName	User name	用户名
+Settings_GitUserEmail	User email	邮箱
+Settings_GitAutoSetupRemote	Auto setup upstream on first push (push.autoSetupRemote)	首次推送自动设置上游（push.autoSetupRemote）
+Settings_GitAutoSetupRemoteHint	New branches will automatically track the remote branch of the same name	新分支推送时自动跟踪同名远程分支
+Settings_GitPullRebase	Pull with rebase (pull.rebase)	拉取时变基（pull.rebase）
+Settings_GitAutocrlf	Line ending conversion (core.autocrlf)	换行符转换（core.autocrlf）
+Settings_GitRemotes	Remotes	远程仓库
+Settings_GitNoRemotes	No remotes configured	未配置远程仓库
+Settings_GitAddRemote	Add remote	添加远程仓库
+Settings_GitRemoteName	Remote name	远程名称
+Settings_GitRemoteUrl	Remote URL	远程 URL
+Settings_NoRepoHint	No repository open; repository-level config is unavailable	当前未打开仓库，无法编辑仓库级配置
+Settings_Unset	Unset	未设置
