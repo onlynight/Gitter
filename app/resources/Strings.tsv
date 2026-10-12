@@ -519,7 +519,7 @@ Common_NoProjectSelected	No project selected	未选择项目
 Common_Rename	Rename	重命名
 Common_ToggleSidebar	Toggle sidebar	收起/展开侧边栏
 Main_StatusHint	Ctrl+Shift+P: command palette	Ctrl+Shift+P：命令面板
-Main_WindowTitle	Gitter — {0}	Gitter — {0}
+Main_WindowTitle	{0}	{0}
 Palette_Title	Command Palette	命令面板
 Palette_InputPlaceholder	Type a command or search…	输入命令或搜索…
 Palette_NoMatches	No matching commands	没有匹配的命令
@@ -605,6 +605,14 @@ Changes_CommitAndPush	Commit & Push	提交并推送
 Changes_Committed	Committed	已提交
 Changes_CommittedAndPushed	Committed and pushed	已提交并推送
 Changes_CommitMessagePlaceholder	Commit message (Ctrl+Enter to commit)	提交信息（Ctrl+Enter 提交）
+Changes_PrefixMenu	Commit type prefix	提交类型前缀
+Changes_PrefixMenuHint	Inserts only when the message is empty · Esc to close	仅空消息时插入 · Esc 关闭
+Changes_PrefixFeat	New feature	新功能
+Changes_PrefixFix	Bug fix	缺陷修复
+Changes_PrefixDocs	Documentation	文档
+Changes_PrefixTest	Tests	测试
+Changes_PrefixBuild	Build & deps	构建与依赖
+Changes_PrefixChore	Chores	杂项维护
 Changes_AiGenerate	AI message	AI 生成
 Changes_AiExplain	AI explain	AI 解释
 Changes_AiReview	AI review	AI 审查
@@ -872,6 +880,27 @@ Settings_CatExtensions	Extensions	扩展包
 Settings_CatAbout	About	关于
 Settings_Search	Search settings…	搜索设置…
 Settings_NoResults	No matching settings	没有匹配的设置项
+Settings_CatShortcuts	Shortcuts	快捷键
+Settings_ShortcutsSection	Keyboard Shortcuts	快捷键
+Settings_ShortcutsHint	Everything currently in effect — page-scoped shortcuts only fire on their page; packages can add more via keybindings.	当前生效的全部快捷键——页面专属快捷键仅在该页面响应；扩展包可经 keybindings 贡献新快捷键。
+Settings_ScGroupGlobal	Global	全局
+Settings_ScGroupFiles	Files page	文件页
+Settings_ScGroupTerminal	Terminal page	终端页
+Settings_ScGroupTasks	Tasks page	任务页
+Settings_ScCyclePage	Cycle pages	循环切换页面
+Settings_ScQuickOpen	Quick open	快速打开
+Settings_ScRepoSearch	Search in repository	仓库内搜索
+Settings_ScToggleTree	Collapse / expand file tree	收起 / 展开文件树
+Settings_ScSaveFile	Save file	保存文件
+Settings_ScCloseTab	Close editor tab	关闭编辑器标签
+Settings_ScCycleEditorTabs	Cycle editor tabs	循环切换编辑器标签
+Settings_ScFontZoom	Editor font size — zoom in / out / reset	编辑器字号——放大 / 缩小 / 复位
+Settings_ScCycleSessions	Cycle terminal sessions	循环切换终端会话
+Settings_ScNewTask	New task	新建任务
+Settings_ScInterrupt	Interrupt running task	中断运行中的任务
+Settings_ScInterruptNote	Press twice within 500 ms to open checkpoints	500ms 内按两次可打开检查点
+Settings_ScPermCycle	Cycle permission mode	循环切换权限模式
+Settings_ScUnavailable	Not available now — condition not met	当前不可用——条件未满足
 Settings_SafetyNetSection	Commit Safety Net	提交安全网
 Settings_SafetyNetHint	Scan staged content before commit; blocked findings stop the commit	提交前扫描暂存内容；block 档命中即拦截（agent 提交同样受限）
 Settings_AgentSection	Agent Runtime	Agent 运行时
@@ -1164,3 +1193,4 @@ Settings_GitRemoteName	Remote name	远程名称
 Settings_GitRemoteUrl	Remote URL	远程 URL
 Settings_NoRepoHint	No repository open; repository-level config is unavailable	当前未打开仓库，无法编辑仓库级配置
 Settings_Unset	Unset	未设置
+Extensions_OpenFolder	Open plugins folder	打开插件目录
