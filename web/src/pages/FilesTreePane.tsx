@@ -689,15 +689,15 @@ export function TreePane(props: {
           <button className="files-ibtn" title={t("Files_Refresh")} onClick={props.onRefresh}>
             <RefreshIcon />
           </button>
+          <button className="files-ibtn" title={t("Files_ExpandAll")} onClick={() => setCollapsed(new Set())}>
+            <ExpandAllIcon />
+          </button>
           <button
             className="files-ibtn"
             title={t("Files_CollapseAll")}
             onClick={() => setCollapsed(new Set(visibleNodes.filter((n) => n.entry.isDir && !n.draft).map((n) => n.entry.path)))}
           >
             <CollapseAllIcon />
-          </button>
-          <button className="files-ibtn" title={t("Files_ExpandAll")} onClick={() => setCollapsed(new Set())}>
-            <ExpandAllIcon />
           </button>
         </div>
       </div>

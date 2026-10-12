@@ -130,20 +130,27 @@ const MAX_HOVER_LINES = 60;
 /**
  * 重算并应用 model 的 git 行级 diff 高亮（整行背景，DiffView 同色调）。
  * @param base HEAD 基线全文；null = 基线未就绪/未启用（清空装饰）；"" = 未跟踪新文件（整文件新增）
+ * @returns count = 变更处数（一处 = 一个可跳转的变更块）；anchors = 各处修改的锚点行
+ *          （当前侧 1-based、升序：新增/修改块取块首行，纯删除块取删除点行——
+ *          与着色行一一对应，供「上/下一处修改」跳转与 N/M 进度显示复用，免二次 diff）。
+ *          基线未就绪/超护栏为 count 0、anchors []。
  */
-export function updateGitGutter(model: MonacoModel, base: string | null): void {
+export function updateGitGutter(model: MonacoModel, base: string | null): { count: number; anchors: number[] } {
   const old = decorationsByModel.get(model) ?? [];
   if (base === null) {
     if (old.length > 0) model.deltaDecorations(old, []);
     decorationsByModel.delete(model);
-    return;
+    return { count: 0, anchors: [] };
   }
 
   const a = base.split("\n");
   const b = model.getValue().split("\n");
   let decos: IDecoration[] = [];
+  const anchors: number[] = [];
   if (a.length + b.length <= MAX_DIFF_LINES) {
     for (const block of diffBlocks(a, b)) {
+      // 锚点行：新增/修改块取块首；纯删除块取删除点（该行本身未变，超界收敛到文件尾）
+      anchors.push(block.bEnd > block.bStart ? block.bStart + 1 : Math.min(block.bStart + 1, b.length));
       const delLines = block.aEnd > block.aStart
         ? a.slice(block.aStart, Math.min(block.aEnd, block.aStart + MAX_HOVER_LINES)) : null;
       const hover = delLines
@@ -173,4 +180,5 @@ export function updateGitGutter(model: MonacoModel, base: string | null): void {
     }
   }
   decorationsByModel.set(model, model.deltaDecorations(old, decos));
+  return { count: decos.length, anchors };
 }

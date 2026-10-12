@@ -16,7 +16,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import * as MonacoNs from "monaco-editor";
 import { Modal, useContextMenu, DiffView, type CtxMenuItem } from "../kit";
 import { pageSdk, useAppState } from "../pageSdk";
-import { CheckIcon, ChevronSepIcon, CloseIcon, FileIcon, FolderIcon, OutlineIcon, PinIcon, SearchIcon, SplitIcon } from "./filesIcons";
+import { CheckIcon, ChevronDownIcon, ChevronSepIcon, ChevronUpIcon, CloseIcon, FileIcon, FolderIcon, OutlineIcon, PinIcon, SearchIcon, SplitIcon } from "./filesIcons";
 import { FilesMonacoEditor, type FilesMonacoEditorHandle } from "./FilesMonacoEditor";
 import { createTextModel, disposeTextModel, languageForPath, languageLabel, detectIndent, onAnyMarkers, markersOf } from "./filesMonaco";
 import { documentOpened, documentChanged, documentClosed } from "./filesLsp";
@@ -166,6 +166,10 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
 
   // 问题点击的本地定位（与 props.reveal——全局搜索定位——合并后下发主编辑器）
   const [localReveal, setLocalReveal] = useState<{ path: string; line: number; ts: number } | null>(null);
+
+  // git 行级 diff 变更进度（按活动文件记键：主编辑器在 gutter 重算与光标移动时回报
+  // index/total，驱动面包屑右上角「N/M + 上/下一处修改」；标签切换旧值自然失配隐藏）
+  const [diffInfo, setDiffInfo] = useState<{ path: string; index: number; total: number } | null>(null);
 
   // editors 的 ref 镜像（fsTick 等低频回调读取最新脏态，不进依赖）
   const editorsRef = useRef(editors);
@@ -802,6 +806,29 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
           );
         })}
         <div className="edcrumbs-acts">
+          {/* git 行级 diff 导航（变更模式且有变更时显示）：N/M 进度 + 上/下一处修改（到头环绕） */}
+          {props.showDiff && props.activeTab && isTextual(props.activeTab)
+            && diffInfo?.path === props.activeTab && diffInfo.total > 0 && (
+            <>
+              <span className="edcrumbs-diffcount" title={t("Editor_ChangesProgress", diffInfo.index, diffInfo.total)}>
+                {diffInfo.index}/{diffInfo.total}
+              </span>
+              <button
+                className="files-ibtn"
+                title={t("Editor_PrevChange")}
+                onClick={() => mainEditorRef.current?.jumpDiff(-1)}
+              >
+                <ChevronUpIcon />
+              </button>
+              <button
+                className="files-ibtn"
+                title={t("Editor_NextChange")}
+                onClick={() => mainEditorRef.current?.jumpDiff(1)}
+              >
+                <ChevronDownIcon />
+              </button>
+            </>
+          )}
           {props.activeTab && isTextual(props.activeTab) && (
             <button
               className="files-ibtn"
@@ -870,6 +897,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
                     ownsKeys={!stale}
                     gitBase={stale ? null : activeEditor?.gitBase ?? null}
                     showDiff={props.showDiff}
+                    onDiffProgress={(index, total) => setDiffInfo({ path: props.activeTab ?? "", index, total })}
                     revealLine={revealLine}
                     onChange={(value) => { if (!stale) handleContentChange(activeEditor!.path, value); }}
                     onPosition={setPosition}

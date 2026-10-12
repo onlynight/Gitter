@@ -137,6 +137,13 @@ export const ChevronIcon = () => (
 export const ChevronSepIcon = () => (
   <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" {...S} strokeWidth="1.3" /></svg>
 );
+/** 上一处/下一处修改跳转（编辑器面包屑） */
+export const ChevronUpIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 10 8 5.5 12.5 10" {...S} strokeWidth={1.3} /></svg>
+);
+export const ChevronDownIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 6 8 10.5 12.5 6" {...S} strokeWidth={1.3} /></svg>
+);
 export const FilterIcon = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11L9.5 8.4v4.1l-3 1.5V8.4z" {...S} /></svg>
 );

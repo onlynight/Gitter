@@ -33,6 +33,10 @@ export interface FilesMonacoEditorProps {
   gitBase?: string | null;
   /** git 行级 diff 高亮开关（false = 清除高亮；基线保留，重开即时恢复） */
   showDiff?: boolean;
+  /** 变更进度回报（index/total）：gutter 重算与光标移动都会触发——
+   *  index = 光标行之前（含所在块）的变更块数（0 = 光标在首块之前，total = 已过末块），
+   *  宿主据此显示 N/M 进度与上/下一处按钮显隐 */
+  onDiffProgress?: (index: number, total: number) => void;
   /** 外部定位请求（全局搜索结果点击；ts 防同值去重） */
   revealLine?: { line: number; ts: number } | null;
   /** 是否持有全局字号快捷键（分屏双实例时仅主实例持有，避免一次按键缩两档） */
@@ -42,6 +46,8 @@ export interface FilesMonacoEditorProps {
 export interface FilesMonacoEditorHandle {
   /** 运行编辑器内置 action（quickOutline / format 等；action 不存在返回 false） */
   runAction(actionId: string): boolean;
+  /** 跳到上/下一处 git 修改（dir=-1 上一处 / 1 下一处；到头环绕；无可跳变更返回 false） */
+  jumpDiff(dir: -1 | 1): boolean;
   /** 当前字号（分屏实例与主实例保持一致时读） */
   fontSize(): number;
 }
@@ -60,8 +66,33 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
     const hostRef = useRef<HTMLDivElement | null>(null);
     const edRef = useRef<MonacoEditor | null>(null);
     const fontSizeRef = useRef(loadFontSize());
+    // 最近一次 gutter 重算的变更锚点行（跳转与 N/M 进度共用，免二次 diff）
+    const anchorsRef = useRef<number[]>([]);
     const cbRef = useRef(props);
     cbRef.current = props;
+
+    // 进度回报：index = 光标行之前（含所在块）的变更块数（锚点升序，线性计数足够）
+    const reportDiff = () => {
+      const ed = edRef.current;
+      const cur = ed?.getPosition()?.lineNumber ?? 1;
+      const anchors = anchorsRef.current;
+      let index = 0;
+      for (const l of anchors) {
+        if (l > cur) break;
+        index++;
+      }
+      cbRef.current.onDiffProgress?.(index, anchors.length);
+    };
+
+    // gutter 统一入口：重算 → 缓存锚点 → 回报进度（模型/基线/开关/内容四类变更共用）
+    const applyGutter = () => {
+      const ed = edRef.current;
+      const m = ed?.getModel() as MonacoModel | null;
+      if (!ed || !m) return;
+      const r = updateGitGutter(m, cbRef.current.showDiff ? (cbRef.current.gitBase ?? null) : null);
+      anchorsRef.current = r.anchors;
+      reportDiff();
+    };
 
     const theme = useAppState().theme;
 
@@ -145,6 +176,22 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
         a.run();
         return true;
       },
+      jumpDiff: (dir: -1 | 1) => {
+        const ed = edRef.current;
+        if (!ed) return false;
+        // 锚点 = 最近一次 gutter 重算的缓存（与高亮/进度显示恒一致）
+        const anchors = anchorsRef.current;
+        if (anchors.length === 0) return false;
+        // 光标行定界（在块首按下一处 = 跳后续块，与 VS Code 语义一致）；到头环绕
+        const cur = ed.getPosition()?.lineNumber ?? 1;
+        const line = dir > 0
+          ? anchors.find((l) => l > cur) ?? anchors[0]
+          : [...anchors].reverse().find((l) => l < cur) ?? anchors[anchors.length - 1];
+        ed.revealLineInCenter(line);
+        ed.setPosition({ lineNumber: line, column: 1 });
+        ed.focus();
+        return true;
+      },
       fontSize: () => fontSizeRef.current,
     }), []);
 
@@ -178,20 +225,14 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       });
 
       // git 行级 diff 高亮：model 就绪即算；内容任何变化（含 isFlush 重载）防抖重算；
-      // showDiff=false 一律清空（基线仍在 props 里，切回「变更」模式即时恢复）
+      // showDiff=false 一律清空（基线仍在 props 里，切回「变更」模式即时恢复）。
+      // 每次重算经 applyGutter 缓存锚点并回报进度（面包屑 N/M 与上/下一处按钮）
       let gutterTimer = 0;
       const rerunGutter = () => {
         window.clearTimeout(gutterTimer);
-        gutterTimer = window.setTimeout(() => {
-          const m = ed.getModel() as MonacoModel | null;
-          if (m && m === model) {
-            updateGitGutter(m, cbRef.current.showDiff ? (cbRef.current.gitBase ?? null) : null);
-          }
-        }, 250);
+        gutterTimer = window.setTimeout(applyGutter, 250);
       };
-      if (model) {
-        updateGitGutter(model, cbRef.current.showDiff ? (cbRef.current.gitBase ?? null) : null);
-      }
+      if (model) applyGutter();
       const subGutter = model ? model.onDidChangeContent(rerunGutter) : null;
 
       return () => {
@@ -201,10 +242,9 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       };
     }, [props.model]);
 
-    // 基线异步到达 / 模式开关切换 → 对当前 model 重算
+    // 基线异步到达 / 模式开关切换 → 对当前 model 重算（锚点缓存与进度回报随行）
     useEffect(() => {
-      const m = edRef.current?.getModel() as MonacoModel | null;
-      if (m) updateGitGutter(m, props.showDiff ? (props.gitBase ?? null) : null);
+      applyGutter();
     }, [props.gitBase, props.showDiff]);
 
     // 光标/诊断订阅（编辑器级事件，跨 model 切换存活；全局 marker 变化按当前 model 过滤）
@@ -214,6 +254,7 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       const reportMarkers = () => cbRef.current.onMarkers?.(markerCounts(ed.getModel()));
       const d1 = ed.onDidChangeCursorPosition((e) => {
         cbRef.current.onPosition?.({ line: e.position.lineNumber, col: e.position.column });
+        reportDiff(); // 光标在块间移动时刷新 N/M 进度（锚点走缓存，零 diff 开销）
       });
       const d2 = MonacoNs.editor.onDidChangeMarkers(reportMarkers);
       return () => {

@@ -217,6 +217,7 @@ function indexAt(prefix: Float64Array, y: number): number {
 
 const DiffViewImpl = function DiffView(props: {
   diff: DiffDTO;
+  /** 布局模式唯一控制点在全局设置 settings.diffMode；显式传 true/false 才覆盖（无调用方需要时不传） */
   inline?: boolean;
   selectedHunks?: Set<number>;
   onToggleHunk?: (index: number) => void;
@@ -232,6 +233,8 @@ const DiffViewImpl = function DiffView(props: {
   const { diff } = props;
   const rich = props.rich ?? true;
   const app = useApp();
+  // 缺省跟随全局设置（useApp 订阅保证设置变化时本组件重渲染，memo 不拦截）
+  const inline = props.inline ?? (app.settings?.diffMode === "inline");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
@@ -243,7 +246,7 @@ const DiffViewImpl = function DiffView(props: {
 
   const items = useMemo(() => {
     const out: FlatItem[] = [];
-    if (props.inline) {
+    if (inline) {
       diff.hunks.forEach((h, hi) => {
         if (showHunkHeaders) out.push({ kind: "hdr", key: `h${hi}`, hunk: hi });
         let oldNum = h.oldCount > 0 ? h.oldStart : h.oldStart + 1;
@@ -308,7 +311,7 @@ const DiffViewImpl = function DiffView(props: {
       }
     });
     return out;
-  }, [diff, props.inline, showHunkHeaders]);
+  }, [diff, inline, showHunkHeaders]);
 
   // 高亮输入文本：直接从 items 聚合（并排行左右对齐；内联按 old/new 侧分列）
   const hlTexts = useMemo(() => {
@@ -324,14 +327,14 @@ const DiffViewImpl = function DiffView(props: {
   }, [items]);
 
   const hlTextsInline = useMemo(() => {
-    if (!props.inline) return null;
+    if (!inline) return null;
     const oldLines: string[] = [];
     const newLines: string[] = [];
     for (const it of items) {
       if (it.kind === "row" && it.cells === 1) (it.runSide === "left" ? oldLines : newLines).push(it.text ?? "");
     }
     return { oldLines, newLines };
-  }, [items, props.inline]);
+  }, [items, inline]);
 
   const [measured, setMeasured] = useState<{ rowH: number; hdrH: number }>({ rowH: ROW_H_ESTIMATE, hdrH: HDR_H_ESTIMATE });
 
@@ -410,8 +413,8 @@ const DiffViewImpl = function DiffView(props: {
 
   useEffect(() => {
     if (!rich || diff.hunks.length === 0) return;
-    const oldText = props.inline ? (hlTextsInline?.oldLines.join("\n") ?? "") : hlTexts.left.join("\n");
-    const newText = props.inline ? (hlTextsInline?.newLines.join("\n") ?? "") : hlTexts.right.join("\n");
+    const oldText = inline ? (hlTextsInline?.oldLines.join("\n") ?? "") : hlTexts.left.join("\n");
+    const newText = inline ? (hlTextsInline?.newLines.join("\n") ?? "") : hlTexts.right.join("\n");
     if (
       Math.max(oldText.length, newText.length) > MAX_HL_CHARS ||
       oldText.split("\n").some((l) => l.length > MAX_HL_LINE) ||
@@ -449,7 +452,7 @@ const DiffViewImpl = function DiffView(props: {
       cancelled = true;
     };
     // app.theme 进依赖：TextMate 颜色在主进程按活动主题解析，切主题需重拉
-  }, [rich, hlTexts, hlTextsInline, props.inline, diff.path, app.theme]);
+  }, [rich, hlTexts, hlTextsInline, inline, diff.path, app.theme]);
 
   // diff 侧栏注记接缝（E 阶段收尾：L2 按路径只读注记）
   const [notes, setNotes] = useState<{ packageId: string; text: string }[]>([]);
@@ -598,7 +601,7 @@ const DiffViewImpl = function DiffView(props: {
       {!props.hideHeader && header}
       {noteStrip}
       {truncatedStrip}
-      <div className={"diff-grid" + (props.inline ? " inline" : "")} ref={gridRef}>
+      <div className={"diff-grid" + (inline ? " inline" : "")} ref={gridRef}>
         {virtualize && topH > 0 && <div style={{ gridColumn: "1 / -1", height: topH }} />}
         {body}
         {virtualize && bottomH > 0 && <div style={{ gridColumn: "1 / -1", height: bottomH }} />}

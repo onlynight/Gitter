@@ -1324,10 +1324,14 @@ export function SettingsPage() {
   );
 }
 
-// ---- 快捷键参考页（设置 → 快捷键）：命令注册表（commands.list 的 keyHint）+ 各页硬编码快捷键，分类展示 ----
+// ---- 快捷键参考页（设置 → 快捷键）：命令注册表（commands.list 的 keyHint）+ 各页硬编码与 Monaco 内置快捷键，分类展示 + 页内搜索（命令名与按键皆可命中）----
 
-/** 页面级/全局硬编码快捷键（未走 commands 接缝，由宿主与各页 keydown 处理——与源码保持同步）。 */
-const SC_PAGE_GROUPS: { labelKey: string; entries: { keys: string[]; titleKey: string; noteKey?: string }[] }[] = [
+interface ScEntry { keys: string[]; titleKey: string; noteKey?: string }
+interface ScStaticGroup { labelKey: string; noteKey?: string; entries: ScEntry[] }
+
+/** 页面级/全局硬编码快捷键（未走 commands 接缝，由宿主与各页 keydown 处理——与源码保持同步）。
+ * monaco 组 = Monaco 内置键位（filesMonaco.ts EDITOR_OPTIONS.multiCursorModifier="alt" 档），仅编辑器聚焦时生效。 */
+const SC_PAGE_GROUPS: ScStaticGroup[] = [
   {
     labelKey: "Settings_ScGroupGlobal",
     entries: [
@@ -1348,6 +1352,30 @@ const SC_PAGE_GROUPS: { labelKey: string; entries: { keys: string[]; titleKey: s
     ],
   },
   {
+    labelKey: "Settings_ScGroupMonaco",
+    noteKey: "Settings_ScGroupMonacoNote",
+    entries: [
+      { keys: ["Ctrl+/"], titleKey: "Settings_ScToggleComment" },
+      { keys: ["Shift+Alt+A"], titleKey: "Settings_ScToggleBlockComment" },
+      { keys: ["Alt+↑", "Alt+↓"], titleKey: "Settings_ScMoveLine" },
+      { keys: ["Shift+Alt+↑", "Shift+Alt+↓"], titleKey: "Settings_ScCopyLine" },
+      { keys: ["Ctrl+Shift+K"], titleKey: "Settings_ScDeleteLine" },
+      { keys: ["Ctrl+Enter", "Ctrl+Shift+Enter"], titleKey: "Settings_ScInsertLine" },
+      { keys: ["Alt+Click", "Ctrl+Alt+↑", "Ctrl+Alt+↓"], titleKey: "Settings_ScAddCursor", noteKey: "Settings_ScAddCursorNote" },
+      { keys: ["Ctrl+D"], titleKey: "Settings_ScAddCursorNext" },
+      { keys: ["Ctrl+F2", "Ctrl+Shift+L"], titleKey: "Settings_ScSelectOccurrences" },
+      { keys: ["Ctrl+F", "Ctrl+H"], titleKey: "Settings_ScFind" },
+      { keys: ["F3", "Shift+F3"], titleKey: "Settings_ScFindNext" },
+      { keys: ["Ctrl+G"], titleKey: "Settings_ScGotoLine" },
+      { keys: ["Ctrl+Shift+O"], titleKey: "Settings_ScGotoSymbol" },
+      { keys: ["F12"], titleKey: "Settings_ScGotoDef" },
+      { keys: ["Ctrl+]", "Ctrl+["], titleKey: "Settings_ScIndent" },
+      { keys: ["Shift+Alt+F"], titleKey: "Settings_ScFormatDoc" },
+      { keys: ["F8", "Shift+F8"], titleKey: "Settings_ScNextProblem" },
+      { keys: ["Ctrl+Space"], titleKey: "Settings_ScTriggerSuggest" },
+    ],
+  },
+  {
     labelKey: "Settings_ScGroupTerminal",
     entries: [{ keys: ["Ctrl+Tab", "Ctrl+Shift+Tab"], titleKey: "Settings_ScCycleSessions" }],
   },
@@ -1361,58 +1389,100 @@ const SC_PAGE_GROUPS: { labelKey: string; entries: { keys: string[]; titleKey: s
   },
 ];
 
+interface ScRowModel { title: string; keys: string[]; enabled: boolean; note?: string }
+interface ScGroupModel { label: string; note?: string; rows: ScRowModel[] }
+
+/** 静态组词条 → 展示模型（i18n 就地解析）。 */
+function staticGroupModel(g: ScStaticGroup): ScGroupModel {
+  return {
+    label: t(g.labelKey),
+    note: g.noteKey ? t(g.noteKey) : undefined,
+    rows: g.entries.map((e) => ({
+      title: t(e.titleKey),
+      keys: e.keys,
+      enabled: true,
+      note: e.noteKey ? t(e.noteKey) : undefined,
+    })),
+  };
+}
+
 function ShortcutsPage() {
   const app = useApp();
   const lang = app.i18n?.lang ?? "en";
   const [cmds, setCmds] = useState<CommandDTO[]>([]);
+  const [query, setQuery] = useState("");
   useEffect(() => {
     void call<CommandDTO[]>("commands.list", { lang }).then(setCmds).catch(() => { /* 桥不可用（vite 调试）静默 */ });
   }, [lang]);
 
-  // 命令注册表组：有 keyHint 的命令按分类分组（内置 = Cat_* i18n 键；包命令 = 包名），注册顺序即展示顺序
-  const cmdGroups = (() => {
-    const byCat = new Map<string, { label: string; entries: { keys: string[]; title: string; enabled: boolean }[] }>();
-    for (const c of cmds) {
-      if (!c.keyHint) continue;
-      const label = (c.categoryKey ? t(c.categoryKey) : c.category) ?? t("Settings_ScGroupGlobal");
-      if (!byCat.has(label)) byCat.set(label, { label, entries: [] });
-      byCat.get(label)!.entries.push({
-        keys: [c.keyHint],
-        title: (c.titleKey ? t(c.titleKey) : c.title) ?? c.id,
-        enabled: c.enabled !== false,
-      });
-    }
-    return [...byCat.values()];
-  })();
+  // 组装展示模型：全局（静态）→ 命令注册表组（有 keyHint 的命令按分类分组，内置 = Cat_* i18n 键、包命令 = 包名，注册顺序即展示顺序）→ 各页面级组（静态）
+  const models: ScGroupModel[] = [
+    ...SC_PAGE_GROUPS.slice(0, 1).map(staticGroupModel),
+    ...(() => {
+      const byCat = new Map<string, ScGroupModel>();
+      for (const c of cmds) {
+        if (!c.keyHint) continue;
+        const label = (c.categoryKey ? t(c.categoryKey) : c.category) ?? t("Settings_ScGroupGlobal");
+        if (!byCat.has(label)) byCat.set(label, { label, rows: [] });
+        byCat.get(label)!.rows.push({
+          keys: [c.keyHint],
+          title: (c.titleKey ? t(c.titleKey) : c.title) ?? c.id,
+          enabled: c.enabled !== false,
+        });
+      }
+      return [...byCat.values()];
+    })(),
+    ...SC_PAGE_GROUPS.slice(1).map(staticGroupModel),
+  ];
 
-  const group = (label: string, rows: ReactNode) => (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ fontWeight: 600, fontSize: 12, margin: "0 0 4px", color: "var(--c-text2)" }}>{label}</div>
-      <div style={{ display: "flex", flexDirection: "column" }}>{rows}</div>
-    </div>
-  );
-  const row = (props: { title: string; keys: string[]; enabled?: boolean; note?: string }) => (
-    <div
-      className="settings-row"
-      style={{ opacity: props.enabled === false ? 0.45 : 1 }}
-      title={props.enabled === false ? t("Settings_ScUnavailable") : undefined}
-    >
-      <span style={{ flex: 1, fontSize: 12.5 }}>
-        {props.title}
-        {props.note && <span className="hint" style={{ marginLeft: 8 }}>{props.note}</span>}
-      </span>
-      <span style={{ display: "inline-flex", gap: 4, flex: "none" }}>
-        {props.keys.map((k) => <kbd key={k} className="kbd">{k}</kbd>)}
-      </span>
+  // 页内搜索：空格分词、每词都须命中（标题/备注/按键）；命中组名 = 整组保留
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const keep = (hay: string) => tokens.every((tk) => hay.toLowerCase().includes(tk));
+  const shown = tokens.length === 0
+    ? models
+    : models
+        .map((g) => (keep(g.label) ? g : { ...g, rows: g.rows.filter((r) => keep([r.title, r.note ?? "", ...r.keys].join("\n"))) }))
+        .filter((g) => g.rows.length > 0);
+
+  const group = (g: ScGroupModel) => (
+    <div key={g.label} style={{ marginBottom: 16 }}>
+      <div style={{ fontWeight: 600, fontSize: 12, margin: "0 0 4px", color: "var(--c-text2)" }}>
+        {g.label}
+        {g.note && <span className="hint" style={{ marginLeft: 8, fontWeight: 400 }}>{g.note}</span>}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {g.rows.map((r, i) => (
+          <div
+            key={`${r.title}:${i}`}
+            className="settings-row"
+            style={{ opacity: r.enabled ? undefined : 0.45 }}
+            title={!r.enabled ? t("Settings_ScUnavailable") : undefined}
+          >
+            <span style={{ flex: 1, fontSize: 12.5 }}>
+              {r.title}
+              {r.note && <span className="hint" style={{ marginLeft: 8 }}>{r.note}</span>}
+            </span>
+            <span style={{ display: "inline-flex", gap: 4, flex: "none" }}>
+              {r.keys.map((k) => <kbd key={k} className="kbd">{k}</kbd>)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 
   return (
     <>
       <div className="hint" style={{ marginBottom: 10 }}>{t("Settings_ShortcutsHint")}</div>
-      {group(t("Settings_ScGroupGlobal"), SC_PAGE_GROUPS[0].entries.map((e) => row({ title: t(e.titleKey), keys: e.keys })))}
-      {cmdGroups.map((g) => group(g.label, g.entries.map((e) => row({ title: e.title, keys: e.keys, enabled: e.enabled }))))}
-      {SC_PAGE_GROUPS.slice(1).map((g) => group(t(g.labelKey), g.entries.map((e) => row({ title: t(e.titleKey), keys: e.keys, note: e.noteKey ? t(e.noteKey) : undefined }))))}
+      <input
+        className="input"
+        style={{ width: "100%", marginBottom: 12 }}
+        placeholder={t("Settings_ShortcutsSearch")}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      {shown.map((g) => group(g))}
+      {shown.length === 0 && <div className="hint">{t("Settings_ShortcutsNoMatches")}</div>}
     </>
   );
 }
