@@ -364,6 +364,7 @@ export function FilesPage() {
       {!collapsed && (
         <div className="files-side" style={{ width, flex: "none" }}>
           <TreePane
+            key={repo.workDir}
             entries={treeData.entries}
             activePath={activeTab}
             onOpenFile={openFile}

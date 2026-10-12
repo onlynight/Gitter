@@ -1980,6 +1980,27 @@
         return next;
       });
     }, []);
+    const collapseInitRef = React$1.useRef(false);
+    React$1.useEffect(() => {
+      if (collapseInitRef.current || props.entries.length === 0) return;
+      collapseInitRef.current = true;
+      const dirs = /* @__PURE__ */ new Set();
+      for (const e of props.entries) {
+        const parts = e.path.split("/");
+        let acc2 = "";
+        for (let i = 0; i < parts.length - 1; i++) {
+          acc2 = acc2 ? `${acc2}/${parts[i]}` : parts[i];
+          dirs.add(acc2);
+        }
+      }
+      const segs = (props.activePath ?? "").split("/");
+      let acc = "";
+      for (let i = 0; i < segs.length - 1; i++) {
+        acc = acc ? `${acc}/${segs[i]}` : segs[i];
+        dirs.delete(acc);
+      }
+      if (dirs.size > 0) setCollapsed(dirs);
+    }, [props.entries]);
     const startDraft = React$1.useCallback((dir, kind) => {
       setDraft({ dir, kind, mode: "create" });
       setDraftName("");
@@ -3731,9 +3752,17 @@ body.dark .gpv-sheet-tabs button.active { background: #3a3a3a; border-color: #4a
     return res.data;
   }
   const MD_EXTS = [".md", ".markdown"];
+  const HTML_EXTS = [".html", ".htm"];
   function isMdPath(p) {
     const i = p.lastIndexOf(".");
     return i >= 0 && MD_EXTS.includes(p.slice(i).toLowerCase());
+  }
+  function isHtmlPath(p) {
+    const i = p.lastIndexOf(".");
+    return i >= 0 && HTML_EXTS.includes(p.slice(i).toLowerCase());
+  }
+  function isExternalPreviewPath(p) {
+    return isMdPath(p) || isHtmlPath(p);
   }
   function isProviderResult(r) {
     return !!r && typeof r.kind === "string" && typeof r.content === "string";
@@ -3816,6 +3845,7 @@ li { margin: .25em 0; }
   function ExternalFilePreview(props) {
     const theme = useAppState().theme;
     const dark = props.dark ?? ((theme == null ? void 0 : theme.base) ?? "dark") !== "light";
+    const htmlRaw = isHtmlPath(props.path);
     const [phase, setPhase] = React$1.useState({ kind: "loading" });
     React$1.useEffect(() => {
       let stale = false;
@@ -3823,7 +3853,7 @@ li { margin: .25em 0; }
       call("file.preview", { path: props.path }).then(async (r) => {
         if (stale) return;
         if (isProviderResult(r)) {
-          const content = r.kind === "html" ? await injectCodeHighlight(r.content).catch(() => r.content) : r.content;
+          const content = r.kind === "html" && !isHtmlPath(props.path) ? await injectCodeHighlight(r.content).catch(() => r.content) : r.content;
           if (!stale) setPhase({ kind: r.kind, content });
         } else setPhase({ kind: "fallback" });
       }).catch(() => {
@@ -3838,9 +3868,9 @@ li { margin: .25em 0; }
       "iframe",
       {
         className: "extpreview-frame",
-        sandbox: "",
+        sandbox: htmlRaw ? "allow-scripts allow-forms allow-modals" : "",
         title: name,
-        srcDoc: mdSrcdoc(phase.content, dark)
+        srcDoc: htmlRaw ? phase.content : mdSrcdoc(phase.content, dark)
       }
     ) : phase.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "extpreview-text", children: phase.content }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "office-welcome", children: [
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "edwm", children: name }),
@@ -3880,6 +3910,7 @@ li { margin: .25em 0; }
   registerFileViewer(["pdf", "pptx", "docx", "xlsx", "ods"], (p) => /* @__PURE__ */ jsxRuntime.jsx(OfficeDocViewer, { ...p }));
   registerFileExtViewer(IMAGE_EXTS, (p) => /* @__PURE__ */ jsxRuntime.jsx(ImageFileViewer, { ...p }));
   registerFileExtViewer(MD_EXTS, (p) => /* @__PURE__ */ jsxRuntime.jsx(ExternalFilePreview, { ...p, onEditText: p.onEditText ? () => p.onEditText(p.path) : void 0 }));
+  registerFileExtViewer(HTML_EXTS, (p) => /* @__PURE__ */ jsxRuntime.jsx(ExternalFilePreview, { ...p, onEditText: p.onEditText ? () => p.onEditText(p.path) : void 0 }));
   const STATUS_CLS = { M: "gs-M", A: "gs-A", D: "gs-D", R: "gs-R", U: "gs-U", "?": "gs-Q" };
   const STATUS_LETTER = { M: "M", A: "A", D: "D", R: "R", U: "U", "?": "?" };
   function fsAffected(root, isDir, p) {
@@ -4545,7 +4576,7 @@ li { margin: .25em 0; }
           props.activeTab && textMode.has(props.activeTab) && viewerForPath(props.activeTab) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Editor_PreviewMode"), onClick: () => exitTextMode(props.activeTab), children: /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
             /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M1.3 8C2.2 5.9 4.8 3.5 8 3.5S13.8 5.9 14.7 8c-.9 2.1-3.5 4.5-6.7 4.5S2.2 10.1 1.3 8Z", stroke: "currentColor", strokeWidth: "1.2" }),
             /* @__PURE__ */ jsxRuntime.jsx("circle", { cx: "8", cy: "8", r: "1.9", stroke: "currentColor", strokeWidth: "1.2" })
-          ] }) }) : props.activeTab && !textMode.has(props.activeTab) && isMdPath(props.activeTab) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Editor_EditSource"), onClick: () => requestTextMode(props.activeTab), children: /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
+          ] }) }) : props.activeTab && !textMode.has(props.activeTab) && isExternalPreviewPath(props.activeTab) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Editor_EditSource"), onClick: () => requestTextMode(props.activeTab), children: /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
             /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M11.3 2.1a1.4 1.4 0 0 1 2 2L6 11.4l-2.8.8.8-2.8 7.3-7.3Z", stroke: "currentColor", strokeWidth: "1.2", strokeLinejoin: "round" }),
             /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2.5 14h11", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" })
           ] }) }) : null
@@ -5594,7 +5625,8 @@ li { margin: .25em 0; }
           onRefresh: () => void loadTree(),
           onModeChange: setTreeMode,
           revealTick
-        }
+        },
+        repo.workDir
       ) }),
       /* @__PURE__ */ jsxRuntime.jsx(
         "div",

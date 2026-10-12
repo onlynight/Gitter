@@ -12,7 +12,7 @@
         "title": "%Nav_Files%",
         "entry": "page.js",
         "icon": "",
-        "svg": null,
+        "svg": "M1.5 4.25C1.5 3.28 2.28 2.5 3.25 2.5h3.4c.5 0 .98.22 1.31.6l.99 1.15h4.8c.97 0 1.75.78 1.75 1.75v6.75c0 .97-.78 1.75-1.75 1.75H3.25c-.97 0-1.75-.78-1.75-1.75z",
         "lazy": true,
         "permissions": [
           "git.read",
@@ -24,9 +24,20 @@
           "zh-Hans": "docs/zh-Hans.md"
         },
         "dependencies": [
-          { "lib": "monaco", "package": "gitui.lib.monaco", "semver": "^0.52.0" },
-          { "lib": "officeview", "package": "gitui.page.office" },
-          { "lib": "chart", "package": "gitui.lib.chart", "required": false }
+          {
+            "lib": "monaco",
+            "package": "gitui.lib.monaco",
+            "semver": "^0.52.0"
+          },
+          {
+            "lib": "officeview",
+            "package": "gitui.page.office"
+          },
+          {
+            "lib": "chart",
+            "package": "gitui.lib.chart",
+            "required": false
+          }
         ]
       }
     ]

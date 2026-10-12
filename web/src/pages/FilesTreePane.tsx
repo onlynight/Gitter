@@ -244,6 +244,32 @@ export function TreePane(props: {
     });
   }, []);
 
+  // 默认折叠：首次装载收起全部目录（顶层级可见，点开即展开）；活动文件的祖先保持
+  // 展开——任务页跳转/会话恢复时不被折叠遮住。仅每次挂载生效一次（手动展开后
+  // 保存触发的 loadTree 不会重新折叠）；仓库切换经 FilesPage 的 key 重挂重置。
+  const collapseInitRef = useRef(false);
+  useEffect(() => {
+    if (collapseInitRef.current || props.entries.length === 0) return;
+    collapseInitRef.current = true;
+    const dirs = new Set<string>();
+    for (const e of props.entries) {
+      const parts = e.path.split("/");
+      let acc = "";
+      for (let i = 0; i < parts.length - 1; i++) {
+        acc = acc ? `${acc}/${parts[i]}` : parts[i];
+        dirs.add(acc);
+      }
+    }
+    const segs = (props.activePath ?? "").split("/");
+    let acc = "";
+    for (let i = 0; i < segs.length - 1; i++) {
+      acc = acc ? `${acc}/${segs[i]}` : segs[i];
+      dirs.delete(acc);
+    }
+    if (dirs.size > 0) setCollapsed(dirs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.entries]);
+
   // 行内新建：展开目标目录的全部祖先（只展开自己、祖先仍折叠时该行渲染不出来，
   // 输入行会兜底顶到树顶，看起来就像在根目录新建）→ 聚焦输入行
   const startDraft = useCallback((dir: string, kind: "file" | "dir") => {
