@@ -118,6 +118,7 @@ export function BranchesPage() {
     | { kind: "deleteRemote"; name: string }
     | { kind: "deleteTag"; name: string }
     | { kind: "reflog"; name: string }
+    | { kind: "checkout"; name: string }
     | { kind: "merge"; source: string; target: string; noFf: boolean; message: string }
     | null
   >(null);
@@ -166,12 +167,23 @@ export function BranchesPage() {
     void loadGraph();
   }, [repo, app.refreshTick, app.repoChangedTick]);
 
-  // 命令面板/菜单的 branches.create 路由到本页：打开创建对话框
+  // 命令面板路由：branches.create 开创建对话框；pull/pullRebase/push 直连本页现有动作
+  // （此前只认 branches.create，面板里其余四条命令跳页后不执行）；checkout 开快速检出对话框
   useEffect(() => {
-    if (app.routedCommand?.id === "branches.create") {
+    const id = app.routedCommand?.id;
+    if (!id) return;
+    if (id === "branches.create") {
       setDialog({ kind: "create", name: "", startPoint: "HEAD", startPointTab: "branch", checkout: true });
+    } else if (id === "branches.pull") {
+      void run(async () => { await call("branches.pull", { rebase: false }); return t("Branches_Pulled"); });
+    } else if (id === "branches.pullRebase") {
+      void run(async () => { await call("branches.pull", { rebase: true }); return t("Branches_PulledRebase"); });
+    } else if (id === "branches.push") {
+      void run(async () => { await call("branches.push", {}); return t("Branches_Pushed"); });
+    } else if (id === "branches.checkout") {
+      setDialog({ kind: "checkout", name: "" });
     }
-  }, [app.routedCommand]);
+  }, [app.routedCommand]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** 创建起点候选：HEAD / 本地分支 / 远程分支 / tag。value 用全限定 refname 避免分支与 tag 同名歧义。 */
   const startPointOptions = (): SelectOption[] => {
@@ -428,6 +440,32 @@ export function BranchesPage() {
               <input type="checkbox" checked={dialog.checkout} onChange={(e) => setDialog({ ...dialog, checkout: e.target.checked })} />
               {t("Branches_CheckoutAfter")}
             </label>
+          </div>
+        </Modal>
+      )}
+      {dialog?.kind === "checkout" && (
+        <Modal
+          title={t("Branches_CheckoutTitle")}
+          confirmText={t("Branches_Checkout")}
+          confirmDisabled={!dialog.name || dialog.name === state?.current}
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            const name = dialog.name;
+            setDialog(null);
+            void run(async () => { await call("branches.checkout", { name }); return t("Branches_CheckedOut", name); });
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ color: "var(--c-text3)", fontSize: 12 }}>{t("Branches_CheckoutPick")}</span>
+            <Select
+              className="full" style={{ width: "100%" }}
+              value={dialog.name}
+              options={(state?.local ?? []).filter((b) => b.name !== state?.current).map((b) => ({ value: b.name, label: b.name }))}
+              onChange={(v) => setDialog({ ...dialog, name: v })}
+              searchable
+              searchPlaceholder={t("Branches_SearchPlaceholder")}
+              placeholder={t("Branches_NamePlaceholder")}
+            />
           </div>
         </Modal>
       )}
