@@ -284,13 +284,21 @@ export function App() {
     );
   }), []);
 
-  // R2：语言切换 → 包标题（%key% 装载时解析）重解析；monaco 内建 UI（命令面板/右键
-  // 菜单）语言在库装载时固化无法热切换——toast 提示重启生效
+  // R2：语言切换 → 整窗重载直接生效（VS Code 同语义）。monaco 内建 UI（命令面板/右键
+  // 菜单）标签在库装载时定型无法热切换，局部热重载救不了——整窗重载后 boot 按新语言
+  // 重新解析依赖（monaco 中文语言包按语言门控注入）+ 重建全部界面。
+  // 首次挂载（lang 初值）不重载：boot 流程本身会按语言装载外部页。
   const lang = useApp().i18n?.lang;
+  const prevLangRef = useRef<string | null>(null);
   useEffect(() => {
     if (!lang) return;
+    const prev = prevLangRef.current;
+    prevLangRef.current = lang;
+    if (prev && prev !== lang) {
+      window.location.reload();
+      return;
+    }
     void reloadExternalPages(getState().settings?.allowCodePlugins ?? false, lang);
-    pushToast(t("Main_LangSwitchTitle"), t("Main_LangEditorRestart"));
   }, [lang]);
 
   useShortcuts((prefill) => setPalette({ prefill, ts: Date.now() }));

@@ -2,7 +2,6 @@
 # 格式：key <TAB> en <TAB> zh-Hans；# 开头为注释；值内换行写作 \n；{n} 为占位符（中英必须一致）
 # 修改后运行 scripts/gen-localization.ps1 重新生成 resx 与 Designer。
 # 注意：中性语言 = 英文（缺 key 由 key-parity 测试兜底）；UIA 冒烟脚本锁定 zh-Hans。
-
 # ==== Common（跨页复用）====
 Common.Cancel	Cancel	取消
 Common.FollowSystem	System	跟随系统
@@ -31,7 +30,6 @@ Common.DiffViewAutomation	Diff view	Diff 视图
 Common.TerminalOutputAutomation	Terminal output	终端输出区
 Common.PaneDividerAutomation	Resize panes	调整左右面板宽度
 Common.FileListAutomation	File list	文件列表
-
 # ==== Nav（侧边导航 / 页签）====
 Nav.Projects	Projects	项目
 Nav.Log	Log	Log
@@ -40,11 +38,9 @@ Nav.Branches	Branches	分支
 Nav.Terminal	Terminal	终端
 Nav.Settings	Settings	设置
 Nav.Dashboard	Dashboard	仪表盘
-
 # ==== Main（主窗口 chrome）====
 Main.WindowTitle	{0} - Gitter	{0} - Gitter
 Main.StatusHint	Ctrl+1..6 switch pages · F5 refresh	Ctrl+1..6 切换页签 · F5 刷新
-
 # ==== Palette（命令面板）====
 Palette.Title	Command Palette	命令面板
 Palette.InputPlaceholder	Type a command…	输入命令…
@@ -54,7 +50,6 @@ Palette.NoMatches	No matching commands (Esc to close)	没有匹配的命令（Es
 Palette.Recent	Recently used	最近使用
 Palette.HitCount	{0} hits	命中 {0}
 Palette.CategoryAutomation	Category {0}	分类 {0}
-
 # ==== Cat（命令面板分类）====
 Cat.Nav	Navigation	导航
 Cat.Repo	Repository	仓库
@@ -63,7 +58,6 @@ Cat.Branch	Branch	分支
 Cat.Sync	Sync	同步
 Cat.View	View	视图
 Cat.Settings	Settings	设置
-
 # ==== Cmd（命令面板条目标题；id 常量见 Core/Settings/CommandIds.cs）====
 Cmd.GotoProjects	Go to Projects	转到项目
 Cmd.GotoLog	Go to Log	转到 Log
@@ -95,7 +89,6 @@ Cmd.ThemeLight	Theme: Light	主题：浅色
 Cmd.ThemeDark	Theme: Dark	主题：深色
 Cmd.ExportSettings	Export Settings	导出设置
 Cmd.ImportSettings	Import Settings	导入设置
-
 # ==== Settings（设置页）====
 Settings.Title	Settings	设置
 Settings.Theme	Theme	主题
@@ -127,7 +120,6 @@ Kind.Theme	Theme	主题
 Kind.Syntax	Syntax	语法
 ThemePkg.Light	Light	亮色
 ThemePkg.Dark	Dark	深色
-
 # ==== Log（Log 页）====
 Log.BranchPlaceholder	Branch	分支
 Log.BranchPickerAutomation	Branch picker	分支选择
@@ -162,7 +154,6 @@ Log.EmptyRepo	Empty repository: no commits yet	空仓库：还没有任何提交
 Log.LoadedStatus	Loaded {0} of {1}	已加载 {0} / 共 {1}
 Log.ScrollMore	 · scroll for more	 · 滚动加载更多
 Log.GroupsSuffix	 · {0} groups	 · {0} 个分组
-
 # ==== Changes（变更页）====
 Changes.OpenInEditor	Open in Editor	在编辑器打开
 Changes.StageFile	Stage File	暂存文件
@@ -206,7 +197,6 @@ Changes.EmptyMessage	Commit message cannot be empty	提交消息不能为空
 Changes.UnresolvedConflicts	Unresolved conflict files; resolve conflicts before committing	存在未解决的冲突文件，请先解决冲突再提交
 Changes.Committed	Committed {0}	已提交 {0}
 Changes.PushedSuffix	 · push succeeded	 · 推送成功
-
 # ==== Branches（分支页）====
 Branches.Checkout	Checkout	检出
 Branches.Create	Create	创建
@@ -252,7 +242,6 @@ Branches.DeleteSafe	All commits of branch {0} are still reachable from other bra
 Branches.DeleteLoseOne	This will discard 1 commit: {0}	将丢弃 1 个提交：{0}
 Branches.DeleteLoseMany	This will discard {0} commits: {1}	将丢弃 {0} 个提交：{1}
 Branches.DeleteLoseMore	 etc. ({0} total)	 等（共 {0} 个）
-
 # ==== Projects（项目页）====
 Projects.AddProject	+ Add Project	+ 添加项目
 Projects.AddProjectAutomation	Add Project	添加项目
@@ -280,7 +269,6 @@ Projects.StatusNoCurrentOne	{0} project · double-click to set current	共 {0} �
 Projects.StatusNoCurrentMany	{0} projects · double-click to set current	共 {0} 个项目 · 双击设为当前项目
 Projects.StatusCurrentOne	{0} project · double-click to set current · current: {1}	共 {0} 个项目 · 双击设为当前项目 · 当前：{1}
 Projects.StatusCurrentMany	{0} projects · double-click to set current · current: {1}	共 {0} 个项目 · 双击设为当前项目 · 当前：{1}
-
 # ==== Terminal（终端页）====
 Terminal.NotStarted	Not started	未启动
 Terminal.Clear	Clear Screen	清屏
@@ -306,7 +294,6 @@ Terminal.RestartShell	Restart shell	重开 shell
 Terminal.CopyScreen	Copy Screen Output	复制屏幕输出
 Terminal.FollowRepo	Follow repository working directory	跟随仓库工作目录
 Terminal.StatusFormat	{0}{1} · {2}×{3} · Follow repo: {4}	{0}{1} · {2}×{3} · 跟随仓库: {4}
-
 # ==== Preview（Diff 渲染预览窗，S3 手动验证工具）====
 Preview.Title	Diff Render Preview (S3)	Diff 渲染预览（S3 验证）
 Preview.RepoPathAutomation	Repository path	仓库路径
@@ -321,7 +308,6 @@ Preview.OpenedStatus	{0} — {1} commits (showing {2})	{0} — {1} 个提交（�
 Preview.OpenFailed	Open failed: {0}	打开失败: {0}
 Preview.ReadFailed	Read commit failed: {0}	读取提交失败: {0}
 Preview.FilesStatus	{0} — {1} files	{0} — {1} 个文件
-
 # ==== Time（相对时间 / 分组头，LogFormatting 消费）====
 Time.Yesterday	Yesterday {0}	昨天 {0}
 Time.DayBefore	2 days ago {0}	前天 {0}
@@ -332,7 +318,6 @@ Time.Weekdays	Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday	日,一,�
 Time.Today	Today · {0} ({1})	今天 · {0} 星期{1}
 Time.YesterdayDay	Yesterday · {0} ({1})	昨天 · {0} 星期{1}
 Time.PlainDay	{0} ({1})	{0} 星期{1}
-
 # ==== Import（主题/语法包导入状态，ThemeService.ImportGpk）====
 Import.FileNotFound	File not found: {0}	文件不存在：{0}
 Import.MissingManifest	manifest.json missing from package	包内缺少 manifest.json
@@ -343,11 +328,9 @@ Import.MissingSyntax	syntax/highlighters.json missing from package	包内缺少 
 Import.AppliedTheme	Theme package imported and applied: {0}	已导入并应用主题包：{0}
 Import.AppliedSyntax	Syntax package imported: {0}	已导入语法高亮包：{0}
 Import.Failed	Import failed: {0}	导入失败：{0}
-
 # ==== Bash（BashLocator 定位错误，GitUI.Shell 消费）====
 Bash.CustomPathMissing	Specified bash path does not exist: {0}	手动指定的 bash 路径不存在：{0}
 Bash.LocateFailed	bash.exe of Git for Windows not found. Install Git for Windows, or set the bash path in settings.	未找到 Git for Windows 的 bash.exe。请安装 Git for Windows，或在设置中手动指定 bash 路径。
-
 # ==== Op（git 操作名，LibGit2RepositoryService 抛错用）====
 Op.Stage	stage	暂存
 Op.Unstage	unstage	撤销暂存
@@ -357,7 +340,6 @@ Op.CreateBranch	create branch	创建分支
 Op.RenameBranch	rename branch	重命名分支
 Op.Checkout	checkout	检出
 Op.DeleteBranch	delete branch	删除分支
-
 # ==== Git（仓库层用户可见错误）====
 Git.OpFailed	{0} failed: {1}	{0} 失败: {1}
 Git.CommitNotFound	Commit {0} not found	找不到提交 {0}
@@ -365,13 +347,11 @@ Git.NothingStaged	No staged changes; nothing to commit	没有已暂存的变更�
 Git.StartNotFound	Start commit {0} not found	找不到起点提交 {0}
 Git.BranchNotFound	Branch {0} does not exist	分支 {0} 不存在
 Git.Timeout	Git execution timed out	执行超时
-
 # ==== Push（推送失败分类建议，PushException.Hint）====
 Push.HintAuthFailed	Credentials rejected; check the remote login state and retry	凭据被拒绝，请检查远程仓库的登录状态后重试
 Push.HintNetwork	Cannot reach the remote; check the network and retry	无法连接远程仓库，请检查网络后重试
 Push.HintNonFastForward	The remote branch has new commits; pull first, then push	远端分支有新提交，请先拉取（Pull）再推送
 Push.HintGeneric	Push failed; retry or inspect the full output	推送失败，可重试或查看完整输出
-
 # ==== Rules（提交前安全网规则文案，CommitSafetyScanner，ai-native-redesign.md §4.2）====
 Rules.SecretToken	Looks like a hardcoded secret or token	疑似硬编码的密钥或令牌
 Rules.PrivateKey	Private key material detected	检测到私钥内容
@@ -379,7 +359,6 @@ Rules.SecretAssignment	Hardcoded credential assignment	疑似明文密钥赋值
 Rules.DebugResidue	Debug output left in code	调试输出残留
 Rules.LargeFile	Large file: +{0} lines (threshold {1})	大文件：新增 {0} 行（阈值 {1}）
 Rules.BinaryIncoming	Binary file added to the repository	二进制文件入库
-
 # ==== Changes（安全网与 AI 提交信息，ai-native-redesign.md §四）====
 Changes.SafetyBlocked	Commit blocked by safety net: {0} blocking issue(s). See details.	提交被安全网拦截：{0} 个阻止级问题，详见错误详情
 Changes.SafetyWarnings	{0} safety warning(s)	{0} 条安全网警告
@@ -388,7 +367,6 @@ Changes.AiGenerating	Generating…	生成中…
 Changes.AiNotConfigured	AI is not configured; set it up in Settings	未配置 AI，请在设置中配置
 Changes.AiEmptyDraft	AI returned an empty draft	AI 返回了空草稿
 Changes.AiBlockedBySecrets	Not sent to AI: possible secrets detected in the diff	未发送给 AI：diff 中检测到疑似密钥
-
 # ==== Settings（实时监视 + AI 配置，ai-native-redesign.md §七/§八）====
 Settings.MonitorSection	Live monitoring & background fetch	实时监视与后台拉取
 Settings.WatchWorktree	Watch worktree for changes (auto refresh)	监视工作区文件变化（自动刷新）
@@ -415,7 +393,6 @@ Settings.SafetyOff	Off	关闭
 Settings.SafetyWarn	Warn only	仅警告
 Settings.SafetyBlock	Block commit	拦截提交
 Settings.AiHint	Keys stay on this machine (DPAPI-protected). Cloud providers only receive data allowed by the privacy level below.	密钥只保存在本机（DPAPI 加密）。云端 provider 仅收到下方隐私级别允许的数据。
-
 # ==== Changes（验收台 v1，ai-native-redesign.md §三）====
 Changes.RejectHunk	Reject hunk	拒绝此块
 Changes.Retake	Send back to agent	退回重做
@@ -429,7 +406,6 @@ Common.Close	Close	关闭
 Changes.RiskBlockedTooltip	Safety net: {0} blocking issue(s)	安全网：{0} 个阻止级问题
 Changes.RiskWarningTooltip	Safety net: {0} warning(s)	安全网：{0} 条警告
 Nav.Tasks	Tasks	任务
-
 # ==== Tasks（并行工作台任务卡，ai-native-redesign.md §六）====
 Tasks.NewTask	New task	新建任务
 Tasks.NewTaskTitle	New task (branch: task/<name>)	新建任务（分支：task/<名称>）
@@ -832,7 +808,6 @@ Extensions_Disabled	Disabled	已禁用
 Extensions_Error	Error	错误
 Extensions_Config	Configuration	配置
 Extensions_Imported	Imported	已导入
-
 # Agent 宿主（agent-harness-codex.md v2.0）
 Agents_Create	New agent task	新建 Agent 任务
 Agents_CreateTitle	New Agent Task	新建 Agent 任务
@@ -852,7 +827,6 @@ Agents_NoHarness	No usable harness detected (check CLI install / PATH)	未探测
 Agents_PermTitle	Permission request	授权请求
 Agents_PermApprove	Approve	批准
 Agents_PermDeny	Deny	驳回
-
 # Agent 宿主 v3.0（两栏任务页）
 Agents_EmptyHint	No agent tasks yet — create one and hand it a task	还没有 Agent 任务——新建一个并派活
 Agents_SelectHint	Select a task on the left to view its session timeline	在左侧选择任务查看会话时间线
@@ -869,7 +843,6 @@ Agents_ComposeHint	Describe the task and send — Gitter will create an isolated
 Agents_ComposePlaceholder	Describe the task, e.g. "Fix LogFilter parsing crash and add unit tests"…	描述任务，例如“修复 LogFilter 解析崩溃并补单元测试”…
 Agents_TargetHint	creates an isolated worktree (task/* branch)	自动创建隔离 worktree（task/* 分支）
 Agents_Dispatched	Task dispatched: {0}	任务已下发：{0}
-
 # 
 # 设置页 v2（两级导航 + 搜索）
 Settings_CatAppearance	Appearance	外观
@@ -913,7 +886,6 @@ Settings_AgentOnExitKeep	Keep running	保留运行
 Settings_AgentTaskWorktree	Task isolation	任务在独立 worktree 执行
 Settings_AgentTaskWorktreeHint	Off (default): tasks edit directly on the current branch. On: each task gets its own worktree + task/* branch	默认关：任务直接在当前分支上修改；开启后每个任务在独立 worktree + task/* 分支中执行（当前分支模式下不产生 checkpoint 托管提交）
 Settings_AiProviderHint	openai-compatible covers DeepSeek / Ollama / any endpoint	openai-compatible 覆盖 DeepSeek / Ollama / 任意兼容端点
-
 # 模型档案与任务型（task-model-modules.md）
 Settings_ModelsSection	Model Profiles	模型档案
 Settings_ModelsProfiles	Profiles	档案
@@ -935,7 +907,6 @@ Agents_TaskTypeFree	Free task	自由任务
 Agents_ModelDefault	Model: default chain	模型：默认链
 Agents_ModelBadgeTitle	Model profile (takes effect next turn)	模型档案（下一轮生效）
 Agents_Archive	Archive	归档
-
 Settings_CatModels	Models	模型
 Settings_ModelsApiKey	API Key	API 密钥
 Settings_ModelsIdPlaceholder	model id（可测试连接后自动填充）	model id（可测试连接后自动填充）
@@ -981,7 +952,6 @@ Settings_ModelsEditBtn	Edit	编辑
 Settings_ModelsCount	{0} models	{0} 个模型
 Settings_ModelsKeyKept	Saved — leave blank to keep	已保存——留空保持不变
 Settings_ModelsPickModel	Pick a provider, then a model	先选供应商，再选模型
-
 Agents_TaskType	Task type	任务型
 Agents_Model	Model	模型
 Agents_Thinking	Thinking depth	思考深度
@@ -1198,5 +1168,3 @@ Settings_GitRemoteUrl	Remote URL	远程 URL
 Settings_NoRepoHint	No repository open; repository-level config is unavailable	当前未打开仓库，无法编辑仓库级配置
 Settings_Unset	Unset	未设置
 Extensions_OpenFolder	Open plugins folder	打开插件目录
-Main_LangSwitchTitle	Language switched	界面语言已切换
-Main_LangEditorRestart	Editor built-in UI (command palette / context menus) applies after app restart.	编辑器内建界面（命令面板/右键菜单）的语言将在重启应用后生效。
