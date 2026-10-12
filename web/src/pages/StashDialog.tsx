@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
-import { call } from "../bridge/client";
-import { t } from "../state/store";
+import { pageSdk } from "../pageSdk";
 import { Modal } from "../kit";
 import { TlIcon } from "./taskIcons";
 import type { StashEntryDTO, StashFileDTO } from "../bridge/types";
+
+// R1 宿主面收敛：本组件随页面包构建，t 必须走 pageSdk（宿主活 store）——
+// 若 import "../state/store" 会被打进页面包成为私有 store 副本，永远等不到 i18n 加载，t() 原样吐 key
+const { call, t } = pageSdk;
 
 /**
  * stash 管理对话框（stash-mockup.html：变更页工具栏收件箱图标钮承载）：
