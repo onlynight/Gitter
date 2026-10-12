@@ -1,8 +1,9 @@
 # 变更页:提交类型前缀收进图标下拉
 
-> 状态:**设计稿,未动代码**(2026-10-12) · 范围:仅变更页提交框前缀行,行为语义不变
+> 状态:**已落地**(2026-10-12,web tsc 通过;视觉/交互经 web/harness/changes.html 验收——亮/暗双主题、点选插入、非空无操作、↑↓/Enter/Esc/点击外部关闭全过) · 范围:仅变更页提交框前缀行,行为语义不变
 > 原型:[../design/changes-commit-prefix-dropdown-mockup.html](../design/changes-commit-prefix-dropdown-mockup.html)(交互式:点图标钮开菜单,可键盘操作,亮/暗双主题)
 > 上游:无(独立小改) · 关联惯例:任务页 v3.3 同款「低频操作收进下拉」思路
+> 落地备注:smoke-ui-pages 无前缀 chips 断言,无需同步;页面包产物(gitui.page.changes/page.js)随 build-pages 重建即可。
 > 裁决:
 > 1. **触发钮留在前缀行左端**(prefix-row 原位),不挪底部操作行、不悬浮进 textarea——改动面最小,行高不变。
 > 2. **行为语义不变**:仅当消息为空时插入「前缀 + 空格」,非空不动文本(与现 chips 完全一致)。

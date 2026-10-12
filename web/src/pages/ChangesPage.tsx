@@ -9,7 +9,15 @@ import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
 const { call, t, navigate, notifyRepoChanged, openSettings, setContext: setSharedContext } = pageSdk;
 const useApp = useAppState;
 
-const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
+// 提交类型前缀：收进图标下拉（changes-commit-prefix-dropdown-design.md），类型清单不变
+const PREFIX_ITEMS = [
+  { pfx: "feat:", descKey: "Changes_PrefixFeat" },
+  { pfx: "fix:", descKey: "Changes_PrefixFix" },
+  { pfx: "docs:", descKey: "Changes_PrefixDocs" },
+  { pfx: "test:", descKey: "Changes_PrefixTest" },
+  { pfx: "build:", descKey: "Changes_PrefixBuild" },
+  { pfx: "chore:", descKey: "Changes_PrefixChore" },
+];
 
 // 可直接预览的文件扩展名（与 app/src/services/preview.ts 的 MIME 表保持同步）
 const PREVIEW_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".ico", ".svg"]);
@@ -81,6 +89,26 @@ export function ChangesPage() {
     });
   const [selectedHunks, setSelectedHunks] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState("");
+  // 提交类型前缀下拉（向上弹；点击外部关闭对齐 kit/Select 惯例）
+  const [prefixOpen, setPrefixOpen] = useState(false);
+  const [prefixHi, setPrefixHi] = useState(-1);
+  const prefixRef = useRef<HTMLDivElement | null>(null);
+  const commitInputRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    if (!prefixOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!prefixRef.current?.contains(e.target as Node)) setPrefixOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [prefixOpen]);
+  // 插入语义与原 chips 一致：仅空消息打底；选后关菜单、焦点回输入框
+  const insertPrefix = (pfx: string) => {
+    setMessage((m) => (m.trim() ? m : pfx + " "));
+    setPrefixOpen(false);
+    setPrefixHi(-1);
+    commitInputRef.current?.focus();
+  };
   const [busy, setBusy] = useState(false);
   const [findings, setFindings] = useState<SafetyFindingDTO[]>([]);
   // 安全网发现交互：展开全部 / 逐条标记已解决（localStorage 持久化，仅隐藏横幅——
@@ -746,12 +774,40 @@ export function ChangesPage() {
             )}
           </ScrollArea>
 
-          {/* 提交框：前缀 chips + AI 生成；底部实时汇总 + 文字主按钮 */}
+          {/* 提交框：前缀图标下拉 + AI 生成；底部实时汇总 + 文字主按钮 */}
           <div className="commit-box">
-            <div className="prefix-row">
-              {PREFIXES.map((p) => (
-                <button key={p} className="prefix-chip" onClick={() => setMessage((m) => (m.trim() ? m : p + " "))}>{p}</button>
-              ))}
+            <div className="prefix-row" ref={prefixRef}
+              onKeyDown={(e) => {
+                if (!prefixOpen) return;
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const d = e.key === "ArrowDown" ? 1 : -1;
+                  setPrefixHi((h) => (h + d + PREFIX_ITEMS.length) % PREFIX_ITEMS.length);
+                } else if (e.key === "Enter") {
+                  e.preventDefault(); // 菜单开着时 Enter 不回落为触发钮点击
+                  if (prefixHi >= 0) insertPrefix(PREFIX_ITEMS[prefixHi].pfx);
+                } else if (e.key === "Escape") {
+                  setPrefixOpen(false);
+                }
+              }}>
+              <button className="icon-btn" data-tip={t("Changes_PrefixMenu")} aria-haspopup="menu" aria-expanded={prefixOpen}
+                onClick={() => { setPrefixOpen((v) => !v); setPrefixHi(-1); }}>
+                <TlIcon name="commit" size={13} />
+                <TlIcon name="chevron-down" size={9} className="prefix-chev" />
+              </button>
+              {prefixOpen && (
+                <div className="prefix-pop" role="menu" aria-label={t("Changes_PrefixMenu")}>
+                  {PREFIX_ITEMS.map((it, i) => (
+                    <button key={it.pfx} type="button" role="menuitem" className={"pitem" + (i === prefixHi ? " hi" : "")}
+                      onMouseEnter={() => setPrefixHi(i)}
+                      onClick={() => insertPrefix(it.pfx)}>
+                      <span className="pfx">{it.pfx}</span>
+                      <span className="desc">{t(it.descKey)}</span>
+                    </button>
+                  ))}
+                  <div className="pop-hint">{t("Changes_PrefixMenuHint")}</div>
+                </div>
+              )}
               <span className="grow" style={{ flex: 1 }} />
               <button className="icon-btn" data-tip={aiBusy ? t("Common_Loading") : t("Changes_AiGenerate")} disabled={aiBusy || (state?.staged.length ?? 0) === 0} onClick={() => void generateMessage()}>
                 <TlIcon name="sparkle" size={13} />
@@ -759,6 +815,7 @@ export function ChangesPage() {
             </div>
             <CommitBlocks fileCount={state?.staged.length ?? 0} />
             <textarea
+              ref={commitInputRef}
               placeholder={t("Changes_CommitMessagePlaceholder")}
               value={message}
               onChange={(e) => setMessage(e.target.value)}

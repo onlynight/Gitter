@@ -123,8 +123,8 @@
     plan: "M8 1.5 14.5 8 8 14.5 1.5 8 8 1.5Zm0 2.1L3.6 8 8 12.4 12.4 8 8 3.6Zm0 3.15a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z",
     // 分叉（Octicons git-branch-16）
     fork: "M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z",
-    // 归档（Octicons archive-16）
-    archive: "M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H14v6.25A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25V6h-.25A1.75 1.75 0 0 1 0 4.25v-1.5ZM3.5 6v6.25c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6h-9ZM1.75 2.5a.25.25 0 0 0-.25.25v1.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H1.75ZM6.25 8h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z",
+    // 归档（Octicons archive-16 改绘：整体下移 0.5 使墨迹中心 = 视框中心 8——原路径上留白 1px/下留白 2px 视觉偏高）
+    archive: "M0 3.25C0 2.284.784 1.5 1.75 1.5h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6.5H14v6.25A1.75 1.75 0 0 1 12.25 14.5h-8.5A1.75 1.75 0 0 1 2 12.75V6.5h-.25A1.75 1.75 0 0 1 0 4.75v-1.5ZM3.5 6.5v6.25c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6.5h-9ZM1.75 3a.25.25 0 0 0-.25.25v1.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H1.75ZM6.25 8.5h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z",
     // 外开新窗（Octicons external-link-16）
     external: "M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z",
     // 展开箭头（Octicons chevron-right-16）：默认指向右，展开时由 CSS 旋转 90°
@@ -150,7 +150,11 @@
     // 分屏（VS Code split-editor 同构：外框 + 中缝，左右栏挖孔）
     "splitpane": "M2 3h12v10H2V3Zm1 1v8h4.5V4H3Zm5.5 0v8H13V4H8.5Z",
     // 灯泡（思考深度；Octicons light-bulb-16 改绘）——密齿 gear 缩到 13px 糊成一团（v3 设计稿 task-page-v3-mockup）
-    "bulb": "M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319a8.456 8.456 0 0 0-.542.68c-.207.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"
+    "bulb": "M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319a8.456 8.456 0 0 0-.542.68c-.207.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z",
+    // 排序（Octicons arrow-up-down-16）：列表工具条排序下拉（task-page-wrapup-and-list-design.md v3.4）
+    "sort": "M4.25 3.5a.75.75 0 0 1 .75.75v7.44l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 1 1 1.06-1.06l1.72 1.72V4.25a.75.75 0 0 1 .75-.75Zm7.5 9a.75.75 0 0 1-.75-.75V4.31L9.28 6.03a.75.75 0 0 1-1.06-1.06l3-3a.75.75 0 0 1 1.06 0l3 3a.75.75 0 1 1-1.06 1.06l-1.72-1.72v7.44a.75.75 0 0 1-.75.75Z",
+    // 筛选漏斗（Octicons filter-16 改绘：整体上移 1.25 使墨迹中心 = 视框中心 8，与排序/归档钮对齐）
+    "filter": "M.75 1.75h14.5a.75.75 0 0 1 .587 1.219L10.5 9.25v4.25a.75.75 0 0 1-.908.733l-3.5-.875A.75.75 0 0 1 5.5 12.25v-3L.163 2.97A.75.75 0 0 1 .75 1.75Zm1.7 1.5L7 8.495v3.63l2 .5V8.495l4.55-5.245H2.45Z"
   };
   function TlIcon(props) {
     const d = PATHS[props.name];
@@ -170,7 +174,14 @@
   }
   const { call, t, navigate, notifyRepoChanged, openSettings, setContext: setSharedContext } = pageSdk;
   const useApp = useAppState;
-  const PREFIXES = ["feat:", "fix:", "docs:", "test:", "build:", "chore:"];
+  const PREFIX_ITEMS = [
+    { pfx: "feat:", descKey: "Changes_PrefixFeat" },
+    { pfx: "fix:", descKey: "Changes_PrefixFix" },
+    { pfx: "docs:", descKey: "Changes_PrefixDocs" },
+    { pfx: "test:", descKey: "Changes_PrefixTest" },
+    { pfx: "build:", descKey: "Changes_PrefixBuild" },
+    { pfx: "chore:", descKey: "Changes_PrefixChore" }
+  ];
   const PREVIEW_EXTS = /* @__PURE__ */ new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".ico", ".svg"]);
   function previewable(p) {
     const dot = p.lastIndexOf(".");
@@ -212,6 +223,26 @@
     });
     const [selectedHunks, setSelectedHunks] = react.useState(/* @__PURE__ */ new Set());
     const [message, setMessage] = react.useState("");
+    const [prefixOpen, setPrefixOpen] = react.useState(false);
+    const [prefixHi, setPrefixHi] = react.useState(-1);
+    const prefixRef = react.useRef(null);
+    const commitInputRef = react.useRef(null);
+    react.useEffect(() => {
+      if (!prefixOpen) return;
+      const close = (e) => {
+        var _a3;
+        if (!((_a3 = prefixRef.current) == null ? void 0 : _a3.contains(e.target))) setPrefixOpen(false);
+      };
+      document.addEventListener("mousedown", close);
+      return () => document.removeEventListener("mousedown", close);
+    }, [prefixOpen]);
+    const insertPrefix = (pfx) => {
+      var _a3;
+      setMessage((m) => m.trim() ? m : pfx + " ");
+      setPrefixOpen(false);
+      setPrefixHi(-1);
+      (_a3 = commitInputRef.current) == null ? void 0 : _a3.focus();
+    };
     const [busy, setBusy] = react.useState(false);
     const [findings, setFindings] = react.useState([]);
     const [showAllFindings, setShowAllFindings] = react.useState(false);
@@ -862,15 +893,70 @@
           allFiles.length > 0 && q && !allFiles.some((f) => f.path.toLowerCase().includes(q)) && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "chg-noresult", children: t("Changes_NoMatch") })
         ] }) }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "commit-box", children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "prefix-row", children: [
-            PREFIXES.map((p) => /* @__PURE__ */ jsxRuntime.jsx("button", { className: "prefix-chip", onClick: () => setMessage((m) => m.trim() ? m : p + " "), children: p }, p)),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow", style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": aiBusy ? t("Common_Loading") : t("Changes_AiGenerate"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13 }) })
-          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs(
+            "div",
+            {
+              className: "prefix-row",
+              ref: prefixRef,
+              onKeyDown: (e) => {
+                if (!prefixOpen) return;
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const d = e.key === "ArrowDown" ? 1 : -1;
+                  setPrefixHi((h) => (h + d + PREFIX_ITEMS.length) % PREFIX_ITEMS.length);
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (prefixHi >= 0) insertPrefix(PREFIX_ITEMS[prefixHi].pfx);
+                } else if (e.key === "Escape") {
+                  setPrefixOpen(false);
+                }
+              },
+              children: [
+                /* @__PURE__ */ jsxRuntime.jsxs(
+                  "button",
+                  {
+                    className: "icon-btn",
+                    "data-tip": t("Changes_PrefixMenu"),
+                    "aria-haspopup": "menu",
+                    "aria-expanded": prefixOpen,
+                    onClick: () => {
+                      setPrefixOpen((v) => !v);
+                      setPrefixHi(-1);
+                    },
+                    children: [
+                      /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "commit", size: 13 }),
+                      /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 9, className: "prefix-chev" })
+                    ]
+                  }
+                ),
+                prefixOpen && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "prefix-pop", role: "menu", "aria-label": t("Changes_PrefixMenu"), children: [
+                  PREFIX_ITEMS.map((it, i) => /* @__PURE__ */ jsxRuntime.jsxs(
+                    "button",
+                    {
+                      type: "button",
+                      role: "menuitem",
+                      className: "pitem" + (i === prefixHi ? " hi" : ""),
+                      onMouseEnter: () => setPrefixHi(i),
+                      onClick: () => insertPrefix(it.pfx),
+                      children: [
+                        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "pfx", children: it.pfx }),
+                        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "desc", children: t(it.descKey) })
+                      ]
+                    },
+                    it.pfx
+                  )),
+                  /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pop-hint", children: t("Changes_PrefixMenuHint") })
+                ] }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow", style: { flex: 1 } }),
+                /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": aiBusy ? t("Common_Loading") : t("Changes_AiGenerate"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13 }) })
+              ]
+            }
+          ),
           /* @__PURE__ */ jsxRuntime.jsx(CommitBlocks, { fileCount: (state == null ? void 0 : state.staged.length) ?? 0 }),
           /* @__PURE__ */ jsxRuntime.jsx(
             "textarea",
             {
+              ref: commitInputRef,
               placeholder: t("Changes_CommitMessagePlaceholder"),
               value: message,
               onChange: (e) => setMessage(e.target.value),
