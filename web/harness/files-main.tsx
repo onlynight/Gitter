@@ -485,6 +485,7 @@ const I18N: Record<string, string> = {
   Editor_ExternalChangedDirty: "「{0}」在磁盘上已被外部修改；未保存内容已保留，保存时将提示冲突。",
   Editor_NoProblems: "当前打开的文件没有问题",
   Files_SearchContent: "搜索内容…",
+  Files_GlobalSearch: "在仓库中搜索",
   Files_SearchCaseSensitive: "区分大小写",
   Files_SearchRegex: "正则表达式",
   Files_SearchReplace: "替换",

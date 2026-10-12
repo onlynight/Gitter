@@ -1,34 +1,129 @@
 /**
  * 文件页共享图标（files-editor-redesign-mockup.html §二）：
- * UI 图标为 16px 单色线性 SVG（currentColor）；文件类型图标按扩展名着色的
- * 单形文档（v1 内置「扩展名→颜色」映射，P3 可升级 Seti 风格全量 SVG 集）。
+ * UI 图标为 16px 单色线性 SVG（currentColor）；文件类型图标按扩展名分形着色
+ * （Seti 风格：形状族区分语言大类 + 类型色，P3 落地——单形文档在 14px 下
+ * 缩成色块，视觉上等同无图标）。
  */
+import type { ReactNode } from "react";
 
-/** 扩展名 → 类型色（中饱和，亮暗主题通用） */
-const TYPE_COLOR: Record<string, string> = {
-  ts: "#519ABA", tsx: "#519ABA", js: "#DDB15A", mjs: "#DDB15A", cjs: "#DDB15A", json: "#DDB15A",
-  css: "#519ABA", scss: "#C879B2", less: "#519ABA",
-  html: "#E37933", htm: "#E37933", vue: "#519ABA", svelte: "#E37933",
-  md: "#6BABF5", markdown: "#6BABF5",
-  svg: "#A074C4", xml: "#A074C4", cs: "#519ABA", py: "#519ABA",
-  png: "#A074C4", jpg: "#A074C4", jpeg: "#A074C4", gif: "#A074C4", ico: "#A074C4",
-  yml: "#DDB15A", yaml: "#DDB15A", toml: "#DDB15A", ini: "#8F8F8F",
-  default: "#8F8F8F",
+/** 形状族：hex=语言六边形 / braces=JSON / hash=样式 / angle=标记语言 / text=纯文本文档
+ *  / term=脚本终端 / pic=图片 / gear=配置 / jsq=JS 方块 / doc=文档折角（缺省） */
+type Glyph = "hex" | "braces" | "hash" | "angle" | "text" | "term" | "pic" | "gear" | "jsq" | "doc";
+
+/** 扩展名 → 形状族 + 类型色（中饱和，亮暗主题通用） */
+const EXT_ICON: Record<string, { g: Glyph; c: string }> = {
+  // JavaScript 生态
+  ts: { g: "hex", c: "#519ABA" }, tsx: { g: "hex", c: "#519ABA" },
+  js: { g: "jsq", c: "#DDB15A" }, mjs: { g: "jsq", c: "#DDB15A" }, cjs: { g: "jsq", c: "#DDB15A" }, jsx: { g: "jsq", c: "#DDB15A" },
+  json: { g: "braces", c: "#DDB15A" }, jsonc: { g: "braces", c: "#DDB15A" },
+  // 样式
+  css: { g: "hash", c: "#519ABA" }, scss: { g: "hash", c: "#C879B2" }, sass: { g: "hash", c: "#C879B2" }, less: { g: "hash", c: "#519ABA" },
+  // 标记语言
+  html: { g: "angle", c: "#E37933" }, htm: { g: "angle", c: "#E37933" }, vue: { g: "angle", c: "#519ABA" }, svelte: { g: "angle", c: "#E37933" },
+  xml: { g: "angle", c: "#A074C4" }, xaml: { g: "angle", c: "#A074C4" }, csproj: { g: "angle", c: "#519ABA" },
+  props: { g: "angle", c: "#8F8F8F" }, targets: { g: "angle", c: "#8F8F8F" }, config: { g: "angle", c: "#8F8F8F" },
+  sln: { g: "angle", c: "#8F8F8F" },
+  // 编译型语言（六边形族，语言色区分）
+  cs: { g: "hex", c: "#519ABA" }, go: { g: "hex", c: "#519ABA" }, rs: { g: "hex", c: "#C879B2" },
+  java: { g: "hex", c: "#C879B2" }, kt: { g: "hex", c: "#C879B2" }, swift: { g: "hex", c: "#E37933" },
+  scala: { g: "hex", c: "#C879B2" }, c: { g: "hex", c: "#8F8F8F" }, h: { g: "hex", c: "#8F8F8F" },
+  cpp: { g: "hex", c: "#519ABA" }, hpp: { g: "hex", c: "#519ABA" }, cc: { g: "hex", c: "#519ABA" },
+  py: { g: "hex", c: "#519ABA" }, rb: { g: "hex", c: "#C85A5A" }, php: { g: "hex", c: "#8F8F8F" },
+  // 脚本 / 终端
+  sh: { g: "term", c: "#8F8F8F" }, bash: { g: "term", c: "#8F8F8F" }, zsh: { g: "term", c: "#8F8F8F" },
+  ps1: { g: "term", c: "#519ABA" }, psm1: { g: "term", c: "#519ABA" }, psd1: { g: "term", c: "#519ABA" },
+  bat: { g: "term", c: "#8F8F8F" }, cmd: { g: "term", c: "#8F8F8F" },
+  // 纯文本文档
+  md: { g: "text", c: "#6BABF5" }, markdown: { g: "text", c: "#6BABF5" },
+  txt: { g: "text", c: "#8F8F8F" }, log: { g: "text", c: "#8F8F8F" }, gitignore: { g: "text", c: "#E37933" },
+  // 配置
+  yml: { g: "gear", c: "#DDB15A" }, yaml: { g: "gear", c: "#DDB15A" },
+  toml: { g: "gear", c: "#DDB15A" }, ini: { g: "gear", c: "#8F8F8F" }, cfg: { g: "gear", c: "#8F8F8F" },
+  properties: { g: "gear", c: "#8F8F8F" }, editorconfig: { g: "gear", c: "#8F8F8F" }, lock: { g: "gear", c: "#8F8F8F" },
+  // 图片
+  png: { g: "pic", c: "#A074C4" }, jpg: { g: "pic", c: "#A074C4" }, jpeg: { g: "pic", c: "#A074C4" },
+  gif: { g: "pic", c: "#A074C4" }, webp: { g: "pic", c: "#A074C4" }, bmp: { g: "pic", c: "#A074C4" },
+  avif: { g: "pic", c: "#A074C4" }, ico: { g: "pic", c: "#A074C4" },
 };
 
-/** 文件类型图标（14px 文档折角形，描边=类型色）。 */
-export function FileIcon({ path }: { path: string }) {
+const DEFAULT_ICON: { g: Glyph; c: string } = { g: "doc", c: "#8F8F8F" };
+
+/** 扩展名 → 图标定义（按最后一个点的后缀匹配；无后缀回退缺省文档）。 */
+function iconForPath(path: string): { g: Glyph; c: string } {
   const base = path.split("/").pop() ?? path;
+  if (base.toLowerCase() === ".gitignore") return EXT_ICON.gitignore;
   const dot = base.lastIndexOf(".");
   const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
-  const c = TYPE_COLOR[ext] ?? TYPE_COLOR.default;
+  return EXT_ICON[ext] ?? DEFAULT_ICON;
+}
+
+/** 形状族 → 16 viewBox 线性 path 集（stroke=c 由调用方着色；14px 下可辨形）。 */
+const GLYPH_PATHS: Record<Glyph, (c: string) => ReactNode> = {
+  hex: (c) => (
+    <path d="M8 1.8 13.6 5v6L8 14.2 2.4 11V5z" stroke={c} strokeWidth="1.1" strokeLinejoin="round" />
+  ),
+  braces: (c) => (
+    <>
+      <path d="M6.8 2.5c-1.7 0-1.1 4.1-2.9 5.5 1.8 1.4 1.2 5.5 2.9 5.5" stroke={c} strokeWidth="1.15" strokeLinecap="round" fill="none" />
+      <path d="M9.2 2.5c1.7 0 1.1 4.1 2.9 5.5-1.8 1.4-1.2 5.5-2.9 5.5" stroke={c} strokeWidth="1.15" strokeLinecap="round" fill="none" />
+    </>
+  ),
+  hash: (c) => (
+    <>
+      <path d="M6.2 2.8 5 13.2M11 2.8 9.8 13.2M2.9 6.2h10.4M2.7 10h10.4" stroke={c} strokeWidth="1.1" strokeLinecap="round" fill="none" />
+    </>
+  ),
+  angle: (c) => (
+    <>
+      <path d="M5.4 4.6 2.4 8l3 3.4M10.6 4.6 13.6 8l-3 3.4" stroke={c} strokeWidth="1.15" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </>
+  ),
+  text: (c) => (
+    <>
+      <rect x="3" y="2.2" width="10" height="11.6" rx="1" stroke={c} strokeWidth="1.1" fill="none" />
+      <path d="M5.4 6h5.2M5.4 8.6h5.2M5.4 11.2h3.2" stroke={c} strokeWidth="1" strokeLinecap="round" />
+    </>
+  ),
+  term: (c) => (
+    <>
+      <rect x="2.2" y="3" width="11.6" height="10" rx="1.2" stroke={c} strokeWidth="1.1" fill="none" />
+      <path d="m4.6 6.4 1.9 1.6-1.9 1.6M8.2 10.2h3.4" stroke={c} strokeWidth="1.05" strokeLinecap="round" strokeLinejoin="round" />
+    </>
+  ),
+  pic: (c) => (
+    <>
+      <rect x="2.4" y="3" width="11.2" height="10" rx="1.2" stroke={c} strokeWidth="1.1" fill="none" />
+      <circle cx="6" cy="6.3" r="1.05" stroke={c} strokeWidth="1" fill="none" />
+      <path d="m4.4 11.4 2.9-2.9 1.9 1.9 1.5-1.5 2 2.3" stroke={c} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </>
+  ),
+  gear: (c) => (
+    <>
+      <path d="M2.8 5.4h10.4M2.8 10.6h10.4" stroke={c} strokeWidth="1.1" strokeLinecap="round" />
+      <circle cx="6.1" cy="5.4" r="1.5" fill="var(--c-base, #222)" stroke={c} strokeWidth="1.1" />
+      <circle cx="10.2" cy="10.6" r="1.5" fill="var(--c-base, #222)" stroke={c} strokeWidth="1.1" />
+    </>
+  ),
+  jsq: (c) => (
+    <>
+      <rect x="2.6" y="2.6" width="10.8" height="10.8" rx="2" stroke={c} strokeWidth="1.1" fill="none" />
+      <path d="M6.2 5.6v3.2c0 .9-.5 1.3-1.2 1.3M9.9 5.9c-.4-.4-1.9-.6-2.3.2-.4 1 2.7.9 2.4 2.6-.3 1.1-2 1.1-2.8.5" stroke={c} strokeWidth="1" strokeLinecap="round" fill="none" />
+    </>
+  ),
+  doc: (c) => (
+    <>
+      <path d="M4 1.8h5.2L12.8 5.4V14a.8.8 0 0 1-.8.8H4a.8.8 0 0 1-.8-.8V2.6c0-.44.36-.8.8-.8z" stroke={c} strokeWidth="1.1" strokeLinejoin="round" />
+      <path d="M9 2v3.4h3.4" stroke={c} strokeWidth="1.1" strokeLinejoin="round" />
+    </>
+  ),
+};
+
+/** 文件类型图标（14px；形状族 + 类型色，TreePane/标签条/QuickOpen 共用）。 */
+export function FileIcon({ path }: { path: string }) {
+  const { g, c } = iconForPath(path);
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M4 1.8h5.2L12.8 5.4V14a.8.8 0 0 1-.8.8H4a.8.8 0 0 1-.8-.8V2.6c0-.44.36-.8.8-.8z"
-        stroke={c} strokeWidth="1.1" strokeLinejoin="round"
-      />
-      <path d="M9 2v3.4h3.4" stroke={c} strokeWidth="1.1" strokeLinejoin="round" />
+      {GLYPH_PATHS[g](c)}
     </svg>
   );
 }
