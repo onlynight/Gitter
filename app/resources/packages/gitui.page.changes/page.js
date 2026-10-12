@@ -172,42 +172,7 @@
       }
     );
   }
-  function api() {
-    if (!window.gitter) {
-      return {
-        invoke: async () => ({ ok: false, error: { message: "不在 Electron 宿主内（桥不可用）" } }),
-        onEvent: () => () => {
-        },
-        winAction: () => {
-        },
-        isMaximized: async () => false
-      };
-    }
-    return window.gitter;
-  }
-  class BridgeCallError extends Error {
-    constructor(message, detail) {
-      super(message);
-      this.detail = detail;
-    }
-  }
-  async function call$1(method, params) {
-    const res = await api().invoke(method, params);
-    if (!res.ok) throw new BridgeCallError(res.error.message, res.error.detail);
-    return res.data;
-  }
-  let state = {
-    i18n: null
-  };
-  function t$1(key, ...args) {
-    var _a2;
-    const dict = (_a2 = state.i18n) == null ? void 0 : _a2.strings;
-    let s = (dict == null ? void 0 : dict[key]) ?? key;
-    args.forEach((a, i) => {
-      s = s.replace(`{${i}}`, String(a));
-    });
-    return s;
-  }
+  const { call: call$2, t: t$1 } = pageSdk;
   function relativeTime(unix) {
     const diff = Date.now() / 1e3 - unix;
     if (diff < 60) return t$1("Log_JustNow");
@@ -226,7 +191,7 @@
     const [files, setFiles] = react.useState([]);
     const reload = async () => {
       try {
-        setEntries(await call$1("stash.list", {}));
+        setEntries(await call$2("stash.list", {}));
       } catch (e) {
         setError(e.message);
       }
@@ -260,7 +225,7 @@
       }
       setExpanded(index);
       try {
-        setFiles(await call$1("stash.show", { index }));
+        setFiles(await call$2("stash.show", { index }));
       } catch (e) {
         setFiles([]);
         setError(e.message);
@@ -293,7 +258,7 @@
                 onChange: (e) => setMessage(e.target.value),
                 onKeyDown: (e) => {
                   if (e.key === "Enter" && props.hasChanges) void act(async () => {
-                    await call$1("stash.push", { message: message.trim() || null });
+                    await call$2("stash.push", { message: message.trim() || null });
                   }, t$1("Changes_StashSaved"));
                 }
               }
@@ -304,7 +269,7 @@
                 className: "tool-btn primary",
                 disabled: busy || !props.hasChanges,
                 onClick: () => void act(async () => {
-                  await call$1("stash.push", { message: message.trim() || null });
+                  await call$2("stash.push", { message: message.trim() || null });
                 }, t$1("Changes_StashSaved")),
                 children: [
                   /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "archive", size: 12 }),
@@ -337,7 +302,7 @@
                   title: t$1("Changes_StashPopTip"),
                   disabled: busy,
                   onClick: () => void act(async () => {
-                    await call$1("stash.apply", { index: en.index, drop: true });
+                    await call$2("stash.apply", { index: en.index, drop: true });
                   }, t$1("Changes_StashAppliedPop", en.selector)),
                   children: t$1("Changes_StashPop")
                 }
@@ -350,7 +315,7 @@
                   title: t$1("Changes_StashApplyTip"),
                   disabled: busy,
                   onClick: () => void act(async () => {
-                    await call$1("stash.apply", { index: en.index });
+                    await call$2("stash.apply", { index: en.index });
                   }, t$1("Changes_StashApplied", en.selector)),
                   children: t$1("Changes_StashApply")
                 }
@@ -363,7 +328,7 @@
                   title: t$1("Changes_StashDrop"),
                   disabled: busy,
                   onClick: () => void act(async () => {
-                    await call$1("stash.drop", { index: en.index });
+                    await call$2("stash.drop", { index: en.index });
                   }, t$1("Changes_StashDropped", en.selector)),
                   children: t$1("Changes_StashDrop")
                 }
@@ -378,6 +343,30 @@
         ]
       }
     );
+  }
+  function api() {
+    if (!window.gitter) {
+      return {
+        invoke: async () => ({ ok: false, error: { message: "不在 Electron 宿主内（桥不可用）" } }),
+        onEvent: () => () => {
+        },
+        winAction: () => {
+        },
+        isMaximized: async () => false
+      };
+    }
+    return window.gitter;
+  }
+  class BridgeCallError extends Error {
+    constructor(message, detail) {
+      super(message);
+      this.detail = detail;
+    }
+  }
+  async function call$1(method, params) {
+    const res = await api().invoke(method, params);
+    if (!res.ok) throw new BridgeCallError(res.error.message, res.error.detail);
+    return res.data;
   }
   function parseConflictHunks(content) {
     const eol = content.includes("\r\n") ? "\r\n" : "\n";
@@ -588,7 +577,7 @@
     var _a2;
     const app = useApp();
     const repo = app.repo;
-    const [state2, setStateDto] = react.useState(null);
+    const [state, setStateDto] = react.useState(null);
     const [error, setError] = react.useState(null);
     const [errorDetail, setErrorDetail] = react.useState(null);
     const [transient, setTransient] = react.useState(null);
@@ -663,9 +652,9 @@
     });
     const activeFindings = findings.filter((f) => !resolvedFindings.has(findingKey(f)));
     const jumpToFinding = (f) => {
-      const unstaged = state2 == null ? void 0 : state2.changes.find((x) => x.path === f.filePath);
-      const staged = state2 == null ? void 0 : state2.staged.find((x) => x.path === f.filePath);
-      const conflict = state2 == null ? void 0 : state2.conflicts.find((x) => x.path === f.filePath);
+      const unstaged = state == null ? void 0 : state.changes.find((x) => x.path === f.filePath);
+      const staged = state == null ? void 0 : state.staged.find((x) => x.path === f.filePath);
+      const conflict = state == null ? void 0 : state.conflicts.find((x) => x.path === f.filePath);
       const target = unstaged ?? staged ?? conflict;
       if (target) {
         select(target, !unstaged && !!staged);
@@ -815,21 +804,21 @@
       void loadDiff(sel);
     };
     const allFiles = react.useMemo(
-      () => state2 ? [...state2.staged, ...state2.changes, ...state2.unversioned, ...state2.conflicts] : [],
-      [state2]
+      () => state ? [...state.staged, ...state.changes, ...state.unversioned, ...state.conflicts] : [],
+      [state]
     );
     const selPaths = react.useMemo(
-      () => state2 ? [...multiSel].filter((p) => state2.changes.some((f) => f.path === p) || state2.unversioned.some((f) => f.path === p)) : [],
-      [multiSel, state2]
+      () => state ? [...multiSel].filter((p) => state.changes.some((f) => f.path === p) || state.unversioned.some((f) => f.path === p)) : [],
+      [multiSel, state]
     );
     const stagedPaths = react.useMemo(
       () => allFiles.filter((f) => checked.has(f.path) && f.category !== "staged" && f.category !== "conflicts").map((f) => f.path),
       [allFiles, checked]
     );
     const commitStat = react.useMemo(() => {
-      if (!state2) return { n: 0, added: 0, deleted: 0 };
+      if (!state) return { n: 0, added: 0, deleted: 0 };
       const files = [
-        ...state2.staged.filter((f) => !excludedStaged.has(f.path)),
+        ...state.staged.filter((f) => !excludedStaged.has(f.path)),
         ...allFiles.filter((f) => checked.has(f.path) && f.category !== "staged" && f.category !== "conflicts")
       ];
       let added = 0;
@@ -839,8 +828,8 @@
         deleted += f.deleted ?? 0;
       }
       return { n: files.length, added, deleted };
-    }, [state2, allFiles, checked, excludedStaged]);
-    const canCommit = !!state2 && (state2.staged.some((f) => !excludedStaged.has(f.path)) || stagedPaths.length > 0) && message.trim().length > 0 && !busy && // amend 只在拿到 HEAD 信息后可用（toggleAmend 成功才会置 amend）
+    }, [state, allFiles, checked, excludedStaged]);
+    const canCommit = !!state && (state.staged.some((f) => !excludedStaged.has(f.path)) || stagedPaths.length > 0) && message.trim().length > 0 && !busy && // amend 只在拿到 HEAD 信息后可用（toggleAmend 成功才会置 amend）
     (!amend || headInfo !== null);
     const doCommit = async (push) => {
       if (!canCommit) return;
@@ -950,7 +939,7 @@
       setBusy(true);
       try {
         const commits = await call("changes.pushPreview", {});
-        setForcePreview({ branch: (state2 == null ? void 0 : state2.branch) ?? "HEAD", commits });
+        setForcePreview({ branch: (state == null ? void 0 : state.branch) ?? "HEAD", commits });
       } catch (e) {
         setError(e.message);
       } finally {
@@ -1004,13 +993,13 @@
       if (cmd.id === "changes.commit") void doCommit(false);
       else if (cmd.id === "changes.commitPush") void doCommit(true);
       else if (cmd.id === "changes.stageAll") {
-        const paths = [...(state2 == null ? void 0 : state2.changes) ?? [], ...(state2 == null ? void 0 : state2.unversioned) ?? []].map((f) => f.path);
+        const paths = [...(state == null ? void 0 : state.changes) ?? [], ...(state == null ? void 0 : state.unversioned) ?? []].map((f) => f.path);
         void run(async () => {
           await call("changes.stage", { paths });
           return t("Changes_StagedAll");
         });
       } else if (cmd.id === "changes.unstageAll") {
-        const paths = ((state2 == null ? void 0 : state2.staged) ?? []).map((f) => f.path);
+        const paths = ((state == null ? void 0 : state.staged) ?? []).map((f) => f.path);
         void run(async () => {
           await call("changes.unstage", { paths });
           return t("Changes_UnstagedAll");
@@ -1225,10 +1214,10 @@
     };
     const hasSelectedHunks = selectedHunks.size > 0 && diff && !diff.isBinary;
     const selectedFile = react.useMemo(() => {
-      if (!selected || !state2) return null;
-      const list = selected.staged ? state2.staged : selected.isConflict ? state2.conflicts : selected.isNew ? state2.unversioned : state2.changes;
+      if (!selected || !state) return null;
+      const list = selected.staged ? state.staged : selected.isConflict ? state.conflicts : selected.isNew ? state.unversioned : state.changes;
       return list.find((f) => f.path === selected.path) ?? null;
-    }, [selected, state2]);
+    }, [selected, state]);
     const selLetter = selectedFile ? letterOf(selectedFile) : "";
     const selSplit = selected ? splitPath(selected.path) : { dir: "", base: "" };
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
@@ -1345,21 +1334,21 @@
           /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-head", children: [
             /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "chg-branch", "data-tip": t("Changes_BranchSwitch"), onClick: () => navigate("branches"), children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 12 }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: (state2 == null ? void 0 : state2.branch) ?? "—" })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: (state == null ? void 0 : state.branch) ?? "—" })
             ] }),
-            state2 && !!state2.ahead && !!state2.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", state2.ahead, state2.behind), children: [
+            state && !!state.ahead && !!state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", state.ahead, state.behind), children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 10, className: "up" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state2.ahead }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state.ahead }),
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 10, className: "dn" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state2.behind })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state.behind })
             ] }),
-            state2 && !!state2.ahead && !state2.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_Ahead", state2.ahead), children: [
+            state && !!state.ahead && !state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_Ahead", state.ahead), children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 10, className: "up" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state2.ahead })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state.ahead })
             ] }),
-            state2 && !state2.ahead && !!state2.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", 0, state2.behind), children: [
+            state && !state.ahead && !!state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", 0, state.behind), children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 10, className: "dn" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state2.behind })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state.behind })
             ] }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
             /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Fetch"), disabled: busy, onClick: () => void run(async () => {
@@ -1446,11 +1435,11 @@
             ] }),
             /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn sm icon", "data-tip": t("Changes_SelClear"), disabled: busy, onClick: () => setMultiSel(/* @__PURE__ */ new Set()), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "x", size: 11 }) })
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx(ScrollArea, { className: "file-scroll", style: { flex: 1 }, children: state2 && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-            group("conflicts", t("Changes_Conflicts"), state2.conflicts, false, { checkable: false, act: null }),
-            group("staged", t("Changes_StagedGroup"), state2.staged, true, { checkable: true, act: "unstage" }),
-            group("changes", t("Changes_ChangesGroup"), state2.changes, false, { checkable: true, act: "stage" }),
-            group("unversioned", t("Changes_UnversionedGroup"), state2.unversioned, false, { checkable: true, act: "stage" }),
+          /* @__PURE__ */ jsxRuntime.jsx(ScrollArea, { className: "file-scroll", style: { flex: 1 }, children: state && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            group("conflicts", t("Changes_Conflicts"), state.conflicts, false, { checkable: false, act: null }),
+            group("staged", t("Changes_StagedGroup"), state.staged, true, { checkable: true, act: "unstage" }),
+            group("changes", t("Changes_ChangesGroup"), state.changes, false, { checkable: true, act: "stage" }),
+            group("unversioned", t("Changes_UnversionedGroup"), state.unversioned, false, { checkable: true, act: "stage" }),
             allFiles.length === 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
               t("Changes_WorktreeClean"),
               /* @__PURE__ */ jsxRuntime.jsx(EmptyHints, { slot: "changes.empty" })
@@ -1513,11 +1502,11 @@
                     /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pop-hint", children: t("Changes_PrefixMenuHint") })
                   ] }),
                   /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow", style: { flex: 1 } }),
-                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": aiBusy ? t("Common_Loading") : t("Changes_AiGenerate"), disabled: aiBusy || ((state2 == null ? void 0 : state2.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13 }) })
+                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": aiBusy ? t("Common_Loading") : t("Changes_AiGenerate"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13 }) })
                 ]
               }
             ),
-            /* @__PURE__ */ jsxRuntime.jsx(CommitBlocks, { fileCount: (state2 == null ? void 0 : state2.staged.length) ?? 0 }),
+            /* @__PURE__ */ jsxRuntime.jsx(CommitBlocks, { fileCount: (state == null ? void 0 : state.staged.length) ?? 0 }),
             /* @__PURE__ */ jsxRuntime.jsx(
               "textarea",
               {
@@ -1597,8 +1586,8 @@
               ] })
             ] }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiExplain"), disabled: aiBusy || ((state2 == null ? void 0 : state2.staged.length) ?? 0) === 0, onClick: () => void explain("explain"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chat", size: 13 }) }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiReview"), disabled: aiBusy || ((state2 == null ? void 0 : state2.staged.length) ?? 0) === 0, onClick: () => void explain("review"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiExplain"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("explain"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chat", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiReview"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("review"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13 }) }),
             selected.staged ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
               /* @__PURE__ */ jsxRuntime.jsxs(
                 "button",
@@ -1717,7 +1706,7 @@
         }
       ),
       discardTarget && (() => {
-        const untrackedSet = new Set((state2 == null ? void 0 : state2.unversioned.map((f) => f.path)) ?? []);
+        const untrackedSet = new Set((state == null ? void 0 : state.unversioned.map((f) => f.path)) ?? []);
         const tracked = discardTarget.filter((p) => !untrackedSet.has(p));
         const untracked = discardTarget.filter((p) => untrackedSet.has(p));
         const single = discardTarget.length === 1;
@@ -1765,7 +1754,7 @@
       stashOpen && /* @__PURE__ */ jsxRuntime.jsx(
         StashDialog,
         {
-          hasChanges: ((state2 == null ? void 0 : state2.changes.length) ?? 0) + ((state2 == null ? void 0 : state2.staged.length) ?? 0) + ((state2 == null ? void 0 : state2.unversioned.length) ?? 0) + ((state2 == null ? void 0 : state2.conflicts.length) ?? 0) > 0,
+          hasChanges: ((state == null ? void 0 : state.changes.length) ?? 0) + ((state == null ? void 0 : state.staged.length) ?? 0) + ((state == null ? void 0 : state.unversioned.length) ?? 0) + ((state == null ? void 0 : state.conflicts.length) ?? 0) > 0,
           onChanged: () => notifyRepoChanged(),
           onClose: () => setStashOpen(false)
         }
