@@ -54,23 +54,31 @@
 - 输入即过滤(150ms 去抖),**纯前端**,零新 RPC:命中范围 `title` / `lastMessage` / `taskId` 前 8 位,大小写不敏感。
 - 清空钮;无命中显示空态「无匹配任务」(替代空账本提示行)。
 
-### 2.3 状态筛选 chips
+### 2.3 列表工具条(v3.4 修订:chips 收进图标下拉)
 
-| chip | 状态集合 | 计数来源 |
-|---|---|---|
-| 全部 | 非归档全量 | `agentTasks.length` |
-| 进行中 | `starting` `working` | 现有 `runningCount` |
-| 待处理 | `awaiting-permission` + `awaiting-input`(awaitKind≠null) | §2.6 |
-| 已完成 | `awaiting-input`(awaitKind=null)+ `completed` | §2.6 |
-| 失败·中断 | `failed` `interrupted` `stopped` | — |
+> v3.4(2026-10-12,按 design/task-wrapup-list-mockup.html 落地):原五个筛选 chips 收进**筛选图标下拉**,
+> 工具条为搜索框下方右对齐三图标钮(对齐 ZCode 列表头):**排序(⇅)/ 筛选(漏斗)/ 批量归档(归档箱)**。
 
-- 选中态持久化 `localStorage.gitter.taskListFilter`;默认「全部」。
-- 「进行中」「待处理」计数 >0 时 chip 带色点(绿/琥珀),与状态点语义一致。
+**筛选下拉**(漏斗钮,向下弹出,点外关闭):每项 = ✓选中标 + 状态色点 + 计数;状态集合与下表一致:
+
+| 项 | 状态集合 |
+|---|---|
+| 全部 | 非归档全量 |
+| 进行中 | `starting` `working`(色点绿) |
+| 待处理 | `awaiting-permission` + `awaiting-input`(awaitKind≠null)(色点琥珀) |
+| 已完成 | `awaiting-input`(awaitKind=null)+ `completed` |
+| 失败·中断 | `failed` `interrupted` `stopped` |
+
+- 选中态持久化 `localStorage.gitter.taskListFilter`;默认「全部」。计数随归档/恢复实时刷新(纯前端现算)。
+
+**排序下拉**(⇅ 钮):最近活动(默认,账本次序)/ 创建时间(新→旧)/ 标题 A→Z;组内排序,日期分组不变;持久化 `localStorage.gitter.taskListSort`。
+
+**批量归档**(归档箱钮):点击进入选择态——工具条换操作条「已选 N 项 | 全选 | 归档 | 取消」,行首出现勾选框,行点击=勾选,悬停快捷区/重命名隐藏,已归档行隐身且不可勾;「归档」= 循环 `agent.task.archive { archived: true }`,完成后退回列表更新计数。
 
 ### 2.4 日期分组
 
 - 按 `lastActiveAt ?? createdAt` 分四组:**今天 / 昨天 / 近 7 天 / 更早**;组头 = 细分隔线 + 左侧 11px 灰字。
-- 组内保持账本顺序(`upsertTask` unshift,新→旧,tasks.ts:103-107)。
+- 组内默认账本顺序(`upsertTask` unshift,新→旧,tasks.ts:103-107);v3.4 排序(§2.3 排序下拉)在组内生效,分组本身不变。
 - 搜索/筛选命中为空的组不渲染组头。
 
 ### 2.5 归档查看与恢复

@@ -105,6 +105,36 @@
   .fchip .dot{width:5px;height:5px;border-radius:50%;background:var(--dim2)}
   .fchip .dot.g{background:var(--green);box-shadow:0 0 5px color-mix(in srgb,var(--green) 60%,transparent)}
   .fchip .dot.a{background:var(--amber);box-shadow:0 0 5px color-mix(in srgb,var(--amber) 60%,transparent)}
+  /* ---- v3.4 列表工具条（对齐 ZCode 截图）：筛选收进图标下拉 + 排序 + 批量归档 ---- */
+  .tk-toolbar{display:flex;align-items:center;gap:4px;padding:0 12px 8px;flex:none}
+  .tk-toolbar .sp{flex:1}
+  .tibtn{position:relative;display:grid;place-items:center;width:26px;height:26px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--dim2);cursor:pointer;padding:0;flex:none}
+  .tibtn:hover{color:var(--text);background:var(--panel2);border-color:var(--border2)}
+  .tibtn.on{color:var(--text);background:var(--panel2);border-color:var(--border2)}
+  .tibtn svg{width:14px;height:14px}
+  .tk-pop{position:absolute;top:calc(100% + 6px);right:0;width:212px;background:var(--solid);backdrop-filter:blur(20px);border:1px solid var(--border2);border-radius:11px;box-shadow:var(--sh2);display:none;z-index:45;padding:4px}
+  .tk-pop.on{display:block}
+  .tk-pop .ph{padding:6px 10px 4px;color:var(--dim2);font-size:10.5px;border-bottom:1px solid var(--border);margin-bottom:3px}
+  .tk-pop .pi{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;cursor:pointer;font-size:12px;color:var(--dim);user-select:none}
+  .tk-pop .pi:hover{background:var(--panel2);color:var(--text)}
+  .tk-pop .pi.on{color:var(--text);font-weight:600}
+  .tk-pop .pi .ck{width:13px;flex:none;color:var(--green);font-size:11px;visibility:hidden}
+  .tk-pop .pi.on .ck{visibility:visible}
+  .tk-pop .pi .n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--dim2)}
+  .tk-pop .pi .dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--dim2)}
+  .tk-pop .pi .dot.g{background:var(--green)} .tk-pop .pi .dot.a{background:var(--amber)}
+  /* 批量选择态：工具条切换为选择操作条，行首出现勾选框，行点击=勾选 */
+  .tk-selbar{display:none;align-items:center;gap:7px;padding:0 12px 8px;flex:none;font-size:11.5px;color:var(--dim)}
+  body.selecting .tk-selbar{display:flex}
+  body.selecting .tk-toolbar{display:none}
+  .tk-selbar .tbtn{flex:none}
+  .tk-selbar .n{color:var(--text);font-weight:650}
+  .trow .selbox{display:none;flex:none;align-items:center}
+  body.selecting .trow .selbox{display:inline-flex}
+  body.selecting .trow .quick{display:none!important}
+  body.selecting .trow[data-cat="arch"]{display:none!important}
+  .selbox input{width:13px;height:13px;accent-color:var(--sel);cursor:pointer}
+  .trow.picked{border-color:var(--sel-border);background:var(--panel2)}
   .list .scroll{overflow-y:auto;flex:1;padding:0 8px 8px;display:flex;flex-direction:column;gap:1px}
   .ghead{display:flex;align-items:center;gap:8px;padding:9px 10px 4px;color:var(--dim2);font-size:10.5px;letter-spacing:.05em;flex:none}
   .ghead::after{content:"";flex:1;height:1px;background:var(--border)}
@@ -318,12 +348,38 @@
       <input id="searchInput" placeholder="搜索标题 / 摘要 / id（纯前端过滤）">
       <button class="clr" onclick="clearSearch()">✕</button>
     </div>
-    <div class="fchips">
-      <span class="fchip on" data-c="all" onclick="setChip(this,'all')">全部 <span class="n" id="nAll">10</span></span>
-      <span class="fchip" data-c="run" onclick="setChip(this,'run')"><span class="dot g"></span>进行中 <span class="n">1</span></span>
-      <span class="fchip" data-c="ask" onclick="setChip(this,'ask')"><span class="dot a"></span>待处理 <span class="n">2</span></span>
-      <span class="fchip" data-c="done" onclick="setChip(this,'done')">已完成 <span class="n">5</span></span>
-      <span class="fchip" data-c="err" onclick="setChip(this,'err')">失败·中断 <span class="n">2</span></span>
+    <!-- v3.4 工具条（对齐 ZCode 截图）：右侧三图标钮 = 排序 / 筛选 / 批量归档 -->
+    <div class="tk-toolbar">
+      <span class="sp"></span>
+      <span style="position:relative;display:inline-flex">
+        <button class="tibtn" id="btnSort" title="排序" onclick="togglePop(event,'popSort')"><span data-ico="sort"></span></button>
+        <div class="tk-pop" id="popSort">
+          <div class="ph">排序</div>
+          <div class="pi on" data-s="active" onclick="setSort(this)"><span class="ck">✓</span>最近活动<span class="n">默认</span></div>
+          <div class="pi" data-s="created" onclick="setSort(this)"><span class="ck">✓</span>创建时间</div>
+          <div class="pi" data-s="title" onclick="setSort(this)"><span class="ck">✓</span>标题 A→Z</div>
+        </div>
+      </span>
+      <span style="position:relative;display:inline-flex">
+        <button class="tibtn" id="btnFilter" title="按状态筛选" onclick="togglePop(event,'popFilter')"><span data-ico="filter"></span></button>
+        <div class="tk-pop" id="popFilter">
+          <div class="ph">按状态筛选</div>
+          <div class="pi on" data-c="all" onclick="setChip(this,'all')"><span class="ck">✓</span>全部<span class="n" id="nAll">10</span></div>
+          <div class="pi" data-c="run" onclick="setChip(this,'run')"><span class="ck">✓</span><span class="dot g"></span>进行中<span class="n">1</span></div>
+          <div class="pi" data-c="ask" onclick="setChip(this,'ask')"><span class="ck">✓</span><span class="dot a"></span>待处理<span class="n">2</span></div>
+          <div class="pi" data-c="done" onclick="setChip(this,'done')"><span class="ck">✓</span>已完成<span class="n">5</span></div>
+          <div class="pi" data-c="err" onclick="setChip(this,'err')"><span class="ck">✓</span>失败·中断<span class="n">2</span></div>
+        </div>
+      </span>
+      <button class="tibtn" id="btnBatch" title="批量归档（勾选多条任务）" onclick="enterSelect()"><span data-ico="archive"></span></button>
+    </div>
+    <!-- 批量选择态操作条：勾选计数 + 全选/归档/取消 -->
+    <div class="tk-selbar">
+      已选 <span class="n" id="selN">0</span> 项
+      <span class="sp" style="flex:1"></span>
+      <button class="tbtn" onclick="pickAllVisible()">全选</button>
+      <button class="tbtn primary" id="selGo" onclick="archivePicked()">归档</button>
+      <button class="tbtn" onclick="exitSelect()">取消</button>
     </div>
     <div class="scroll" id="listScroll">
       <div class="gwrap">
@@ -663,6 +719,8 @@ Gitter-Session: 3f9c2a1e-8b4d-4c22-9a10-7f6e5d4c3b21</div>
     msg: S('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
     ext: S('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'),
     warn: S('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+    sort: S('<line x1="7" y1="4" x2="7" y2="20"/><polyline points="4 7 7 4 10 7"/><line x1="17" y1="20" x2="17" y2="4"/><polyline points="14 17 17 20 20 17"/>'),
+    filter: S('<polygon points="22 3 2 3 10 12.6 10 19 14 21 14 12.6 22 3"/>'),
   };
   document.querySelectorAll("[data-ico]").forEach((el) => { el.innerHTML = I[el.dataset.ico] || ""; el.style.display = "inline-flex"; el.children[0] && (el.children[0].style.width = "13px", el.children[0].style.height = "13px"); });
 
@@ -691,10 +749,44 @@ Gitter-Session: 3f9c2a1e-8b4d-4c22-9a10-7f6e5d4c3b21</div>
     document.querySelectorAll(".page").forEach(pg=>pg.classList.toggle("on",pg.id==="p-"+p));
   }
 
-  /* ---------- 列表：选中 / 筛选 / 搜索 / 分组 ---------- */
-  function pickCard(row){ document.querySelectorAll("#listScroll .trow").forEach(r=>r.classList.remove("sel")); row.classList.add("sel"); }
-  let curCat="all", curQ="";
-  function setChip(el,c){ curCat=c; document.querySelectorAll(".fchip").forEach(x=>x.classList.toggle("on",x===el)); applyFilter(); }
+  /* ---------- 列表：选中 / 筛选 / 排序 / 搜索 / 分组 / 批量归档（v3.4 图标工具条） ---------- */
+  let curCat="all", curQ="", curSort="active";
+  function setChip(el,c){
+    curCat=c;
+    document.querySelectorAll("#popFilter .pi").forEach(x=>x.classList.toggle("on",x.dataset.c===c));
+    closePops();
+    applyFilter();
+  }
+  function syncFilterCounts(){
+    // 计数从 DOM 现算（归档/恢复后同步），写入筛选下拉各项
+    const rows=[...document.querySelectorAll("#listScroll .trow")].filter(r=>r.dataset.cat!=="arch");
+    const counts={ all:rows.length, run:0, ask:0, done:0, err:0 };
+    rows.forEach(r=>{ counts[r.dataset.cat]=(counts[r.dataset.cat]||0)+1; });
+    for (const c of ["all","run","ask","done","err"]) {
+      const n=document.querySelector(`#popFilter .pi[data-c=${c}] .n`);
+      if(n) n.textContent=counts[c];
+    }
+  }
+  function setSort(el){
+    curSort=el.dataset.s;
+    document.querySelectorAll("#popSort .pi").forEach(x=>x.classList.toggle("on",x===el));
+    closePops();
+    applyFilter();
+    toast("排序："+el.textContent.trim().replace(/默认$/,""));
+  }
+  function togglePop(e,id){
+    e.stopPropagation();
+    const pop=document.getElementById(id);
+    const was=pop.classList.contains("on");
+    closePops();
+    if(!was){
+      pop.classList.add("on");
+      (id==="popFilter"?document.getElementById("btnFilter"):document.getElementById("btnSort"))?.classList.add("on");
+    }
+  }
+  function closePops(){ document.querySelectorAll(".tk-pop").forEach(p=>p.classList.remove("on")); document.querySelectorAll(".tibtn.on").forEach(b=>b.classList.remove("on")); }
+  document.addEventListener("click",(e)=>{ if(!e.target.closest(".tk-pop")) closePops(); });
+
   /* 行可见性：纯逻辑判定。不读 DOM 实际可见性——祖先 display:none 会让 offsetParent 失真，
      造成「组隐藏→行不可见→组继续隐藏」的死锁 */
   function rowVisible(r){
@@ -704,7 +796,16 @@ Gitter-Session: 3f9c2a1e-8b4d-4c22-9a10-7f6e5d4c3b21</div>
     const okC=curCat==="all"||r.dataset.cat===curCat;
     return okC&&okQ;
   }
+  function sortRows(rows){
+    if(curSort==="title") return [...rows].sort((a,b)=>a.querySelector(".title").textContent.localeCompare(b.querySelector(".title").textContent,"zh"));
+    if(curSort==="created") return [...rows].reverse(); // 示意：组内 DOM 逆序 ≈ 旧创建在前
+    return rows; // active = 账本次序（新→旧）
+  }
   function applyFilter(){
+    document.querySelectorAll("#listScroll .gwrap").forEach(g=>{
+      const wrap=sortRows([...g.querySelectorAll(".trow")]);
+      wrap.forEach(r=>g.appendChild(r));
+    });
     document.querySelectorAll("#listScroll .trow").forEach(r=>{
       r.style.display=rowVisible(r)?(r.dataset.cat==="arch"?"flex":""):"none";
     });
@@ -712,6 +813,75 @@ Gitter-Session: 3f9c2a1e-8b4d-4c22-9a10-7f6e5d4c3b21</div>
       const any=[...g.querySelectorAll(".trow")].some(rowVisible);
       g.style.display=any?"":"none";
     });
+    syncFilterCounts();
+  }
+
+  /* ---------- 批量归档（v3.4）：图标钮进入选择态 → 行首勾选框 + 操作条 → 归档选中 ---------- */
+  let picked=new Set();
+  function pickCard(row){
+    if(document.body.classList.contains("selecting")){ togglePick(row); return; }
+    document.querySelectorAll("#listScroll .trow").forEach(r=>r.classList.remove("sel"));
+    row.classList.add("sel");
+  }
+  function togglePick(row){
+    if(row.dataset.cat==="arch") return; // 已归档行不可再勾（批量归档只针对列表内任务）
+    if(row.classList.contains("picked")){ row.classList.remove("picked"); picked.delete(row.dataset.tid); const cb=row.querySelector(".selbox input"); if(cb) cb.checked=false; }
+    else { row.classList.add("picked"); picked.add(row.dataset.tid); const cb=row.querySelector(".selbox input"); if(cb) cb.checked=true; }
+    document.getElementById("selN").textContent=picked.size;
+  }
+  function enterSelect(){
+    closePops();
+    document.body.classList.add("selecting");
+    picked=new Set();
+    document.getElementById("selN").textContent="0";
+    let i=0;
+    document.querySelectorAll("#listScroll .trow").forEach(r=>{
+      r.dataset.tid=r.dataset.tid||("t"+(++i));
+      if(r.dataset.cat==="arch") return;
+      const lb=document.createElement("label");
+      lb.className="selbox";
+      lb.innerHTML='<input type="checkbox">';
+      lb.onclick=(e)=>{ e.stopPropagation(); };
+      lb.querySelector("input").onchange=()=>togglePick(r);
+      r.prepend(lb);
+    });
+    applyFilter();
+  }
+  function exitSelect(){
+    document.body.classList.remove("selecting");
+    picked=new Set();
+    document.getElementById("selN").textContent="0";
+    document.querySelectorAll("#listScroll .selbox").forEach((x)=>x.remove());
+    document.querySelectorAll("#listScroll .trow.picked").forEach(r=>r.classList.remove("picked"));
+    applyFilter();
+  }
+  function pickAllVisible(){
+    document.querySelectorAll("#listScroll .trow").forEach(r=>{
+      if(r.style.display!=="none"&&r.dataset.cat!=="arch"&&!r.classList.contains("picked")) togglePick(r);
+    });
+  }
+  function archivePicked(){
+    const rows=[...document.querySelectorAll("#listScroll .trow.picked")];
+    if(rows.length===0){ toast("先勾选要归档的任务"); return; }
+    const archWrap=document.getElementById("archMerged").parentElement;
+    rows.forEach(r=>{
+      r.dataset.cat="arch";
+      r.classList.remove("picked");
+      const sb=r.querySelector(".selbox"); if(sb) sb.remove();
+      archWrap.appendChild(r);
+    });
+    setArchCount(archN+rows.length);
+    exitSelect();
+    toast(`已批量归档 ${rows.length} 个任务（agent.task.archive × N）——「显示已归档」可见`);
+  }
+  /* 行可见性：纯逻辑判定。不读 DOM 实际可见性——祖先 display:none 会让 offsetParent 失真，
+     造成「组隐藏→行不可见→组继续隐藏」的死锁 */
+  function rowVisible(r){
+    const okQ=!curQ||r.querySelector(".title").textContent.toLowerCase().includes(curQ);
+    if(r.id==="rowVite") return !document.body.classList.contains("merged")&&okQ&&(curCat==="all"||curCat==="done"); // 合并后从正常组消失
+    if(r.dataset.cat==="arch") return archOpen&&curCat==="all"&&okQ; // 归档行：开关打开 + 「全部」
+    const okC=curCat==="all"||r.dataset.cat===curCat;
+    return okC&&okQ;
   }
   document.getElementById("searchInput").addEventListener("input",function(){
     curQ=this.value.trim().toLowerCase();

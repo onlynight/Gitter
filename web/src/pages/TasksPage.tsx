@@ -156,6 +156,14 @@ export function TasksPage() {
     const v = localStorage.getItem("gitter.taskListFilter");
     return v === "run" || v === "ask" || v === "done" || v === "err" ? v : "all";
   });
+  // v3.4 工具条（task-page-wrapup-and-list-design.md）：排序下拉 / 筛选下拉 / 批量归档选择态
+  const [listSort, setListSort] = useState<"active" | "created" | "title">(() => {
+    const v = localStorage.getItem("gitter.taskListSort");
+    return v === "created" || v === "title" ? v : "active";
+  });
+  const [listPop, setListPop] = useState<"filter" | "sort" | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [archOpen, setArchOpen] = useState(() => localStorage.getItem("gitter.taskArchOpen") === "1");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [delPopId, setDelPopId] = useState<string | null>(null);
@@ -613,9 +621,41 @@ export function TasksPage() {
     err: (agentTasks ?? []).filter((t) => !t.archived && taskCategory(t) === "err").length,
     arch: (agentTasks ?? []).filter((t) => t.archived).length,
   };
+  // v3.4 排序（组内排序，日期分组保持）：active=账本次序（新→旧）/ created=创建时间新→旧 / title=标题
+  const sortRows = (rows: AgentTaskDTO[]) => {
+    if (listSort === "title") return [...rows].sort((a, b) => a.title.localeCompare(b.title, "zh"));
+    if (listSort === "created") return [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return rows;
+  };
   const groupedTasks = DATE_GROUPS
-    .map((g) => ({ ...g, tasks: visibleTasks.filter((t) => dateGroupOf(t.lastActiveAt ?? t.createdAt) === g.id) }))
+    .map((g) => ({ ...g, tasks: sortRows(visibleTasks.filter((t) => dateGroupOf(t.lastActiveAt ?? t.createdAt) === g.id)) }))
     .filter((g) => g.tasks.length > 0);
+
+  // 下拉点外关闭
+  useEffect(() => {
+    if (!listPop) return;
+    const close = (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.closest?.(".tk-pop, .tk-tbtn")) return;
+      setListPop(null);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [listPop]);
+
+  // v3.4 批量归档：选择态 + 循环 archive
+  const enterSelect = () => { setListPop(null); setPicked(new Set()); setSelecting(true); };
+  const exitSelect = () => { setSelecting(false); setPicked(new Set()); };
+  const togglePick = (taskId: string) => setPicked((s) => { const n = new Set(s); if (n.has(taskId)) n.delete(taskId); else n.add(taskId); return n; });
+  const pickAllVisible = () => setPicked(new Set(visibleTasks.filter((t) => !t.archived).map((t) => t.taskId)));
+  const archivePicked = async () => {
+    const ids = [...picked];
+    if (ids.length === 0) return;
+    try {
+      for (const id of ids) await call("agent.task.archive", { taskId: id, archived: true });
+      exitSelect();
+      await reloadAgents();
+    } catch (e) { setError((e as Error).message); }
+  };
 
   // 运行中工具 + 子代理计数 + 上下文用量
   const runningTool = (() => {
@@ -1207,10 +1247,20 @@ export function TasksPage() {
       : task.state === "stopped" || task.state === "completed" ? "var(--c-text3)"
       : task.permissionMode === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-green)";
     const working = task.state === "working" || task.state === "starting";
+    const pickable = selecting && !task.archived;
     return (
-      <div key={task.taskId} className={"tk-row" + (selectedNow ? " sel" : "") + (task.archived ? " arch" : "")}
-        onClick={() => { setSelectedTask(selectedNow ? null : task.taskId); setTab("chat"); setThinking(task.thinking ?? "medium"); setMode(task.permissionMode ?? "default"); }}
+      <div key={task.taskId} className={"tk-row" + (selectedNow ? " sel" : "") + (task.archived ? " arch" : "") + (picked.has(task.taskId) ? " picked" : "")}
+        onClick={() => {
+          if (pickable) { togglePick(task.taskId); return; }
+          if (selecting) return; // 已归档行在选择态不可勾也不可选
+          setSelectedTask(selectedNow ? null : task.taskId); setTab("chat"); setThinking(task.thinking ?? "medium"); setMode(task.permissionMode ?? "default");
+        }}
         title={`${task.title}\n${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.mergeSha.slice(0, 8)}` : ""}${task.archived ? " · 已归档" : ""}`}>
+        {pickable && (
+          <span className="tk-selbox" onClick={(e) => e.stopPropagation()}>
+            <input type="checkbox" checked={picked.has(task.taskId)} onChange={() => togglePick(task.taskId)} />
+          </span>
+        )}
         <span className={"tk-dot" + (working ? " run" : "")} style={{ color: dotColor }} />
         {renamingId === task.taskId ? (
           <input key={`ren-${task.taskId}`} className="tk-ren" autoFocus defaultValue={task.title}
@@ -1223,10 +1273,11 @@ export function TasksPage() {
             onBlur={(e) => { const v = e.target.value.trim(); setRenamingId(null); if (v && v !== task.title) void renameTask(task.taskId, v); }}
           />
         ) : (
-          <span className="tk-row-title" title="双击重命名"
-            onDoubleClick={(e) => { e.stopPropagation(); setRenamingId(task.taskId); }}>{task.title}</span>
+          <span className="tk-row-title" title={selecting ? undefined : "双击重命名"}
+            onDoubleClick={selecting ? undefined : (e) => { e.stopPropagation(); setRenamingId(task.taskId); }}>{task.title}</span>
         )}
         {task.wrapup ? <span className="tk-mtag">已合并</span> : null}
+        {!selecting && (
         <span className="tk-quick">
           {task.archived ? (
             <button className="icon-btn" title="恢复到列表（取消归档）"
@@ -1250,6 +1301,7 @@ export function TasksPage() {
             <TlIcon name="trash" size={13} />
           </button>
         </span>
+        )}
         {delPopId === task.taskId && (
           <div className="tk-delpop" onClick={(e) => e.stopPropagation()}>
             <div className="t">删除任务？</div>
@@ -1308,22 +1360,66 @@ export function TasksPage() {
         <button className="new-task-btn" style={{ margin: "10px 10px 6px", width: "calc(100% - 20px)" }} onClick={startNewTask}>
           ＋ 新任务（描述目标，Ctrl+N）
         </button>
-        {/* 搜索（纯前端：标题/摘要/id）+ 状态筛选 chips（v3.3 工作流 A） */}
+        {/* 搜索（纯前端：标题/摘要/id） */}
         <div className={"tk-search" + (listQuery ? " has" : "")}>
           <TlIcon name="search" size={12} />
           <input value={listQuery} placeholder="搜索标题 / 摘要 / id" onChange={(e) => setListQuery(e.target.value)} />
           <button className="tk-search-clr" title="清空" onClick={() => setListQuery("")}>✕</button>
         </div>
-        <div className="tk-fchips">
-          {([["all", "全部", listCounts.all], ["run", "进行中", listCounts.run], ["ask", "待处理", listCounts.ask], ["done", "已完成", listCounts.done], ["err", "失败·中断", listCounts.err]] as const).map(([id, label, n]) => (
-            <button key={id} className={"tk-fchip" + (listFilter === id ? " on" : "")}
-              onClick={() => { setListFilter(id); localStorage.setItem("gitter.taskListFilter", id); }}>
-              {id === "run" && n > 0 ? <span className="d" style={{ color: "var(--c-green)" }} /> : null}
-              {id === "ask" && n > 0 ? <span className="d" style={{ color: "var(--c-amber)" }} /> : null}
-              {label} <span className="n">{n}</span>
+        {/* v3.4 工具条：右对齐三图标钮 = 排序 / 状态筛选 / 批量归档；选择态换操作条 */}
+        {selecting ? (
+          <div className="tk-selbar">
+            已选 <span className="n">{picked.size}</span> 项
+            <span className="sp" />
+            <button className="tool-btn" onClick={pickAllVisible}>全选</button>
+            <button className="tool-btn" disabled={picked.size === 0}
+              style={picked.size > 0 ? { background: "var(--c-selected)", borderColor: "var(--c-selected)", color: "var(--c-text)", fontWeight: 600 } : undefined}
+              onClick={() => void archivePicked()}>归档</button>
+            <button className="tool-btn" onClick={exitSelect}>取消</button>
+          </div>
+        ) : (
+          <div className="tk-tbar">
+            <span className="tk-tpop-anchor">
+              <button className={"tk-tbtn" + (listPop === "sort" ? " on" : "")} title="排序"
+                onClick={() => setListPop(listPop === "sort" ? null : "sort")}>
+                <TlIcon name="sort" size={14} />
+              </button>
+              {listPop === "sort" && (
+                <div className="tk-pop on">
+                  <div className="ph">排序</div>
+                  {([["active", "最近活动", "默认"], ["created", "创建时间", null], ["title", "标题 A→Z", null]] as const).map(([id, label, tag]) => (
+                    <div key={id} className={"pi" + (listSort === id ? " on" : "")}
+                      onClick={() => { setListSort(id); localStorage.setItem("gitter.taskListSort", id); setListPop(null); }}>
+                      <span className="ck">✓</span>{label}{tag ? <span className="n">{tag}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </span>
+            <span className="tk-tpop-anchor">
+              <button className={"tk-tbtn" + (listPop === "filter" ? " on" : "")} title="按状态筛选"
+                onClick={() => setListPop(listPop === "filter" ? null : "filter")}>
+                <TlIcon name="filter" size={14} />
+              </button>
+              {listPop === "filter" && (
+                <div className="tk-pop on">
+                  <div className="ph">按状态筛选</div>
+                  {([["all", "全部", ""], ["run", "进行中", "var(--c-green)"], ["ask", "待处理", "var(--c-amber)"], ["done", "已完成", ""], ["err", "失败·中断", ""]] as const).map(([id, label, dot]) => (
+                    <div key={id} className={"pi" + (listFilter === id ? " on" : "")}
+                      onClick={() => { setListFilter(id); localStorage.setItem("gitter.taskListFilter", id); setListPop(null); }}>
+                      <span className="ck">✓</span>
+                      {dot ? <span className="dot" style={{ background: dot }} /> : null}
+                      {label}<span className="n">{listCounts[id]}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </span>
+            <button className="tk-tbtn" title="批量归档（勾选多条任务）" onClick={enterSelect}>
+              <TlIcon name="archive" size={14} />
             </button>
-          ))}
-        </div>
+          </div>
+        )}
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 10px 4px", display: "flex", flexDirection: "column", gap: 2 }}>
           {groupedTasks.length === 0 && (
             <div style={{ fontSize: 12, color: "var(--c-text3)", padding: "6px 2px" }}>
