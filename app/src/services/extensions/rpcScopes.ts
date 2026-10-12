@@ -67,6 +67,9 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "changes.state": "git.read", "changes.diffFile": "git.read", "changes.feedback": "git.read",
   "changes.safetyScan": "git.read", "branches.state": "git.read", "tags.list": "git.read", "reflog.list": "git.read", "branch.graph": "git.read",
   "gitconfig.list": "git.read", "file.preview": "git.read",
+  // amend 预填/已推检测 + 强推覆盖面预览 + stash 列表/展开（stash-mockup 实现）
+  "changes.headInfo": "git.read", "changes.pushPreview": "git.read",
+  "stash.list": "git.read", "stash.show": "git.read",
 
   // ---- git.write（主进程侧人审门/安全网天然继续生效） ----
   "changes.stage": "git.write", "changes.unstage": "git.write", "changes.discardFile": "git.write",
@@ -81,6 +84,12 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "branches.pull": "git.write", "branches.push": "git.write", "branches.rebase": "git.write",
   "branches.rename": "git.write", "tags.delete": "git.write", "tags.create": "git.write",
   "log.reset": "git.write", "log.squash": "git.write",
+  // 放弃修改批量 + stash 管理 + revert/cherry-pick（gitui 缺口功能实现）
+  "changes.discardFiles": "git.write",
+  "stash.push": "git.write", "stash.apply": "git.write", "stash.drop": "git.write",
+  "log.revert": "git.write", "log.cherryPick": "git.write",
+  "git.revertAbort": "git.write", "git.revertContinue": "git.write",
+  "git.cherryPickAbort": "git.write", "git.cherryPickContinue": "git.write",
   "tasks.create": "git.write", "tasks.remove": "git.write",
   "gitconfig.set": "git.write",
   "remote.add": "git.write", "remote.remove": "git.write",
