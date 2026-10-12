@@ -28,6 +28,51 @@
     const g = U();
     return react.useSyncExternalStore(g.subscribeState, g.getState);
   }
+  const ACTIVE_STATES = /* @__PURE__ */ new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
+  const STATE_COLOR = {
+    working: "var(--c-green)",
+    starting: "var(--c-green)",
+    "awaiting-input": "var(--c-amber)",
+    "awaiting-permission": "var(--c-amber)",
+    failed: "var(--c-red)",
+    interrupted: "var(--c-red)"
+  };
+  function ActiveTasks() {
+    const [tasks, setTasks] = react.useState([]);
+    const reload = react.useCallback(() => {
+      void call("app.allTasks", {}).then((x) => setTasks(x.filter((t2) => ACTIVE_STATES.has(t2.state)))).catch(() => {
+      });
+    }, []);
+    react.useEffect(() => {
+      reload();
+      const iv = window.setInterval(reload, 4e3);
+      return () => window.clearInterval(iv);
+    }, [reload]);
+    if (tasks.length === 0) return null;
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "proj-tasks", children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "proj-tasks-h", children: [
+        "进行中的 Agent 任务（",
+        tasks.length,
+        "）"
+      ] }),
+      tasks.map((t2) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "proj-task-row", title: t2.lastMessage ?? "", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dot", style: { background: STATE_COLOR[t2.state] ?? "var(--c-fg3)" } }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "repo", children: t2.repoName }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "title", children: t2.title }),
+        t2.review ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chip", style: { color: t2.review.status === "approved" ? "var(--c-green)" : t2.review.status === "rejected" ? "var(--c-red)" : "var(--c-amber)" }, children: t2.review.status === "approved" ? "已通过" : t2.review.status === "rejected" ? "已退回" : "待审" }) : null,
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "state", children: t2.state === "working" ? "运行中" : t2.state === "awaiting-input" ? "等待输入" : t2.state === "awaiting-permission" ? "等待授权" : "启动中" }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "button",
+          {
+            className: "tool-btn icon sm",
+            "data-tip": "在新窗口打开该仓库",
+            onClick: () => void call("app.newWindow", { path: t2.repoPath }),
+            children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "glyph", style: { fontSize: 11 }, children: "" })
+          }
+        )
+      ] }, t2.repoPath + t2.taskId))
+    ] });
+  }
   const { call, t, openRepo, closeRepo } = pageSdk;
   const useApp = useAppState;
   const VIEW_KEY = "gitter.projects.view";
@@ -130,6 +175,7 @@
         /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: error }),
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setError(null), children: "✕" })
       ] }),
+      /* @__PURE__ */ jsxRuntime.jsx(ActiveTasks, {}),
       state && state.projects.length === 0 ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "big", children: "📁" }),
         /* @__PURE__ */ jsxRuntime.jsx("div", { children: t("Projects_EmptyHint") }),

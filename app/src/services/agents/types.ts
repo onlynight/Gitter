@@ -175,6 +175,8 @@ export interface AgentTaskRecord {
   awaitKind?: "question" | "plan" | null;
   /** 收尾合并结果（mergeTask 成功后写入；有值 = 已合并） */
   wrapup?: { mergeSha: string; mergedAt: string; strategy: "squash" | "merge" } | null;
+  /** M2.4 审查三态（验收台人机共享状态；null = 未审） */
+  review?: { status: "pending" | "approved" | "rejected"; comment: string | null; at: string } | null;
 }
 
 /** 收尾合并预检（mergeCheck 返回；conflicts null = 无法预检，[] = 干净）。 */

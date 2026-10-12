@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 2,
+  "id": "com.example.external-harness",
+  "name": "外部 Harness 示例（Echo Agent）",
+  "version": "1.0.0",
+  "description": "M3.3 外部任务类型示例：cli-json 传输拉起外部 CLI（stream JSONL → 时间线）。占位实现为 Node echo 脚本，替换 spawn.command 即可接入真实外部 agent（如 codex/claude CLI 桥）。",
+  "engines": {
+    "gitter": ">=0.1.0"
+  },
+  "contributes": {
+    "harnesses": [
+      {
+        "id": "echo-agent",
+        "transport": "cli-json",
+        "fallback": null,
+        "detect": {
+          "command": "node",
+          "args": [
+            "--version"
+          ],
+          "versionPattern": "v\\d+\\.[\\d.]+"
+        },
+        "spawn": {
+          "command": "node",
+          "args": [
+            "{worktree}/.gitter-echo-agent.js"
+          ],
+          "promptStdin": true,
+          "env": {}
+        },
+        "resume": null,
+        "stop": {
+          "mode": "kill"
+        },
+        "capabilities": [
+          "structured-events"
+        ],
+        "submissionMode": "none",
+        "hostServices": [],
+        "identity": {
+          "assistedBy": "echo-agent"
+        },
+        "permissions": {
+          "gitWrite": [],
+          "outsideWorktree": false,
+          "network": "deny"
+        },
+        "promptTemplates": {
+          "preamble": null,
+          "feedback": null
+        },
+        "events": {
+          "lineFormat": "jsonl",
+          "externalId": "$.sessionId",
+          "rules": [
+            {
+              "when": "$.type == 'assistant'",
+              "emit": {
+                "kind": "output",
+                "stream": "assistant",
+                "text": "$.text"
+              }
+            },
+            {
+              "when": "$.type == 'tool'",
+              "emit": {
+                "kind": "tool",
+                "name": "$.name",
+                "phase": "start"
+              }
+            },
+            {
+              "when": "$.type == 'done'",
+              "emit": {
+                "kind": "completed",
+                "outcome": "$.outcome"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

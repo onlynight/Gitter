@@ -191,6 +191,374 @@
       }
     );
   }
+  function api() {
+    if (!window.gitter) {
+      return {
+        invoke: async () => ({ ok: false, error: { message: "不在 Electron 宿主内（桥不可用）" } }),
+        onEvent: () => () => {
+        },
+        winAction: () => {
+        },
+        isMaximized: async () => false
+      };
+    }
+    return window.gitter;
+  }
+  class BridgeCallError extends Error {
+    constructor(message, detail) {
+      super(message);
+      this.detail = detail;
+    }
+  }
+  async function call$1(method, params) {
+    const res = await api().invoke(method, params);
+    if (!res.ok) throw new BridgeCallError(res.error.message, res.error.detail);
+    return res.data;
+  }
+  const listeners = /* @__PURE__ */ new Set();
+  let subscribed = false;
+  function ensureSubscribe() {
+    if (subscribed) return;
+    subscribed = true;
+    api().onEvent((method, params) => {
+      for (const fn of listeners) {
+        try {
+          fn(method, params);
+        } catch {
+        }
+      }
+    });
+  }
+  function onEvent(method, cb) {
+    ensureSubscribe();
+    const fn = (m, p) => {
+      if (m === method) cb(p);
+    };
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }
+  function fmtTok(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return String(n);
+  }
+  function fmtCost(n) {
+    return n === null ? "—" : "$" + n.toFixed(n < 10 ? 4 : 2);
+  }
+  function SubscriptionModelsCard(props) {
+    const [profiles, setProfiles] = react.useState([]);
+    const [busy, setBusy] = react.useState(false);
+    const [msg, setMsg] = react.useState(null);
+    const [pricing, setPricing] = react.useState({});
+    const reload = react.useCallback(() => {
+      void call$1("models.list").then(setProfiles).catch(() => {
+      });
+    }, []);
+    react.useEffect(reload, [reload]);
+    const oauthProfiles = profiles.filter((p) => p.authKind === "oauth" && p.source === "user");
+    const createPreset = async () => {
+      var _a2;
+      setBusy(true);
+      setMsg(null);
+      try {
+        await call$1("models.createSubscriptionPreset", {});
+        reload();
+        (_a2 = props.onChanged) == null ? void 0 : _a2.call(props);
+        setMsg("已创建 Claude 订阅档案——点击「订阅登录」完成 OAuth 授权后即可使用");
+      } catch (e) {
+        setMsg(e.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+    const login = async (id) => {
+      setBusy(true);
+      setMsg("已打开浏览器等待授权…（5 分钟内完成）");
+      try {
+        const r = await call$1("models.oauthLogin", { id });
+        setMsg(`登录成功，令牌有效期至 ${new Date(r.expiresAt).toLocaleString()}`);
+        reload();
+      } catch (e) {
+        setMsg(`登录失败：${e.message}`);
+      } finally {
+        setBusy(false);
+      }
+    };
+    const logout = async (id) => {
+      await call$1("models.oauthLogout", { id }).catch(() => {
+      });
+      setMsg("已登出");
+      reload();
+    };
+    const savePricing = async (p) => {
+      const gid = p.groupId;
+      const entry = pricing[gid] ?? { inM: "", outM: "" };
+      setBusy(true);
+      try {
+        await call$1("models.save", {
+          profile: {
+            id: gid,
+            name: p.name,
+            kind: p.kind,
+            baseURL: p.baseURL,
+            modelId: p.modelId,
+            authKind: "oauth",
+            oauth: void 0,
+            pricing: {
+              inputPerM: entry.inM.trim() === "" ? void 0 : Number(entry.inM) || 0,
+              outputPerM: entry.outM.trim() === "" ? void 0 : Number(entry.outM) || 0
+            }
+          }
+        });
+        setMsg("单价已保存");
+        reload();
+      } catch (e) {
+        setMsg(e.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 10 }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center", margin: "4px 0 6px" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontWeight: 600, fontSize: 12, color: "var(--c-text2)" }, children: "订阅登录（OAuth）" }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: busy, onClick: () => void createPreset(), children: "一键创建 Claude 订阅档案" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "订阅走 claude.ai OAuth（PKCE），令牌 safeStorage 落盘；API 密钥模式不受影响" })
+      ] }),
+      oauthProfiles.map((p) => {
+        var _a2, _b2;
+        const loggedIn = (p.oauthExpiresAt ?? 0) > Date.now() || p.oauthExpiresAt === null && p.configured;
+        const pr = pricing[p.groupId] ?? { inM: String(((_a2 = p.pricing) == null ? void 0 : _a2.inputPerM) ?? ""), outM: String(((_b2 = p.pricing) == null ? void 0 : _b2.outputPerM) ?? "") };
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", style: { flexWrap: "wrap", gap: 6 }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("label", { style: { minWidth: 160 }, children: p.name }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
+            loggedIn ? `已登录${p.oauthExpiresAt ? `（至 ${new Date(p.oauthExpiresAt).toLocaleString()}）` : ""}` : "未登录",
+            " · ",
+            p.modelId
+          ] }),
+          loggedIn ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: busy, onClick: () => void logout(p.id), children: "登出" }) : /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", disabled: busy, onClick: () => void login(p.id), children: "订阅登录" }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "input",
+            {
+              className: "input",
+              style: { width: 90 },
+              placeholder: "输入 $/Mtok",
+              title: "输入单价（每百万 token）",
+              value: pr.inM,
+              onChange: (e) => setPricing((m) => ({ ...m, [p.groupId]: { ...pr, inM: e.target.value } }))
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "input",
+            {
+              className: "input",
+              style: { width: 90 },
+              placeholder: "输出 $/Mtok",
+              title: "输出单价（每百万 token）",
+              value: pr.outM,
+              onChange: (e) => setPricing((m) => ({ ...m, [p.groupId]: { ...pr, outM: e.target.value } }))
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: busy, onClick: () => void savePricing(p), children: "存单价" })
+        ] }, p.id);
+      }),
+      msg && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", style: { color: "var(--c-text2)" }, children: msg })
+    ] });
+  }
+  function UsageSection() {
+    const [rep, setRep] = react.useState(null);
+    const [allProjects, setAllProjects] = react.useState(false);
+    const [err, setErr] = react.useState(null);
+    const reload = react.useCallback((all) => {
+      void call$1("agent.usage.report", { allProjects: all }).then((r) => {
+        setRep(r);
+        setErr(null);
+      }).catch((e) => setErr(e.message));
+    }, []);
+    react.useEffect(() => reload(allProjects), [reload, allProjects]);
+    if (err) return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", style: { color: "var(--c-red)" }, children: err });
+    if (!rep) return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", children: "加载中…" });
+    const t0 = rep.totals;
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("label", { children: [
+          "汇总（turn 数 ",
+          t0.turns,
+          "）"
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
+          "输入 ",
+          fmtTok(t0.inputTokens),
+          " tok · 输出 ",
+          fmtTok(t0.outputTokens),
+          " tok · 缓存命中 ",
+          fmtTok(t0.cacheReadTokens),
+          " tok · 估算费用 ",
+          fmtCost(t0.cost)
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        /* @__PURE__ */ jsxRuntime.jsxs("label", { style: { display: "flex", gap: 4, alignItems: "center", fontSize: 12 }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: allProjects, onChange: (e) => setAllProjects(e.target.checked) }),
+          "含全部项目"
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => reload(allProjects), children: "刷新" })
+      ] }),
+      rep.emptyRepos.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "hint", children: [
+        rep.emptyRepos.length,
+        " 个仓库暂无任务账本（未跑过 agent 任务）"
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsx("h4", { style: { margin: "10px 0 4px", fontSize: 12 }, children: "按天" }),
+      /* @__PURE__ */ jsxRuntime.jsxs("table", { className: "usage-table", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("thead", { children: /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "日期" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "轮次" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输入 tok" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输出 tok" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "缓存命中" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "费用" })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntime.jsxs("tbody", { children: [
+          rep.byDay.slice(-30).reverse().map((d) => /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: d.day }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: d.turns }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(d.inputTokens) }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(d.outputTokens) }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(d.cacheReadTokens) }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtCost(d.cost) })
+          ] }, d.day)),
+          rep.byDay.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("tr", { children: /* @__PURE__ */ jsxRuntime.jsx("td", { colSpan: 6, className: "hint", children: "暂无数据" }) })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsx("h4", { style: { margin: "10px 0 4px", fontSize: 12 }, children: "按模型" }),
+      /* @__PURE__ */ jsxRuntime.jsxs("table", { className: "usage-table", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("thead", { children: /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "档案" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "轮次" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输入 tok" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输出 tok" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "费用" })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntime.jsxs("tbody", { children: [
+          rep.byModel.map((m) => /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntime.jsx("td", { title: m.modelRef, children: m.modelRef.split("/").pop() }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: m.turns }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(m.inputTokens) }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(m.outputTokens) }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtCost(m.cost) })
+          ] }, m.modelRef)),
+          rep.byModel.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("tr", { children: /* @__PURE__ */ jsxRuntime.jsx("td", { colSpan: 5, className: "hint", children: "暂无数据" }) })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsx("h4", { style: { margin: "10px 0 4px", fontSize: 12 }, children: "按任务（最近 20）" }),
+      /* @__PURE__ */ jsxRuntime.jsxs("table", { className: "usage-table", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("thead", { children: /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "任务" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "状态" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "轮次" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输入 tok" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输出 tok" }),
+          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "费用" })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntime.jsxs("tbody", { children: [
+          rep.byTask.slice(0, 20).map((t2) => /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntime.jsx("td", { title: t2.title, children: t2.title.slice(0, 32) }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: t2.state }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: t2.turns }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(t2.inputTokens) }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(t2.outputTokens) }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtCost(t2.cost) })
+          ] }, t2.taskId)),
+          rep.byTask.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("tr", { children: /* @__PURE__ */ jsxRuntime.jsx("td", { colSpan: 6, className: "hint", children: "暂无数据" }) })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", style: { marginTop: 4 }, children: "费用 = 档案单价（订阅卡内配置，$/Mtok）× token；未配置单价的档案不计费。" })
+    ] });
+  }
+  function AboutUpdateSection() {
+    const [url, setUrl] = react.useState("");
+    const [st, setSt] = react.useState(null);
+    const [busy, setBusy] = react.useState(false);
+    const [loaded, setLoaded] = react.useState(false);
+    react.useEffect(() => {
+      void call$1("settings.get").then((s) => {
+        setUrl((s == null ? void 0 : s.updateCheckUrl) ?? "");
+        setLoaded(true);
+      }).catch(() => setLoaded(true));
+      void call$1("app.update.state").then(setSt).catch(() => {
+      });
+      const off = onEvent("app.update.event", (params) => setSt(params));
+      return off;
+    }, []);
+    const saveFeed = (v) => {
+      setUrl(v);
+      void call$1("settings.set", { patch: { updateCheckUrl: v.trim() || null } }).catch(() => {
+      });
+    };
+    const check = async () => {
+      setBusy(true);
+      try {
+        await call$1("settings.set", { patch: { updateCheckUrl: url.trim() || null } });
+        const r = await call$1("app.update.check", {});
+        setSt(r);
+      } catch (e) {
+        setSt((prev) => prev && { ...prev, phase: "error", error: e.message });
+      } finally {
+        setBusy(false);
+      }
+    };
+    const download = async () => {
+      setBusy(true);
+      try {
+        setSt(await call$1("app.update.download", {}));
+      } finally {
+        setBusy(false);
+      }
+    };
+    const install = async () => {
+      await call$1("app.update.install", {}).catch(() => {
+      });
+    };
+    if (!loaded) return null;
+    const phase = (st == null ? void 0 : st.phase) ?? "idle";
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("label", { children: "更新源" }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "input",
+          {
+            className: "input",
+            style: { width: 340 },
+            placeholder: "GitHub 仓库（github.com/owner/repo）或 latest.yml 所在目录 URL",
+            value: url,
+            onChange: (e) => saveFeed(e.target.value)
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: busy || !url.trim(), onClick: () => void check(), children: phase === "checking" || busy && phase !== "downloading" ? "检查中…" : "检查更新" })
+      ] }),
+      st && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("label", {}),
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", children: [
+          "当前 v",
+          st.current,
+          st.devFallback ? " · dev 模式仅检查（打包版才可下载安装）" : "",
+          phase === "available" && st.latest ? ` · 发现新版本 v${st.latest}` : "",
+          phase === "none" ? " · 已是最新" : "",
+          phase === "downloading" ? ` · 下载中 ${Math.round(st.progress ?? 0)}%` : "",
+          phase === "downloaded" ? ` · v${st.latest ?? ""} 已下载，退出时将自动安装` : "",
+          phase === "error" && st.error ? ` · ${st.error}` : ""
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        phase === "available" && !st.devFallback && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", disabled: busy, onClick: () => void download(), children: "下载更新" }),
+        phase === "available" && st.devFallback && st.infoUrl && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => void call$1("shell.openExternal", { url: st.infoUrl }), children: "打开发布页" }),
+        phase === "downloading" && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "upd-progress", children: /* @__PURE__ */ jsxRuntime.jsx("div", { className: "upd-progress-bar", style: { width: `${st.progress ?? 0}%` } }) }),
+        phase === "downloaded" && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", onClick: () => void install(), children: "重启并安装" })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("label", {}),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "不做后台静默下载：检查与下载均由你触发；已下载的更新在退出应用时自动安装。安装包经 latest.yml 的 SHA512 校验（无签名通道）。" })
+      ] })
+    ] });
+  }
   const { call, t, updateSettings, applySettings, clearSettingsFocus, reloadTheme } = pageSdk;
   const useApp = useAppState;
   const GIT_KEYS = {
@@ -222,6 +590,7 @@
     { id: "monitor", cat: "repo", titleKey: "Settings_MonitorSection" },
     { id: "editor", cat: "repo", titleKey: "Settings_EditorSection" },
     { id: "models", cat: "models", titleKey: "Settings_ModelsSection" },
+    { id: "usage", cat: "models", titleKey: "Settings_UsageSection" },
     { id: "ai", cat: "ai", titleKey: "Settings_AiSection" },
     { id: "safety", cat: "ai", titleKey: "Settings_SafetyNetSection" },
     { id: "agent", cat: "ai", titleKey: "Settings_AgentSection" },
@@ -254,6 +623,7 @@
     { section: "ai", labelKey: "Settings_AiPrivacy", kw: "privacy 隐私 元数据 全量 diff" },
     { section: "ai", labelKey: "Settings_AiTrailer", kw: "trailer assisted-by 署名" },
     { section: "models", labelKey: "Settings_ModelsSection", kw: "模型档案 model profile deepseek ollama anthropic key 密钥 用量" },
+    { section: "usage", labelKey: "Settings_UsageSection", kw: "用量 统计 usage token 费用 cost 订阅 oauth 登录 subscription" },
     { section: "safety", labelKey: "Settings_SafetyNet", kw: "安全网 secrets 拦截 block warn 提交扫描" },
     { section: "agent", labelKey: "Settings_AgentCheckpoint", kw: "agent checkpoint 托管 wip 提交" },
     { section: "agent", labelKey: "Settings_AgentTaskWorktree", kw: "agent 任务 分支 worktree 当前分支 隔离 隔离执行 task branch" },
@@ -1008,6 +1378,7 @@
           ] }, id);
         case "models":
           return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
+            /* @__PURE__ */ jsxRuntime.jsx(SubscriptionModelsCard, {}),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "section-head", children: [
               /* @__PURE__ */ jsxRuntime.jsx("h4", { children: t("Settings_ModelsSection") }),
               /* @__PURE__ */ jsxRuntime.jsx(
@@ -1440,6 +1811,11 @@
             /* @__PURE__ */ jsxRuntime.jsx("h4", { children: t("Settings_ShortcutsSection") }),
             /* @__PURE__ */ jsxRuntime.jsx(ShortcutsPage, {})
           ] }, id);
+        case "usage":
+          return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("h4", { children: t("Settings_UsageSection") }),
+            /* @__PURE__ */ jsxRuntime.jsx(UsageSection, {})
+          ] }, id);
         case "about":
           return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: secCls(id), id: `set-sec-${id}`, children: [
             /* @__PURE__ */ jsxRuntime.jsx("h4", { children: t("Settings_AboutSection") }),
@@ -1450,7 +1826,8 @@
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: "git" }),
               /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", style: { fontFamily: "var(--mono)" }, children: gitVersion })
-            ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx(AboutUpdateSection, {})
           ] }, id);
       }
     };

@@ -881,6 +881,7 @@ Settings_CatAbout	About	关于
 Settings_Search	Search settings…	搜索设置…
 Settings_NoResults	No matching settings	没有匹配的设置项
 Settings_CatShortcuts	Shortcuts	快捷键
+Settings_UsageSection	Usage & Cost	用量统计
 Settings_ShortcutsSection	Keyboard Shortcuts	快捷键
 Settings_ShortcutsHint	Everything currently in effect — page-scoped shortcuts only fire on their page; packages can add more via keybindings.	当前生效的全部快捷键——页面专属快捷键仅在该页面响应；扩展包可经 keybindings 贡献新快捷键。
 Settings_ScGroupGlobal	Global	全局

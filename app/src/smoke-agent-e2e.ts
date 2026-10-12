@@ -401,11 +401,11 @@ async function main() {
     const env = await makeEnv([textChunks("第一轮完成"), textChunks("第二轮完成")]);
     const record = await env.agents.createTask({ prompt: "开始干活" });
     await waitFor("E11 首轮结束", () => env.agents.listTasks()[0]?.state === "awaiting-input");
-    const s1 = env.agents.contextStats({ taskId: record.taskId });
+    const s1 = await env.agents.contextStats({ taskId: record.taskId });
     check("E11 完成轮后有用量", s1?.totalInput != null && (s1.totalInput ?? 0) > 0, JSON.stringify({ in: s1?.totalInput, out: s1?.totalOutput }));
     await resumeWhenIdle(env.agents, record.taskId, "继续");
     await waitFor("E11 次轮结束", () => env.agents.listTasks()[0]?.state === "awaiting-input");
-    const s2 = env.agents.contextStats({ taskId: record.taskId });
+    const s2 = await env.agents.contextStats({ taskId: record.taskId });
     check("E11 累计输入逐轮增长", (s2?.totalInput ?? 0) > (s1?.totalInput ?? 0), `${s1?.totalInput} → ${s2?.totalInput}`);
     check("E11 累计输出逐轮增长", (s2?.totalOutput ?? 0) > (s1?.totalOutput ?? 0), `${s1?.totalOutput} → ${s2?.totalOutput}`);
     check("E11 estTokens 随消息增长", (s2?.estTokens ?? 0) > (s1?.estTokens ?? 0), `${Math.round(s1?.estTokens ?? 0)} → ${Math.round(s2?.estTokens ?? 0)}`);
@@ -421,7 +421,7 @@ async function main() {
     const hist2 = env2.agents.taskHistory({ taskId: rec2.taskId });
     const roles2 = hist2.messages.map((m) => m.role).join(",");
     check("E11 失败后已完成步回写（assistant+tool）", roles2.includes("assistant") && roles2.includes("tool"), roles2);
-    const s3 = env2.agents.contextStats({ taskId: rec2.taskId });
+    const s3 = await env2.agents.contextStats({ taskId: rec2.taskId });
     check("E11 中途失败轮 stats 可读无异常", s3 != null && s3.estTokens > 0, JSON.stringify({ in: s3?.totalInput, est: s3 && Math.round(s3.estTokens) }));
 
     // P3 首步即失败（限流重试耗尽形态）：failed + turn-completed 事件、无 usage 可记、消息不损
@@ -431,7 +431,7 @@ async function main() {
     check("E11 失败路径发 turn-completed 事件", env3.events.some((e) => e.event.type === "turn-completed"));
     const roles3 = env3.agents.taskHistory({ taskId: env3.agents.listTasks()[0]!.taskId }).messages.map((m) => m.role);
     check("E11 首步失败无残缺回写", !roles3.includes("assistant") && !roles3.includes("tool"), roles3.join(","));
-    const s4 = env3.agents.contextStats({ taskId: env3.agents.listTasks()[0]!.taskId });
+    const s4 = await env3.agents.contextStats({ taskId: env3.agents.listTasks()[0]!.taskId });
     check("E11 首步失败无 usage 入账", s4?.totalInput == null, JSON.stringify({ in: s4?.totalInput, est: s4 && Math.round(s4.estTokens) }));
   });
   console.log(`\n${failures === 0 ? "全部通过 ✔" : `${failures} 项失败 ✘`}`);

@@ -14,7 +14,7 @@ import { LspManager, DEFAULT_LSP_COMMANDS } from "./services/lsp";
 import { HighlightService } from "./services/highlight";
 import { McpPipeHost, pendingApprovals, requestHumanApproval } from "./services/mcp";
 import { runRegisteredLoop, registeredLoops } from "./services/extensions/agentLoop";
-import { PackageStore, type PackageLedgerEntry } from "./services/extensions/store";
+import { PackageStore, LEGACY_ID_ALIASES, type PackageLedgerEntry } from "./services/extensions/store";
 import { CommandRegistry } from "./services/extensions/commands";
 import { importGpkFile, uninstallPackageDir } from "./services/extensions/gpk";
 import { buildRawTheme, SNIPPET_LANG_EXT } from "./services/extensions/grammar";
@@ -28,6 +28,9 @@ import { HOST_API_VERSION } from "./services/extensions/store";
 import { DATA_API_VERSION } from "./shared/apiVersion";
 import { pickProfileRef, pickFastProfileRef, resolveProfileModel } from "./services/agents/provider";
 import { compileTaskTypes, BUILTIN_FREE_ID } from "./services/agents/taskTypes";
+
+/** M1.1 订阅预设档案 id（models.createSubscriptionPreset 幂等键）。 */
+const SUBSCRIPTION_PROFILE_ID = "user/claude-subscription";
 import type { ModelProfileDTO, UserModelProfileDTO } from "./shared/types";
 import * as gitconfig from "./services/gitconfig";
 import * as preview from "./services/preview";
@@ -38,6 +41,12 @@ import * as safety from "./services/safety";
 import * as modelDiscovery from "./services/modelDiscovery";
 import { groupSessions, squashMessage } from "./services/sessions";
 import * as feedbackStore from "./services/feedback";
+import { OAuthManager } from "./services/oauth";
+import { CockpitRegistry } from "./services/cockpit";
+import { aggregateUsage } from "./services/agents/usage";
+import * as gitops from "./services/gitops";
+import * as semver from "semver";
+import { checkForUpdates, downloadUpdate, initUpdater, installUpdate, updateState } from "./services/updater";
 import type { SettingsDTO } from "./shared/types";
 
 export interface SharedServices {
@@ -61,6 +70,10 @@ export interface SharedServices {
   /** 用户扩展包根（.gpk 导入目标 / 卸载边界校验），由 main 注入 */
   userPackagesRoot: string;
   userThemesRoot: string;
+  /** 订阅 OAuth 会话（M1.1：PKCE 登录 / 令牌刷新 / safeStorage 落盘），由 main 注入 */
+  oauth: OAuthManager;
+  /** 跨窗口任务驾驶舱（M3.4：app.allTasks 聚合数据源），由 main 注入 */
+  cockpit: CockpitRegistry;
   /** 新窗口创建（命令面板"新窗口"用；由 main 注入，避免循环 require）。 */
   createWindow: (repoPath?: string) => void;
   /** 窗口材质重应用（主题/亮暗切换后从主题包重新解析材质与底色；由 main 注入）。 */
@@ -126,21 +139,31 @@ export class Bridge {
       store: this.shared.pkgStore,
       settings: this.shared.settings,
       // 模型档案链（task-model-modules.md §2.2）：任务绑定 → defaultModelId → 首个可用；解密在此
-      resolveModel: (profileRef: string | null, thinking?: "off" | "low" | "medium" | "high") => {
+      resolveModel: async (profileRef: string | null, thinking?: "off" | "low" | "medium" | "high") => {
         const s = this.shared.settings.current;
         const p = pickProfileRef(s.models ?? [], profileRef);
         if (!p) {
           return { ok: false as const, error: "没有可用的模型档案：请在 设置 → 模型档案 新增并配置密钥" };
         }
+        // M1.1 订阅 OAuth：ensureToken（过期自动刷新）→ bearer 注入 provider
+        let oauth: { bearerToken: string; extraHeaders?: Record<string, string> } | null = null;
+        if (p.authKind === "oauth") {
+          if (!p.oauth) return { ok: false as const, error: "OAuth 档案缺少端点配置（authorizeUrl/tokenUrl/clientId）" };
+          try {
+            oauth = { bearerToken: await this.shared.oauth.ensureToken(p.id, p.oauth), extraHeaders: p.oauth.extraHeaders };
+          } catch (e) {
+            return { ok: false as const, error: (e as Error).message };
+          }
+        }
         const key = this.decryptProfileKey(p.apiKeyProtected);
         // 思考深度：任务/输入台显式值 > 档案默认（添加模型时配置）> medium
-        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking: thinking ?? p.thinking ?? "medium", stripHistoryReasoning: p.capabilities?.stripHistoryReasoning });
+        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, oauth, params: p.params, thinking: thinking ?? p.thinking ?? "medium", stripHistoryReasoning: p.capabilities?.stripHistoryReasoning });
         return r.ok
           ? { ok: true as const, model: r.model, profileRef: p.id, contextWindow: p.capabilities?.contextTokens ?? 128_000 }
           : { ok: false as const, error: r.error };
       },
       // D8 降级链（§21.3.3）：备用模型 = default 优先、否则首个 ≠ 失败档案的可用档案
-      alternateModel: (excludeRef: string, thinking?: "off" | "low" | "medium" | "high") => {
+      alternateModel: async (excludeRef: string, thinking?: "off" | "low" | "medium" | "high") => {
         const s = this.shared.settings.current;
         const exGid = excludeRef.split("#")[0];
         // 换分组而非换成员：同端点的其它模型视为同一份凭证，不算"备用"
@@ -150,10 +173,20 @@ export class Bridge {
         });
         const p = pickProfileRef(pool, s.defaultModelId);
         if (!p) return { ok: false as const, error: "没有备用模型档案" };
+        // M1.1：备用档案同样走 OAuth 通道（降级到订阅档案时）
+        let oauth: { bearerToken: string; extraHeaders?: Record<string, string> } | null = null;
+        if (p.authKind === "oauth") {
+          if (!p.oauth) return { ok: false as const, error: "备用 OAuth 档案缺少端点配置" };
+          try {
+            oauth = { bearerToken: await this.shared.oauth.ensureToken(p.id, p.oauth), extraHeaders: p.oauth.extraHeaders };
+          } catch (e) {
+            return { ok: false as const, error: (e as Error).message };
+          }
+        }
         const key = this.decryptProfileKey(p.apiKeyProtected);
         // 降级换模型不换思考深度：沿用当前任务档位（输入台显式值优先，其次档案默认）
         const eff = thinking ?? p.thinking ?? "medium";
-        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, params: p.params, thinking: eff, stripHistoryReasoning: p.capabilities?.stripHistoryReasoning });
+        const r = resolveProfileModel({ kind: p.kind, baseURL: p.baseURL, modelId: p.modelId, apiKey: key, oauth, params: p.params, thinking: eff, stripHistoryReasoning: p.capabilities?.stripHistoryReasoning });
         return r.ok
           ? { ok: true as const, model: r.model, profileRef: p.id, contextWindow: p.capabilities?.contextTokens ?? 128_000 }
           : { ok: false as const, error: r.error };
@@ -215,6 +248,12 @@ export class Bridge {
         void this.shared.events.emit(name, { repo: this.repo, ...payload });
       },
     });
+    // M3.4 驾驶舱登记（dispose 注销；repoPath 动态取当前仓库）
+    const bridgeSelf = this;
+    this.shared.cockpit.register(`bridge-${win.id}`, {
+      get repoPath() { return bridgeSelf.repo; },
+      listTasks: () => this.agents.listTasks({}),
+    });
     this.registerAll();
     // 启动即装载 L2 entry 包（信任门开时）——此前 activateAll 仅由扩展管理动作
     // （启停/装包/切信任门开关）触发，重启后已允许的代码插件不会装载，
@@ -225,6 +264,7 @@ export class Bridge {
   }
 
   dispose() {
+    this.shared.cockpit.unregister(`bridge-${this.win.id}`);
     this.terminals.disposeAll();
     this.lsp.stopAll();
     this.mcpHost?.stop();
@@ -238,6 +278,11 @@ export class Bridge {
 
   sendNotify(title: string, body: string): void {
     if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method: "ui.notify", params: { title, body } });
+  }
+
+  /** evt 通道广播（app.update.event 等主进程级事件扇出用）。 */
+  sendEvt(method: string, params: unknown): void {
+    if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method, params });
   }
 
   async handle(method: string, args: unknown): Promise<{ ok: true; data: unknown } | { ok: false; error: { message: string; detail?: string } }> {
@@ -427,6 +472,12 @@ export class Bridge {
     R("branches.merge", (args: { name: string; target?: string | null; noFf?: boolean; message?: string | null }) =>
       branches.mergeBranch(this.needRepo(), args.name, !!args.noFf, args.message ?? null, args.target ?? null));
     R("branches.rebase", (args: { name: string }) => branches.rebaseBranch(this.needRepo(), args.name));
+    // M1.4 冲突闭环：进行中状态 + 继续/中止（冲突文件清单走既有 changes 状态的 conflicts 组）
+    R("git.ops.state", () => gitops.operationState(this.needRepo()));
+    R("git.rebaseAbort", () => gitops.rebaseAbort(this.needRepo()));
+    R("git.rebaseContinue", () => gitops.rebaseContinue(this.needRepo()));
+    R("git.mergeAbort", () => gitops.mergeAbort(this.needRepo()));
+    R("git.mergeContinue", () => gitops.mergeContinue(this.needRepo()));
     R("branches.ff", (args: { name: string }) => branches.fastForward(this.needRepo(), args.name));
     R("branches.deleteRemote", (args: { name: string }) => branches.deleteRemoteBranch(this.needRepo(), args.name));
     R("tags.list", () => branches.listTags(this.needRepo()));
@@ -566,8 +617,8 @@ export class Bridge {
       this.agents.replyPermission(args));
     // 改动预览（F6）：文件列表 / diff（DiffDTO）/ diff 原文（复制）/ checkpoint 索引 / 恢复
     R("agent.task.files", (args: { taskId: string }) => this.agents.taskFiles(args));
-    R("agent.task.diff", (args: { taskId: string; path?: string; since?: string }) => this.agents.taskDiff(args));
-    R("agent.task.diffText", (args: { taskId: string; path?: string; since?: string }) => this.agents.taskDiffText(args));
+    R("agent.task.diff", (args: { taskId: string; path?: string; since?: string; base?: "baseline" | "head" }) => this.agents.taskDiff(args));
+    R("agent.task.diffText", (args: { taskId: string; path?: string; since?: string; base?: "baseline" | "head" }) => this.agents.taskDiffText(args));
     R("agent.task.checkpoints", (args: { taskId: string }) => this.agents.taskCheckpoints(args));
     R("agent.task.previewFile", (args: { taskId: string; path: string }) => this.agents.taskPreview(args));
     // D6 /export：markdown 生成后弹保存框落盘（主进程 dialog；渲染层零新增权限域）
@@ -598,6 +649,42 @@ export class Bridge {
     R("agent.task.archive", (args: { taskId: string; archived: boolean }) => this.agents.archive(args) ?? {});
     // 列表管理（task-page-wrapup-and-list-design.md 工作流 A）：重命名 / 删除（可选清理 worktree+分支）
     R("agent.task.rename", (args: { taskId: string; title: string }) => this.agents.rename(args) ?? {});
+    // ---- M 系列主线（harness-mainline-roadmap.md）----
+    // M2.4 审查三态：approved 记录 / rejected 自动直投修复轮（活跃任务下一轮注入结论 reminder）
+    R("agent.task.review.set", (args: { taskId: string; status: "approved" | "rejected" | "pending"; comment?: string | null }) =>
+      this.agents.setReview(args));
+    // M2.2 风险信号（纯规则，零 AI 依赖）
+    R("agent.task.risk", (args: { taskId: string }) => this.agents.taskRisk(args));
+    // M1.3 用量聚合（默认当前仓库；allProjects 扫设置里的全部项目）
+    R("agent.usage.report", (args?: { allProjects?: boolean }) => {
+      const s = this.shared.settings.current;
+      const repos = new Set<string>();
+      if (this.repo) repos.add(this.repo);
+      if (args?.allProjects) for (const pr of s.projects ?? []) if (pr.path) repos.add(pr.path);
+      return aggregateUsage([...repos], s.models ?? []);
+    });
+    // M3.4 跨窗口任务驾驶舱
+    R("app.allTasks", () => this.shared.cockpit.allTasks());
+    // M3.1 自动更新（electron-updater：检查 → 下载 → 重启安装；更新源 = 设置 updateCheckUrl）
+    R("app.update.check", async () => {
+      const st = await checkForUpdates(this.shared.settings.current.updateCheckUrl);
+      return {
+        ok: st.phase !== "error",
+        current: st.current,
+        latest: st.latest,
+        updateAvailable: st.phase === "available" || st.phase === "downloading" || st.phase === "downloaded",
+        url: st.infoUrl,
+        error: st.error,
+        phase: st.phase,
+        devFallback: st.devFallback,
+      };
+    });
+    R("app.update.state", () => updateState());
+    R("app.update.download", () => downloadUpdate());
+    R("app.update.install", () => {
+      installUpdate();
+      return {};
+    });
     R("agent.task.delete", (args: { taskId: string; cleanup?: boolean }) => this.agents.deleteTask(args));
     // 收尾合并（工作流 B）：预检 + 执行
     R("agent.task.mergeCheck", (args: { taskId: string }) => this.agents.mergeCheck(args));
@@ -668,6 +755,12 @@ export class Bridge {
         vision?: boolean;
         contextTokens?: number;
         thinking?: "off" | "low" | "medium" | "high";
+        /** M1.1 认证方式（缺省 apiKey） */
+        authKind?: "apiKey" | "oauth";
+        /** M1.1 OAuth 端点配置（authKind=oauth 时必填） */
+        oauth?: import("./shared/types").OAuthProfileConfig;
+        /** M1.3 单价（每百万 token） */
+        pricing?: { inputPerM?: number; outputPerM?: number };
       };
       /** 密钥仅对新建/未配密钥的分组写入（分组内已存密钥不动，避免每次保存都改写密文） */
       apiKey?: string;
@@ -707,6 +800,9 @@ export class Bridge {
           apiKeyProtected: kept?.apiKeyProtected ?? groupKey,
           params: kept?.params,
           thinking,
+          authKind: p.authKind ?? kept?.authKind ?? "apiKey",
+          oauth: p.oauth ?? kept?.oauth,
+          pricing: p.pricing ?? kept?.pricing,
           capabilities: {
             ...(kept?.capabilities ?? { tools: true, streaming: true }),
             vision: m.vision ?? kept?.capabilities?.vision ?? false,
@@ -811,6 +907,58 @@ export class Bridge {
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }
+    });
+    // ---- M1.1 订阅 OAuth ----
+    R("models.oauthLogin", async (args: { id: string }) => {
+      const gid = args.id.split("#")[0];
+      const p = (this.shared.settings.current.models ?? []).find((m) => m.id === gid || m.id.startsWith(`${gid}#`));
+      if (!p) throw new BridgeError("模型档案不存在", args.id);
+      if (p.authKind !== "oauth" || !p.oauth) throw new BridgeError("该档案未配置订阅登录（authKind=oauth）");
+      const { authorizeUrl, done } = await this.shared.oauth.beginLogin(p.id, p.oauth);
+      void shell.openExternal(authorizeUrl);
+      const t = await done;
+      return { ok: true as const, expiresAt: t.expiresAt };
+    });
+    R("models.oauthStatus", (args: { id: string }) => {
+      const gid = args.id.split("#")[0];
+      const p = (this.shared.settings.current.models ?? []).find((m) => m.id === gid || m.id.startsWith(`${gid}#`));
+      if (!p) throw new BridgeError("模型档案不存在", args.id);
+      return this.shared.oauth.status(p.id);
+    });
+    R("models.oauthLogout", (args: { id: string }) => {
+      const gid = args.id.split("#")[0];
+      this.shared.oauth.logout(gid);
+      return {};
+    });
+    // 订阅预设一键建档（Anthropic Claude 订阅；端点可改不锁死官方）
+    R("models.createSubscriptionPreset", (args?: { kind?: "anthropic" }) => {
+      const kind = args?.kind ?? "anthropic";
+      if (kind !== "anthropic") throw new BridgeError("暂只支持 anthropic 订阅预设");
+      const s = this.shared.settings.current;
+      const models = [...(s.models ?? [])];
+      if (models.some((m) => m.id === SUBSCRIPTION_PROFILE_ID)) return { id: SUBSCRIPTION_PROFILE_ID };
+      const profile: UserModelProfileDTO = {
+        id: SUBSCRIPTION_PROFILE_ID,
+        name: "Claude 订阅（OAuth）",
+        kind: "anthropic",
+        baseURL: "",
+        modelId: "claude-sonnet-4-5",
+        apiKeyProtected: null,
+        authKind: "oauth",
+        oauth: {
+          authorizeUrl: "https://claude.ai/oauth/authorize",
+          tokenUrl: "https://platform.claude.ai/api/oauth/token",
+          clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+          scopes: "org:create_api_key org:user_api_key claude_code:claude_code",
+          extraHeaders: { "anthropic-beta": "oauth-2025-04-20" },
+          clientAuth: "none",
+        },
+        capabilities: { tools: true, streaming: true, contextTokens: 200_000, vision: true },
+        tags: ["subscription"],
+      };
+      models.unshift(profile);
+      this.shared.settings.update({ models, ...(s.defaultModelId ? {} : { defaultModelId: profile.id }) });
+      return { id: profile.id };
     });
     // 模型发现（添加模型弹窗）：列表 + 模型卡探测（上下文窗口 / 图片模态）
     R("models.discover", async (args: {
@@ -1269,6 +1417,7 @@ export class Bridge {
         throw new BridgeError(`无法卸载：以下页面依赖该包提供的库——${detail}`, libs.map((d) => d.lib).join(","));
       }
       uninstallPackageDir(all.dir);
+      this.removeLedger(args.id);
       this.refreshExtensions();
       return this.shared.pkgStore.list();
     });
@@ -1531,6 +1680,8 @@ export class Bridge {
       { turns: 0, inputTokens: 0, outputTokens: 0 },
     );
     const hasKey = group.some((m) => !!m.apiKeyProtected);
+    // M1.1 OAuth 登录态取主档案（组内共享凭证语义同密钥）
+    const oauthSt = u.authKind === "oauth" ? this.shared.oauth.status(u.id) : { loggedIn: false, expiresAt: null as number | null };
     return {
       id,
       name: u.name,
@@ -1538,10 +1689,14 @@ export class Bridge {
       baseURL: u.baseURL,
       modelId: u.modelId,
       source,
-      configured: source === "user" || hasKey,
+      configured: source === "user" || hasKey || (u.authKind === "oauth" && oauthSt.loggedIn),
       enabled: true,
       hasKey,
       keyHint,
+      authKind: u.authKind ?? "apiKey",
+      oauthConfigured: !!u.oauth,
+      oauthExpiresAt: u.authKind === "oauth" ? oauthSt.expiresAt : null,
+      pricing: u.pricing ?? null,
       thinking: u.thinking ?? "medium",
       capabilities: {
         tools: u.capabilities?.tools ?? true,
@@ -1601,6 +1756,16 @@ export class Bridge {
   private patchLedger(id: string, patch: Partial<PackageLedgerEntry>): void {
     const cur = { ...(this.shared.settings.current.packages ?? {}) };
     cur[id] = { ...(cur[id] ?? {}), ...patch };
+    this.shared.settings.update({ packages: cur });
+  }
+
+  /** 卸载后清账本：目录已删，残留 settings.packages[id] 只会变死键（含旧 id 迁移别名键）。 */
+  private removeLedger(id: string): void {
+    const cur = { ...(this.shared.settings.current.packages ?? {}) };
+    delete cur[id];
+    for (const oldId of Object.keys(LEGACY_ID_ALIASES)) {
+      if (LEGACY_ID_ALIASES[oldId] === id) delete cur[oldId];
+    }
     this.shared.settings.update({ packages: cur });
   }
 

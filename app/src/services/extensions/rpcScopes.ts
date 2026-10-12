@@ -103,6 +103,19 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   // ---- git.write（任务 worktree 恢复；host 侧 agent.restore 仅作用任务 worktree） ----
   "agent.task.restore": "git.write",
 
+  // ---- M 系列主线（harness-mainline-roadmap.md）----
+  "agent.task.review.set": "agent.run", "agent.task.risk": "git.read",
+  "agent.usage.report": "agent.config", "app.allTasks": "open", "app.update.check": "open",
+  "app.update.state": "open", "app.update.download": "open", "app.update.install": "open",
+  "git.ops.state": "git.read", "git.rebaseAbort": "git.write", "git.rebaseContinue": "git.write",
+  "git.mergeAbort": "git.write", "git.mergeContinue": "git.write",
+  "models.oauthLogin": "ai.invoke", "models.oauthStatus": "open", "models.oauthLogout": "ai.invoke",
+  "models.createSubscriptionPreset": "ai.invoke",
+  // 存量补漏（smoke-u2 分级表完整性断言）
+  "agent.task.rename": "agent.run", "agent.task.mergeCheck": "agent.config",
+  "agent.task.merge": "agent.run", "agent.task.shellKill": "agent.run",
+  "extensions.openFolder": "extensions.admin",
+
   // ---- extensions.admin ----
   "extensions.importGpk": "extensions.admin", "extensions.installFromCatalog": "extensions.admin",
   "extensions.setEnabled": "extensions.admin", "extensions.setKindEnabled": "extensions.admin",

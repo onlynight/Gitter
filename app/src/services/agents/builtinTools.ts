@@ -162,9 +162,17 @@ registerAgentTool({
   source: "builtin",
   readonly: true,
   async execute(env) {
+    // M2.4：验收台审查三态（任务记录）+ 旧版反馈文件（changes 页批注）双通道合并
+    const rv = env.getReview?.() ?? null;
     const fb = readFeedback(env.worktreePath);
-    if (!fb) return JSON.stringify({ state: "no-feedback", note: null });
-    return JSON.stringify({ state: "feedback", note: fb.note, path: fb.path, createdAt: fb.createdAt });
+    if (!rv && !fb) return JSON.stringify({ state: "no-feedback", note: null });
+    return JSON.stringify({
+      state: "feedback",
+      review: rv,
+      note: fb?.note ?? rv?.comment ?? null,
+      path: fb?.path ?? null,
+      createdAt: fb?.createdAt ?? rv?.at ?? null,
+    });
   },
 });
 

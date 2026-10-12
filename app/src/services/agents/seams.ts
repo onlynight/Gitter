@@ -280,6 +280,100 @@ export async function runTurnHooks(info: TurnHookInfo): Promise<string[]> {
   return out;
 }
 
+// ---- 工具钩子（M1.2 harness-mainline-roadmap.md：pre-tool / post-tool 用户与插件干预点）----
+// 门序 = 规则 deny → 模式/分级授权 → pre-tool 钩子 → 执行 → post-tool 钩子。
+// pre-tool 返回 { block, reason } 拦截（工具回执错误文本）；note 为顾问注记（追加进工具回执，不阻断）。
+// post-tool 返回 note 追加进工具回执（模型同轮可见）。与 post-turn 钩子同一注册/审计接缝。
+
+export type ToolHookWhen = "pre-tool" | "post-tool";
+
+export interface ToolHookInfo {
+  taskId: string;
+  worktreePath: string;
+  toolName: string;
+  /** 参数摘要（JSON 截断 500 字符；钩子只读，不授予改参通道） */
+  argsSummary: string;
+  /** 仅 post-tool：执行是否报错 + 结果摘要（截断 500） */
+  isError?: boolean;
+  resultSummary?: string;
+}
+
+export interface ToolHookResult {
+  /** pre-tool：true = 拦截本次调用（reason 进工具回执） */
+  block?: boolean;
+  /** 拦截原因（block 时）或顾问注记（追加进工具回执） */
+  reason?: string;
+}
+
+export interface ToolHookDef {
+  id: string;
+  when: ToolHookWhen;
+  order: number;
+  source: "builtin" | "package";
+  packageId?: string;
+  hook(info: ToolHookInfo): Promise<ToolHookResult | string | null> | ToolHookResult | string | null;
+}
+
+const TOOL_HOOKS = new Map<string, ToolHookDef>();
+
+export function registerToolHook(def: ToolHookDef): void {
+  TOOL_HOOKS.set(def.id, def);
+}
+
+export function unregisterToolHooksByPackage(packageId: string): void {
+  for (const [id, h] of TOOL_HOOKS) {
+    if (h.packageId === packageId) TOOL_HOOKS.delete(id);
+  }
+}
+
+function toolHooksOf(when: ToolHookWhen): ToolHookDef[] {
+  return [...TOOL_HOOKS.values()].filter((h) => h.when === when).sort((a, b) => a.order - b.order);
+}
+
+export interface PreToolHookVerdict {
+  blocked: string | null;
+  notes: string[];
+}
+
+/** 运行全部 pre-tool 钩子（单钩子 2s 超时/异常跳过；首个 block 生效，其余 notes 照收）。 */
+export async function runPreToolHooks(info: ToolHookInfo): Promise<PreToolHookVerdict> {
+  const verdict: PreToolHookVerdict = { blocked: null, notes: [] };
+  for (const h of toolHooksOf("pre-tool")) {
+    try {
+      const r = await Promise.race([
+        Promise.resolve(h.hook(info)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+      ]);
+      if (!r) continue;
+      const res: ToolHookResult = typeof r === "string" ? { reason: r } : r;
+      if (res.block && verdict.blocked === null) verdict.blocked = res.reason?.trim() || "钩子拦截";
+      else if (!res.block && res.reason?.trim()) verdict.notes.push(res.reason.trim().slice(0, 2000));
+    } catch {
+      /* 单钩子异常跳过 */
+    }
+  }
+  return verdict;
+}
+
+/** 运行全部 post-tool 钩子，返回注记列表（cap 各 2000）。 */
+export async function runPostToolHooks(info: ToolHookInfo): Promise<string[]> {
+  const out: string[] = [];
+  for (const h of toolHooksOf("post-tool")) {
+    try {
+      const r = await Promise.race([
+        Promise.resolve(h.hook(info)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+      ]);
+      if (!r) continue;
+      const res: ToolHookResult = typeof r === "string" ? { reason: r } : r;
+      if (res.reason?.trim()) out.push(res.reason.trim().slice(0, 2000));
+    } catch {
+      /* 单钩子异常跳过 */
+    }
+  }
+  return out;
+}
+
 /** 压缩器按 id 查找（§20.3.3 选择链第一级 taskType.compactor）。 */
 export function getCompactorById(id: string): CompactorDef | null {
   return COMPACTORS.get(id) ?? null;
@@ -291,6 +385,8 @@ export interface SeamsAudit {
   sections: { id: string; slot: PromptSlot; order: number; source: string; packageId: string | null; chars: number }[];
   collectors: { id: string; order: number; tokenBudget: number; source: string; packageId: string | null }[];
   hooks: { id: string; order: number; source: string; packageId: string | null }[];
+  /** M1.2：pre/post-tool 钩子（与 post-turn 钩子分开列示） */
+  toolHooks: { id: string; when: ToolHookWhen; order: number; source: string; packageId: string | null }[];
   compactors: { id: string; source: string; packageId: string | null }[];
   presets: { id: string; name: string; readonly: boolean; tools: string[] | null }[];
   subagentPresetIds: string[];
@@ -313,6 +409,9 @@ export function auditSeams(): SeamsAudit {
     })),
     hooks: [...TURN_HOOKS.values()].map((h) => ({
       id: h.id, order: h.order, source: h.source, packageId: h.packageId ?? null,
+    })),
+    toolHooks: [...TOOL_HOOKS.values()].map((h) => ({
+      id: h.id, when: h.when, order: h.order, source: h.source, packageId: h.packageId ?? null,
     })),
     compactors: [...COMPACTORS.values()].map((c) => ({ id: c.id, source: c.source, packageId: c.packageId ?? null })),
     presets: sub.subagentPresets().map((p) => ({ id: p.id, name: p.name, readonly: p.readonly, tools: p.tools ? [...p.tools] : null })),

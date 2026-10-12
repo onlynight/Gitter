@@ -281,6 +281,10 @@ export interface SettingsDTO {
   agentsExternalMcpTools: boolean;
   /** 任务执行位置：false（默认）=直接在当前分支修改；true=每任务独立 worktree + task/* 分支 */
   agentsTaskWorktree: boolean;
+  /** M1.2 pre/post-tool 钩子总开关（默认开；空注册表 = 无操作） */
+  agentsToolHooks: boolean;
+  /** M3.1 更新检查 manifest URL（semver latest；null = 未配置，检查入口置灰） */
+  updateCheckUrl: string | null;
   /** 模型档案（task-model-modules.md §二）：用户档案 + 缺省链 + 用量累计 */
   models: UserModelProfileDTO[];
   defaultModelId: string | null;
@@ -302,6 +306,19 @@ export interface AgentPermissionRuleDTO {
 /** 思考深度档位（任务级可覆盖档案默认值）。 */
 export type ThinkingLevel = "off" | "low" | "medium" | "high";
 
+/** M1.1 订阅 OAuth 端点配置（PKCE 授权码 + 本地回环回调；端点可配不锁死官方）。 */
+export interface OAuthProfileConfig {
+  authorizeUrl: string;
+  tokenUrl: string;
+  clientId: string;
+  /** 空格分隔 scope 串 */
+  scopes: string;
+  /** 额外随请求带的头（如 anthropic-beta: oauth-2025-04-20） */
+  extraHeaders?: Record<string, string>;
+  /** 令牌端点鉴权风格：client_secret_post（默认）| none（公共客户端，仅 PKCE） */
+  clientAuth?: "client_secret_post" | "none";
+}
+
 /** 用户模型档案（settings.models[]；包模板实例化后也落在这里，同 fullId 遮蔽模板）。 */
 export interface UserModelProfileDTO {
   id: string; // 全限定：user/<slug> 或 <包id>/<模型id>（遮蔽模板）
@@ -311,6 +328,12 @@ export interface UserModelProfileDTO {
   modelId: string;
   /** safeStorage 密文 base64（keyRef 即档案 id） */
   apiKeyProtected: string | null;
+  /** M1.1 认证方式：apiKey（默认，密钥走 apiKeyProtected）| oauth（订阅登录，token 走 oauth.json） */
+  authKind?: "apiKey" | "oauth";
+  /** M1.1 OAuth 端点配置（authKind=oauth 时生效；内置预设可一键回填） */
+  oauth?: OAuthProfileConfig;
+  /** M1.3 单价（每百万 token，USDT/USD 数值）——用量统计费用估算；缺省不计费 */
+  pricing?: { inputPerM?: number; outputPerM?: number };
   params?: { temperature?: number; maxOutputTokens?: number };
   /** 默认思考深度（添加模型时配置，默认 medium；任务输入台可逐次覆盖） */
   thinking?: ThinkingLevel;
@@ -352,6 +375,14 @@ export interface ModelProfileDTO {
   isDefault: boolean;
   isFast: boolean;
   usage: { turns: number; inputTokens: number; outputTokens: number };
+  /** M1.1 认证方式（apiKey 缺省） */
+  authKind: "apiKey" | "oauth";
+  /** M1.1 OAuth 已配置端点（authKind=oauth 时展示登录态用） */
+  oauthConfigured: boolean;
+  /** M1.1 OAuth 登录态：null = 未登录；否则为 access token 过期时刻（epoch ms） */
+  oauthExpiresAt: number | null;
+  /** M1.3 单价配置（用量费用估算） */
+  pricing?: { inputPerM?: number; outputPerM?: number } | null;
   /** 分组 id（档案 id 去掉 `#成员` 后缀）。同一分组的多个模型共享名称/API URL/密钥。 */
   groupId: string;
   /** 分组成员明细（仅分组主条目携带，供设置页分组卡片与编辑回填）。 */

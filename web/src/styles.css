@@ -1143,6 +1143,8 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 }
 .hunk-header.checked { background: color-mix(in srgb, var(--c-accent) 14%, var(--c-panel)); }
 .hunk-header .hunk-range { font-family: var(--mono); }
+/* 宿主自带文件头（hideHeader，如变更页 chg-filehead 在滚动容器外）时无 39px 头部可留，吸顶归零 */
+.diff.hide-header .hunk-header { top: 0; }
 .eof-note { color: var(--c-text3); font-style: italic; padding: 0 10px; }
 
 /* ---- 终端（深色惯例：不随浅色主题翻转——term 区由 xterm 自绘底色） ---- */
@@ -2167,3 +2169,47 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
 .tk-selbox input { width: 13px; height: 13px; accent-color: var(--c-accent); cursor: pointer; }
 
 
+
+/* ---- M 系列主线（harness-mainline-roadmap.md）---- */
+/* M2.4 审查三态栏 */
+.lc-review { display: flex; gap: 6px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--c-border); flex-wrap: wrap; }
+.lc-review-chip { font-size: 12px; color: var(--c-text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.lc-review-input { flex: 1; min-width: 160px; font-size: 12px; padding: 3px 8px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg1); color: var(--c-text); }
+/* M2.1 基线切换（复用 lc-seg 分段样式，缩小型） */
+.lc-base-seg { display: inline-flex; margin-left: 8px; }
+.lc-base-seg button { font-size: 11px; padding: 1px 8px; border: none; background: transparent; color: var(--c-fg3); cursor: pointer; }
+.lc-base-seg button.on { color: var(--c-text); background: var(--c-bg3); border-radius: 3px; }
+/* M2.2 风险信号 */
+.lc-risk-sum { font-size: 11px; }
+.lc-risk-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; margin-left: auto; }
+.lc-file .lc-risk-dot + .lc-file-stats { margin-left: 4px; }
+/* M1.4 冲突闭环 */
+.chg-ops-banner { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: color-mix(in srgb, var(--c-amber) 12%, transparent); border-bottom: 1px solid var(--c-border); font-size: 12px; flex-wrap: wrap; }
+.chg-conflict-btn { margin: 0 12px 4px; align-self: flex-start; }
+.chg-ops-err { padding: 2px 12px; color: var(--c-red); font-size: 12px; }
+.chg-conflict-modal { width: min(860px, 92vw); max-height: 86vh; display: flex; flex-direction: column; }
+.chg-conflict-body { overflow: auto; flex: 1; padding: 8px 12px; display: flex; flex-direction: column; gap: 12px; }
+.chg-conflict-hunk { border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; }
+.chg-conflict-head { display: flex; justify-content: space-between; padding: 4px 10px; background: var(--c-bg2); font-size: 12px; }
+.chg-conflict-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--c-border); }
+.chg-conflict-side { margin: 0; padding: 6px 10px; background: var(--c-bg1); font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow: auto; }
+.chg-conflict-side.ours { border-left: 3px solid var(--c-green); }
+.chg-conflict-side.theirs { border-left: 3px solid var(--c-blue, var(--c-link)); }
+.chg-conflict-actions { display: flex; gap: 6px; padding: 6px 10px; }
+.chg-conflict-count { font-size: 12px; color: var(--c-text2); }
+/* M1.3 用量统计 */
+.usage-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.usage-table th, .usage-table td { text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--c-border); }
+.usage-table th { color: var(--c-text2); font-weight: 600; }
+/* M3.4 任务驾驶舱 */
+.proj-tasks { margin: 8px 12px; border: 1px solid var(--c-border); border-radius: 6px; padding: 6px 10px; }
+.proj-tasks-h { font-size: 12px; font-weight: 600; color: var(--c-text2); margin-bottom: 4px; }
+.proj-task-row { display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: 12px; }
+.proj-task-row .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.proj-task-row .repo { font-weight: 600; }
+.proj-task-row .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.proj-task-row .state { color: var(--c-text2); margin-left: auto; }
+
+/* M3.1 更新下载进度条 */
+.upd-progress { width: 140px; height: 6px; border-radius: 3px; background: var(--c-bg3); overflow: hidden; }
+.upd-progress-bar { height: 100%; background: var(--c-accent, var(--c-selected, #4a9eff)); transition: width 0.3s ease; }

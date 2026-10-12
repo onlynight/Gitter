@@ -433,6 +433,12 @@ li { margin: .25em 0; }
   }
   const MAX_TEXT_BYTES = 2e6;
   const TURNS_TAB = "turns";
+  function riskColor(level) {
+    return level === "high" ? "var(--c-red)" : level === "medium" ? "var(--c-amber)" : "var(--c-fg3)";
+  }
+  function reviewLabel(status) {
+    return status === "approved" ? { text: "已通过", color: "var(--c-green)" } : status === "rejected" ? { text: "已退回", color: "var(--c-red)" } : { text: "待审查", color: "var(--c-amber)" };
+  }
   function letterColor(letter) {
     return letter === "A" ? "var(--c-green)" : letter === "D" ? "var(--c-red)" : "var(--c-amber)";
   }
@@ -455,6 +461,11 @@ li { margin: .25em 0; }
     const [view, setView] = react.useState({ kind: "empty" });
     const [err, setErr] = react.useState(null);
     const lastReq = react.useRef(0);
+    const [base, setBase] = react.useState("task");
+    const [risk, setRisk] = react.useState(null);
+    const [review, setReview] = react.useState(null);
+    const [reviewEditing, setReviewEditing] = react.useState(false);
+    const [reviewComment, setReviewComment] = react.useState("");
     const uiV = useAgentUIVersion();
     const pluginPanels = react.useMemo(() => taskPanels(), [uiV]);
     const activePlugin = pluginPanels.find((p) => p.def.id === active) ?? null;
@@ -481,19 +492,35 @@ li { margin: .25em 0; }
       if (active !== TURNS_TAB) return;
       let cancelled = false;
       if (turn === "latest") {
-        void call$1("agent.task.files", { taskId: props.taskId }).then((fs) => {
-          if (cancelled) return;
-          setFiles(fs.map((f) => ({ path: f.path, letter: f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M", added: f.added, deleted: f.deleted })));
-          setLetters((lm) => {
-            const nm = { ...lm };
-            fs.forEach((f) => {
-              nm[f.path] = f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M";
+        if (base === "head") {
+          void call$1("agent.task.diff", { taskId: props.taskId, base: "head" }).then((ds) => {
+            if (cancelled) return;
+            setFiles(ds.map((d) => ({ path: d.path, letter: d.isNew ? "A" : d.isDeleted ? "D" : "M", added: d.addedLines, deleted: d.deletedLines })));
+            setLetters((lm) => {
+              const nm = { ...lm };
+              ds.forEach((d) => {
+                nm[d.path] = d.isNew ? "A" : d.isDeleted ? "D" : "M";
+              });
+              return nm;
             });
-            return nm;
+          }).catch(() => {
+            if (!cancelled) setFiles([]);
           });
-        }).catch(() => {
-          if (!cancelled) setFiles([]);
-        });
+        } else {
+          void call$1("agent.task.files", { taskId: props.taskId }).then((fs) => {
+            if (cancelled) return;
+            setFiles(fs.map((f) => ({ path: f.path, letter: f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M", added: f.added, deleted: f.deleted })));
+            setLetters((lm) => {
+              const nm = { ...lm };
+              fs.forEach((f) => {
+                nm[f.path] = f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M";
+              });
+              return nm;
+            });
+          }).catch(() => {
+            if (!cancelled) setFiles([]);
+          });
+        }
       } else {
         void call$1("agent.task.diff", { taskId: props.taskId, since: `checkpoint:${turn}` }).then((ds) => {
           if (cancelled) return;
@@ -512,7 +539,29 @@ li { margin: .25em 0; }
       return () => {
         cancelled = true;
       };
-    }, [active, turn, props.taskId, props.tick]);
+    }, [active, turn, base, props.taskId, props.tick]);
+    react.useEffect(() => {
+      let cancelled = false;
+      void call$1("agent.task.risk", { taskId: props.taskId }).then((r) => {
+        if (!cancelled) setRisk(r);
+      }).catch(() => {
+      });
+      void call$1("agent.tasks", {}).then((x) => {
+        var _a3;
+        if (!cancelled) setReview(((_a3 = x.tasks.find((t2) => t2.taskId === props.taskId)) == null ? void 0 : _a3.review) ?? null);
+      }).catch(() => {
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [props.taskId, props.tick]);
+    const submitReview = react.useCallback((decision, comment) => {
+      void call$1("agent.task.review.set", { taskId: props.taskId, status: decision === "approve" ? "approved" : "rejected", comment: comment || null }).then(() => {
+        setReview(decision === "approve" ? { status: "approved", comment: null } : { status: "rejected", comment });
+        setReviewEditing(false);
+        setReviewComment("");
+      }).catch((e) => setErr(e.message));
+    }, [props.taskId]);
     react.useEffect(() => {
       const req = props.request;
       if (!req || req.ts === lastReq.current) return;
@@ -528,7 +577,8 @@ li { margin: .25em 0; }
       let cancelled = false;
       const origin = ((_a3 = tabs.find((t2) => typeof t2 !== "string" && t2.path === activePath)) == null ? void 0 : _a3.origin) ?? "latest";
       const since = origin === "latest" ? void 0 : `checkpoint:${origin}`;
-      void call$1("agent.task.diff", { taskId: props.taskId, path: activePath, since }).then((d) => {
+      const rpcBase = origin === "latest" && turn === "latest" && base === "head" ? "head" : "baseline";
+      void call$1("agent.task.diff", { taskId: props.taskId, path: activePath, since, base: rpcBase }).then((d) => {
         if (!cancelled) setDiffs(d);
       }).catch(() => {
         if (!cancelled) setDiffs([]);
@@ -536,7 +586,7 @@ li { margin: .25em 0; }
       return () => {
         cancelled = true;
       };
-    }, [activePath, activeMode, props.taskId]);
+    }, [activePath, activeMode, props.taskId, base, turn]);
     react.useEffect(() => {
       if (activePath === void 0 || activeMode !== "preview") return;
       let cancelled = false;
@@ -603,8 +653,46 @@ li { margin: .25em 0; }
       void call$1("shell.openPath", { path: full, editor: useExternalEditor || void 0 }).catch((e) => setErr(e.message));
     }, [activePath, props.worktreePath]);
     const fileTabNodes = tabs.filter((t2) => typeof t2 !== "string");
-    const hintText = turn === "latest" ? "最新一轮（工作区当前内容）· 点击文件 → 新开 tab 预览 / 差异" : `该轮快照（${turn.slice(0, 8)}^..${turn.slice(0, 8)}）· 只读回看`;
+    const hintText = turn !== "latest" ? `该轮快照（${turn.slice(0, 8)}^..${turn.slice(0, 8)}）· 只读回看` : base === "head" ? "基线 = 当前分支头（工作区+暂存 vs HEAD）· 不含未跟踪文件" : "基线 = 任务起点（squash 视角，含全部 checkpoint）";
+    const riskByPath = react.useMemo(() => {
+      const m = /* @__PURE__ */ new Map();
+      for (const f of (risk == null ? void 0 : risk.files) ?? []) m.set(f.path, f);
+      return m;
+    }, [risk]);
+    const riskCounts = (risk == null ? void 0 : risk.counts) ?? null;
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-panel", children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-review", children: [
+        review ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "lc-review-chip", style: { color: reviewLabel(review.status).color }, title: review.comment ?? "", children: [
+          "● 审查：",
+          reviewLabel(review.status).text,
+          review.comment ? ` · ${review.comment.slice(0, 60)}` : ""
+        ] }) : /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-review-chip", style: { color: "var(--c-fg3)" }, children: "● 审查：未评审" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        reviewEditing === false ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "通过本轮改动（结论注入 agent 下一轮）", onClick: () => submitReview("approve", ""), children: "通过" }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "退回并附审查意见（自动直投修复轮）", onClick: () => {
+            setReviewEditing("reject");
+            setReviewComment("");
+          }, children: "退回…" })
+        ] }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "input",
+            {
+              className: "lc-review-input",
+              placeholder: reviewEditing === "reject" ? "审查意见（退回原因，进入 agent 下一轮）" : "补充说明（可空）",
+              value: reviewComment,
+              autoFocus: true,
+              onChange: (e) => setReviewComment(e.target.value),
+              onKeyDown: (e) => {
+                if (e.key === "Enter" && (reviewEditing === "approve" || reviewComment.trim())) submitReview(reviewEditing, reviewComment);
+                if (e.key === "Escape") setReviewEditing(false);
+              }
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: reviewEditing === "reject" && !reviewComment.trim(), onClick: () => submitReview(reviewEditing, reviewComment), children: "确认" }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setReviewEditing(false), children: "取消" })
+        ] })
+      ] }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-tabs", children: [
         /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-tab turns" + (active === TURNS_TAB ? " on" : ""), title: "按轮查看变更（固定，不可关闭）", onClick: () => activate(TURNS_TAB), children: [
           /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "commit", size: 12 }),
@@ -627,7 +715,11 @@ li { margin: .25em 0; }
           /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-hint", children: "按轮查看变更 · 点击轮次载入该轮文件列表" }),
           /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-turn" + (turn === "latest" ? " sel" : ""), onClick: () => setTurn("latest"), children: [
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-turn-dot", style: { background: "var(--c-green)" } }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-turn-sum", children: "最新一轮 · 工作区当前内容" })
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-turn-sum", children: "最新改动" }),
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "lc-seg lc-base-seg", onClick: (e) => e.stopPropagation(), children: [
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: base === "task" ? "on" : "", title: "自任务开始以来（工作区 + checkpoint 提交的净 diff，squash 视角）", onClick: () => setBase("task"), children: "任务起点" }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: base === "head" ? "on" : "", title: "工作区 + 暂存 vs 当前分支头（不含未跟踪）", onClick: () => setBase("head"), children: "vs HEAD" })
+            ] })
           ] }),
           cps.map((c) => /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-turn" + (turn === c.sha ? " sel" : ""), title: `${c.summary}
 ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), children: [
@@ -642,13 +734,36 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           ] }, c.sha))
         ] }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-fileswrap", children: [
-          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-hint", children: hintText }),
-          files.map((f) => /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-file", title: `${f.path} · 预览 / 差异`, onClick: () => openFileTab(f.path, turn), children: [
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-letter", style: { color: letterColor(f.letter) }, children: f.letter }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-path", children: f.path }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-stats", children: f.added != null ? `+${f.added} −${f.deleted ?? 0}` : "" })
-          ] }, f.path)),
-          files.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-hint", children: turn === "latest" ? "暂无改动" : "该轮无改动" })
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-hint", children: [
+            hintText,
+            riskCounts && riskCounts.high + riskCounts.medium + riskCounts.low > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "lc-risk-sum", title: "纯规则风险信号（零 AI 依赖）", children: [
+              " · 风险：",
+              riskCounts.high > 0 && /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-red)" }, children: [
+                riskCounts.high,
+                " 高 "
+              ] }),
+              riskCounts.medium > 0 && /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-amber)" }, children: [
+                riskCounts.medium,
+                " 中 "
+              ] }),
+              riskCounts.low > 0 && /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-fg3)" }, children: [
+                riskCounts.low,
+                " 低"
+              ] })
+            ] }) : null
+          ] }),
+          files.map((f) => {
+            const rf = riskByPath.get(f.path);
+            const top = rf == null ? void 0 : rf.signals[0];
+            return /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "lc-file", title: `${f.path} · 预览 / 差异${top ? `
+⚠ ${rf.signals.map((s) => s.message).join("\n⚠ ")}` : ""}`, onClick: () => openFileTab(f.path, turn), children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-letter", style: { color: letterColor(f.letter) }, children: f.letter }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-path", children: f.path }),
+              top ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-risk-dot", style: { background: riskColor(top.level) }, title: rf.signals.map((s) => `[${s.level}] ${s.message}`).join("\n") }) : null,
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-file-stats", children: f.added != null ? `+${f.added} −${f.deleted ?? 0}` : "" })
+            ] }, f.path);
+          }),
+          files.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-hint", children: turn !== "latest" ? "该轮无改动" : base === "head" ? "工作区相对 HEAD 无差异（未跟踪文件请切「任务起点」基线查看）" : "暂无改动" })
         ] })
       ] }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-filepage", children: [
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-viewbar", children: [

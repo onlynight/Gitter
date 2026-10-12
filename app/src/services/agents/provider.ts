@@ -21,6 +21,9 @@ export interface ProviderConfig {
   baseURL: string;
   modelId: string;
   apiKey: string | null;
+  /** M1.1 订阅 OAuth（bridge 在 ensureToken 后注入 bearer）：anthropic 剥 x-api-key 换 authorization 头；
+   * openai 兼容端直接以 bearer 作 apiKey（同形状）。extraHeaders 透传（如 anthropic-beta: oauth-*）。 */
+  oauth?: { bearerToken: string; extraHeaders?: Record<string, string> } | null;
   params?: { temperature?: number; maxOutputTokens?: number };
   /** 思考深度（硬通道）：openai-compatible 端点注入请求体 reasoning_effort；off/undefined 不注入 */
   thinking?: "off" | "low" | "medium" | "high";
@@ -38,12 +41,23 @@ export function resolveProfileModel(cfg: ProviderConfig): ResolveResult {
     return { ok: false, error: "档案缺少模型名" };
   }
   if (cfg.kind === "anthropic") {
-    const p = createAnthropic({ apiKey: cfg.apiKey ?? "" });
+    if (cfg.oauth?.bearerToken) {
+      // OAuth 通道：anthropic 端点要求 authorization: Bearer 且不得携带 x-api-key——fetch 层剥离
+      const p = createAnthropic({
+        apiKey: "oauth",
+        baseURL: cfg.baseURL || undefined,
+        headers: { ...(cfg.oauth.extraHeaders ?? {}) },
+        fetch: oauthFetch(cfg.oauth),
+      });
+      return { ok: true, model: p(cfg.modelId.trim()) };
+    }
+    const p = createAnthropic({ apiKey: cfg.apiKey ?? "", baseURL: cfg.baseURL || undefined });
     return { ok: true, model: p(cfg.modelId.trim()) };
   }
   if (!cfg.baseURL || !cfg.baseURL.trim()) {
     return { ok: false, error: "档案缺少端点 URL" };
   }
+  const apiKey = cfg.oauth?.bearerToken ?? cfg.apiKey ?? "";
   // 硬通道：请求体注入 reasoning_effort（@ai-sdk/openai-compatible 不透传任意 providerOptions，
   // 用自定义 fetch 改写 JSON 体；仅 openai-compatible 且非 off 时注入，严格端点可设 思考深度=关闭）
   const inject = cfg.thinking && cfg.thinking !== "off";
@@ -80,8 +94,19 @@ export function resolveProfileModel(cfg: ProviderConfig): ResolveResult {
   };
   // includeUsage：流式请求带 stream_options.include_usage——否则 DeepSeek 等端点流式不回 usage，
   // 统计栏（token 用量/速度/缓存命中率）在 agent 轮（恒流式）下整条失效
-  const p = createOpenAICompatible({ name: "gitter-openai", baseURL: cfg.baseURL.trim(), apiKey: cfg.apiKey ?? "", includeUsage: true, fetch: fetchPatched });
+  const p = createOpenAICompatible({ name: "gitter-openai", baseURL: cfg.baseURL.trim(), apiKey, includeUsage: true, fetch: fetchPatched });
   return { ok: true, model: p(cfg.modelId.trim()) };
+}
+
+/** OAuth fetch 适配：剥离 x-api-key、注入 authorization: Bearer 与档案声明的额外头。 */
+function oauthFetch(oauth: { bearerToken: string; extraHeaders?: Record<string, string> }): typeof fetch {
+  return async (input, init) => {
+    const headers = new Headers(init?.headers ?? undefined);
+    headers.delete("x-api-key");
+    headers.set("authorization", `Bearer ${oauth.bearerToken}`);
+    for (const [k, v] of Object.entries(oauth.extraHeaders ?? {})) headers.set(k, v);
+    return fetch(input, { ...init, headers });
+  };
 }
 
 /** 单条 SSE 行 / 响应 JSON 的 usage 归一：DeepSeek 顶层 prompt_cache_hit_tokens → OpenAI prompt_tokens_details.cached_tokens。 */

@@ -4,6 +4,7 @@ import { seamMenuItems } from "../commands";
 import { Banner, DiffView, Modal, ScrollArea, SplitPane, SyncBar, useSyncProgress, useContextMenu, type CtxMenuItem } from "../kit";
 import { TlIcon } from "./taskIcons";
 import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../bridge/types";
+import { ConflictAssist } from "./ConflictAssist";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
 const { call, t, navigate, notifyRepoChanged, openSettings, setContext: setSharedContext } = pageSdk;
@@ -695,6 +696,8 @@ export function ChangesPage() {
       )}
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px 12px 12px" }}>
+      {/* M1.4 冲突闭环：进行中操作横幅 + 逐块解决器（选中冲突文件时出现入口钮） */}
+      <ConflictAssist repo={repo?.workDir ?? null} conflictPath={selected?.isConflict ? selected.path : null} onChanged={() => void reload()} />
       <SplitPane settingKey="changesSplitterFraction" initial={0.38} a={
         <div className="split-pane chg-left" style={{ display: "flex", flexDirection: "column" }}>
           {/* 侧栏头：分支上下文 + 同步动作（原页面级工具栏收编于此，changes-left-v2-mockup ①） */}

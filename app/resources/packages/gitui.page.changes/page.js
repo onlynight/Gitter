@@ -172,6 +172,222 @@
       }
     );
   }
+  function api() {
+    if (!window.gitter) {
+      return {
+        invoke: async () => ({ ok: false, error: { message: "不在 Electron 宿主内（桥不可用）" } }),
+        onEvent: () => () => {
+        },
+        winAction: () => {
+        },
+        isMaximized: async () => false
+      };
+    }
+    return window.gitter;
+  }
+  class BridgeCallError extends Error {
+    constructor(message, detail) {
+      super(message);
+      this.detail = detail;
+    }
+  }
+  async function call$1(method, params) {
+    const res = await api().invoke(method, params);
+    if (!res.ok) throw new BridgeCallError(res.error.message, res.error.detail);
+    return res.data;
+  }
+  function parseConflictHunks(content) {
+    const eol = content.includes("\r\n") ? "\r\n" : "\n";
+    const lines = content.split(/\r?\n/);
+    const hunks = [];
+    let i = 0;
+    while (i < lines.length) {
+      if (/^<{7} /.test(lines[i]) || lines[i] === "<<<<<<<") {
+        const start = i;
+        const ours = [];
+        i++;
+        while (i < lines.length && lines[i] !== "=======") {
+          ours.push(lines[i]);
+          i++;
+        }
+        if (i >= lines.length) break;
+        i++;
+        const theirs = [];
+        let theirsLabel = "";
+        while (i < lines.length && !/^>{7} /.test(lines[i])) {
+          theirs.push(lines[i]);
+          i++;
+        }
+        if (i >= lines.length) break;
+        theirsLabel = lines[i].replace(/^>{7} /, "");
+        hunks.push({ start, end: i, ours, theirs, theirsLabel });
+        i++;
+      } else {
+        i++;
+      }
+    }
+    return { hunks, eol };
+  }
+  function applyChoices(lines, hunks, choices, eol) {
+    const out = [];
+    let idx = 0;
+    const byStart = new Map(hunks.map((h) => [h.start, h]));
+    while (idx < lines.length) {
+      const h = byStart.get(idx);
+      if (!h) {
+        out.push(lines[idx]);
+        idx++;
+        continue;
+      }
+      const c = choices.get(h.start) ?? "ours";
+      if (c === "ours" || c === "both") out.push(...h.ours);
+      if (c === "theirs" || c === "both") out.push(...h.theirs);
+      idx = h.end + 1;
+    }
+    return out.join(eol);
+  }
+  function ConflictAssist(props) {
+    const [ops, setOps] = react.useState(null);
+    const [busy, setBusy] = react.useState(false);
+    const [err, setErr] = react.useState(null);
+    const [modal, setModal] = react.useState(null);
+    const [choices, setChoices] = react.useState(/* @__PURE__ */ new Map());
+    const timer = react.useRef(null);
+    const refreshOps = react.useCallback(async () => {
+      if (!props.repo) {
+        setOps(null);
+        return;
+      }
+      try {
+        setOps(await call$1("git.ops.state", {}));
+      } catch {
+        setOps(null);
+      }
+    }, [props.repo]);
+    react.useEffect(() => {
+      void refreshOps();
+      timer.current = window.setInterval(() => void refreshOps(), 3e3);
+      return () => {
+        if (timer.current) window.clearInterval(timer.current);
+      };
+    }, [refreshOps]);
+    const opAction = async (kind) => {
+      if (!(ops == null ? void 0 : ops.kind)) return;
+      setBusy(true);
+      setErr(null);
+      try {
+        const base = ops.kind === "rebase" ? "git.rebase" : "git.merge";
+        if (ops.kind === "rebase" || ops.kind === "merge") {
+          await call$1(kind === "continue" ? `${base}Continue` : `${base}Abort`, {});
+        }
+        props.onChanged();
+        await refreshOps();
+      } catch (e) {
+        setErr(e.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+    const openResolver = async () => {
+      if (!props.conflictPath) return;
+      setErr(null);
+      try {
+        const r = await call$1("file.content", { path: props.conflictPath, revision: "worktree" });
+        if (!(r == null ? void 0 : r.content)) {
+          setErr("读取冲突文件失败");
+          return;
+        }
+        const { hunks, eol } = parseConflictHunks(r.content);
+        if (hunks.length === 0) {
+          setErr("未解析到冲突标记（可能已解决，直接暂存即可）");
+          return;
+        }
+        setChoices(/* @__PURE__ */ new Map());
+        setModal({ path: props.conflictPath, content: r.content, hunks, eol });
+      } catch (e) {
+        setErr(e.message);
+      }
+    };
+    const saveResolved = async () => {
+      if (!modal) return;
+      setBusy(true);
+      setErr(null);
+      try {
+        const lines = modal.content.split(/\r?\n/);
+        const resolved = applyChoices(lines, modal.hunks, choices, modal.eol);
+        await call$1("file.write", { path: modal.path, content: resolved });
+        await call$1("changes.stage", { paths: [modal.path] });
+        setModal(null);
+        props.onChanged();
+        await refreshOps();
+      } catch (e) {
+        setErr(e.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+    const opName = (ops == null ? void 0 : ops.kind) === "merge" ? "合并" : (ops == null ? void 0 : ops.kind) === "rebase" ? `变基${ops.detail ? `（${ops.detail}）` : ""}` : (ops == null ? void 0 : ops.kind) === "cherry-pick" ? "拣选" : (ops == null ? void 0 : ops.kind) === "revert" ? "回退" : null;
+    return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+      props.repo && opName ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-ops-banner", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+          "⚠ 检测到进行中的",
+          opName,
+          "操作——解决冲突后可继续，或中止恢复原状。"
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", disabled: busy, onClick: () => void opAction("abort"), children: "中止（--abort）" }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", disabled: busy, onClick: () => void opAction("continue"), children: "继续（--continue）" })
+      ] }) : null,
+      props.repo && props.conflictPath ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn chg-conflict-btn", onClick: () => void openResolver(), children: "逐块解决冲突…" }) : null,
+      err && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "chg-ops-err", children: err }),
+      modal ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "modal-mask", onMouseDown: (e) => {
+        if (e.target === e.currentTarget) setModal(null);
+      }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "modal chg-conflict-modal", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "modal-title", children: [
+          "解决冲突：",
+          modal.path
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "chg-conflict-body", children: modal.hunks.map((h) => {
+          const c = choices.get(h.start);
+          return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-conflict-hunk", children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-conflict-head", children: [
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                "第 ",
+                h.start + 1,
+                " 行起 · 传入侧：",
+                h.theirsLabel || "(unknown)"
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chg-conflict-choice", style: { color: c ? "var(--c-green)" : "var(--c-amber)" }, children: c === "ours" ? "已选：当前" : c === "theirs" ? "已选：传入" : c === "both" ? "已选：两侧" : "未决策" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-conflict-cols", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "chg-conflict-side ours", children: h.ours.join("\n") || "（空）" }),
+              /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "chg-conflict-side theirs", children: h.theirs.join("\n") || "（空）" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-conflict-actions", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn" + (c === "ours" ? " on" : ""), onClick: () => setChoices((m) => new Map(m).set(h.start, "ours")), children: "采用当前（HEAD）" }),
+              /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn" + (c === "theirs" ? " on" : ""), onClick: () => setChoices((m) => new Map(m).set(h.start, "theirs")), children: [
+                "采用传入（",
+                h.theirsLabel.slice(0, 24) || "incoming",
+                "）"
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn" + (c === "both" ? " on" : ""), onClick: () => setChoices((m) => new Map(m).set(h.start, "both")), children: "两侧保留" })
+            ] })
+          ] }, h.start);
+        }) }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "modal-actions", children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-conflict-count", children: [
+            choices.size,
+            "/",
+            modal.hunks.length,
+            " 块已决策"
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setModal(null), children: "取消" }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn primary", disabled: busy || choices.size < modal.hunks.length, onClick: () => void saveResolved(), children: "写回并暂存" })
+        ] })
+      ] }) }) : null
+    ] });
+  }
   const { call, t, navigate, notifyRepoChanged, openSettings, setContext: setSharedContext } = pageSdk;
   const useApp = useAppState;
   const PREFIX_ITEMS = [
@@ -829,282 +1045,285 @@
           ]
         }
       ),
-      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px 12px 12px" }, children: /* @__PURE__ */ jsxRuntime.jsx(SplitPane, { settingKey: "changesSplitterFraction", initial: 0.38, a: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane chg-left", style: { display: "flex", flexDirection: "column" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-head", children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "chg-branch", "data-tip": t("Changes_BranchSwitch"), onClick: () => navigate("branches"), children: [
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 12 }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: (state == null ? void 0 : state.branch) ?? "—" })
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "10px 12px 12px" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsx(ConflictAssist, { repo: (repo == null ? void 0 : repo.workDir) ?? null, conflictPath: (selected == null ? void 0 : selected.isConflict) ? selected.path : null, onChanged: () => void reload() }),
+        /* @__PURE__ */ jsxRuntime.jsx(SplitPane, { settingKey: "changesSplitterFraction", initial: 0.38, a: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane chg-left", style: { display: "flex", flexDirection: "column" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-head", children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "chg-branch", "data-tip": t("Changes_BranchSwitch"), onClick: () => navigate("branches"), children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 12 }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: (state == null ? void 0 : state.branch) ?? "—" })
+            ] }),
+            state && !!state.ahead && !!state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", state.ahead, state.behind), children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 10, className: "up" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state.ahead }),
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 10, className: "dn" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state.behind })
+            ] }),
+            state && !!state.ahead && !state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_Ahead", state.ahead), children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 10, className: "up" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state.ahead })
+            ] }),
+            state && !state.ahead && !!state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", 0, state.behind), children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 10, className: "dn" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state.behind })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Fetch"), disabled: busy, onClick: () => void run(async () => {
+              await call("changes.fetch", {});
+              return t("Changes_Fetched");
+            }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sync", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Pull"), disabled: busy, onClick: () => void run(async () => {
+              await call("changes.pull", { rebase: false });
+              return t("Changes_Pulled");
+            }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "download", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_PullRebase"), disabled: busy, onClick: () => void run(async () => {
+              await call("changes.pull", { rebase: true });
+              return t("Changes_PulledRebase");
+            }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Push"), disabled: busy, onClick: () => void doPush(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Branches_CreateTitle"), onClick: () => setCreateBranch(""), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plus", size: 13 }) })
           ] }),
-          state && !!state.ahead && !!state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", state.ahead, state.behind), children: [
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 10, className: "up" }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state.ahead }),
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 10, className: "dn" }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state.behind })
-          ] }),
-          state && !!state.ahead && !state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_Ahead", state.ahead), children: [
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 10, className: "up" }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state.ahead })
-          ] }),
-          state && !state.ahead && !!state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", 0, state.behind), children: [
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 10, className: "dn" }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state.behind })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Fetch"), disabled: busy, onClick: () => void run(async () => {
-            await call("changes.fetch", {});
-            return t("Changes_Fetched");
-          }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sync", size: 13 }) }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Pull"), disabled: busy, onClick: () => void run(async () => {
-            await call("changes.pull", { rebase: false });
-            return t("Changes_Pulled");
-          }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "download", size: 13 }) }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_PullRebase"), disabled: busy, onClick: () => void run(async () => {
-            await call("changes.pull", { rebase: true });
-            return t("Changes_PulledRebase");
-          }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 13 }) }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Push"), disabled: busy, onClick: () => void doPush(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 }) }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Branches_CreateTitle"), onClick: () => setCreateBranch(""), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plus", size: 13 }) })
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-filter" + (filter ? " has" : ""), children: [
-          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "search", size: 12 }),
-          /* @__PURE__ */ jsxRuntime.jsx(
-            "input",
-            {
-              value: filter,
-              placeholder: t("Changes_FilterPlaceholder"),
-              spellCheck: false,
-              onChange: (e) => setFilter(e.target.value),
-              onKeyDown: (e) => {
-                if (e.key === "Escape") setFilter("");
-              }
-            }
-          ),
-          filter && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "chg-clr", onClick: () => setFilter(""), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "x", size: 11 }) })
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsx(ScrollArea, { className: "file-scroll", style: { flex: 1 }, children: state && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-          group("conflicts", t("Changes_Conflicts"), state.conflicts, false, { checkable: false, act: null }),
-          group("staged", t("Changes_StagedGroup"), state.staged, true, { checkable: true, act: "unstage" }),
-          group("changes", t("Changes_ChangesGroup"), state.changes, false, { checkable: true, act: "stage" }),
-          group("unversioned", t("Changes_UnversionedGroup"), state.unversioned, false, { checkable: true, act: "stage" }),
-          allFiles.length === 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
-            t("Changes_WorktreeClean"),
-            /* @__PURE__ */ jsxRuntime.jsx(EmptyHints, { slot: "changes.empty" })
-          ] }),
-          allFiles.length > 0 && q && !allFiles.some((f) => f.path.toLowerCase().includes(q)) && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "chg-noresult", children: t("Changes_NoMatch") })
-        ] }) }),
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "commit-box", children: [
-          /* @__PURE__ */ jsxRuntime.jsxs(
-            "div",
-            {
-              className: "prefix-row",
-              ref: prefixRef,
-              onKeyDown: (e) => {
-                if (!prefixOpen) return;
-                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                  e.preventDefault();
-                  const d = e.key === "ArrowDown" ? 1 : -1;
-                  setPrefixHi((h) => (h + d + PREFIX_ITEMS.length) % PREFIX_ITEMS.length);
-                } else if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (prefixHi >= 0) insertPrefix(PREFIX_ITEMS[prefixHi].pfx);
-                } else if (e.key === "Escape") {
-                  setPrefixOpen(false);
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-filter" + (filter ? " has" : ""), children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "search", size: 12 }),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                value: filter,
+                placeholder: t("Changes_FilterPlaceholder"),
+                spellCheck: false,
+                onChange: (e) => setFilter(e.target.value),
+                onKeyDown: (e) => {
+                  if (e.key === "Escape") setFilter("");
                 }
-              },
-              children: [
-                /* @__PURE__ */ jsxRuntime.jsxs(
-                  "button",
-                  {
-                    className: "icon-btn",
-                    "data-tip": t("Changes_PrefixMenu"),
-                    "aria-haspopup": "menu",
-                    "aria-expanded": prefixOpen,
-                    onClick: () => {
-                      setPrefixOpen((v) => !v);
-                      setPrefixHi(-1);
-                    },
-                    children: [
-                      /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "commit", size: 13 }),
-                      /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 9, className: "prefix-chev" })
-                    ]
+              }
+            ),
+            filter && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "chg-clr", onClick: () => setFilter(""), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "x", size: 11 }) })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx(ScrollArea, { className: "file-scroll", style: { flex: 1 }, children: state && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            group("conflicts", t("Changes_Conflicts"), state.conflicts, false, { checkable: false, act: null }),
+            group("staged", t("Changes_StagedGroup"), state.staged, true, { checkable: true, act: "unstage" }),
+            group("changes", t("Changes_ChangesGroup"), state.changes, false, { checkable: true, act: "stage" }),
+            group("unversioned", t("Changes_UnversionedGroup"), state.unversioned, false, { checkable: true, act: "stage" }),
+            allFiles.length === 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
+              t("Changes_WorktreeClean"),
+              /* @__PURE__ */ jsxRuntime.jsx(EmptyHints, { slot: "changes.empty" })
+            ] }),
+            allFiles.length > 0 && q && !allFiles.some((f) => f.path.toLowerCase().includes(q)) && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "chg-noresult", children: t("Changes_NoMatch") })
+          ] }) }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "commit-box", children: [
+            /* @__PURE__ */ jsxRuntime.jsxs(
+              "div",
+              {
+                className: "prefix-row",
+                ref: prefixRef,
+                onKeyDown: (e) => {
+                  if (!prefixOpen) return;
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const d = e.key === "ArrowDown" ? 1 : -1;
+                    setPrefixHi((h) => (h + d + PREFIX_ITEMS.length) % PREFIX_ITEMS.length);
+                  } else if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (prefixHi >= 0) insertPrefix(PREFIX_ITEMS[prefixHi].pfx);
+                  } else if (e.key === "Escape") {
+                    setPrefixOpen(false);
                   }
-                ),
-                prefixOpen && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "prefix-pop", role: "menu", "aria-label": t("Changes_PrefixMenu"), children: [
-                  PREFIX_ITEMS.map((it, i) => /* @__PURE__ */ jsxRuntime.jsxs(
+                },
+                children: [
+                  /* @__PURE__ */ jsxRuntime.jsxs(
                     "button",
                     {
-                      type: "button",
-                      role: "menuitem",
-                      className: "pitem" + (i === prefixHi ? " hi" : ""),
-                      onMouseEnter: () => setPrefixHi(i),
-                      onClick: () => insertPrefix(it.pfx),
+                      className: "icon-btn",
+                      "data-tip": t("Changes_PrefixMenu"),
+                      "aria-haspopup": "menu",
+                      "aria-expanded": prefixOpen,
+                      onClick: () => {
+                        setPrefixOpen((v) => !v);
+                        setPrefixHi(-1);
+                      },
                       children: [
-                        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "pfx", children: it.pfx }),
-                        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "desc", children: t(it.descKey) })
+                        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "commit", size: 13 }),
+                        /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 9, className: "prefix-chev" })
                       ]
-                    },
-                    it.pfx
-                  )),
-                  /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pop-hint", children: t("Changes_PrefixMenuHint") })
-                ] }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow", style: { flex: 1 } }),
-                /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": aiBusy ? t("Common_Loading") : t("Changes_AiGenerate"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13 }) })
-              ]
-            }
-          ),
-          /* @__PURE__ */ jsxRuntime.jsx(CommitBlocks, { fileCount: (state == null ? void 0 : state.staged.length) ?? 0 }),
-          /* @__PURE__ */ jsxRuntime.jsx(
-            "textarea",
-            {
-              ref: commitInputRef,
-              placeholder: t("Changes_CommitMessagePlaceholder"),
-              value: message,
-              onChange: (e) => setMessage(e.target.value),
-              onKeyDown: (e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                  e.preventDefault();
-                  void doCommit(false);
+                    }
+                  ),
+                  prefixOpen && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "prefix-pop", role: "menu", "aria-label": t("Changes_PrefixMenu"), children: [
+                    PREFIX_ITEMS.map((it, i) => /* @__PURE__ */ jsxRuntime.jsxs(
+                      "button",
+                      {
+                        type: "button",
+                        role: "menuitem",
+                        className: "pitem" + (i === prefixHi ? " hi" : ""),
+                        onMouseEnter: () => setPrefixHi(i),
+                        onClick: () => insertPrefix(it.pfx),
+                        children: [
+                          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "pfx", children: it.pfx }),
+                          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "desc", children: t(it.descKey) })
+                        ]
+                      },
+                      it.pfx
+                    )),
+                    /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pop-hint", children: t("Changes_PrefixMenuHint") })
+                  ] }),
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow", style: { flex: 1 } }),
+                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": aiBusy ? t("Common_Loading") : t("Changes_AiGenerate"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13 }) })
+                ]
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(CommitBlocks, { fileCount: (state == null ? void 0 : state.staged.length) ?? 0 }),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "textarea",
+              {
+                ref: commitInputRef,
+                placeholder: t("Changes_CommitMessagePlaceholder"),
+                value: message,
+                onChange: (e) => setMessage(e.target.value),
+                onKeyDown: (e) => {
+                  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    void doCommit(false);
+                  }
                 }
               }
-            }
-          ),
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "commit-actions", style: { alignItems: "center", justifyContent: "flex-start" }, children: [
-            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sum", children: [
-              t("Changes_CommitStat", commitStat.n),
-              (commitStat.added > 0 || commitStat.deleted > 0) && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-                " · ",
-                /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "diff-stats-add", children: [
-                  "+",
-                  commitStat.added
-                ] }),
-                " ",
-                /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "diff-stats-del", children: [
-                  "−",
-                  commitStat.deleted
+            ),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "commit-actions", style: { alignItems: "center", justifyContent: "flex-start" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sum", children: [
+                t("Changes_CommitStat", commitStat.n),
+                (commitStat.added > 0 || commitStat.deleted > 0) && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                  " · ",
+                  /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "diff-stats-add", children: [
+                    "+",
+                    commitStat.added
+                  ] }),
+                  " ",
+                  /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "diff-stats-del", children: [
+                    "−",
+                    commitStat.deleted
+                  ] })
                 ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+              /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn solid", "data-tip": t("Changes_Commit"), disabled: !canCommit, onClick: () => void doCommit(false), children: [
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check", size: 12 }),
+                t("Changes_Commit")
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Changes_CommitAndPush"), disabled: !canCommit, onClick: () => void doCommit(true), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 }) })
+            ] })
+          ] })
+        ] }), b: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane", style: { display: "flex", flexDirection: "column" }, children: [
+          selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-filehead", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "status-letter " + (selLetter === "?" ? "st-U" : "st-" + selLetter), children: selLetter }),
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-path", title: selected.path, children: [
+              selSplit.dir && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dir", children: selSplit.dir }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "sep", children: "/" })
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "base", children: selSplit.base })
+            ] }),
+            (selectedFile == null ? void 0 : selectedFile.added) != null && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-stats", children: [
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "diff-stats-add", children: [
+                "+",
+                selectedFile.added
+              ] }),
+              " ",
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "diff-stats-del", children: [
+                "−",
+                selectedFile.deleted
               ] })
             ] }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn solid", "data-tip": t("Changes_Commit"), disabled: !canCommit, onClick: () => void doCommit(false), children: [
-              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check", size: 12 }),
-              t("Changes_Commit")
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Changes_CommitAndPush"), disabled: !canCommit, onClick: () => void doCommit(true), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 }) })
-          ] })
-        ] })
-      ] }), b: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "split-pane", style: { display: "flex", flexDirection: "column" }, children: [
-        selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-filehead", children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "status-letter " + (selLetter === "?" ? "st-U" : "st-" + selLetter), children: selLetter }),
-          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-path", title: selected.path, children: [
-            selSplit.dir && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dir", children: selSplit.dir }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "sep", children: "/" })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "base", children: selSplit.base })
-          ] }),
-          (selectedFile == null ? void 0 : selectedFile.added) != null && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-stats", children: [
-            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "diff-stats-add", children: [
-              "+",
-              selectedFile.added
-            ] }),
-            " ",
-            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "diff-stats-del", children: [
-              "−",
-              selectedFile.deleted
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiExplain"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("explain"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chat", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiReview"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("review"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13 }) }),
+            selected.staged ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsxs(
+                "button",
+                {
+                  className: "tool-btn",
+                  disabled: busy,
+                  onClick: () => void run(async () => {
+                    await call("changes.unstage", { paths: [selected.path] });
+                    setSelected(null);
+                    setDiff(null);
+                    return t("Changes_Unstaged");
+                  }),
+                  children: [
+                    /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 12 }),
+                    t("Changes_UnstageFile")
+                  ]
+                }
+              ),
+              hasSelectedHunks && /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "tool-btn primary",
+                  disabled: busy,
+                  onClick: () => void run(async () => {
+                    await call("changes.unstageHunks", { path: selected.path, indices: [...selectedHunks] });
+                    return t("Changes_UnstagedHunks");
+                  }),
+                  children: t("Changes_UnstageHunkSelected", selectedHunks.size)
+                }
+              )
+            ] }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "tool-btn icon",
+                  "data-tip": t("Changes_StageFile"),
+                  disabled: busy,
+                  onClick: () => void run(async () => {
+                    await call("changes.stage", { paths: [selected.path] });
+                    setSelected(null);
+                    setDiff(null);
+                    return t("Changes_Staged");
+                  }),
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 })
+                }
+              ),
+              hasSelectedHunks && /* @__PURE__ */ jsxRuntime.jsxs(
+                "button",
+                {
+                  className: "tool-btn icon",
+                  "data-tip": t("Changes_StageHunkSelected", selectedHunks.size),
+                  disabled: busy,
+                  onClick: () => void run(async () => {
+                    await call("changes.stageHunks", { path: selected.path, indices: [...selectedHunks] });
+                    return t("Changes_StagedHunks");
+                  }),
+                  children: [
+                    /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 }),
+                    /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 11 }, children: selectedHunks.size })
+                  ]
+                }
+              )
             ] })
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiExplain"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("explain"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chat", size: 13 }) }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiReview"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("review"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13 }) }),
-          selected.staged ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntime.jsxs(
-              "button",
+          (selected == null ? void 0 : selected.isConflict) && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "banner", children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: t("Changes_ConflictCompareHint") }) }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "auto", minHeight: 0 }, children: selected && preview ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "diff-file-header", children: /* @__PURE__ */ jsxRuntime.jsx("span", { style: { marginLeft: "auto", color: "var(--c-text3)", fontSize: 11 }, children: preview.fromIndex ? t("Changes_PreviewStaged") : t("Changes_PreviewWorktree") }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, minHeight: 0 }, children: preview.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: t("Changes_PreviewTooLarge") }) : /* @__PURE__ */ jsxRuntime.jsx(
+              "img",
               {
-                className: "tool-btn",
-                disabled: busy,
-                onClick: () => void run(async () => {
-                  await call("changes.unstage", { paths: [selected.path] });
-                  setSelected(null);
-                  setDiff(null);
-                  return t("Changes_Unstaged");
-                }),
-                children: [
-                  /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 12 }),
-                  t("Changes_UnstageFile")
-                ]
+                src: `data:${preview.mime};base64,${preview.base64}`,
+                style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" },
+                alt: selected.path
               }
-            ),
-            hasSelectedHunks && /* @__PURE__ */ jsxRuntime.jsx(
-              "button",
-              {
-                className: "tool-btn primary",
-                disabled: busy,
-                onClick: () => void run(async () => {
-                  await call("changes.unstageHunks", { path: selected.path, indices: [...selectedHunks] });
-                  return t("Changes_UnstagedHunks");
-                }),
-                children: t("Changes_UnstageHunkSelected", selectedHunks.size)
-              }
-            )
-          ] }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntime.jsx(
-              "button",
-              {
-                className: "tool-btn icon",
-                "data-tip": t("Changes_StageFile"),
-                disabled: busy,
-                onClick: () => void run(async () => {
-                  await call("changes.stage", { paths: [selected.path] });
-                  setSelected(null);
-                  setDiff(null);
-                  return t("Changes_Staged");
-                }),
-                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 })
-              }
-            ),
-            hasSelectedHunks && /* @__PURE__ */ jsxRuntime.jsxs(
-              "button",
-              {
-                className: "tool-btn icon",
-                "data-tip": t("Changes_StageHunkSelected", selectedHunks.size),
-                disabled: busy,
-                onClick: () => void run(async () => {
-                  await call("changes.stageHunks", { path: selected.path, indices: [...selectedHunks] });
-                  return t("Changes_StagedHunks");
-                }),
-                children: [
-                  /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 }),
-                  /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 11 }, children: selectedHunks.size })
-                ]
-              }
-            )
-          ] })
-        ] }),
-        (selected == null ? void 0 : selected.isConflict) && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "banner", children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "banner-text", children: t("Changes_ConflictCompareHint") }) }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "auto", minHeight: 0 }, children: selected && preview ? /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "diff-file-header", children: /* @__PURE__ */ jsxRuntime.jsx("span", { style: { marginLeft: "auto", color: "var(--c-text3)", fontSize: 11 }, children: preview.fromIndex ? t("Changes_PreviewStaged") : t("Changes_PreviewWorktree") }) }),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, minHeight: 0 }, children: preview.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: t("Changes_PreviewTooLarge") }) : /* @__PURE__ */ jsxRuntime.jsx(
-            "img",
+            ) })
+          ] }) : selected && diff ? /* @__PURE__ */ jsxRuntime.jsx(
+            DiffView,
             {
-              src: `data:${preview.mime};base64,${preview.base64}`,
-              style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" },
-              alt: selected.path
+              diff,
+              hideHeader: true,
+              focusLine,
+              inline: ((_a2 = app.settings) == null ? void 0 : _a2.diffMode) === "inline",
+              selectedHunks: selected.staged || selected.isNew ? void 0 : selectedHunks,
+              onToggleHunk: selected.staged || selected.isNew ? void 0 : toggleHunk,
+              hunkActionLabel,
+              onHunkAction: selected.staged ? hunkAction : selected.isNew ? void 0 : hunkAction
             }
-          ) })
-        ] }) : selected && diff ? /* @__PURE__ */ jsxRuntime.jsx(
-          DiffView,
-          {
-            diff,
-            hideHeader: true,
-            focusLine,
-            inline: ((_a2 = app.settings) == null ? void 0 : _a2.diffMode) === "inline",
-            selectedHunks: selected.staged || selected.isNew ? void 0 : selectedHunks,
-            onToggleHunk: selected.staged || selected.isNew ? void 0 : toggleHunk,
-            hunkActionLabel,
-            onHunkAction: selected.staged ? hunkAction : selected.isNew ? void 0 : hunkAction
-          }
-        ) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: t("Changes_SelectFileHint") }) })
-      ] }) }) }),
+          ) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: t("Changes_SelectFileHint") }) })
+        ] }) })
+      ] }),
       explainText && /* @__PURE__ */ jsxRuntime.jsx(Modal, { title: explainText.title, confirmText: t("Common_Close"), onClose: () => setExplainText(null), onConfirm: () => setExplainText(null), children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { whiteSpace: "pre-wrap", maxHeight: 340, overflow: "auto", userSelect: "text", fontSize: 12.5, lineHeight: 1.5 }, children: explainText.text }) }),
       createBranch !== null && /* @__PURE__ */ jsxRuntime.jsx(
         Modal,

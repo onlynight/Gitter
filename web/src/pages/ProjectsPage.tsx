@@ -1,6 +1,54 @@
 import { useCallback, useEffect, useState } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
-import type { ProjectDTO, ProjectsStateDTO } from "../bridge/types";
+import type { CockpitTaskRow, ProjectDTO, ProjectsStateDTO } from "../bridge/types";
+
+const ACTIVE_STATES = new Set(["starting", "working", "awaiting-input", "awaiting-permission"]);
+const STATE_COLOR: Record<string, string> = {
+  working: "var(--c-green)", starting: "var(--c-green)",
+  "awaiting-input": "var(--c-amber)", "awaiting-permission": "var(--c-amber)",
+  failed: "var(--c-red)", interrupted: "var(--c-red)",
+};
+
+/** M3.4 跨窗口任务驾驶舱：聚合全部窗口/仓库的活跃 agent 任务（app.allTasks）。 */
+function ActiveTasks() {
+  const [tasks, setTasks] = useState<CockpitTaskRow[]>([]);
+  const reload = useCallback(() => {
+    void call<CockpitTaskRow[]>("app.allTasks", {})
+      .then((x) => setTasks(x.filter((t) => ACTIVE_STATES.has(t.state))))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    reload();
+    const iv = window.setInterval(reload, 4000);
+    return () => window.clearInterval(iv);
+  }, [reload]);
+  if (tasks.length === 0) return null;
+  return (
+    <div className="proj-tasks">
+      <div className="proj-tasks-h">进行中的 Agent 任务（{tasks.length}）</div>
+      {tasks.map((t) => (
+        <div key={t.repoPath + t.taskId} className="proj-task-row" title={t.lastMessage ?? ""}>
+          <span className="dot" style={{ background: STATE_COLOR[t.state] ?? "var(--c-fg3)" }} />
+          <span className="repo">{t.repoName}</span>
+          <span className="title">{t.title}</span>
+          {t.review ? (
+            <span className="chip" style={{ color: t.review.status === "approved" ? "var(--c-green)" : t.review.status === "rejected" ? "var(--c-red)" : "var(--c-amber)" }}>
+              {t.review.status === "approved" ? "已通过" : t.review.status === "rejected" ? "已退回" : "待审"}
+            </span>
+          ) : null}
+          <span className="state">{t.state === "working" ? "运行中" : t.state === "awaiting-input" ? "等待输入" : t.state === "awaiting-permission" ? "等待授权" : "启动中"}</span>
+          <button
+            className="tool-btn icon sm"
+            data-tip="在新窗口打开该仓库"
+            onClick={() => void call("app.newWindow", { path: t.repoPath })}
+          >
+            <span className="glyph" style={{ fontSize: 11 }}>{""}</span>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
 const { call, t, openRepo, closeRepo, refresh: refreshCurrent } = pageSdk;
@@ -131,6 +179,7 @@ export function ProjectsPage() {
         </div>
       </div>
       {error && <div className="banner error"><span className="banner-text">{error}</span><button className="tool-btn" onClick={() => setError(null)}>✕</button></div>}
+      <ActiveTasks />
       {state && state.projects.length === 0 ? (
         <div className="empty-state">
           <div className="big">📁</div>

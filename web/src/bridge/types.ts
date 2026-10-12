@@ -280,6 +280,15 @@ export interface AgentPermissionRuleDTO {
 export type ThinkingLevel = "off" | "low" | "medium" | "high";
 
 /** 用户模型档案（settings.models[]；包模板实例化后同 fullId 遮蔽）。 */
+export interface OAuthProfileConfig {
+  authorizeUrl: string;
+  tokenUrl: string;
+  clientId: string;
+  scopes: string;
+  extraHeaders?: Record<string, string>;
+  clientAuth?: "client_secret_post" | "none";
+}
+
 export interface UserModelProfileDTO {
   id: string;
   name: string;
@@ -332,6 +341,60 @@ export interface ModelProfileDTO {
   groupId: string;
   /** 分组成员明细（仅分组主条目携带，供设置页分组卡片与编辑回填）。 */
   groupModels?: { modelId: string; vision: boolean; contextTokens?: number; thinking: ThinkingLevel }[];
+  authKind?: "apiKey" | "oauth";
+  oauthConfigured?: boolean;
+  oauthExpiresAt?: number | null;
+  pricing?: { inputPerM?: number; outputPerM?: number } | null;
+}
+
+// ---- M 系列主线（harness-mainline-roadmap.md）----
+
+export type RiskLevel = "high" | "medium" | "low";
+
+export interface RiskSignal {
+  level: RiskLevel;
+  kind: string;
+  message: string;
+}
+
+export interface RiskFileReport {
+  path: string;
+  added: number | null;
+  deleted: number | null;
+  isBinary: boolean;
+  signals: RiskSignal[];
+}
+
+export interface RiskReport {
+  files: RiskFileReport[];
+  counts: { high: number; medium: number; low: number };
+}
+
+export interface UsageReport {
+  repoPaths: string[];
+  totals: { turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null };
+  byDay: { day: string; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null }[];
+  byModel: { modelRef: string; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null }[];
+  byTask: { taskId: string; title: string; state: string; modelRef: string | null; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null; lastActiveAt: string | null }[];
+  emptyRepos: string[];
+}
+
+export interface GitOperationState {
+  kind: "merge" | "rebase" | "cherry-pick" | "revert" | null;
+  detail: string | null;
+}
+
+export interface CockpitTaskRow {
+  repoPath: string;
+  repoName: string;
+  taskId: string;
+  title: string;
+  state: string;
+  branch: string;
+  modelRef: string | null;
+  lastMessage: string | null;
+  lastActiveAt: string | null;
+  review: { status: string; comment: string | null; at: string } | null;
 }
 
 /** agent.taskTypes.list RPC 条目。 */
@@ -457,6 +520,7 @@ export type AgentTaskDTO = {
   awaitKind?: "question" | "plan" | null;
   /** 收尾合并结果（有值 = 已合并） */
   wrapup?: { mergeSha: string; mergedAt: string; strategy: "squash" | "merge" } | null;
+  review?: { status: "pending" | "approved" | "rejected"; comment: string | null; at: string } | null;
 };
 
 /** 收尾合并预检（agent.task.mergeCheck）。 */

@@ -118,6 +118,7 @@ export function normalizeRecord(r: AgentTaskRecord): AgentTaskRecord {
     todoState: r.todoState ?? null,
     planHistory: r.planHistory ?? [],
     queued: r.queued ?? [],
+    review: r.review ?? null,
   };
 }
 

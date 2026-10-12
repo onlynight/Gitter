@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { app, BrowserWindow, contentTracing, ipcMain, Menu, nativeTheme, screen } from "electron";
+import { app, BrowserWindow, contentTracing, ipcMain, Menu, nativeTheme, safeStorage, screen } from "electron";
 import * as os from "os";
 import * as path from "path";
 import { Bridge, SharedServices } from "./bridge";
@@ -16,6 +16,10 @@ import { PluginStorage } from "./services/extensions/storage";
 import { PluginHost } from "./services/extensions/host";
 import { McpClientManager } from "./services/extensions/mcpClient";
 import { bindToolRegistry } from "./services/extensions/agentLoop";
+import { OAuthManager } from "./services/oauth";
+import { CockpitRegistry } from "./services/cockpit";
+import { parseHeadlessArgs, runHeadless } from "./headless";
+import { initUpdater } from "./services/updater";
 
 const bridges = new Map<number, Bridge>();
 let shared: SharedServices;
@@ -232,8 +236,41 @@ function looksLikeRepoArg(p: string): boolean {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null); // 自绘标题栏 + 渲染层快捷键接管
+
+  // ---- M1.5 headless 运行模式（electron . run --repo <path> -p "..."）：不建窗口，跑完即退 ----
+  const runIdx = process.argv.indexOf("run", 1);
+  if (runIdx > 0) {
+    const argv = process.argv.slice(runIdx + 1);
+    const usageFail = (msg: string): never => {
+      process.stderr.write(
+        `[gitter] ${msg}\n用法：electron . run --repo <仓库路径> -p "<任务描述>" [--yolo|--mode plan|default|yolo] [--model <档案id>] [--thinking off|low|medium|high] [--task-type <fullId>] [--json] [--timeout-sec N]\n`);
+      app.exit(3);
+      throw new Error(msg);
+    };
+    let code = 3;
+    try {
+      const hArgs = parseHeadlessArgs(argv, usageFail);
+      if (!hArgs.prompt.trim()) {
+        // 无 -p：从 stdin 读（管道友好）
+        hArgs.prompt = await new Promise<string>((resolve) => {
+          let buf = "";
+          process.stdin.setEncoding("utf8");
+          process.stdin.on("data", (d) => (buf += String(d)));
+          process.stdin.on("end", () => resolve(buf.trim()));
+          setTimeout(() => resolve(buf.trim()), 3000);
+        });
+      }
+      if (!hArgs.prompt.trim()) usageFail("缺少 -p <任务描述>（或经 stdin 管道提供）");
+      code = await runHeadless(hArgs, app.getAppPath(), app.getPath("userData"));
+    } catch (e) {
+      process.stderr.write(`[gitter] headless 失败：${(e as Error).message}\n`);
+      code = 1;
+    }
+    app.exit(code);
+    return;
+  }
 
   const userData = app.getPath("userData");
   // resourcePaths(root) 内部自拼 resources/ 子目录——root 必须是 app 根目录，
@@ -286,6 +323,16 @@ app.whenReady().then(() => {
     console.warn("[gitter] i18n 字典为空，检查资源路径:", res.stringsTsv);
   }
 
+  const oauth = new OAuthManager(userData, {
+    encrypt: (plain) => (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(plain).toString("base64") : null),
+    decrypt: (blob) => {
+      try {
+        return safeStorage.decryptString(Buffer.from(blob, "base64"));
+      } catch {
+        return null;
+      }
+    },
+  });
   shared = {
     settings,
     i18n,
@@ -298,11 +345,23 @@ app.whenReady().then(() => {
     events,
     host,
     mcpMgr,
+    oauth,
+    cockpit: new CockpitRegistry(),
     userPackagesRoot: path.join(userData, "packages"),
     userThemesRoot: path.join(userData, "themes"),
     createWindow: (repoPath?: string) => createWindow(repoPath),
     applyWindowMaterial: () => applyWindowMaterialToAll(),
   };
+
+  // M3.1 自动更新（打包态启用 electron-updater 事件面；更新源取 settings.updateCheckUrl）
+  initUpdater(
+    (method, params) => {
+      for (const b of bridges.values()) {
+        if (!b.isWindowDestroyed()) b.sendEvt(method, params);
+      }
+    },
+    () => settings.current.updateCheckUrl,
+  );
 
   registerIpc();
   const repoArg = process.argv.slice(1).find((a) => looksLikeRepoArg(a));

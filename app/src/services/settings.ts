@@ -87,6 +87,8 @@ export class SettingsStore {
       agentsMaxSubagents: 3,
       agentsExternalMcpTools: false,
       agentsTaskWorktree: false,
+      agentsToolHooks: true,
+      updateCheckUrl: null,
       models: [],
       defaultModelId: null,
       fastModelId: null,
@@ -138,6 +140,7 @@ export class SettingsStore {
       "logSplitterFraction", "changesSplitterFraction", "terminalDocFraction", "packages", "confirmedCommands", "allowCodePlugins", "externalMcpEnabled",
       "agentsCheckpoint", "agentsOnExit", "agentRules", "agentsCompaction", "agentsCompactionPolicy",
       "agentsPostTurnHooks", "agentsMaxSubagents", "agentsExternalMcpTools", "agentsNotify", "agentsTaskWorktree",
+      "agentsToolHooks", "updateCheckUrl",
       "models", "defaultModelId", "fastModelId", "modelUsage",
     ];
     for (const key of allowed) {

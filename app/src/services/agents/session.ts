@@ -12,6 +12,7 @@ import { deleteBranch, mergeBranch, squashMerge } from "../gitbranches";
 import { createTaskWorktree, listWorktrees, removeTaskWorktree } from "../worktrees";
 import { aheadBehind, collectMergeInfo, currentBranch, dirtyCount, isDirty } from "./merge";
 import { commitCheckpoint, headSha } from "./checkpoint";
+import { scanRiskSignals } from "../risk";
 import { resolveTaskType } from "./taskTypes";
 import { buildToolset, type PermissionRequest, type ShellRecord, type ToolEnv } from "./registry";
 import "./builtinTools"; // 内置工具自举注册（§14.4：与插件同接缝，import 副作用）
@@ -23,6 +24,8 @@ import { collectRepoContext, composeSystemPrompt, wrapReminder, type RepoContext
 import { budgetOf, compactNow, estimateMessagesTokens, validateMessageSequence } from "./compaction";
 import { activeCompactor, getCompactorById, runContextCollectors, runTurnHooks } from "./seams";
 import { runSubtask, subagentPresetIds, syncPackagePresets } from "./subagents";
+import { launchCliJson, type CliJsonProcess } from "./transports/clijson";
+import { listHarnesses } from "./catalog";
 import {
   appendJournalFile, deleteSessionFile, emptySessionFile, findTask, loadAgentTasks, loadJournalRange,
   loadSessionFile, markInterrupted, normalizeRecord, saveAgentTasks, saveSessionFile, upsertTask,
@@ -45,9 +48,11 @@ export interface AgentSessionDeps {
   repoOf: () => string | null;
   store: PackageStore;
   settings: SettingsStore;
-  /** 模型档案链解析（bridge 组装；contextWindow 供预算表，缺省 128k） */
+  /** 模型档案链解析（bridge 组装；contextWindow 供预算表，缺省 128k）。M1.1：可异步（OAuth token 刷新） */
   resolveModel: (profileRef: string | null, thinking?: ThinkingLevel) =>
-    { ok: true; model: import("ai").LanguageModel; profileRef: string; contextWindow: number } | { ok: false; error: string };
+    { ok: true; model: import("ai").LanguageModel; profileRef: string; contextWindow: number }
+    | { ok: false; error: string }
+    | Promise<{ ok: true; model: import("ai").LanguageModel; profileRef: string; contextWindow: number } | { ok: false; error: string }>;
   /** 用量记账（按档案累计） */
   addUsage: (profileRef: string, usage: { input?: number; output?: number } | null) => void;
   /** 经 preload bridge 推渲染层（evt 通道） */
@@ -58,9 +63,10 @@ export interface AgentSessionDeps {
   onLifecycle?: (event: "created" | "resumed" | "stopped" | "removed", record: AgentTaskRecord) => void;
   /** D5 任务完成 OS 通知（bridge 实现：窗口未聚焦时弹系统通知） */
   notifyTaskDone?: (task: { taskId: string; title: string; state: string; summary: string | null }) => void;
-  /** D8 模型硬失败自动降级（§21.3.3）：挑一个 ≠ 失败档案的备用（default 优先，否则首个可用） */
+  /** D8 模型硬失败自动降级（§21.3.3）：挑一个 ≠ 失败档案的备用（default 优先，否则首个可用）。M1.1：可异步（OAuth 刷新） */
   alternateModel?: (excludeRef: string, thinking?: ThinkingLevel) =>
-    { ok: true; model: import("ai").LanguageModel; profileRef: string; contextWindow: number } | { ok: false; error: string };
+    { ok: true; model: import("ai").LanguageModel; profileRef: string; contextWindow: number } | { ok: false; error: string }
+    | Promise<{ ok: true; model: import("ai").LanguageModel; profileRef: string; contextWindow: number } | { ok: false; error: string }>;
 }
 
 interface LiveSession {
@@ -114,6 +120,8 @@ interface LiveSession {
   tokenCal: number;
   /** §22.9 F13.5：本轮 usage 记录携带的断点注记（压缩/换模型/重启续跑），入账后清空 */
   turnBreakNote?: string;
+  /** M2.4 审查结论已注入的 review.at（一次性去重） */
+  reviewInjectedAt?: string | null;
 }
 
 const BUILTIN_HARNESS_ID = "builtin/gitter-agent";
@@ -182,7 +190,7 @@ export class AgentSessionManager {
   // ---- 查询 ----
 
   async listHarnesses(): Promise<AgentHarnessDTO[]> {
-    const det = this.modelAvailability(null);
+    const det = await this.modelAvailability(null);
     return [
       {
         fullId: BUILTIN_HARNESS_ID,
@@ -265,8 +273,9 @@ export class AgentSessionManager {
     attachments?: { name?: string; dataBase64: string }[];
   }): Promise<AgentTaskRecord> {
     const repo = this.needRepo();
+    // M3.3 外部任务类型：harness 指向包贡献的外部 CLI（clijson 传输），核心循环仍是内置 Gitter Agent
     if (args.harness && args.harness !== BUILTIN_HARNESS_ID) {
-      throw new Error(`未知 agent：${args.harness}（当前版本仅内置 Gitter Agent）`);
+      return this.createExternalTask(args, args.harness);
     }
     const tt = resolveTaskType(this.deps.store, args.taskType);
     if (tt.error) throw new Error(tt.error);
@@ -274,7 +283,7 @@ export class AgentSessionManager {
     const name = args.name?.trim() || args.prompt.trim().split(/\r?\n/)[0]?.slice(0, 40) || "task";
 
     const preferred = args.model ?? tt.spec.defaultModelRef ?? null;
-    const rr = this.deps.resolveModel(preferred, args.thinking);
+    const rr = await this.deps.resolveModel(preferred, args.thinking);
     if (!rr.ok) throw new Error(rr.error);
 
     const title = args.prompt.trim().split(/\r?\n/)[0]?.slice(0, 60) || name;
@@ -339,6 +348,144 @@ export class AgentSessionManager {
     return record;
   }
 
+  // ---- M3.3 外部 harness 任务（clijson 传输；核心循环仍属内置 Gitter Agent，外部 CLI 只是另一种任务执行器）----
+
+  private externalSpecOf(harnessFullId: string): import("./types").HarnessLaunchSpec {
+    const { specs } = listHarnesses(this.deps.store);
+    const spec = specs.get(harnessFullId);
+    if (!spec) throw new Error(`外部 agent 不存在或未启用：${harnessFullId}（设置 → 扩展 检查 harness 包）`);
+    return spec;
+  }
+
+  private async createExternalTask(
+    args: { prompt: string; name?: string; mode?: PermissionMode; thinking?: ThinkingLevel; model?: string; taskType?: string },
+    harnessFullId: string,
+  ): Promise<AgentTaskRecord> {
+    const spec = this.externalSpecOf(harnessFullId);
+    const repo = this.needRepo();
+    if (!args.prompt.trim()) throw new Error("任务描述不能为空");
+    const title = args.prompt.trim().split(/\r?\n/)[0]?.slice(0, 60) || "external task";
+    // 执行位置与内置任务同一裁决（settings.agentsTaskWorktree）
+    let wtPath: string;
+    let branch: string;
+    let baseBranch: string | null = null;
+    if (this.deps.settings.current.agentsTaskWorktree === true) {
+      let slug = args.name?.trim() || deriveSlug(title);
+      const existing = new Set((await listWorktrees(repo)).map((w) => w.branch));
+      slug = dedupeSlug(slug, existing);
+      const wt = await createTaskWorktree(repo, slug);
+      wtPath = wt.path;
+      branch = wt.branch;
+      baseBranch = (await currentBranch(repo)) ?? null;
+    } else {
+      wtPath = repo;
+      const r = await tryGit(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+      branch = r.code === 0 && r.stdout.trim() ? r.stdout.trim() : "HEAD";
+    }
+    const baseline = (await headSha(wtPath)) ?? "";
+    const record: AgentTaskRecord = {
+      taskId: randomUUID(),
+      title,
+      harnessFullId: spec.fullId,
+      worktreePath: wtPath,
+      branch,
+      externalSessionId: null,
+      baselineSha: baseline,
+      state: "working",
+      exitCode: null,
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      lastMessage: null,
+      modelRef: args.model ?? null,
+      taskType: args.taskType ?? null,
+      loopId: null,
+      thinking: args.thinking ?? "off",
+      permissionMode: args.mode ?? "default",
+      todoState: null,
+      planHistory: [],
+      queued: [],
+      archived: false,
+      baseBranch,
+      awaitKind: null,
+      wrapup: null,
+      review: null,
+    };
+    this.putRecord(record);
+    this.deps.onLifecycle?.("created", record);
+    this.launchExternal(record, spec, args.prompt, null);
+    return record;
+  }
+
+  private async resumeExternalTask(record: AgentTaskRecord, prompt: string): Promise<AgentTaskRecord> {
+    const spec = this.externalSpecOf(record.harnessFullId);
+    const repo = this.needRepo();
+    record.state = "working";
+    record.lastActiveAt = new Date().toISOString();
+    record.archived = false;
+    const file = loadAgentTasks(repo);
+    upsertTask(file, record);
+    saveAgentTasks(repo, file);
+    this.deps.send("agent.tasks.changed", {});
+    this.launchExternal(record, spec, prompt, record.externalSessionId);
+    return record;
+  }
+
+  /** 拉起外部 CLI（clijson 传输）；事件直通时间线，退出合成终态 + 托管 checkpoint。 */
+  private launchExternal(record: AgentTaskRecord, spec: import("./types").HarnessLaunchSpec, prompt: string, externalSessionId: string | null): void {
+    const proc = launchCliJson(
+      {
+        spec,
+        worktreePath: record.worktreePath,
+        taskId: record.taskId,
+        prompt,
+        sandbox: null,
+        externalSessionId,
+        envDenylist: [],
+      },
+      {
+        onFrameResult: () => { /* 帧级回执（M3.3 最小闭环不消费） */ },
+        onEvent: (ev) => {
+          if (ev.type === "session-meta" && ev.externalSessionId && !record.externalSessionId) {
+            record.externalSessionId = ev.externalSessionId;
+          }
+          if (ev.type === "output" && ev.stream === "assistant" && ev.text.trim()) record.lastMessage = ev.text;
+          if (ev.type === "completed" && ev.summary) record.lastMessage = ev.summary;
+          this.emit(record, ev);
+        },
+        onExit: (code) => {
+          this.externalProcs.delete(record.taskId);
+          const repo = this.repoOrNull();
+          if (repo) {
+            const file = loadAgentTasks(repo);
+            const cur = findTask(file, record.taskId) ?? record;
+            cur.exitCode = code;
+            cur.lastActiveAt = new Date().toISOString();
+            cur.state = code === 0 ? "awaiting-input" : "failed";
+            if (cur.state === "awaiting-input") cur.awaitKind = null;
+            else if (!cur.lastMessage) cur.lastMessage = `外部 agent 退出码 ${code}`;
+            upsertTask(file, cur);
+            saveAgentTasks(repo, file);
+            // 托管 checkpoint（与内置轮末同一裁决：隔离 worktree 才做）
+            if (code === 0 && this.deps.settings.current.agentsCheckpoint !== false && !this.isMainWorktree(cur.worktreePath)) {
+              void commitCheckpoint(cur.worktreePath, {
+                summary: cur.lastMessage ?? "外部任务完成",
+                assistedBy: spec.descriptor.identity.assistedBy,
+                sessionId: cur.taskId,
+              }).then((cp) => {
+                if (cp.sha) this.emit(cur, { type: "checkpoint", commitSha: cp.sha, summary: cur.lastMessage ?? "" });
+                this.deps.send("agent.tasks.changed", {});
+              }).catch(() => undefined);
+            }
+            this.deps.send("agent.tasks.changed", {});
+            this.deps.notifyTaskDone?.({ taskId: cur.taskId, title: cur.title, state: cur.state, summary: cur.lastMessage });
+          }
+        },
+      },
+    );
+    this.externalProcs.set(record.taskId, proc);
+    this.emit(record, { type: "log", level: "info", text: `外部 agent 已启动：${spec.displayName}（${spec.spawn.command}）` });
+  }
+
   /** 续跑：历史重放 + 追加输入。 */
   async resumeTask(args: { taskId: string; prompt: string; thinking?: ThinkingLevel; mode?: PermissionMode; attachments?: { name?: string; dataBase64: string }[] }): Promise<AgentTaskRecord> {
     const repo = this.needRepo();
@@ -347,6 +494,10 @@ export class AgentSessionManager {
     const file = loadAgentTasks(repo);
     const record = findTask(file, args.taskId);
     if (!record) throw new Error("任务不存在");
+    // M3.3：外部 harness 任务续跑 = 带 resume 会话号重新拉起 CLI
+    if (record.harnessFullId && record.harnessFullId !== BUILTIN_HARNESS_ID) {
+      return this.resumeExternalTask(record, args.prompt);
+    }
     const tt = resolveTaskType(this.deps.store, record.taskType);
     const sf = loadSessionFile(repo, args.taskId);
     // §22.4 修复：会话保存为 250ms 防抖，轮末立即续跑时磁盘可能落后于内存——
@@ -399,7 +550,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     const live = this.live.get(args.taskId);
     if (!live) throw new Error("任务未在运行（重启后暂不支持手动压缩）");
     if (this.isRunning(args.taskId)) throw new Error("会话运行中，请在轮次结束后压缩");
-    const rr = this.deps.resolveModel(live.record.modelRef, live.record.thinking);
+    const rr = await this.deps.resolveModel(live.record.modelRef, live.record.thinking);
     if (!rr.ok) throw new Error(rr.error);
     const result = await compactNow({
       messages: live.messages,
@@ -457,7 +608,57 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     });
   }
 
+  /**
+   * M2.4 审查三态（验收台人机共享）：写入结论 → 活跃任务下一轮注入 reminder；
+   * 非活跃任务 rejected 自动直投修复轮（approved 仅记录，等待 wrapup）。
+   */
+  async setReview(args: { taskId: string; status: "approved" | "rejected" | "pending"; comment?: string | null }): Promise<AgentTaskRecord> {
+    const repo = this.needRepo();
+    const live = this.live.get(args.taskId);
+    const file = loadAgentTasks(repo);
+    const record = live?.record ?? findTask(file, args.taskId);
+    if (!record) throw new Error("任务不存在");
+    record.review = {
+      status: args.status,
+      comment: args.comment?.trim() ? args.comment.trim().slice(0, 2000) : null,
+      at: new Date().toISOString(),
+    };
+    if (args.status === "pending") record.review = null;
+    upsertTask(file, record);
+    saveAgentTasks(repo, file);
+    this.deps.send("agent.tasks.changed", {});
+    this.deps.onBusEvent?.("agent.review.set", { taskId: record.taskId, status: args.status });
+    const running = this.isRunning(args.taskId);
+    if (!running && args.status === "rejected") {
+      // 新 live 的 reviewInjectedAt = null → 修复轮首轮由 startTurn 注入完整结论
+      await this.resumeTask({
+        taskId: args.taskId,
+        prompt: "人类审查退回了上一轮改动，请先读取审查结论（review_get_state），只修复意见所列问题。",
+      });
+    }
+    return normalizeRecord(record);
+  }
+
   stopTask(args: { taskId: string }): AgentTaskRecord | null {
+    // M3.3：外部任务 = 杀进程树 + 落账
+    const proc = this.externalProcs.get(args.taskId);
+    if (proc) {
+      this.externalProcs.delete(args.taskId);
+      proc.kill();
+      const repo = this.repoOrNull();
+      if (repo) {
+        const file = loadAgentTasks(repo);
+        const record = findTask(file, args.taskId);
+        if (record) {
+          record.state = "stopped";
+          upsertTask(file, record);
+          saveAgentTasks(repo, file);
+          this.deps.send("agent.tasks.changed", {});
+          return record;
+        }
+      }
+      return null;
+    }
     const live = this.live.get(args.taskId);
     if (!live?.abort) return null;
     this.manualStop.add(args.taskId);
@@ -496,8 +697,8 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     return record;
   }
 
-  setModel(args: { taskId: string; model: string }): AgentTaskRecord | null {
-    const rr = this.deps.resolveModel(args.model);
+  async setModel(args: { taskId: string; model: string }): Promise<AgentTaskRecord | null> {
+    const rr = await this.deps.resolveModel(args.model);
     if (!rr.ok || rr.profileRef !== args.model) {
       throw new Error(`模型档案不可用：${args.model}${rr.ok ? "" : `（${rr.error}）`}`);
     }
@@ -523,7 +724,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     if (!source) throw new Error("任务不存在");
     const modelRef = args.model ?? source.modelRef;
     if (modelRef) {
-      const rr = this.deps.resolveModel(modelRef, source.thinking);
+      const rr = await this.deps.resolveModel(modelRef, source.thinking);
       if (!rr.ok) throw new Error(rr.error);
     }
     const slug = source.branch.replace(/^task\//, "");
@@ -722,6 +923,30 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
 
   // ---- 改动预览（F6） ----
 
+  /** M2.2 风险信号（纯规则零 AI 依赖）：基线 → 工作区 diff 逐文件扫描。 */
+  async taskRisk(args: { taskId: string }): Promise<import("../../services/risk").RiskReport> {
+    const files = await this.taskFiles({ taskId: args.taskId });
+    const text = await this.taskDiffText({ taskId: args.taskId });
+    // DiffDTO 是解析后的 hunk 结构——用 newLines 重建"伪 patch"供规则扫描（规则只消费 + 行与路径）
+    const patches = new Map<string, string>();
+    for (const d of parseUnifiedDiff(text)) {
+      if (!d.path) continue;
+      const lines: string[] = [`--- ${d.oldPath}`, `+++ ${d.path}`];
+      for (const h of d.hunks) {
+        lines.push(`@@ -${h.oldStart},${h.oldCount} +${h.newStart},${h.newCount} @@`);
+        for (const l of h.newLines) lines.push("+" + l);
+      }
+      patches.set(d.path, lines.join("\n"));
+    }
+    return scanRiskSignals(files.map((f) => ({
+      path: f.path,
+      patch: patches.get(f.path) ?? null,
+      added: f.added,
+      deleted: f.deleted,
+      isBinary: false,
+    })));
+  }
+
   async taskFiles(args: { taskId: string }): Promise<{ path: string; kind: FileChangeKind; added: number | null; deleted: number | null }[]> {
     const record = this.recordOf(args.taskId);
     // numstat（基线 → 工作区，含已提交）+ 未跟踪
@@ -760,18 +985,21 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     }
   }
 
-  async taskDiff(args: { taskId: string; path?: string; since?: string }): Promise<import("../../shared/types").DiffDTO[]> {
+  async taskDiff(args: { taskId: string; path?: string; since?: string; base?: "baseline" | "head" }): Promise<import("../../shared/types").DiffDTO[]> {
     const text = await this.taskDiffText(args);
     return parseUnifiedDiff(text).map((d) => truncateDiff(d));
   }
 
   /** 原始 unified diff 文本（复制/导出用）。 */
-  async taskDiffText(args: { taskId: string; path?: string; since?: string }): Promise<string> {
+  async taskDiffText(args: { taskId: string; path?: string; since?: string; base?: "baseline" | "head" }): Promise<string> {
     const record = this.recordOf(args.taskId);
     const gitArgs = ["diff", "--no-color"];
     if (args.since && args.since.startsWith("checkpoint:")) {
       const sha = args.since.slice("checkpoint:".length);
       gitArgs.push(`${sha}^`, sha);
+    } else if (args.base === "head") {
+      // M2.1 验收台双基线：HEAD = 工作区+暂存相对当前分支头的净 diff
+      gitArgs.push("HEAD");
     } else if (record.baselineSha) {
       gitArgs.push(record.baselineSha);
     }
@@ -999,7 +1227,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
   }
 
   /** 上下文用量（F7.6）。非活动任务从持久化会话文件估算，统计栏默认可见。 */
-  contextStats(args: { taskId: string }): AgentContextStats | null {
+  async contextStats(args: { taskId: string }): Promise<AgentContextStats | null> {
     const live = this.live.get(args.taskId);
     if (live) {
       const window = live.contextStats?.contextWindow ?? 128_000;
@@ -1011,7 +1239,8 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     if (!record) return null;
     let session: SessionFile;
     try { session = loadSessionFile(repo, args.taskId); } catch { session = emptySessionFile(args.taskId); }
-    const rr = record.modelRef ? this.deps.resolveModel(record.modelRef) : null;
+    // M1.1：resolveModel 可能异步（OAuth）——拿不到档案时按缺省窗口渲染
+    const rr = record.modelRef ? await Promise.resolve(this.deps.resolveModel(record.modelRef)).catch(() => null) : null;
     const window = (rr && rr.ok ? rr.contextWindow : 0) || 128_000;
     return this.computeStats(session.messages, 0, session, window);
   }
@@ -1098,7 +1327,11 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
 
   // ---- 内部：一轮对话（含排队续轮） ----
 
+  /** M3.3 外部 harness 任务的活动进程表（taskId → kill）。 */
+  private readonly externalProcs = new Map<string, CliJsonProcess>();
+
   private isRunning(taskId: string): boolean {
+    if (this.externalProcs.has(taskId)) return true;
     const a = this.live.get(taskId)?.abort;
     return a !== null && a !== undefined;
   }
@@ -1128,6 +1361,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         toolFails: new Map(),
         turnStartTs: Date.now(),
         tokenCal: 1,
+        reviewInjectedAt: null,
       };
       this.live.set(record.taskId, live);
     }
@@ -1149,6 +1383,17 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     for (;;) {
       syncPackagePresets(this.deps.store); // §14.2 #6：包声明预设 → 预设注册表（幂等）
       live.planSubmittedThisTurn = false;
+      // M2.4 审查三态：人类结论以 system-reminder 注入（按 review.at 一次性去重）
+      const rv = record.review;
+      if (rv && (rv.status === "approved" || rv.status === "rejected") && live.reviewInjectedAt !== rv.at) {
+        live.reviewInjectedAt = rv.at;
+        const verdict = rv.status === "approved"
+          ? "人类已通过上一轮改动的审查。请保持同等质量收尾，避免回归。"
+          : `上一轮改动被人类审查退回${rv.comment ? `，审查意见：${rv.comment}` : ""}。请优先修复审查意见，不要扩大改动范围。`;
+        live.messages.push({ role: "user", content: wrapReminder(verdict) });
+        live.turnBreakNote = live.turnBreakNote ?? "审查结论注入";
+        this.emit(record, { type: "log", level: "info", text: `审查结论已注入：${rv.status === "approved" ? "通过" : "退回"}` });
+      }
       live.journal.push({ ts: new Date().toISOString(), actor: "human", kind: "text", text: humanNote ?? "任务下发" });
       live.abort = new AbortController();
       live.turnStartTs = Date.now();
@@ -1159,7 +1404,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       this.deps.send("agent.tasks.changed", {});
       this.scheduleSave();
 
-      const rr = this.deps.resolveModel(live.forceModelRef ?? record.modelRef, record.thinking);
+      const rr = await this.deps.resolveModel(live.forceModelRef ?? record.modelRef, record.thinking);
       if (!rr.ok) {
         record.state = "failed";
         record.lastMessage = rr.error;
@@ -1256,6 +1501,11 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         spawnSubtask: (targs) => this.spawnSubtask(record, live, targs),
         subtaskPresets: () => subagentPresetIds(),
         shells: live.shells,
+        hooksEnabled: this.deps.settings.current.agentsToolHooks !== false,
+        getReview: () => {
+          const r = record.review;
+          return r ? { status: r.status, comment: r.comment, at: r.at } : null;
+        },
         noteToolOutcome: (toolName, args, isError) => {
           // F12.2 防死循环：同一 (tool, args) 连续失败 ≥3 次 → 提醒追加进结果
           const key = `${toolName}:${JSON.stringify(args).slice(0, 200)}`;
@@ -1365,7 +1615,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         }
       } else {
         // D8 降级链（§21.3.3）：硬失败且本轮未降级过 → 切备用模型续跑一次（再失败按原样 failed）
-        const alt = !live.degradedOnce && this.deps.alternateModel ? this.deps.alternateModel(rr.profileRef, record.thinking) : null;
+        const alt = !live.degradedOnce && this.deps.alternateModel ? await this.deps.alternateModel(rr.profileRef, record.thinking) : null;
         if (alt?.ok) {
           live.degradedOnce = true;
           live.forceModelRef = alt.profileRef;
@@ -1625,7 +1875,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     }
     live.subtaskRunning++;
     try {
-      const rr = this.deps.resolveModel(record.modelRef, record.thinking);
+      const rr = await this.deps.resolveModel(record.modelRef, record.thinking);
       if (!rr.ok) return `子代理模型不可用：${rr.error}`;
       const ctx = live.turnCtx ?? (await collectRepoContext(record.worktreePath));
       const result = await runSubtask({
@@ -1749,11 +1999,11 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     return normalizeRecord(record);
   }
 
-  private modelAvailability(preferred: string | null): { available: boolean; version: string | null; reason: string | null } {
+  private async modelAvailability(preferred: string | null): Promise<{ available: boolean; version: string | null; reason: string | null }> {
     if (this.deps.settings.current.aiPrivacy === "disabled") {
       return { available: false, version: null, reason: "AI 隐私档位为 Disabled（设置 → AI 网关）" };
     }
-    const rr = this.deps.resolveModel(preferred);
+    const rr = await this.deps.resolveModel(preferred);
     return rr.ok
       ? { available: true, version: this.deps.settings.current.aiModel, reason: null }
       : { available: false, version: null, reason: rr.error };

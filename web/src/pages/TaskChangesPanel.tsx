@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
-import type { AgentCheckpointDTO, AgentTaskFileDTO, DiffDTO } from "../bridge/types";
+import type { AgentCheckpointDTO, AgentTaskFileDTO, DiffDTO, RiskFileReport, RiskReport } from "../bridge/types";
 import { DiffView } from "../kit";
 import { taskPanels, useAgentUIVersion } from "../external/agentUIShim";
 import { TlIcon } from "./taskIcons";
@@ -26,6 +26,17 @@ function imgMime(path: string): string {
 }
 const MAX_TEXT_BYTES = 2_000_000;
 const TURNS_TAB = "turns";
+
+/** M2.2 风险等级 → 颜色（复用语义色令牌） */
+export function riskColor(level: "high" | "medium" | "low"): string {
+  return level === "high" ? "var(--c-red)" : level === "medium" ? "var(--c-amber)" : "var(--c-fg3)";
+}
+/** M2.4 审查三态徽标文案 */
+function reviewLabel(status: string): { text: string; color: string } {
+  return status === "approved" ? { text: "已通过", color: "var(--c-green)" }
+    : status === "rejected" ? { text: "已退回", color: "var(--c-red)" }
+    : { text: "待审查", color: "var(--c-amber)" };
+}
 
 type SyntaxRun = { start: number; end: number; style: string; color?: string };
 type FileTab = { path: string; origin: string }; // origin = 来源轮次（"latest" = 工作区当前内容）
@@ -68,6 +79,14 @@ export function TaskChangesPanel(props: {
   const [view, setView] = useState<ViewState>({ kind: "empty" }); // 文件 tab：预览
   const [err, setErr] = useState<string | null>(null);
   const lastReq = useRef(0);
+  // M2.1 验收台双基线：task = 自任务开始（squash 视角，含 checkpoint）；head = 工作区 vs 当前分支头
+  const [base, setBase] = useState<"task" | "head">("task");
+  // M2.2 风险信号（纯规则）
+  const [risk, setRisk] = useState<RiskReport | null>(null);
+  // M2.4 审查三态
+  const [review, setReview] = useState<{ status: string; comment: string | null } | null>(null);
+  const [reviewEditing, setReviewEditing] = useState<false | "approve" | "reject">(false);
+  const [reviewComment, setReviewComment] = useState("");
   // 插件面板贡献（v3.2 插件化）：注册表按层级拉取，热插拔经 useAgentUIVersion 响应
   const uiV = useAgentUIVersion();
   const pluginPanels = useMemo(() => taskPanels(), [uiV]);
@@ -93,22 +112,37 @@ export function TaskChangesPanel(props: {
     return () => { cancelled = true; };
   }, [props.taskId, props.tick]);
 
-  // 按轮页：选中轮次的文件列表（最新一轮 = 工作区；历史轮 = 该轮 diff）
+  // 按轮页：选中轮次的文件列表（最新一轮 = 基线切换；历史轮 = 该轮 diff）
   useEffect(() => {
     if (active !== TURNS_TAB) return;
     let cancelled = false;
     if (turn === "latest") {
-      void call<AgentTaskFileDTO[]>("agent.task.files", { taskId: props.taskId })
-        .then((fs) => {
-          if (cancelled) return;
-          setFiles(fs.map((f) => ({ path: f.path, letter: f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M", added: f.added, deleted: f.deleted })));
-          setLetters((lm) => {
-            const nm = { ...lm };
-            fs.forEach((f) => { nm[f.path] = f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M"; });
-            return nm;
-          });
-        })
-        .catch(() => { if (!cancelled) setFiles([]); });
+      if (base === "head") {
+        // HEAD 基线：工作区+暂存 vs 当前分支头（不含未跟踪）
+        void call<DiffDTO[]>("agent.task.diff", { taskId: props.taskId, base: "head" })
+          .then((ds) => {
+            if (cancelled) return;
+            setFiles(ds.map((d) => ({ path: d.path, letter: d.isNew ? "A" : d.isDeleted ? "D" : "M", added: d.addedLines, deleted: d.deletedLines })));
+            setLetters((lm) => {
+              const nm = { ...lm };
+              ds.forEach((d) => { nm[d.path] = d.isNew ? "A" : d.isDeleted ? "D" : "M"; });
+              return nm;
+            });
+          })
+          .catch(() => { if (!cancelled) setFiles([]); });
+      } else {
+        void call<AgentTaskFileDTO[]>("agent.task.files", { taskId: props.taskId })
+          .then((fs) => {
+            if (cancelled) return;
+            setFiles(fs.map((f) => ({ path: f.path, letter: f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M", added: f.added, deleted: f.deleted })));
+            setLetters((lm) => {
+              const nm = { ...lm };
+              fs.forEach((f) => { nm[f.path] = f.kind === "added" ? "A" : f.kind === "deleted" ? "D" : "M"; });
+              return nm;
+            });
+          })
+          .catch(() => { if (!cancelled) setFiles([]); });
+      }
     } else {
       void call<DiffDTO[]>("agent.task.diff", { taskId: props.taskId, since: `checkpoint:${turn}` })
         .then((ds) => {
@@ -123,7 +157,27 @@ export function TaskChangesPanel(props: {
         .catch(() => { if (!cancelled) setFiles([]); });
     }
     return () => { cancelled = true; };
-  }, [active, turn, props.taskId, props.tick]);
+  }, [active, turn, base, props.taskId, props.tick]);
+
+  // M2.2 风险信号 + M2.4 审查态（tick 驱动刷新）
+  useEffect(() => {
+    let cancelled = false;
+    void call<RiskReport>("agent.task.risk", { taskId: props.taskId }).then((r) => { if (!cancelled) setRisk(r); }).catch(() => {});
+    void call<{ tasks: { taskId: string; review?: { status: string; comment: string | null } | null }[] }>("agent.tasks", {})
+      .then((x) => { if (!cancelled) setReview(x.tasks.find((t) => t.taskId === props.taskId)?.review ?? null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [props.taskId, props.tick]);
+
+  const submitReview = useCallback((decision: "approve" | "reject", comment: string) => {
+    void call("agent.task.review.set", { taskId: props.taskId, status: decision === "approve" ? "approved" : "rejected", comment: comment || null })
+      .then(() => {
+        setReview(decision === "approve" ? { status: "approved", comment: null } : { status: "rejected", comment });
+        setReviewEditing(false);
+        setReviewComment("");
+      })
+      .catch((e) => setErr((e as Error).message));
+  }, [props.taskId]);
 
   // 对话流 查看/预览 → 打开/激活文件 tab（右侧 = 主预览面）
   useEffect(() => {
@@ -134,17 +188,18 @@ export function TaskChangesPanel(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.request?.ts]);
 
-  // 文件 tab 差异（懒加载；scope = 来源轮次）
+  // 文件 tab 差异（懒加载；scope = 来源轮次；latest 走验收台基线切换）
   useEffect(() => {
     if (activePath === undefined || activeMode !== "diff") { setDiffs([]); return; }
     let cancelled = false;
     const origin = tabs.find((t): t is FileTab => typeof t !== "string" && (t as FileTab).path === activePath)?.origin ?? "latest";
     const since = origin === "latest" ? undefined : `checkpoint:${origin}`;
-    void call<DiffDTO[]>("agent.task.diff", { taskId: props.taskId, path: activePath, since })
+    const rpcBase = origin === "latest" && turn === "latest" && base === "head" ? "head" as const : "baseline" as const;
+    void call<DiffDTO[]>("agent.task.diff", { taskId: props.taskId, path: activePath, since, base: rpcBase })
       .then((d) => { if (!cancelled) setDiffs(d); })
       .catch(() => { if (!cancelled) setDiffs([]); });
     return () => { cancelled = true; };
-  }, [activePath, activeMode, props.taskId]);
+  }, [activePath, activeMode, props.taskId, base, turn]);
 
   // 文件 tab 预览（文本高亮 / 图片；预览始终读当前工作区文件）
   useEffect(() => {
@@ -206,12 +261,54 @@ export function TaskChangesPanel(props: {
   }, [activePath, props.worktreePath]);
 
   const fileTabNodes = tabs.filter((t): t is FileTab => typeof t !== "string");
-  const hintText = turn === "latest"
-    ? "最新一轮（工作区当前内容）· 点击文件 → 新开 tab 预览 / 差异"
-    : `该轮快照（${turn.slice(0, 8)}^..${turn.slice(0, 8)}）· 只读回看`;
+  const hintText = turn !== "latest"
+    ? `该轮快照（${turn.slice(0, 8)}^..${turn.slice(0, 8)}）· 只读回看`
+    : base === "head"
+      ? "基线 = 当前分支头（工作区+暂存 vs HEAD）· 不含未跟踪文件"
+      : "基线 = 任务起点（squash 视角，含全部 checkpoint）";
+  // M2.2 逐文件风险（最高级）
+  const riskByPath = useMemo(() => {
+    const m = new Map<string, RiskFileReport>();
+    for (const f of risk?.files ?? []) m.set(f.path, f);
+    return m;
+  }, [risk]);
+  const riskCounts = risk?.counts ?? null;
 
   return (
     <div className="lc-panel">
+      {/* M2.4 审查三态栏（验收台人机共享） */}
+      <div className="lc-review">
+        {review ? (
+          <span className="lc-review-chip" style={{ color: reviewLabel(review.status).color }} title={review.comment ?? ""}>
+            ● 审查：{reviewLabel(review.status).text}{review.comment ? ` · ${review.comment.slice(0, 60)}` : ""}
+          </span>
+        ) : (
+          <span className="lc-review-chip" style={{ color: "var(--c-fg3)" }}>● 审查：未评审</span>
+        )}
+        <span style={{ flex: 1 }} />
+        {reviewEditing === false ? (
+          <>
+            <button className="tool-btn" title="通过本轮改动（结论注入 agent 下一轮）" onClick={() => submitReview("approve", "")}>通过</button>
+            <button className="tool-btn" title="退回并附审查意见（自动直投修复轮）" onClick={() => { setReviewEditing("reject"); setReviewComment(""); }}>退回…</button>
+          </>
+        ) : (
+          <>
+            <input
+              className="lc-review-input"
+              placeholder={reviewEditing === "reject" ? "审查意见（退回原因，进入 agent 下一轮）" : "补充说明（可空）"}
+              value={reviewComment}
+              autoFocus
+              onChange={(e) => setReviewComment(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (reviewEditing === "approve" || reviewComment.trim())) submitReview(reviewEditing, reviewComment);
+                if (e.key === "Escape") setReviewEditing(false);
+              }}
+            />
+            <button className="tool-btn" disabled={reviewEditing === "reject" && !reviewComment.trim()} onClick={() => submitReview(reviewEditing, reviewComment)}>确认</button>
+            <button className="tool-btn" onClick={() => setReviewEditing(false)}>取消</button>
+          </>
+        )}
+      </div>
       <div className="lc-tabs">
         <button className={"lc-tab turns" + (active === TURNS_TAB ? " on" : "")} title="按轮查看变更（固定，不可关闭）" onClick={() => activate(TURNS_TAB)}>
           <TlIcon name="commit" size={12} />
@@ -243,7 +340,12 @@ export function TaskChangesPanel(props: {
             <div className="lc-hint">按轮查看变更 · 点击轮次载入该轮文件列表</div>
             <button className={"lc-turn" + (turn === "latest" ? " sel" : "")} onClick={() => setTurn("latest")}>
               <span className="lc-turn-dot" style={{ background: "var(--c-green)" }} />
-              <span className="lc-turn-sum">最新一轮 · 工作区当前内容</span>
+              <span className="lc-turn-sum">最新改动</span>
+              {/* M2.1 验收台双基线切换 */}
+              <span className="lc-seg lc-base-seg" onClick={(e) => e.stopPropagation()}>
+                <button className={base === "task" ? "on" : ""} title="自任务开始以来（工作区 + checkpoint 提交的净 diff，squash 视角）" onClick={() => setBase("task")}>任务起点</button>
+                <button className={base === "head" ? "on" : ""} title="工作区 + 暂存 vs 当前分支头（不含未跟踪）" onClick={() => setBase("head")}>vs HEAD</button>
+              </span>
             </button>
             {cps.map((c) => (
               <button key={c.sha} className={"lc-turn" + (turn === c.sha ? " sel" : "")} title={`${c.summary}\n${c.date.slice(5, 16).replace("T", " ")}`} onClick={() => setTurn(c.sha)}>
@@ -254,15 +356,31 @@ export function TaskChangesPanel(props: {
             ))}
           </div>
           <div className="lc-fileswrap">
-            <div className="lc-hint">{hintText}</div>
-            {files.map((f) => (
-              <button key={f.path} className="lc-file" title={`${f.path} · 预览 / 差异`} onClick={() => openFileTab(f.path, turn)}>
-                <span className="lc-file-letter" style={{ color: letterColor(f.letter) }}>{f.letter}</span>
-                <span className="lc-file-path">{f.path}</span>
-                <span className="lc-file-stats">{f.added != null ? `+${f.added} −${f.deleted ?? 0}` : ""}</span>
-              </button>
-            ))}
-            {files.length === 0 && <div className="lc-hint">{turn === "latest" ? "暂无改动" : "该轮无改动"}</div>}
+            <div className="lc-hint">
+              {hintText}
+              {/* M2.2 风险汇总条 */}
+              {riskCounts && (riskCounts.high + riskCounts.medium + riskCounts.low) > 0 ? (
+                <span className="lc-risk-sum" title="纯规则风险信号（零 AI 依赖）">
+                  {" · 风险："}
+                  {riskCounts.high > 0 && <span style={{ color: "var(--c-red)" }}>{riskCounts.high} 高 </span>}
+                  {riskCounts.medium > 0 && <span style={{ color: "var(--c-amber)" }}>{riskCounts.medium} 中 </span>}
+                  {riskCounts.low > 0 && <span style={{ color: "var(--c-fg3)" }}>{riskCounts.low} 低</span>}
+                </span>
+              ) : null}
+            </div>
+            {files.map((f) => {
+              const rf = riskByPath.get(f.path);
+              const top = rf?.signals[0];
+              return (
+                <button key={f.path} className="lc-file" title={`${f.path} · 预览 / 差异${top ? `\n⚠ ${rf!.signals.map((s) => s.message).join("\n⚠ ")}` : ""}`} onClick={() => openFileTab(f.path, turn)}>
+                  <span className="lc-file-letter" style={{ color: letterColor(f.letter) }}>{f.letter}</span>
+                  <span className="lc-file-path">{f.path}</span>
+                  {top ? <span className="lc-risk-dot" style={{ background: riskColor(top.level) }} title={rf!.signals.map((s) => `[${s.level}] ${s.message}`).join("\n")} /> : null}
+                  <span className="lc-file-stats">{f.added != null ? `+${f.added} −${f.deleted ?? 0}` : ""}</span>
+                </button>
+              );
+            })}
+            {files.length === 0 && <div className="lc-hint">{turn !== "latest" ? "该轮无改动" : base === "head" ? "工作区相对 HEAD 无差异（未跟踪文件请切「任务起点」基线查看）" : "暂无改动"}</div>}
           </div>
         </div>
       ) : (

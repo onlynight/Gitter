@@ -3,6 +3,7 @@ import { pageSdk, useAppState } from "../pageSdk";
 import type { ExtTreeSnapshot } from "../pageSdk";
 import { NavIcon, Select, Modal } from "../kit";
 import { TlIcon } from "./taskIcons";
+import { SubscriptionModelsCard, UsageSection, AboutUpdateSection } from "./AgentOpsSettings";
 import type { CommandDTO, ExtensionPackageDTO, ModelDiscoveryEntryDTO, ModelProfileDTO, SettingsDTO, TerminalProfileDTO, ThemePackageDTO } from "../bridge/types";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -36,7 +37,7 @@ type CategoryId = "appearance" | "terminal" | "repo" | "models" | "ai" | "extens
 type SectionId =
   | "appearance" | "diff" | "terminal"
   | "git" | "monitor" | "editor"
-  | "models"
+  | "models" | "usage"
   | "ai" | "safety" | "agent" | "mcp"
   | "extensions" | "shortcuts" | "about";
 
@@ -65,6 +66,7 @@ const SECTIONS: { id: SectionId; cat: CategoryId; titleKey: string }[] = [
   { id: "monitor", cat: "repo", titleKey: "Settings_MonitorSection" },
   { id: "editor", cat: "repo", titleKey: "Settings_EditorSection" },
   { id: "models", cat: "models", titleKey: "Settings_ModelsSection" },
+  { id: "usage", cat: "models", titleKey: "Settings_UsageSection" },
   { id: "ai", cat: "ai", titleKey: "Settings_AiSection" },
   { id: "safety", cat: "ai", titleKey: "Settings_SafetyNetSection" },
   { id: "agent", cat: "ai", titleKey: "Settings_AgentSection" },
@@ -99,6 +101,7 @@ const SEARCH_INDEX: { section: SectionId; labelKey: string; kw?: string }[] = [
   { section: "ai", labelKey: "Settings_AiPrivacy", kw: "privacy 隐私 元数据 全量 diff" },
   { section: "ai", labelKey: "Settings_AiTrailer", kw: "trailer assisted-by 署名" },
   { section: "models", labelKey: "Settings_ModelsSection", kw: "模型档案 model profile deepseek ollama anthropic key 密钥 用量" },
+  { section: "usage", labelKey: "Settings_UsageSection", kw: "用量 统计 usage token 费用 cost 订阅 oauth 登录 subscription" },
   { section: "safety", labelKey: "Settings_SafetyNet", kw: "安全网 secrets 拦截 block warn 提交扫描" },
   { section: "agent", labelKey: "Settings_AgentCheckpoint", kw: "agent checkpoint 托管 wip 提交" },
   { section: "agent", labelKey: "Settings_AgentTaskWorktree", kw: "agent 任务 分支 worktree 当前分支 隔离 隔离执行 task branch" },
@@ -877,6 +880,7 @@ export function SettingsPage() {
       case "models":
         return (
           <div key={id} className={secCls(id)} id={`set-sec-${id}`}>
+            <SubscriptionModelsCard />
             <div className="section-head">
               <h4>{t("Settings_ModelsSection")}</h4>
               <button
@@ -1235,6 +1239,13 @@ export function SettingsPage() {
             <ShortcutsPage />
           </div>
         );
+      case "usage":
+        return (
+          <div key={id} className={secCls(id)} id={`set-sec-${id}`}>
+            <h4>{t("Settings_UsageSection")}</h4>
+            <UsageSection />
+          </div>
+        );
       case "about":
         return (
           <div key={id} className={secCls(id)} id={`set-sec-${id}`}>
@@ -1247,6 +1258,7 @@ export function SettingsPage() {
               <label>git</label>
               <span className="hint" style={{ fontFamily: "var(--mono)" }}>{gitVersion}</span>
             </div>
+            <AboutUpdateSection />
           </div>
         );
     }

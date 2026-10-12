@@ -7,6 +7,7 @@ import type {
   PermissionPayload,
   TodoItem,
 } from "./types";
+import { runPostToolHooks, runPreToolHooks } from "./seams";
 
 /**
  * AgentToolRegistry——agent 工具面唯一事实源（agent-harness-v4.md §14.4）：
@@ -89,6 +90,10 @@ export interface ToolEnv {
   shells: Map<string, ShellRecord>;
   /** 工具结果记账（F12.2 防死循环：连续失败 N 次返回提醒文本追加进结果；无提醒返回 null） */
   noteToolOutcome?: (toolName: string, args: Record<string, unknown>, isError: boolean) => string | null;
+  /** M1.2 pre/post-tool 钩子总开关（settings.agentsToolHooks；undefined = 开） */
+  hooksEnabled?: boolean;
+  /** M2.4 审查三态：宿主侧查询当前任务的人类审查结论（review_get_state 数据源） */
+  getReview?: () => { status: "pending" | "approved" | "rejected"; comment: string | null; at: string } | null;
   /** 子代理嵌套标（事件归组） */
   subtaskId?: string;
 }
@@ -237,15 +242,47 @@ export function buildToolset(env: ToolEnv, opts: BuildToolsetOptions): ToolSet {
           });
           if (!allow) return `用户拒绝了该操作（${def.name}）。请调整方案，不要原样重试。`;
         }
+        // 2.5) pre-tool 钩子（M1.2：授权之后的用户/插件干预点；block = 拦截并回执错误）
+        const hookNotes: string[] = [];
+        if (env.hooksEnabled !== false) {
+          const pre = await runPreToolHooks({
+            taskId: env.taskId,
+            worktreePath: env.worktreePath,
+            toolName: def.name,
+            argsSummary: JSON.stringify(args).slice(0, 500),
+          });
+          if (pre.blocked) {
+            return `错误：该操作被钩子拦截（${pre.blocked}）。请调整方案，不要原样重试。`;
+          }
+          hookNotes.push(...pre.notes);
+        }
         // 3) 执行 + 防死循环记账（F12.2：同一 (tool, args) 连续失败追加提醒）
         let out: string;
+        let errored = false;
         try {
           out = await def.execute(env, args);
         } catch (e) {
+          errored = true;
           out = `错误：${(e as Error).message}`;
         }
         const note = env.noteToolOutcome?.(def.name, args, out.startsWith("错误："));
-        return note ? `${out}\n${note}` : out;
+        if (note) out = `${out}\n${note}`;
+        // 3.5) post-tool 钩子（M1.2：结果注记同轮回执；pre 顾问注记一并追加）
+        if (env.hooksEnabled !== false) {
+          const post = await runPostToolHooks({
+            taskId: env.taskId,
+            worktreePath: env.worktreePath,
+            toolName: def.name,
+            argsSummary: JSON.stringify(args).slice(0, 500),
+            isError: errored || out.startsWith("错误："),
+            resultSummary: out.slice(0, 500),
+          });
+          hookNotes.push(...post);
+        }
+        if (hookNotes.length > 0) {
+          out = `${out}\n[钩子注记]\n${hookNotes.map((n) => `- ${n}`).join("\n")}`;
+        }
+        return out;
       },
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

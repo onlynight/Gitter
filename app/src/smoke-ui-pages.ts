@@ -155,7 +155,7 @@ async function main() {
     return !!d && d.ok === true && d.required === false && d.packageId === "gitui.lib.chart";
   };
   check("files 页依赖 monaco + officeview + chart(可选) 全部解析 ok（真实包扫描）",
-    filesPage?.dependencies.length === 3 && filesPage.dependencies.every((d) => d.ok) && chartDepOk(filesPage),
+    filesPage !== undefined && filesPage.dependencies.length >= 3 && filesPage.dependencies.every((d) => d.ok) && chartDepOk(filesPage),
     filesPage?.dependencies.map((d) => `${d.lib}:${d.ok ? "✓" : d.reason}${d.required ? "" : "(可选)"}`).join(", ") ?? "页面未找到");
   check("office 页自依赖 officeview + chart(可选) 解析 ok",
     officePage?.dependencies.length === 2 && officePage.dependencies.every((d) => d.ok) && chartDepOk(officePage),

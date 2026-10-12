@@ -9,6 +9,7 @@
     "postbuild": "electron-rebuild -f -w node-pty || echo WARN: electron-rebuild failed, terminal may need manual rebuild",
     "start": "npm run build && electron .",
     "smoke": "npm run build && node dist/smoke.js",
+    "cli": "electron . run",
     "release": "npm run build && electron-builder --win nsis zip"
   },
   "devDependencies": {
@@ -24,6 +25,8 @@
     "@ai-sdk/openai-compatible": "^3.0.62",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "ai": "^7.0.127",
+    "electron-updater": "^6.8.9",
+    "electron-updater": "^6.6.2",
     "fflate": "^0.8.3",
     "node-pty": "^1.1.0",
     "semver": "^7.8.5",
@@ -36,6 +39,7 @@
   "productName": "Gitter",
   "build": {
     "appId": "com.gitter.app",
+    "publish": { "provider": "generic", "url": "https://example.invalid/gitter-updates" },
     "productName": "Gitter",
     "buildVersion": "0.1.0.0",
     "artifactName": "Gitter-0.1.0.0-${arch}.${ext}",
