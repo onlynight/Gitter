@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "id": "aura-lang.language",
+  "name": "Aura Language",
+  "version": "0.3.0",
+  "description": "Aura（NovaOS 系统级脚本语言）语法高亮。Gitter 侧 L1 数据包（纯 contributes.grammars），语法资产与上游 AuraLang VS Code 扩展字节对齐；LSP/补全等 IDE 特性需配合 aura-lsp 使用，本包不含宿主侧代码入口。",
+  "engines": { "gitter": ">=0.1.0" },
+  "apiVersion": 3,
+  "contributes": {
+    "grammars": [
+      {
+        "language": "aura",
+        "scopeName": "source.aura",
+        "extensions": [".aura"],
+        "path": "syntaxes/aura.tmLanguage.json"
+      }
+    ]
+  }
+}
