@@ -1773,6 +1773,8 @@
   const S = { fill: "none", stroke: "currentColor", strokeWidth: 1.2, strokeLinecap: "round", strokeLinejoin: "round" };
   const ChevronIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "10", height: "10", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M6 3.5 10.5 8 6 12.5", ...S, strokeWidth: "1.4" }) });
   const ChevronSepIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "11", height: "11", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M6 3.5 10.5 8 6 12.5", ...S, strokeWidth: "1.3" }) });
+  const ChevronUpIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M3.5 10 8 5.5 12.5 10", ...S, strokeWidth: 1.3 }) });
+  const ChevronDownIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M3.5 6 8 10.5 12.5 6", ...S, strokeWidth: 1.3 }) });
   const FilterIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2.5 3.5h11L9.5 8.4v4.1l-3 1.5V8.4z", ...S }) });
   const RefreshIcon = () => /* @__PURE__ */ jsxRuntime.jsx("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M13 8a5 5 0 1 1-1.5-3.6M13.2 1.8v3h-3", ...S }) });
   const CollapseAllIcon = () => /* @__PURE__ */ jsxRuntime.jsxs("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
@@ -2873,13 +2875,15 @@
     if (base === null) {
       if (old.length > 0) model.deltaDecorations(old, []);
       decorationsByModel.delete(model);
-      return;
+      return { count: 0, anchors: [] };
     }
     const a = base.split("\n");
     const b = model.getValue().split("\n");
     let decos = [];
+    const anchors = [];
     if (a.length + b.length <= MAX_DIFF_LINES) {
       for (const block of diffBlocks(a, b)) {
+        anchors.push(block.bEnd > block.bStart ? block.bStart + 1 : Math.min(block.bStart + 1, b.length));
         const delLines = block.aEnd > block.aStart ? a.slice(block.aStart, Math.min(block.aEnd, block.aStart + MAX_HOVER_LINES)) : null;
         const hover = delLines ? {
           value: "```\n" + delLines.join("\n") + (block.aEnd - block.aStart > MAX_HOVER_LINES ? "\n…" : "") + "\n```"
@@ -2899,6 +2903,7 @@
       }
     }
     decorationsByModel.set(model, model.deltaDecorations(old, decos));
+    return { count: decos.length, anchors };
   }
   const FONT_KEY = "gitter.files.fontSize";
   const FONT_MIN = 9;
@@ -2913,8 +2918,29 @@
       const hostRef = React$1.useRef(null);
       const edRef = React$1.useRef(null);
       const fontSizeRef = React$1.useRef(loadFontSize());
+      const anchorsRef = React$1.useRef([]);
       const cbRef = React$1.useRef(props);
       cbRef.current = props;
+      const reportDiff = () => {
+        var _a3, _b2, _c2;
+        const ed = edRef.current;
+        const cur = ((_a3 = ed == null ? void 0 : ed.getPosition()) == null ? void 0 : _a3.lineNumber) ?? 1;
+        const anchors = anchorsRef.current;
+        let index = 0;
+        for (const l of anchors) {
+          if (l > cur) break;
+          index++;
+        }
+        (_c2 = (_b2 = cbRef.current).onDiffProgress) == null ? void 0 : _c2.call(_b2, index, anchors.length);
+      };
+      const applyGutter = () => {
+        const ed = edRef.current;
+        const m = ed == null ? void 0 : ed.getModel();
+        if (!ed || !m) return;
+        const r = updateGitGutter(m, cbRef.current.showDiff ? cbRef.current.gitBase ?? null : null);
+        anchorsRef.current = r.anchors;
+        reportDiff();
+      };
       const theme = useAppState().theme;
       React$1.useEffect(() => {
         const host = hostRef.current;
@@ -2990,6 +3016,19 @@
           a.run();
           return true;
         },
+        jumpDiff: (dir) => {
+          var _a3;
+          const ed = edRef.current;
+          if (!ed) return false;
+          const anchors = anchorsRef.current;
+          if (anchors.length === 0) return false;
+          const cur = ((_a3 = ed.getPosition()) == null ? void 0 : _a3.lineNumber) ?? 1;
+          const line = dir > 0 ? anchors.find((l) => l > cur) ?? anchors[0] : [...anchors].reverse().find((l) => l < cur) ?? anchors[anchors.length - 1];
+          ed.revealLineInCenter(line);
+          ed.setPosition({ lineNumber: line, column: 1 });
+          ed.focus();
+          return true;
+        },
         fontSize: () => fontSizeRef.current
       }), []);
       React$1.useEffect(() => {
@@ -3019,16 +3058,9 @@
         let gutterTimer = 0;
         const rerunGutter = () => {
           window.clearTimeout(gutterTimer);
-          gutterTimer = window.setTimeout(() => {
-            const m = ed.getModel();
-            if (m && m === model) {
-              updateGitGutter(m, cbRef.current.showDiff ? cbRef.current.gitBase ?? null : null);
-            }
-          }, 250);
+          gutterTimer = window.setTimeout(applyGutter, 250);
         };
-        if (model) {
-          updateGitGutter(model, cbRef.current.showDiff ? cbRef.current.gitBase ?? null : null);
-        }
+        if (model) applyGutter();
         const subGutter = model ? model.onDidChangeContent(rerunGutter) : null;
         return () => {
           sub.dispose();
@@ -3037,9 +3069,7 @@
         };
       }, [props.model]);
       React$1.useEffect(() => {
-        var _a3;
-        const m = (_a3 = edRef.current) == null ? void 0 : _a3.getModel();
-        if (m) updateGitGutter(m, props.showDiff ? props.gitBase ?? null : null);
+        applyGutter();
       }, [props.gitBase, props.showDiff]);
       React$1.useEffect(() => {
         const ed = edRef.current;
@@ -3051,6 +3081,7 @@
         const d1 = ed.onDidChangeCursorPosition((e) => {
           var _a3, _b2;
           (_b2 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b2.call(_a3, { line: e.position.lineNumber, col: e.position.column });
+          reportDiff();
         });
         const d2 = editor.onDidChangeMarkers(reportMarkers);
         return () => {
@@ -3966,6 +3997,7 @@ li { margin: .25em 0; }
     const [splitPath, setSplitPath] = React$1.useState(null);
     const mainEditorRef = React$1.useRef(null);
     const [localReveal, setLocalReveal] = React$1.useState(null);
+    const [diffInfo, setDiffInfo] = React$1.useState(null);
     const editorsRef = React$1.useRef(editors);
     editorsRef.current = editors;
     const externToasted = React$1.useRef(/* @__PURE__ */ new Set());
@@ -4574,6 +4606,37 @@ li { margin: .25em 0; }
           ] }, p);
         }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "edcrumbs-acts", children: [
+          props.showDiff && props.activeTab && isTextual(props.activeTab) && (diffInfo == null ? void 0 : diffInfo.path) === props.activeTab && diffInfo.total > 0 && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "edcrumbs-diffcount", title: t("Editor_ChangesProgress", diffInfo.index, diffInfo.total), children: [
+              diffInfo.index,
+              "/",
+              diffInfo.total
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "files-ibtn",
+                title: t("Editor_PrevChange"),
+                onClick: () => {
+                  var _a3;
+                  return (_a3 = mainEditorRef.current) == null ? void 0 : _a3.jumpDiff(-1);
+                },
+                children: /* @__PURE__ */ jsxRuntime.jsx(ChevronUpIcon, {})
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "files-ibtn",
+                title: t("Editor_NextChange"),
+                onClick: () => {
+                  var _a3;
+                  return (_a3 = mainEditorRef.current) == null ? void 0 : _a3.jumpDiff(1);
+                },
+                children: /* @__PURE__ */ jsxRuntime.jsx(ChevronDownIcon, {})
+              }
+            )
+          ] }),
           props.activeTab && isTextual(props.activeTab) && /* @__PURE__ */ jsxRuntime.jsx(
             "button",
             {
@@ -4632,6 +4695,7 @@ li { margin: .25em 0; }
                     ownsKeys: !stale,
                     gitBase: stale ? null : (activeEditor == null ? void 0 : activeEditor.gitBase) ?? null,
                     showDiff: props.showDiff,
+                    onDiffProgress: (index, total) => setDiffInfo({ path: props.activeTab ?? "", index, total }),
                     revealLine,
                     onChange: (value) => {
                       if (!stale) handleContentChange(activeEditor.path, value);

@@ -223,11 +223,53 @@ async function buildMonacoLib() {
       return touched ? { code: out, map: null } : null;
     },
   };
+  // Monaco 0.52 standalone quick input 回归补丁（0.52 List→QuickInputTree 迁移带崩：
+  // VS Code 内有外层 flex CSS 兜底，monaco standalone 没有）：
+  //  1) QuickInputTree.layout 只设 max-height 后调无参 _tree.layout()——树 DOM 无行时
+  //     内容高度为 0，无参测量得 0 → 渲染 0 行 → 永远 0 行（F1 命令面板空白）。
+  //     改为显式传入像素高度并同步写 height，行稳定渲染。
+  //  2) QuickInputEditorWidget 的 overlay 宿主节点 0 宽（唯一子节点 absolute 不撑宽），
+  //     .quick-input-widget 的 left:50% 落在 0 宽父级上 → 面板飞出编辑区。
+  //     宿主节点撑满编辑器宽度后 left:50% 恢复居中语义。
+  const monacoQuickInputFix = {
+    name: "gitter-monaco-quickinput-fix",
+    enforce: "pre",
+    transform(code, id) {
+      const norm = id.replace(/\\/g, "/");
+      if (norm.includes("platform/quickinput/browser/quickInputTree.js")) {
+        const anchor = "layout(maxHeight) {";
+        if (!code.includes(anchor)) return null;
+        const patched =
+          "layout(maxHeight) { const h = maxHeight ? Math.floor(maxHeight / 44) * 44 + 6 : 0;" +
+          "const el = this._tree.getHTMLElement();" +
+          "el.style.maxHeight = maxHeight ? h + 'px' : '';" +
+          "el.style.height = maxHeight ? h + 'px' : '';" +
+          "this._tree.layout(h);";
+        return { code: code.replace(anchor, patched), map: null };
+      }
+      if (norm.includes("standalone/browser/quickInput/standaloneQuickInputService.js")) {
+        const anchor = "this.domNode = document.createElement('div');";
+        if (!code.includes(anchor)) return null;
+        let out = code.replace(
+          anchor,
+          anchor + " this.domNode.style.width = '100%'; this.domNode.style.top = '0'; this.domNode.style.left = '0';",
+        );
+        // overlay 管理器的 TOP_CENTER 居中按宿主节点测量宽度定位，与 width:100% 相互打架
+        // （量出 1031px 反算负偏移把面板推出编辑区）——返回 null 交由节点自带样式定位
+        const posAnchor = "return { preference: 2 /* OverlayWidgetPositionPreference.TOP_CENTER */ };";
+        if (out.includes(posAnchor)) {
+          out = out.replace(posAnchor, "return null;");
+        }
+        return { code: out, map: null };
+      }
+      return null;
+    },
+  };
   const outDir = path.join(webRoot, ".vite-monaco-lib");
   await build({
     root: webRoot,
     logLevel: "warn",
-    plugins: [monacoNlsIndex, monacoCssInline()],
+    plugins: [monacoNlsIndex, monacoQuickInputFix, monacoCssInline()],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     worker: { format: "iife" },
     build: {
