@@ -143,8 +143,8 @@
     plan: "M8 1.5 14.5 8 8 14.5 1.5 8 8 1.5Zm0 2.1L3.6 8 8 12.4 12.4 8 8 3.6Zm0 3.15a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z",
     // 分叉（Octicons git-branch-16）
     fork: "M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z",
-    // 归档（Octicons archive-16）
-    archive: "M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6H14v6.25A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25V6h-.25A1.75 1.75 0 0 1 0 4.25v-1.5ZM3.5 6v6.25c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6h-9ZM1.75 2.5a.25.25 0 0 0-.25.25v1.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H1.75ZM6.25 8h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z",
+    // 归档（Octicons archive-16 改绘：整体下移 0.5 使墨迹中心 = 视框中心 8——原路径上留白 1px/下留白 2px 视觉偏高）
+    archive: "M0 3.25C0 2.284.784 1.5 1.75 1.5h12.5c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 14.25 6.5H14v6.25A1.75 1.75 0 0 1 12.25 14.5h-8.5A1.75 1.75 0 0 1 2 12.75V6.5h-.25A1.75 1.75 0 0 1 0 4.75v-1.5ZM3.5 6.5v6.25c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6.5h-9ZM1.75 3a.25.25 0 0 0-.25.25v1.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H1.75ZM6.25 8.5h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1 0-1.5Z",
     // 外开新窗（Octicons external-link-16）
     external: "M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z",
     // 展开箭头（Octicons chevron-right-16）：默认指向右，展开时由 CSS 旋转 90°
@@ -170,7 +170,11 @@
     // 分屏（VS Code split-editor 同构：外框 + 中缝，左右栏挖孔）
     "splitpane": "M2 3h12v10H2V3Zm1 1v8h4.5V4H3Zm5.5 0v8H13V4H8.5Z",
     // 灯泡（思考深度；Octicons light-bulb-16 改绘）——密齿 gear 缩到 13px 糊成一团（v3 设计稿 task-page-v3-mockup）
-    "bulb": "M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319a8.456 8.456 0 0 0-.542.68c-.207.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"
+    "bulb": "M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319a8.456 8.456 0 0 0-.542.68c-.207.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z",
+    // 排序（Octicons arrow-up-down-16）：列表工具条排序下拉（task-page-wrapup-and-list-design.md v3.4）
+    "sort": "M4.25 3.5a.75.75 0 0 1 .75.75v7.44l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 1 1 1.06-1.06l1.72 1.72V4.25a.75.75 0 0 1 .75-.75Zm7.5 9a.75.75 0 0 1-.75-.75V4.31L9.28 6.03a.75.75 0 0 1-1.06-1.06l3-3a.75.75 0 0 1 1.06 0l3 3a.75.75 0 1 1-1.06 1.06l-1.72-1.72v7.44a.75.75 0 0 1-.75.75Z",
+    // 筛选漏斗（Octicons filter-16 改绘：整体上移 1.25 使墨迹中心 = 视框中心 8，与排序/归档钮对齐）
+    "filter": "M.75 1.75h14.5a.75.75 0 0 1 .587 1.219L10.5 9.25v4.25a.75.75 0 0 1-.908.733l-3.5-.875A.75.75 0 0 1 5.5 12.25v-3L.163 2.97A.75.75 0 0 1 .75 1.75Zm1.7 1.5L7 8.495v3.63l2 .5V8.495l4.55-5.245H2.45Z"
   };
   function TlIcon(props) {
     const d = PATHS[props.name];
@@ -280,9 +284,17 @@
   K().ReflogDialog;
   K().ScrollArea;
   const MD_EXTS = [".md", ".markdown"];
+  const HTML_EXTS = [".html", ".htm"];
   function isMdPath(p) {
     const i = p.lastIndexOf(".");
     return i >= 0 && MD_EXTS.includes(p.slice(i).toLowerCase());
+  }
+  function isHtmlPath(p) {
+    const i = p.lastIndexOf(".");
+    return i >= 0 && HTML_EXTS.includes(p.slice(i).toLowerCase());
+  }
+  function isExternalPreviewPath(p) {
+    return isMdPath(p) || isHtmlPath(p);
   }
   function isProviderResult(r) {
     return !!r && typeof r.kind === "string" && typeof r.content === "string";
@@ -365,6 +377,7 @@ li { margin: .25em 0; }
   function ExternalFilePreview(props) {
     const theme = useAppState().theme;
     const dark = props.dark ?? ((theme == null ? void 0 : theme.base) ?? "dark") !== "light";
+    const htmlRaw = isHtmlPath(props.path);
     const [phase, setPhase] = react.useState({ kind: "loading" });
     react.useEffect(() => {
       let stale = false;
@@ -372,7 +385,7 @@ li { margin: .25em 0; }
       call$1("file.preview", { path: props.path }).then(async (r) => {
         if (stale) return;
         if (isProviderResult(r)) {
-          const content = r.kind === "html" ? await injectCodeHighlight(r.content).catch(() => r.content) : r.content;
+          const content = r.kind === "html" && !isHtmlPath(props.path) ? await injectCodeHighlight(r.content).catch(() => r.content) : r.content;
           if (!stale) setPhase({ kind: r.kind, content });
         } else setPhase({ kind: "fallback" });
       }).catch(() => {
@@ -387,9 +400,9 @@ li { margin: .25em 0; }
       "iframe",
       {
         className: "extpreview-frame",
-        sandbox: "",
+        sandbox: htmlRaw ? "allow-scripts allow-forms allow-modals" : "",
         title: name,
-        srcDoc: mdSrcdoc(phase.content, dark)
+        srcDoc: htmlRaw ? phase.content : mdSrcdoc(phase.content, dark)
       }
     ) : phase.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "extpreview-text", children: phase.content }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "office-welcome", children: [
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "edwm", children: name }),
@@ -540,7 +553,7 @@ li { margin: .25em 0; }
           cancelled = true;
         };
       }
-      if (isMdPath(activePath)) {
+      if (isExternalPreviewPath(activePath)) {
         setView({ kind: "external" });
         return () => {
           cancelled = true;
@@ -676,7 +689,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           ExternalFilePreview,
           {
             path: activePath ?? "",
-            fallbackBody: "未安装 Markdown 预览插件，或未在 设置 → 扩展 打开「允许代码插件」",
+            fallbackBody: "未安装提供该格式预览的插件（Markdown/HTML 预览），或未在 设置 → 扩展 打开「允许代码插件」",
             onEditText: () => activePath && props.onEditInFilesPage(activePath)
           }
         ) : view.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "lc-code", children: view.lines.length > 0 ? view.lines.map((runs, li) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-line", children: [
@@ -2531,6 +2544,13 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       const v = localStorage.getItem("gitter.taskListFilter");
       return v === "run" || v === "ask" || v === "done" || v === "err" ? v : "all";
     });
+    const [listSort, setListSort] = react.useState(() => {
+      const v = localStorage.getItem("gitter.taskListSort");
+      return v === "created" || v === "title" ? v : "active";
+    });
+    const [listPop, setListPop] = react.useState(null);
+    const [selecting, setSelecting] = react.useState(false);
+    const [picked, setPicked] = react.useState(/* @__PURE__ */ new Set());
     const [archOpen, setArchOpen] = react.useState(() => localStorage.getItem("gitter.taskArchOpen") === "1");
     const [renamingId, setRenamingId] = react.useState(null);
     const [delPopId, setDelPopId] = react.useState(null);
@@ -2980,7 +3000,49 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       err: (agentTasks ?? []).filter((t2) => !t2.archived && taskCategory(t2) === "err").length,
       arch: (agentTasks ?? []).filter((t2) => t2.archived).length
     };
-    const groupedTasks = DATE_GROUPS.map((g) => ({ ...g, tasks: visibleTasks.filter((t2) => dateGroupOf(t2.lastActiveAt ?? t2.createdAt) === g.id) })).filter((g) => g.tasks.length > 0);
+    const sortRows = (rows) => {
+      if (listSort === "title") return [...rows].sort((a, b) => a.title.localeCompare(b.title, "zh"));
+      if (listSort === "created") return [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return rows;
+    };
+    const groupedTasks = DATE_GROUPS.map((g) => ({ ...g, tasks: sortRows(visibleTasks.filter((t2) => dateGroupOf(t2.lastActiveAt ?? t2.createdAt) === g.id)) })).filter((g) => g.tasks.length > 0);
+    react.useEffect(() => {
+      if (!listPop) return;
+      const close = (e) => {
+        var _a3, _b3;
+        if ((_b3 = (_a3 = e.target) == null ? void 0 : _a3.closest) == null ? void 0 : _b3.call(_a3, ".tk-pop, .tk-tbtn")) return;
+        setListPop(null);
+      };
+      window.addEventListener("mousedown", close);
+      return () => window.removeEventListener("mousedown", close);
+    }, [listPop]);
+    const enterSelect = () => {
+      setListPop(null);
+      setPicked(/* @__PURE__ */ new Set());
+      setSelecting(true);
+    };
+    const exitSelect = () => {
+      setSelecting(false);
+      setPicked(/* @__PURE__ */ new Set());
+    };
+    const togglePick = (taskId) => setPicked((s) => {
+      const n = new Set(s);
+      if (n.has(taskId)) n.delete(taskId);
+      else n.add(taskId);
+      return n;
+    });
+    const pickAllVisible = () => setPicked(new Set(visibleTasks.filter((t2) => !t2.archived).map((t2) => t2.taskId)));
+    const archivePicked = async () => {
+      const ids = [...picked];
+      if (ids.length === 0) return;
+      try {
+        for (const id of ids) await call("agent.task.archive", { taskId: id, archived: true });
+        exitSelect();
+        await reloadAgents();
+      } catch (e) {
+        setError(e.message);
+      }
+    };
     const runningTool = (() => {
       if (!selectedTask) return null;
       const blocks = evMap[selectedTask] ?? [];
@@ -3664,11 +3726,17 @@ ${target.instructions}
       const chip = stateChip(task.state, task.awaitKind);
       const dotColor = task.state === "failed" ? "var(--c-red)" : task.state === "interrupted" ? "var(--c-amber)" : task.state === "awaiting-input" ? task.awaitKind === "question" ? "var(--c-amber)" : task.awaitKind === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-text3)" : task.state === "stopped" || task.state === "completed" ? "var(--c-text3)" : task.permissionMode === "plan" ? "var(--c-chip-purple-fg, #b490ff)" : "var(--c-green)";
       const working = task.state === "working" || task.state === "starting";
+      const pickable = selecting && !task.archived;
       return /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
-          className: "tk-row" + (selectedNow ? " sel" : "") + (task.archived ? " arch" : ""),
+          className: "tk-row" + (selectedNow ? " sel" : "") + (task.archived ? " arch" : "") + (picked.has(task.taskId) ? " picked" : ""),
           onClick: () => {
+            if (pickable) {
+              togglePick(task.taskId);
+              return;
+            }
+            if (selecting) return;
             setSelectedTask(selectedNow ? null : task.taskId);
             setTab("chat");
             setThinking(task.thinking ?? "medium");
@@ -3677,6 +3745,7 @@ ${target.instructions}
           title: `${task.title}
 ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.mergeSha.slice(0, 8)}` : ""}${task.archived ? " · 已归档" : ""}`,
           children: [
+            pickable && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-selbox", onClick: (e) => e.stopPropagation(), children: /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: picked.has(task.taskId), onChange: () => togglePick(task.taskId) }) }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-dot" + (working ? " run" : ""), style: { color: dotColor } }),
             renamingId === task.taskId ? /* @__PURE__ */ jsxRuntime.jsx(
               "input",
@@ -3704,8 +3773,8 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
               "span",
               {
                 className: "tk-row-title",
-                title: "双击重命名",
-                onDoubleClick: (e) => {
+                title: selecting ? void 0 : "双击重命名",
+                onDoubleClick: selecting ? void 0 : (e) => {
                   e.stopPropagation();
                   setRenamingId(task.taskId);
                 },
@@ -3713,7 +3782,7 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
               }
             ),
             task.wrapup ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-mtag", children: "已合并" }) : null,
-            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-quick", children: [
+            !selecting && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-quick", children: [
               task.archived ? /* @__PURE__ */ jsxRuntime.jsx(
                 "button",
                 {
@@ -3837,24 +3906,89 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
           /* @__PURE__ */ jsxRuntime.jsx("input", { value: listQuery, placeholder: "搜索标题 / 摘要 / id", onChange: (e) => setListQuery(e.target.value) }),
           /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tk-search-clr", title: "清空", onClick: () => setListQuery(""), children: "✕" })
         ] }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-fchips", children: [["all", "全部", listCounts.all], ["run", "进行中", listCounts.run], ["ask", "待处理", listCounts.ask], ["done", "已完成", listCounts.done], ["err", "失败·中断", listCounts.err]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs(
-          "button",
-          {
-            className: "tk-fchip" + (listFilter === id ? " on" : ""),
-            onClick: () => {
-              setListFilter(id);
-              localStorage.setItem("gitter.taskListFilter", id);
-            },
-            children: [
-              id === "run" && n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "d", style: { color: "var(--c-green)" } }) : null,
-              id === "ask" && n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "d", style: { color: "var(--c-amber)" } }) : null,
-              label,
-              " ",
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "n", children: n })
-            ]
-          },
-          id
-        )) }),
+        selecting ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-selbar", children: [
+          "已选 ",
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "n", children: picked.size }),
+          " 项",
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "sp" }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: pickAllVisible, children: "全选" }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "tool-btn",
+              disabled: picked.size === 0,
+              style: picked.size > 0 ? { background: "var(--c-selected)", borderColor: "var(--c-selected)", color: "var(--c-text)", fontWeight: 600 } : void 0,
+              onClick: () => void archivePicked(),
+              children: "归档"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: exitSelect, children: "取消" })
+        ] }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tbar", children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-tpop-anchor", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "tk-tbtn" + (listPop === "sort" ? " on" : ""),
+                title: "排序",
+                onClick: () => setListPop(listPop === "sort" ? null : "sort"),
+                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sort", size: 14 })
+              }
+            ),
+            listPop === "sort" && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-pop on", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ph", children: "排序" }),
+              [["active", "最近活动", "默认"], ["created", "创建时间", null], ["title", "标题 A→Z", null]].map(([id, label, tag]) => /* @__PURE__ */ jsxRuntime.jsxs(
+                "div",
+                {
+                  className: "pi" + (listSort === id ? " on" : ""),
+                  onClick: () => {
+                    setListSort(id);
+                    localStorage.setItem("gitter.taskListSort", id);
+                    setListPop(null);
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ck", children: "✓" }),
+                    label,
+                    tag ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "n", children: tag }) : null
+                  ]
+                },
+                id
+              ))
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-tpop-anchor", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "tk-tbtn" + (listPop === "filter" ? " on" : ""),
+                title: "按状态筛选",
+                onClick: () => setListPop(listPop === "filter" ? null : "filter"),
+                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "filter", size: 14 })
+              }
+            ),
+            listPop === "filter" && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-pop on", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ph", children: "按状态筛选" }),
+              [["all", "全部", ""], ["run", "进行中", "var(--c-green)"], ["ask", "待处理", "var(--c-amber)"], ["done", "已完成", ""], ["err", "失败·中断", ""]].map(([id, label, dot]) => /* @__PURE__ */ jsxRuntime.jsxs(
+                "div",
+                {
+                  className: "pi" + (listFilter === id ? " on" : ""),
+                  onClick: () => {
+                    setListFilter(id);
+                    localStorage.setItem("gitter.taskListFilter", id);
+                    setListPop(null);
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ck", children: "✓" }),
+                    dot ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dot", style: { background: dot } }) : null,
+                    label,
+                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "n", children: listCounts[id] })
+                  ]
+                },
+                id
+              ))
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tk-tbtn", title: "批量归档（勾选多条任务）", onClick: enterSelect, children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "archive", size: 14 }) })
+        ] }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "0 10px 4px", display: "flex", flexDirection: "column", gap: 2 }, children: [
           groupedTasks.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, color: "var(--c-text3)", padding: "6px 2px" }, children: listQ || listFilter !== "all" ? "无匹配任务" : t("Agents_EmptyHint") }),
           groupedTasks.map((g) => /* @__PURE__ */ jsxRuntime.jsxs(react.Fragment, { children: [

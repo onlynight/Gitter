@@ -12,7 +12,7 @@ import type { AgentCheckpointDTO, AgentTaskFileDTO, DiffDTO } from "../bridge/ty
 import { DiffView } from "../kit";
 import { taskPanels, useAgentUIVersion } from "../external/agentUIShim";
 import { TlIcon } from "./taskIcons";
-import { ExternalFilePreview, isMdPath } from "./externalPreview";
+import { ExternalFilePreview, isExternalPreviewPath } from "./externalPreview";
 import { absPathOf } from "./filesPaths";
 
 const IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i;
@@ -161,9 +161,9 @@ export function TaskChangesPanel(props: {
         .catch((e) => { if (!cancelled) setView({ kind: "error", message: (e as Error).message }); });
       return () => { cancelled = true; };
     }
-    // Markdown 族：外部预览插件接管（file.preview previewProviders 接缝，组件自管
+    // Markdown/HTML 族：外部预览插件接管（file.preview previewProviders 接缝，组件自管
     // 加载/回退——无插件时回退卡内可直接跳内置编辑器），文本高亮通道不参与
-    if (isMdPath(activePath)) {
+    if (isExternalPreviewPath(activePath)) {
       setView({ kind: "external" });
       return () => { cancelled = true; };
     }
@@ -307,7 +307,7 @@ export function TaskChangesPanel(props: {
             ) : view.kind === "external" ? (
               <ExternalFilePreview
                 path={activePath ?? ""}
-                fallbackBody="未安装 Markdown 预览插件，或未在 设置 → 扩展 打开「允许代码插件」"
+                fallbackBody="未安装提供该格式预览的插件（Markdown/HTML 预览），或未在 设置 → 扩展 打开「允许代码插件」"
                 onEditText={() => activePath && props.onEditInFilesPage(activePath)}
               />
             ) : view.kind === "text" ? (

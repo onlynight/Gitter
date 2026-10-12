@@ -2,7 +2,8 @@
  * Monaco 编辑器 React 封装（inline-editor-plan.md §4.4）：
  * 单编辑器实例 + 多 ITextModel 切换（VS Code 编辑器组语义）——keep-alive：
  * 每个打开的文件持有独立 model（编辑态/撤销栈随 model 存活），切标签换 model 不重建编辑器，
- * 大文件不重复 tokenize；视图状态（滚动/光标/选区）按 model.id 存取，切回即恢复。
+ * 大文件不重复 tokenize；视图状态（滚动/光标/选区）存模块级 store（filesMonaco，
+ * 按 model.id）——预览↔编辑切换会卸载本组件，实例内缓存会丢位置，模块级使切回即恢复。
  * model 的创建与销毁归调用方（FilesEditorPane），本组件只挂载/切换。
  *
  * 另持有：字号缩放（Ctrl+滚轮 / Ctrl+=/-/0，localStorage 持久化）、
@@ -11,7 +12,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as MonacoNs from "monaco-editor";
 import { useAppState } from "../pageSdk";
-import { applyMonacoTheme, createEditor, markerCounts } from "./filesMonaco";
+import { applyMonacoTheme, createEditor, markerCounts, saveViewState, viewStateOf } from "./filesMonaco";
 import { updateGitGutter } from "./filesGitGutter";
 
 type MonacoEditor = MonacoNs.editor.IStandaloneCodeEditor;
@@ -58,20 +59,26 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
   function FilesMonacoEditor(props, ref) {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const edRef = useRef<MonacoEditor | null>(null);
-    const viewStates = useRef(new Map<string, MonacoNs.editor.ICodeEditorViewState>());
     const fontSizeRef = useRef(loadFontSize());
     const cbRef = useRef(props);
     cbRef.current = props;
 
     const theme = useAppState().theme;
 
-    // 创建一次（组件生命周期 = 编辑区生命周期；卸载只 dispose 编辑器，model 归调用方）
+    // 创建一次（组件生命周期 = 编辑区生命周期；卸载只 dispose 编辑器，model 归调用方）。
+    // 卸载前把当前视图状态存入模块级 store——预览接管画布（md/html 切预览）走的就是
+    // 这条卸载路径，不存则切回编辑时丢位置
     useEffect(() => {
       const host = hostRef.current;
       if (!host) return;
       const ed = createEditor(host, { fontSize: fontSizeRef.current });
       edRef.current = ed;
       return () => {
+        const m = ed.getModel() as MonacoModel | null;
+        if (m) {
+          const vs = ed.saveViewState();
+          if (vs) saveViewState(m, vs);
+        }
         ed.dispose();
         edRef.current = null;
       };
@@ -141,7 +148,7 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       fontSize: () => fontSizeRef.current,
     }), []);
 
-    // model 挂载/切换：保存旧视图状态 → 换 model → 恢复新视图状态 → 重订内容变更
+    // model 挂载/切换：保存旧视图状态（模块级 store）→ 换 model → 恢复新视图状态 → 重订内容变更
     useEffect(() => {
       const ed = edRef.current;
       if (!ed) return;
@@ -149,13 +156,13 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       const prev = ed.getModel() as MonacoModel | null;
       if (prev) {
         const vs = ed.saveViewState();
-        if (vs) viewStates.current.set(prev.id, vs);
+        if (vs) saveViewState(prev, vs);
       }
 
       const model = props.model as MonacoModel | null;
       ed.setModel(model);
       if (model) {
-        const vs = viewStates.current.get(model.id);
+        const vs = viewStateOf(model);
         if (vs) ed.restoreViewState(vs);
         ed.focus();
       }

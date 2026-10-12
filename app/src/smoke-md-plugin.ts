@@ -1,9 +1,10 @@
 /**
- * 外部插件装载链路无头验证（markdown-preview 样例，extension-system-v2.md L2 契约）：
- * PackageStore 扫描真实用户插件根（%APPDATA%/gitter-app/packages）→ zod manifest →
- * PluginHost activateAll(allowCode) → require entry → registerPreviewProvider 生效 →
- * findPreviewProvider(".md") → provider({repo}) 渲染 markdown-it HTML + 越界拒绝。
- * 前置：node plugins/markdown-preview/build.mjs --install
+ * 外部插件装载链路无头验证（markdown-preview / html-preview 样例，extension-system-v2.md
+ * L2 契约）：PackageStore 扫描真实用户插件根（%APPDATA%/gitter-app/packages）→ zod
+ * manifest → PluginHost activateAll(allowCode) → require entry → registerPreviewProvider
+ * 生效 → findPreviewProvider(".md"/".html") → md 走 markdown-it 渲染、html 原文透传 +
+ * 越界拒绝。前置：node plugins/markdown-preview/build.mjs --install &&
+ * node plugins/html-preview/build.mjs --install
  * 运行：npm run build && node dist/smoke-md-plugin.js
  */
 import * as fs from "fs";
@@ -75,6 +76,21 @@ async function main() {
   const rOut = provider ? await provider("../outside.md", { repo }) : null;
   check("越界路径拒绝", rOut === null);
   check("未注册扩展名不命中", host.findPreviewProvider("a.txt") === null);
+
+  // 4. html-preview 链路：包扫描 → entry 装载 → 原文透传 / 越界拒绝 / 扩展名命中面
+  const pkgHtml = store.list().find((p) => p.id === "com.gitter.html-preview");
+  check("html 包扫描并激活", !!pkgHtml && pkgHtml.state === "active", pkgHtml ? `state=${pkgHtml.state}` : "未找到");
+  const stHtml = host.status().find((s) => s.packageId === "com.gitter.html-preview");
+  check("html entry 装载成功", !!stHtml && stHtml.active, stHtml?.error ?? undefined);
+  const providerHtml = host.findPreviewProvider("docs/index.html");
+  check("provider 命中 .html（子目录路径）", !!providerHtml);
+  check("provider 命中 .htm", !!host.findPreviewProvider("a.htm"));
+  fs.writeFileSync(path.join(repo, "sample.html"), "<!doctype html><html><body><h1>hi</h1><script>1</script></body></html>\n");
+  const rh = providerHtml ? await providerHtml("sample.html", { repo }) : null;
+  check("返回 html 形态且原文透传（含脚本原文）", !!rh && rh.kind === "html" && rh.content.includes("<script>1</script>"),
+    rh ? `kind=${rh.kind}` : "null");
+  const rhOut = providerHtml ? await providerHtml("../outside.html", { repo }) : null;
+  check("html 越界路径拒绝", rhOut === null);
 
   console.log(failures === 0 ? "\n外部插件链路全部通过" : `\n${failures} 项失败`);
   process.exit(failures === 0 ? 0 : 1);

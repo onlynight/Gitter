@@ -5,14 +5,14 @@
  * 与 office-integration-plan.md §10「预览-only」同一通道：只读渲染不回写）。
  * 内置查看器：Office 文档预览（二进制白名单族；csv/tsv 留在 Monaco 可编辑）、
  * 图片预览（file.readBinary 只读通道，png/jpg/svg 等常见位图与矢量族）。
- * 外部查看器：Markdown 预览走 file.preview previewProviders 接缝——渲染端只认
+ * 外部查看器：Markdown/HTML 预览走 file.preview previewProviders 接缝——渲染端只认
  * 扩展名，实际渲染由外部 L2 插件提供（无插件时查看器内出回退卡，可切回文本）。
  */
 import type { ReactNode } from "react";
 import { officeKindOf, type OfficeKind } from "./officeShared";
 import { OfficeDocViewer } from "./officeDocPreview";
 import { IMAGE_EXTS, ImageFileViewer } from "./filesImageViewer";
-import { ExternalFilePreview, MD_EXTS } from "./externalPreview";
+import { ExternalFilePreview, HTML_EXTS, MD_EXTS } from "./externalPreview";
 
 /** 查看器统一入参：path + 可选「编辑源文件」请求（回退卡/预览 HUD 用） */
 export interface FileViewerProps {
@@ -60,9 +60,12 @@ export function viewerForPath(path: string): FileViewerComponent | null {
 //   渲染器）与 csv/tsv（纯文本）不接管——前者维持「二进制不可编辑」提示，后者保持
 //   Monaco 文本编辑能力。
 // - 图片族：适配既有图片预览通道（file.readBinary → data URL），只读不回写。
-// - Markdown 族：file.preview 接缝（外部 L2 插件优先，无插件回退卡）。
+// - Markdown 族 / HTML 族：file.preview 接缝（外部 L2 插件优先，无插件回退卡）。
 registerFileViewer(["pdf", "pptx", "docx", "xlsx", "ods"], (p) => <OfficeDocViewer {...p} />);
 registerFileExtViewer(IMAGE_EXTS, (p) => <ImageFileViewer {...p} />);
 registerFileExtViewer(MD_EXTS, (p) => (
+  <ExternalFilePreview {...p} onEditText={p.onEditText ? () => p.onEditText!(p.path) : undefined} />
+));
+registerFileExtViewer(HTML_EXTS, (p) => (
   <ExternalFilePreview {...p} onEditText={p.onEditText ? () => p.onEditText!(p.path) : undefined} />
 ));

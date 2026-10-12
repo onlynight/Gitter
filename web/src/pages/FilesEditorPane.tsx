@@ -21,7 +21,7 @@ import { FilesMonacoEditor, type FilesMonacoEditorHandle } from "./FilesMonacoEd
 import { createTextModel, disposeTextModel, languageForPath, languageLabel, detectIndent, onAnyMarkers, markersOf } from "./filesMonaco";
 import { documentOpened, documentChanged, documentClosed } from "./filesLsp";
 import { viewerForPath } from "./filesViewers";
-import { isMdPath } from "./externalPreview";
+import { isExternalPreviewPath } from "./externalPreview";
 import type { DiffDTO } from "../bridge/types";
 
 type MonacoModel = import("monaco-editor").editor.ITextModel;
@@ -786,7 +786,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
         </div>
       </div>
 
-      {/* 面包屑：路径段（点击 → 树中揭示）；最右侧 = 转到符号 + md 预览/源码切换（图标互斥） */}
+      {/* 面包屑：路径段（点击 → 树中揭示）；最右侧 = 转到符号 + 外部预览（md/html）/源码切换（图标互斥） */}
       <div className="edcrumbs" style={{ background: editorBg }}>
         {crumbs.map((seg, i) => {
           const p = crumbs.slice(0, i + 1).join("/");
@@ -818,7 +818,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
                 <circle cx="8" cy="8" r="1.9" stroke="currentColor" strokeWidth="1.2" />
               </svg>
             </button>
-          ) : props.activeTab && !textMode.has(props.activeTab) && isMdPath(props.activeTab) ? (
+          ) : props.activeTab && !textMode.has(props.activeTab) && isExternalPreviewPath(props.activeTab) ? (
             <button className="files-ibtn" title={t("Editor_EditSource")} onClick={() => requestTextMode(props.activeTab!)}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M11.3 2.1a1.4 1.4 0 0 1 2 2L6 11.4l-2.8.8.8-2.8 7.3-7.3Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />

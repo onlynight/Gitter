@@ -2697,11 +2697,20 @@
     const uri = Uri.file(path.replace(/\\/g, "/"));
     return editor.getModel(uri) ?? editor.createModel(value, languageForPath(path), uri);
   }
+  const viewStates = /* @__PURE__ */ new Map();
+  function saveViewState(model, vs) {
+    viewStates.set(model.id, vs);
+  }
+  function viewStateOf(model) {
+    return viewStates.get(model.id);
+  }
   function createEditor(host, overrides) {
     return editor.create(host, { ...EDITOR_OPTIONS, ...overrides });
   }
   function disposeTextModel(model) {
     var _a2;
+    const m = model;
+    if (m && typeof m.id === "string") viewStates.delete(m.id);
     (_a2 = model == null ? void 0 : model.dispose) == null ? void 0 : _a2.call(model);
   }
   function onAnyMarkers(cb) {
@@ -2903,7 +2912,6 @@
       var _a2;
       const hostRef = React$1.useRef(null);
       const edRef = React$1.useRef(null);
-      const viewStates = React$1.useRef(/* @__PURE__ */ new Map());
       const fontSizeRef = React$1.useRef(loadFontSize());
       const cbRef = React$1.useRef(props);
       cbRef.current = props;
@@ -2914,6 +2922,11 @@
         const ed = createEditor(host, { fontSize: fontSizeRef.current });
         edRef.current = ed;
         return () => {
+          const m = ed.getModel();
+          if (m) {
+            const vs = ed.saveViewState();
+            if (vs) saveViewState(m, vs);
+          }
           ed.dispose();
           edRef.current = null;
         };
@@ -2986,12 +2999,12 @@
         const prev = ed.getModel();
         if (prev) {
           const vs = ed.saveViewState();
-          if (vs) viewStates.current.set(prev.id, vs);
+          if (vs) saveViewState(prev, vs);
         }
         const model = props.model;
         ed.setModel(model);
         if (model) {
-          const vs = viewStates.current.get(model.id);
+          const vs = viewStateOf(model);
           if (vs) ed.restoreViewState(vs);
           ed.focus();
         }

@@ -2,8 +2,10 @@
  * 外部预览查看器（file.preview previewProviders 接缝的渲染端适配）：
  * L2 插件经 ctx.registerPreviewProvider 注册的扩展名，file.preview 返回
  * {kind:"html"|"text", content}（插件优先；无插件时内置通道对文本扩展名返回 null）。
- * html → 沙箱 iframe（sandbox="" 无脚本，markdown-it html:false 产出静态标记）；
- * 无 provider → 回退卡（提示装插件 + 可选「编辑源文件」）。
+ * html 分两档：markdown-it 产物 → sandbox="" 无脚本 iframe + 阅读排版包装；
+ * HTML 文件原文 → allow-scripts 沙箱 iframe（无 allow-same-origin，源为 opaque，
+ * 读不到宿主/文件系统），不包装不改写。无 provider → 回退卡（提示装插件 +
+ * 可选「编辑源文件」）。
  * 文件页画布（filesViewers seam）与任务面板预览共用——本模块不依赖 monaco/pageSdk
  * （页面私有依赖边界），RPC 走 bridge/client。
  */
@@ -11,12 +13,25 @@ import { useEffect, useState } from "react";
 import { call } from "../bridge/client";
 import { useAppState } from "../pageSdk";
 
-/** Markdown 扩展名（本仓库首个外部预览插件 com.gitter.markdown-preview 的注册面） */
+/** Markdown 扩展名（外部预览插件 com.gitter.markdown-preview 的注册面） */
 export const MD_EXTS = [".md", ".markdown"];
+
+/** HTML 扩展名（外部预览插件 com.gitter.html-preview 的注册面） */
+export const HTML_EXTS = [".html", ".htm"];
 
 export function isMdPath(p: string): boolean {
   const i = p.lastIndexOf(".");
   return i >= 0 && MD_EXTS.includes(p.slice(i).toLowerCase());
+}
+
+export function isHtmlPath(p: string): boolean {
+  const i = p.lastIndexOf(".");
+  return i >= 0 && HTML_EXTS.includes(p.slice(i).toLowerCase());
+}
+
+/** 外部预览插件接管的路径（md + html）——面包屑「编辑源文件/预览」切换按钮的判定面 */
+export function isExternalPreviewPath(p: string): boolean {
+  return isMdPath(p) || isHtmlPath(p);
 }
 
 /** file.preview 双形态：provider 结果（kind/content）与内置通道（mime/base64） */
@@ -135,6 +150,9 @@ export function ExternalFilePreview(props: {
   // 主题（亮暗）来自页面状态：变化即重拉 file.preview——代码块高亮色随主题即时更新
   const theme = useAppState().theme;
   const dark = props.dark ?? (theme?.base ?? "dark") !== "light";
+  // HTML 文件（原文透传）：不走 markdown 排版包装，也不做代码块高亮注入
+  // （DOMParser 重拼会剥掉 doctype/head）——沙箱档位也由它决定
+  const htmlRaw = isHtmlPath(props.path);
   const [phase, setPhase] = useState<
     | { kind: "loading" }
     | { kind: "html"; content: string }
@@ -149,8 +167,8 @@ export function ExternalFilePreview(props: {
       .then(async (r) => {
         if (stale) return;
         if (isProviderResult(r)) {
-          // html 形态先注入代码块高亮（失败整页降级原文，不阻塞预览）
-          const content = r.kind === "html"
+          // html 形态先注入代码块高亮（失败整页降级原文，不阻塞预览）；HTML 原文除外
+          const content = r.kind === "html" && !isHtmlPath(props.path)
             ? await injectCodeHighlight(r.content).catch(() => r.content)
             : r.content;
           if (!stale) setPhase({ kind: r.kind, content });
@@ -168,9 +186,9 @@ export function ExternalFilePreview(props: {
       {phase.kind === "loading" ? null : phase.kind === "html" ? (
         <iframe
           className="extpreview-frame"
-          sandbox=""
+          sandbox={htmlRaw ? "allow-scripts allow-forms allow-modals" : ""}
           title={name}
-          srcDoc={mdSrcdoc(phase.content, dark)}
+          srcDoc={htmlRaw ? phase.content : mdSrcdoc(phase.content, dark)}
         />
       ) : phase.kind === "text" ? (
         <pre className="extpreview-text">{phase.content}</pre>

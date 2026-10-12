@@ -187,6 +187,22 @@ export function createTextModel(path: string, value: string): monaco.editor.ITex
   return monaco.editor.getModel(uri) ?? monaco.editor.createModel(value, languageForPath(path), uri);
 }
 
+// ---- 视图状态（滚动/光标/选区）按 model.id 存取 ----
+// 模块级而非编辑器组件实例级：预览↔编辑切换（md/html 及后续一切预览类）会卸载编辑器
+// 实例由查看器接管画布，实例内 Map 随之蒸发——切回编辑就丢位置回到首行。提升到模块级
+// 随页面存活，反复切换持续可恢复；model 销毁（关标签/重载）时经 disposeTextModel 清理。
+const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>();
+
+/** 保存视图状态（编辑器卸载/换 model 前调用；同 id 覆盖为最新位置） */
+export function saveViewState(model: monaco.editor.ITextModel, vs: monaco.editor.ICodeEditorViewState): void {
+  viewStates.set(model.id, vs);
+}
+
+/** 取视图状态（编辑器挂载/换 model 后恢复；不删除——反复切换要持续可恢复） */
+export function viewStateOf(model: monaco.editor.ITextModel): monaco.editor.ICodeEditorViewState | undefined {
+  return viewStates.get(model.id);
+}
+
 /** 创建编辑器实例（构造选项统一走 EDITOR_OPTIONS；overrides 供字号恢复等实例级覆盖）。 */
 export function createEditor(
   host: HTMLElement,
@@ -195,8 +211,10 @@ export function createEditor(
   return monaco.editor.create(host, { ...EDITOR_OPTIONS, ...overrides });
 }
 
-/** 销毁文本模型（幂等）。 */
+/** 销毁文本模型（幂等）；视图状态随 model 一并清理（重开文件回首行是预期）。 */
 export function disposeTextModel(model: unknown | null): void {
+  const m = model as monaco.editor.ITextModel | null;
+  if (m && typeof m.id === "string") viewStates.delete(m.id);
   (model as { dispose?: () => void } | null)?.dispose?.();
 }
 
