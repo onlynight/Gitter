@@ -594,7 +594,7 @@ const DiffViewImpl = function DiffView(props: {
   });
 
   return (
-    <div className="diff" ref={rootRef}>
+    <div className={"diff" + (props.hideHeader ? " hide-header" : "")} ref={rootRef}>
       {!props.hideHeader && header}
       {noteStrip}
       {truncatedStrip}
