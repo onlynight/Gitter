@@ -54,6 +54,43 @@ export function Sidebar() {
   const [, setPagesTick] = useState(0);
   useEffect(() => onUiPagesChanged(() => setPagesTick((x) => x + 1)), []);
 
+  // 槽位-提供者模型（ui-full-pluginization-plan.md R0-2）：侧栏展示各槽位的胜出提供者。
+  // 主导航 = 有宿主内置提供者的槽位（被替换时原位显示替换者的图标/标题，来源标记进 tooltip）；
+  // 追加区 = 无内置提供者的纯外部页（带 ✕ 跳扩展管理）。
+  const slotOf = (x: { slot?: string; id: string }) => x.slot ?? x.id;
+  const slots = uiPages();
+  const NAV = slots
+    .filter((x) => slotOf(x) !== "settings" && hasBuiltinProvider(slotOf(x)))
+    .map((x) => ({
+      key: slotOf(x) as PageKey, glyph: x.glyph, svg: x.svg,
+      labelKey: x.titleKey ?? "", title: x.title,
+      pkg: x.source === "package" ? x.packageId : undefined,
+    }));
+  const extNav = slots.filter((x) => x.source === "package" && !hasBuiltinProvider(slotOf(x)));
+  const collapsed = settings?.sidebarCollapsed ?? false;
+  // 折叠/展开动画：collapsed 翻转的同一帧挂 .main-anim。必须先武装、后收敛——本副作用
+  // 刻意排在下方宽度收敛副作用之前：measure 的布局读取会强制样式计算，宽度变化若落在
+  // 尚未挂 .main-anim 的计算里，过渡就按环境时长建轨——reduced-motion 下是 * 的 .01ms
+  // （实测 elapsedTime≈0 的瞬跳），展开方向还会先瞬跳基础宽度再动画，动画即告丢失。
+  // 挂类后同步读一次列强排计算，把「过渡已武装」钉进 before-change 样式，宽度变化必然
+  // 落在带 200ms 过渡的计算里。transitionend 摘除（只认 .main 自身的列宽过渡——子元素
+  // 的 transitionend 会冒泡，不能让它提前摘类），超时兜底覆盖动画未建轨的情况。
+  const prevCollapsed = useRef(collapsed);
+  useLayoutEffect(() => {
+    const main = document.querySelector<HTMLElement>(".main");
+    if (!main) return;
+    if (prevCollapsed.current === collapsed) return;
+    prevCollapsed.current = collapsed;
+    main.classList.add("main-anim");
+    void getComputedStyle(main).gridTemplateColumns;
+    const remove = () => main.classList.remove("main-anim");
+    const onEnd = (e: TransitionEvent) => {
+      if (e.target === main && e.propertyName === "grid-template-columns") remove();
+    };
+    main.addEventListener("transitionend", onEnd);
+    const t = window.setTimeout(remove, 400);
+    return () => { window.clearTimeout(t); main.removeEventListener("transitionend", onEnd); main.classList.remove("main-anim"); };
+  }, [collapsed]);
   // 展开宽度动态贴合内容（ui-branch-reflog 批）：宽度 = 最宽导航项内容 + 与左侧一致的边距
   // （左：4px 外边距 + 10px 内边距 = 14px，右侧对称），上限 300px，
   // 超出上限由 .nav-label 打点截断。折叠态测量仍准确——scrollWidth 取文本自然宽度。
@@ -63,7 +100,7 @@ export function Sidebar() {
   // （常规字重）天然留出富余，也顺带消灭「恰满宽 + 取整吞亚像素」造成的尾部省略号。
   // 注意：直接写 .main 内联 grid 列而非改 --sidebar-w 变量——Chromium 对「变量值变化 +
   // grid-template-columns 过渡」存在失效（变量已新值、轨道恒滞后一步）。基础 .main 不挂
-  // 过渡（写入瞬时生效）；折叠/展开动画由下方 collapsed 副作用临时挂 .main-anim（见 styles.css）。
+  // 过渡（写入瞬时生效）；折叠/展开动画由上方 collapsed 副作用临时挂 .main-anim（见 styles.css）。
   useLayoutEffect(() => {
     const measure = () => {
       const root = rootRef.current;
@@ -104,36 +141,6 @@ export function Sidebar() {
     measure();
     document.fonts?.ready.then(measure).catch(() => {});
   });
-  // 槽位-提供者模型（ui-full-pluginization-plan.md R0-2）：侧栏展示各槽位的胜出提供者。
-  // 主导航 = 有宿主内置提供者的槽位（被替换时原位显示替换者的图标/标题，来源标记进 tooltip）；
-  // 追加区 = 无内置提供者的纯外部页（带 ✕ 跳扩展管理）。
-  const slotOf = (x: { slot?: string; id: string }) => x.slot ?? x.id;
-  const slots = uiPages();
-  const NAV = slots
-    .filter((x) => slotOf(x) !== "settings" && hasBuiltinProvider(slotOf(x)))
-    .map((x) => ({
-      key: slotOf(x) as PageKey, glyph: x.glyph, svg: x.svg,
-      labelKey: x.titleKey ?? "", title: x.title,
-      pkg: x.source === "package" ? x.packageId : undefined,
-    }));
-  const extNav = slots.filter((x) => x.source === "package" && !hasBuiltinProvider(slotOf(x)));
-  const collapsed = settings?.sidebarCollapsed ?? false;
-  // 折叠/展开动画：collapsed 翻转的同一帧挂 .main-anim（useLayoutEffect 先于绘制，宽度
-  // 变化与过渡必然同帧生效，settings IPC 往返多慢都不丢动画），transitionend（+超时兜底，
-  // 覆盖 reduced-motion 的 .01ms 过渡 / 动画被打断）后摘除。only-on-flip：首帧与无关
-  // 渲染不挂，宽度收敛写入保持瞬时生效。
-  const prevCollapsed = useRef(collapsed);
-  useLayoutEffect(() => {
-    const main = document.querySelector<HTMLElement>(".main");
-    if (!main) return;
-    if (prevCollapsed.current === collapsed) return;
-    prevCollapsed.current = collapsed;
-    main.classList.add("main-anim");
-    const remove = () => main.classList.remove("main-anim");
-    main.addEventListener("transitionend", remove, { once: true });
-    const t = window.setTimeout(remove, 400);
-    return () => { window.clearTimeout(t); main.removeEventListener("transitionend", remove); main.classList.remove("main-anim"); };
-  }, [collapsed]);
   // 设置固定在侧栏最下方（不在主导航序列）；身份取注册表胜出者（可被替换页面包带来新图标）
   const settingsDef = resolveUiPage("settings");
   const SETTINGS_NAV = {
@@ -226,7 +233,8 @@ export function StatusBar() {
         <span
           key={it.id}
           title={it.tooltip}
-          style={{ cursor: it.command ? "pointer" : "default" }}
+          className={it.command ? "sb-item" : undefined}
+          style={it.command ? undefined : { cursor: "default" }}
           onClick={() => it.command && void runCommand({ id: it.command, title: it.text })}
         >
           {it.text}
