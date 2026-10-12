@@ -66,3 +66,43 @@ export async function mergeContinue(workDir: string): Promise<void> {
   const r = await tryGit(workDir, ["commit", "--no-edit"]);
   if (r.code !== 0) throw new GitError(["commit", "--no-edit"], r);
 }
+
+// ---------------------------------------------------------------------------
+// revert / cherry-pick（log 页右键动作 + 冲突续行）。
+// revert --no-commit（默认）：反向改动留在 index/工作区，落变更页由用户确认提交——
+// 破坏面最小的一档；commitNow=true 才直接 --no-edit 落提交。
+// 冲突时 CHERRY_PICK_HEAD / REVERT_HEAD 标记由 operationState 识别，走 *Abort / *Continue。
+// ---------------------------------------------------------------------------
+
+export async function revertCommit(workDir: string, sha: string, commitNow: boolean): Promise<void> {
+  const args = commitNow
+    ? ["-c", "core.editor=true", "revert", "--no-edit", sha]
+    : ["revert", "--no-commit", sha];
+  const r = await tryGit(workDir, args);
+  if (r.code !== 0) throw new GitError(args, r);
+}
+
+export async function cherryPickCommit(workDir: string, sha: string): Promise<void> {
+  const r = await tryGit(workDir, ["cherry-pick", sha]);
+  if (r.code !== 0) throw new GitError(["cherry-pick", sha], r);
+}
+
+export async function revertAbort(workDir: string): Promise<void> {
+  const r = await tryGit(workDir, ["revert", "--abort"]);
+  if (r.code !== 0) throw new GitError(["revert", "--abort"], r);
+}
+
+export async function revertContinue(workDir: string): Promise<void> {
+  const r = await tryGit(workDir, ["-c", "core.editor=true", "revert", "--continue"]);
+  if (r.code !== 0) throw new GitError(["revert", "--continue"], r);
+}
+
+export async function cherryPickAbort(workDir: string): Promise<void> {
+  const r = await tryGit(workDir, ["cherry-pick", "--abort"]);
+  if (r.code !== 0) throw new GitError(["cherry-pick", "--abort"], r);
+}
+
+export async function cherryPickContinue(workDir: string): Promise<void> {
+  const r = await tryGit(workDir, ["-c", "core.editor=true", "cherry-pick", "--continue"]);
+  if (r.code !== 0) throw new GitError(["cherry-pick", "--continue"], r);
+}

@@ -1,6 +1,6 @@
 import { git, tryGit, tryGitStream, GitError, type GitResult } from "./gitexec";
 import { parseUnifiedDiff, truncateDiff } from "./gitlog";
-import type { ChangesStateDTO, DiffDTO, FileStatusDTO } from "../shared/types";
+import type { ChangesStateDTO, DiffDTO, FileStatusDTO, HeadCommitInfoDTO, RemoteOnlyCommitDTO } from "../shared/types";
 
 // ---------------------------------------------------------------------------
 // 工作区状态（对齐 ChangesViewModel 三层分类语义）
@@ -198,9 +198,10 @@ export interface CommitResult {
   pushError: string | null;
 }
 
-/** 提交（路径已由调用方暂存/撤销暂存完毕）。alsoPush=true 时提交成功后推送。 */
-export async function commit(workDir: string, message: string, alsoPush: boolean, onProgress?: SyncProgress): Promise<CommitResult> {
-  await git(workDir, ["commit", "-m", message]);
+/** 提交（路径已由调用方暂存/撤销暂存完毕）。alsoPush=true 时提交成功后推送；
+ * amend=true 时 --amend 改写上次提交（信息预填与已推警告由 changes.headInfo 支撑）。 */
+export async function commit(workDir: string, message: string, alsoPush: boolean, onProgress?: SyncProgress, amend = false): Promise<CommitResult> {
+  await git(workDir, ["commit", ...(amend ? ["--amend"] : []), "-m", message]);
   const sha = (await git(workDir, ["rev-parse", "HEAD"])).trim();
   let pushError: string | null = null;
   if (alsoPush) {
@@ -219,8 +220,8 @@ export async function resetTo(workDir: string, targetSha: string, mode: ResetMod
   if (r.code !== 0) throw new GitError(["reset", `--${mode}`, targetSha], r);
 }
 
-export async function retryPush(workDir: string, onProgress?: SyncProgress): Promise<string | null> {
-  const r = await push(workDir, onProgress);
+export async function retryPush(workDir: string, onProgress?: SyncProgress, opts?: PushOptions): Promise<string | null> {
+  const r = await push(workDir, onProgress, opts);
   return r.code === 0 ? null : classifyPushError(r.stderr + r.stdout);
 }
 
@@ -248,9 +249,15 @@ async function syncOp(workDir: string, args: string[], onProgress?: SyncProgress
   return tryGitStream(workDir, args, (line: string) => onProgress(line.replace(/^remote:\s*/, ""), parsePercent(line)));
 }
 
+/** 推送变体：tags = 附带全部 tag；forceWithLease = 强推但远端有本地没有的新提交时被拒。 */
+export interface PushOptions {
+  tags?: boolean;
+  forceWithLease?: boolean;
+}
+
 /** 推送（调用方判 code；失败分类见 classifyPushError）。 */
-export async function push(workDir: string, onProgress?: SyncProgress): Promise<GitResult> {
-  return syncOp(workDir, ["push", "--progress"], onProgress);
+export async function push(workDir: string, onProgress?: SyncProgress, opts?: PushOptions): Promise<GitResult> {
+  return syncOp(workDir, ["push", "--progress", ...(opts?.forceWithLease ? ["--force-with-lease"] : []), ...(opts?.tags ? ["--tags"] : [])], onProgress);
 }
 
 /** 拉取：--progress + 可选 --rebase（返回 GitResult，调用方判 code）。 */
@@ -260,5 +267,35 @@ export async function pullWithProgress(workDir: string, rebase: boolean, onProgr
 
 export async function fetchAll(workDir: string, onProgress?: SyncProgress): Promise<GitResult> {
   return syncOp(workDir, ["fetch", "--all", "--progress"], onProgress);
+}
+
+// ---------------------------------------------------------------------------
+// amend / 强推支撑查询
+// ---------------------------------------------------------------------------
+
+/** HEAD 提交信息（amend 勾选预填 + 已推警告；%x1f 单元分隔符防消息内容撞分隔）。 */
+export async function headCommitInfo(workDir: string): Promise<HeadCommitInfoDTO | null> {
+  const r = await tryGit(workDir, ["log", "-1", "--pretty=format:%H%x1f%h%x1f%s%x1f%B"]);
+  if (r.code !== 0 || !r.stdout.trim()) return null;
+  const [sha, shortSha, subject, ...rest] = r.stdout.split("\x1f");
+  const remote = await tryGit(workDir, ["branch", "-r", "--contains", "HEAD"]);
+  return {
+    sha: sha ?? "",
+    shortSha: shortSha ?? "",
+    subject: subject ?? "",
+    message: rest.join("\x1f").trim(),
+    pushed: remote.code === 0 && remote.stdout.trim().length > 0,
+    branch: (await tryGit(workDir, ["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim() || null,
+  };
+}
+
+/** 强推预览：远端独有（HEAD..@{upstream}）的提交 = 强推后会被移出远端分支的提交。 */
+export async function upstreamOnlyCommits(workDir: string): Promise<RemoteOnlyCommitDTO[]> {
+  const r = await tryGit(workDir, ["log", "--pretty=format:%h%x1f%s", "HEAD..@{upstream}"]);
+  if (r.code !== 0 || !r.stdout.trim()) return [];
+  return r.stdout.split(/\r?\n/).filter(Boolean).map((line) => {
+    const tab = line.indexOf("\x1f");
+    return { shortSha: tab > 0 ? line.slice(0, tab) : line, subject: tab > 0 ? line.slice(tab + 1) : "" };
+  });
 }
 

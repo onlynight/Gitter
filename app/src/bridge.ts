@@ -33,6 +33,7 @@ import { compileTaskTypes, BUILTIN_FREE_ID } from "./services/agents/taskTypes";
 const SUBSCRIPTION_PROFILE_ID = "user/claude-subscription";
 import type { ModelProfileDTO, UserModelProfileDTO } from "./shared/types";
 import * as gitconfig from "./services/gitconfig";
+import * as gitstash from "./services/gitstash";
 import * as preview from "./services/preview";
 import * as treex from "./services/treex";
 import { FsWatchService } from "./services/fsWatch";
@@ -324,6 +325,22 @@ export class Bridge {
     return this.repo;
   }
 
+  /** 放弃修改：已跟踪 checkout HEAD --（恢复/回退），未跟踪直接删除（从未入库，无 git 可恢复）。
+   * changes.discardFile / changes.discardFiles 共用。 */
+  private async discardPaths(workDir: string, paths: string[]): Promise<void> {
+    for (const p of paths) {
+      if (!p) continue;
+      const tracked = await tryGit(workDir, ["ls-files", "--error-unmatch", "--", p]);
+      if (tracked.code === 0) {
+        const r = await tryGit(workDir, ["checkout", "HEAD", "--", p]);
+        if (r.code !== 0) throw new BridgeError("放弃修改失败", r.stderr || p);
+      } else {
+        const del = await treex.deleteEntry(workDir, p);
+        if (!del.ok) throw new BridgeError("放弃修改失败", del.error ?? p);
+      }
+    }
+  }
+
   // -------------------------------------------------------------------------
 
   private registerAll() {
@@ -375,24 +392,25 @@ export class Bridge {
     R("changes.unstage", (args: { paths: string[] }) => status.unstageFiles(this.needRepo(), args.paths));
     // 放弃单文件修改（files 编辑器 tab 菜单）：已跟踪 checkout HEAD --，未跟踪删除
     R("changes.discardFile", async (args: { path: string }) => {
-      const wd = this.needRepo();
-      const tracked = await tryGit(wd, ["ls-files", "--error-unmatch", "--", args.path]);
-      if (tracked.code === 0) {
-        const r = await tryGit(wd, ["checkout", "HEAD", "--", args.path]);
-        if (r.code !== 0) throw new BridgeError("放弃修改失败", r.stderr || args.path);
-      } else {
-        const del = await treex.deleteEntry(wd, args.path);
-        if (!del.ok) throw new BridgeError("放弃修改失败", args.path);
-      }
+      await this.discardPaths(this.needRepo(), [args.path]);
       return {};
     });
+    // 批量放弃（变更页多选/右键/悬停入口共用）：逐个按跟踪状态处理
+    R("changes.discardFiles", async (args: { paths: string[] }) => {
+      await this.discardPaths(this.needRepo(), args.paths ?? []);
+      return {};
+    });
+    // HEAD 提交信息（amend 预填 + 已推警告 + 日志页 cherry-pick 顶端禁用）
+    R("changes.headInfo", () => status.headCommitInfo(this.needRepo()));
+    // 强推预览：远端独有提交（将被移出远端分支的清单）
+    R("changes.pushPreview", () => status.upstreamOnlyCommits(this.needRepo()));
     R("changes.diffFile", (args: { path: string; staged: boolean; isNewFile?: boolean }) =>
       status.worktreeFileDiff(this.needRepo(), args.path, !!args.staged, !!args.isNewFile));
     R("changes.stageHunks", (args: { path: string; indices: number[] }) =>
       status.stageHunks(this.needRepo(), args.path, args.indices));
     R("changes.unstageHunks", (args: { path: string; indices: number[] }) =>
       status.unstageHunks(this.needRepo(), args.path, args.indices));
-    R("changes.commit", async (args: { message: string; push?: boolean; toStage?: string[]; toUnstage?: string[] }) => {
+    R("changes.commit", async (args: { message: string; push?: boolean; toStage?: string[]; toUnstage?: string[]; amend?: boolean }) => {
       const wd = this.needRepo();
       const s = this.shared.settings.current;
       if (args.toStage?.length) await status.stageFiles(wd, args.toStage);
@@ -425,14 +443,14 @@ export class Bridge {
       }
       const vetoes = await this.shared.host.runGates("commit", { message: args.message });
       if (vetoes.length > 0) throw new BridgeError(`插件门禁拦截提交：${vetoes.join("；")}`);
-      const r = await status.commit(wd, args.message, !!args.push, this.syncProgress());
-      void this.shared.events.emit("commit.created", { repo: wd, message: args.message, pushed: !!args.push });
+      const r = await status.commit(wd, args.message, !!args.push, this.syncProgress(), !!args.amend);
+      void this.shared.events.emit("commit.created", { repo: wd, message: args.message, pushed: !!args.push, amend: !!args.amend });
       return r;
     });
-    R("changes.push", async () => {
+    R("changes.push", async (args: { forceWithLease?: boolean; tags?: boolean }) => {
       const vetoes = await this.shared.host.runGates("push", {});
       if (vetoes.length > 0) throw new BridgeError(`插件门禁拦截推送：${vetoes.join("；")}`);
-      const r = await status.retryPush(this.needRepo(), this.syncProgress());
+      const r = await status.retryPush(this.needRepo(), this.syncProgress(), { forceWithLease: !!args?.forceWithLease, tags: !!args?.tags });
       void this.shared.events.emit("sync.pushed", { repo: this.repo });
       return r;
     });
@@ -449,6 +467,24 @@ export class Bridge {
       if (r.code !== 0) throw new GitError(["fetch", "--all", "--progress"], r);
       return {};
     });
+
+    // ---- stash（变更页工具栏 + 管理对话框；不做 clear——safety 层列为危险命令） ----
+    R("stash.list", () => gitstash.listStashes(this.needRepo()));
+    R("stash.push", async (args: { message?: string | null }) => {
+      await gitstash.pushStash(this.needRepo(), args?.message?.trim() || null);
+      void this.shared.events.emit("sync.stashed", { repo: this.repo });
+      return {};
+    });
+    R("stash.apply", async (args: { index: number; drop?: boolean }) => {
+      await gitstash.applyStash(this.needRepo(), args.index, !!args.drop);
+      void this.shared.events.emit("sync.stashApplied", { repo: this.repo, popped: !!args.drop });
+      return {};
+    });
+    R("stash.drop", async (args: { index: number }) => {
+      await gitstash.dropStash(this.needRepo(), args.index);
+      return {};
+    });
+    R("stash.show", (args: { index: number }) => gitstash.showStash(this.needRepo(), args.index));
 
     // ---- 分支 ----
     R("branches.state", () => branches.getBranches(this.needRepo()));
@@ -478,6 +514,22 @@ export class Bridge {
     R("git.rebaseContinue", () => gitops.rebaseContinue(this.needRepo()));
     R("git.mergeAbort", () => gitops.mergeAbort(this.needRepo()));
     R("git.mergeContinue", () => gitops.mergeContinue(this.needRepo()));
+    // revert / cherry-pick 的冲突续行（横幅按钮此前只对 merge/rebase 接线，cherry-pick/revert 是死按钮）
+    R("git.revertAbort", () => gitops.revertAbort(this.needRepo()));
+    R("git.revertContinue", () => gitops.revertContinue(this.needRepo()));
+    R("git.cherryPickAbort", () => gitops.cherryPickAbort(this.needRepo()));
+    R("git.cherryPickContinue", () => gitops.cherryPickContinue(this.needRepo()));
+    // 日志页提交右键：安全反向提交 / 拣选（冲突时同样走 git.ops.state 横幅）
+    R("log.revert", async (args: { sha: string; commitNow?: boolean }) => {
+      await gitops.revertCommit(this.needRepo(), args.sha, !!args.commitNow);
+      void this.shared.events.emit("sync.reverted", { repo: this.repo, sha: args.sha, commitNow: !!args.commitNow });
+      return {};
+    });
+    R("log.cherryPick", async (args: { sha: string }) => {
+      await gitops.cherryPickCommit(this.needRepo(), args.sha);
+      void this.shared.events.emit("sync.cherryPicked", { repo: this.repo, sha: args.sha });
+      return {};
+    });
     R("branches.ff", (args: { name: string }) => branches.fastForward(this.needRepo(), args.name));
     R("branches.deleteRemote", (args: { name: string }) => branches.deleteRemoteBranch(this.needRepo(), args.name));
     R("tags.list", () => branches.listTags(this.needRepo()));

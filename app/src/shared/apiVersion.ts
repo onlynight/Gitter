@@ -6,6 +6,10 @@
  * v2：GITTER_UI 面扩容（context 共享上下文镜像/导航/openRepo/GITTER_KIT 全局）。
  * v3（2026-10-06，R2）：GITTER_UI = PageSurface 全量面（surface.ts 单一源）+ getState/subscribeState
  *     + runCommand + t；registerPage def 除 id 外可省；GITTER_KIT = 宿主组装的 React 单实例 + 内核组件。
+ * v4（2026-10-12）：stash/discard 多选/amend/force-push/revert/cherry-pick 面——新增 StashEntryDTO、
+ *     StashFileDTO、HeadCommitInfoDTO、RemoteOnlyCommitDTO；changes.commit 加 amend、changes.push 加
+ *     forceWithLease/tags 参数；新增 stash.* / changes.discardFiles / changes.headInfo / changes.pushPreview /
+ *     log.revert / log.cherryPick / git.revert*Continue|Abort / git.cherryPick*Continue|Abort。
  */
 
-export const DATA_API_VERSION = 3;
+export const DATA_API_VERSION = 4;

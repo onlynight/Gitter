@@ -1,5 +1,5 @@
 // 自动生成：scripts/gen-ui-sdk.mjs —— 不要手改（再生成：node scripts/gen-ui-sdk.mjs）
-// 数据 API 版本：v3
+// 数据 API 版本：v4
 // 契约冻结政策：修改 web/src/bridge/types.ts 对外类型 → 递增 DATA_API_VERSION → 重新生成
 // 兼容查询：宿主桥 RPC "api.info" 返回 { dataApiVersion, hostApiVersion }
 
@@ -56,6 +56,8 @@ export interface DiffDTO {
   deletedLines: number;
   oldEndsWithNewline: boolean;
   newEndsWithNewline: boolean;
+  /** 超过 MAX_DIFF_LINES 被截断：仅保留靠前的完整 hunk */
+  truncated?: boolean;
 }
 
 export interface FileStatusDTO {
@@ -64,6 +66,8 @@ export interface FileStatusDTO {
   isConflict: boolean;
   added: number | null;
   deleted: number | null;
+  /** git 状态字母：staged 取 index 位（A/M/D/R…）、changes 取 worktree 位、untracked "?"、冲突取原 XY（如 UU） */
+  code?: string;
 }
 
 export interface ChangesStateDTO {
@@ -72,6 +76,50 @@ export interface ChangesStateDTO {
   staged: FileStatusDTO[];
   unversioned: FileStatusDTO[];
   conflicts: FileStatusDTO[];
+  /** 当前分支名；detached HEAD 时为 "HEAD" */
+  branch: string | null;
+  /** 领先/落后 upstream 的提交数；无 upstream 为 null（不显示） */
+  ahead: number | null;
+  behind: number | null;
+}
+
+// ---- stash / amend / 强推 / revert（DATA_API_VERSION v4）----
+
+export interface StashEntryDTO {
+  /** stash@{n} 的 n（新条目在前） */
+  index: number;
+  selector: string;
+  /** 去掉 "On <branch>:" / "WIP on <branch>:" 前缀后的消息 */
+  message: string;
+  /** 所在分支（subject 解析不出为 null） */
+  branch: string | null;
+  /** 原始 reflog subject */
+  subject: string;
+  /** unix 秒 */
+  timestamp: number;
+}
+
+export interface StashFileDTO {
+  /** name-status 字母：A/M/D/R… */
+  code: string;
+  path: string;
+}
+
+/** HEAD 提交信息（amend 预填 + 已推警告 + 日志页 cherry-pick 顶端禁用判定）。 */
+export interface HeadCommitInfoDTO {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  message: string;
+  /** HEAD 已在任一远端分支上（amend 后需强推） */
+  pushed: boolean;
+  branch: string | null;
+}
+
+/** 远端独有提交（强推确认框列出将被移出远端的提交）。 */
+export interface RemoteOnlyCommitDTO {
+  shortSha: string;
+  subject: string;
 }
 
 export interface BranchItemDTO {
@@ -200,6 +248,13 @@ export interface SettingsDTO {
   projects: ProjectDTO[];
   currentProjectPath: string | null;
   externalEditor: string | null;
+  /** 内建编辑器（files 页）：改动后 300ms 防抖自动保存；关闭则仅 Ctrl+S 显式保存 */
+  editorAutoSave: boolean;
+  /** 外部语言服务器（inline-editor-plan.md §4.5，P3）：Monaco 内置服务之外，按需启停 */
+  lspTypescript: boolean;
+  lspTypescriptCommand: string;
+  lspPython: boolean;
+  lspPythonCommand: string;
   diffMode: "sideBySide" | "inline";
   sidebarCollapsed: boolean;
   bashPath: string | null;
@@ -236,7 +291,7 @@ export interface SettingsDTO {
   /** 上下文压缩策略（F7） */
   agentsCompaction: "auto" | "manual" | "off";
   /** 压缩数据面调参（§20.3.3） */
-  agentsCompactionPolicy: { threshold?: number; keepLast?: number };
+  agentsCompactionPolicy: { threshold?: number; keepLast?: number; keepTokens?: number };
   /** post-turn 钩子总开关（§20.3.6） */
   agentsPostTurnHooks: boolean;
   /** D5 任务完成 OS 通知 */
@@ -245,6 +300,8 @@ export interface SettingsDTO {
   agentsMaxSubagents: number;
   /** MCP 工具入 agent 循环（F12.4 信任门，默认关） */
   agentsExternalMcpTools: boolean;
+  /** 任务执行位置：false（默认）=直接在当前分支修改；true=每任务独立 worktree + task/* 分支 */
+  agentsTaskWorktree: boolean;
   /** 模型档案（task-model-modules.md §二） */
   models: UserModelProfileDTO[];
   defaultModelId: string | null;
@@ -267,6 +324,15 @@ export interface AgentPermissionRuleDTO {
 export type ThinkingLevel = "off" | "low" | "medium" | "high";
 
 /** 用户模型档案（settings.models[]；包模板实例化后同 fullId 遮蔽）。 */
+export interface OAuthProfileConfig {
+  authorizeUrl: string;
+  tokenUrl: string;
+  clientId: string;
+  scopes: string;
+  extraHeaders?: Record<string, string>;
+  clientAuth?: "client_secret_post" | "none";
+}
+
 export interface UserModelProfileDTO {
   id: string;
   name: string;
@@ -319,6 +385,60 @@ export interface ModelProfileDTO {
   groupId: string;
   /** 分组成员明细（仅分组主条目携带，供设置页分组卡片与编辑回填）。 */
   groupModels?: { modelId: string; vision: boolean; contextTokens?: number; thinking: ThinkingLevel }[];
+  authKind?: "apiKey" | "oauth";
+  oauthConfigured?: boolean;
+  oauthExpiresAt?: number | null;
+  pricing?: { inputPerM?: number; outputPerM?: number } | null;
+}
+
+// ---- M 系列主线（harness-mainline-roadmap.md）----
+
+export type RiskLevel = "high" | "medium" | "low";
+
+export interface RiskSignal {
+  level: RiskLevel;
+  kind: string;
+  message: string;
+}
+
+export interface RiskFileReport {
+  path: string;
+  added: number | null;
+  deleted: number | null;
+  isBinary: boolean;
+  signals: RiskSignal[];
+}
+
+export interface RiskReport {
+  files: RiskFileReport[];
+  counts: { high: number; medium: number; low: number };
+}
+
+export interface UsageReport {
+  repoPaths: string[];
+  totals: { turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null };
+  byDay: { day: string; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null }[];
+  byModel: { modelRef: string; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null }[];
+  byTask: { taskId: string; title: string; state: string; modelRef: string | null; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null; lastActiveAt: string | null }[];
+  emptyRepos: string[];
+}
+
+export interface GitOperationState {
+  kind: "merge" | "rebase" | "cherry-pick" | "revert" | null;
+  detail: string | null;
+}
+
+export interface CockpitTaskRow {
+  repoPath: string;
+  repoName: string;
+  taskId: string;
+  title: string;
+  state: string;
+  branch: string;
+  modelRef: string | null;
+  lastMessage: string | null;
+  lastActiveAt: string | null;
+  review: { status: string; comment: string | null; at: string } | null;
 }
 
 /** agent.taskTypes.list RPC 条目。 */
@@ -438,6 +558,46 @@ export type AgentTaskDTO = {
   planHistory?: { ts: string; plan: string; decision: "approved" | "revised"; feedback?: string }[];
   queued?: string[];
   archived: boolean;
+  /** 收尾合并目标分支（spawn/fork 记录；主 worktree 模式为 null） */
+  baseBranch?: string | null;
+  /** awaiting-input 细分（null = 自然收尾=已完成；question=等你回答；plan=待确认计划） */
+  awaitKind?: "question" | "plan" | null;
+  /** 收尾合并结果（有值 = 已合并） */
+  wrapup?: { mergeSha: string; mergedAt: string; strategy: "squash" | "merge" } | null;
+  review?: { status: "pending" | "approved" | "rejected"; comment: string | null; at: string } | null;
+};
+
+/** 收尾合并预检（agent.task.mergeCheck）。 */
+export type AgentMergeCheckDTO = {
+  ok: boolean;
+  reason?: "TASK_LIVE" | "NO_WORKTREE" | "MAIN_DIRTY" | "GIT_FAIL";
+  baseBranch: string;
+  mainBranch: string;
+  mainDirty: boolean;
+  ahead: number;
+  behind: number;
+  uncommitted: number;
+  /** null = 无法预检；[] = 干净；非空 = 冲突清单 */
+  conflicts: string[] | null;
+  diffStat: string;
+};
+
+/** 收尾合并结果（agent.task.merge）。 */
+export type AgentMergeResultDTO = {
+  ok: boolean;
+  mergeSha?: string;
+  conflicts?: string[];
+  cleanup?: { worktreeRemoved: boolean; branchDeleted: boolean };
+  archived: boolean;
+};
+
+/** 后台 shell 条目（agent.task.shells；仅 live 会话有数据）。 */
+export type AgentShellDTO = {
+  id: string;
+  command: string;
+  running: boolean;
+  exitCode: number | null;
+  tail: string;
 };
 
 export type AgentContextStatsDTO = {
@@ -451,7 +611,12 @@ export type AgentContextStatsDTO = {
   totalOutput?: number;
   lastOutput?: number;
   tokPerSec?: number;
+  /** 全量加权缓存命中率（ΣcacheRead/Σinput，与平台口径一致） */
   cacheHitRate?: number;
+  /** 累计未命中输入 token */
+  cacheMissTotal?: number;
+  /** 断点轮数（压缩/换模型/重启续跑/模式切换） */
+  cacheBreaks?: number;
 };
 
 export type AgentPermissionPayloadDTO = {
@@ -469,7 +634,7 @@ export type AgentEventDTO = {
   phase?: string;
   summary?: string;
   text?: string;
-  stream?: "terminal" | "assistant" | "tool";
+  stream?: "terminal" | "assistant" | "tool" | "thinking";
   commitSha?: string;
   title?: string;
   detail?: string;
