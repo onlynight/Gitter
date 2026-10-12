@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "lang.monaco.zhcn",
+  "name": "Monaco 编辑器简体中文语言包",
+  "version": "0.52.2",
+  "description": "Monaco 内部界面简体中文（编辑器右键菜单、F1 命令面板、查找替换、diff 等）。文件页以可选依赖先于编辑器库注入，包启用即生效、停用/卸载回退英文，需重启应用。译文源 microsoft/vscode-loc（zh-hans）；Monaco 升级后重跑 web/scripts/gen-monaco-nls.mjs 再生成（版本与索引数由库构建同频断言）。",
+  "contributes": {
+    "libraries": [
+      {
+        "id": "monaco-nls-zh-cn",
+        "version": "0.52.2",
+        "entry": "nls.js",
+        "global": "GITTER_LIBS.monacoNlsZhCn"
+      }
+    ]
+  }
+}

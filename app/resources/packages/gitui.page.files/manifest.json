@@ -25,6 +25,11 @@
         },
         "dependencies": [
           {
+            "lib": "monaco-nls-zh-cn",
+            "package": "lang.monaco.zhcn",
+            "required": false
+          },
+          {
             "lib": "monaco",
             "package": "gitui.lib.monaco",
             "semver": "^0.52.0"

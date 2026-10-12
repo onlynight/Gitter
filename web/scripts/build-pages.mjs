@@ -188,11 +188,46 @@ async function buildMonacoLib() {
       `升级 Monaco 请同步 manifest.contributes.libraries[0].version`,
     );
   }
+  // Monaco NLS 索引化（官方查表通道）：localize({key}, "EN") → localize(idx, "EN")，
+  // 运行时 _VSCODE_NLS_MESSAGES[idx] 命中即中文、缺表/缺条目回落英文。本库只做能力化
+  // （索引改写），中文数据在独立插件包 lang.monaco.zhcn（nls.js 设全局表，文件页
+  // required:false 可选依赖先于本库注入）——不装包零行为变化。
+  const nls = await import("./gen-monaco-nls.mjs");
+  const nlsScan = nls.scanMonacoNls();
+  const nlsMetaPath = path.join(outRoot, "lang.monaco.zhcn", "nls.meta.json");
+  if (fs.existsSync(nlsMetaPath)) {
+    const meta = JSON.parse(fs.readFileSync(nlsMetaPath, "utf8"));
+    if (meta.monacoVersion !== monacoVer || meta.indexes !== nlsScan.list.length) {
+      throw new Error(
+        `lang.monaco.zhcn/nls.js 与 monaco-editor ${monacoVer} 不同频（meta ${meta.monacoVersion}/${meta.indexes}` +
+        ` vs 当前 ${monacoVer}/${nlsScan.list.length}）——重跑 node scripts/gen-monaco-nls.mjs`,
+      );
+    }
+  }
+  const monacoNlsIndex = {
+    name: "gitter-monaco-nls-index",
+    enforce: "pre",
+    transform(code, id) {
+      const norm = id.replace(/\\/g, "/");
+      const anchor = "monaco-editor/esm/";
+      const i = norm.indexOf(anchor);
+      if (i < 0) return null;
+      const modulePath = norm.slice(i + anchor.length).replace(/\.js$/, "");
+      let touched = false;
+      const out = code.replace(nls.NLS_CALL_RE, (m, name, _q1, keyObj, _q2, keyStr) => {
+        const idx = nlsScan.indexOf.get(`${modulePath}\u0000${keyObj ?? keyStr}`);
+        if (idx === undefined) return m;
+        touched = true;
+        return `${name}(${idx},`;
+      });
+      return touched ? { code: out, map: null } : null;
+    },
+  };
   const outDir = path.join(webRoot, ".vite-monaco-lib");
   await build({
     root: webRoot,
     logLevel: "warn",
-    plugins: [monacoCssInline()],
+    plugins: [monacoNlsIndex, monacoCssInline()],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     worker: { format: "iife" },
     build: {

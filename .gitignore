@@ -28,3 +28,4 @@ scripts/node_modules/
 app/build/
 web/harness-dist/
 web/.vite/
+web/scripts/monaco-nls/_vscode-zh-main.i18n.json

@@ -648,6 +648,9 @@ applyTheme("dark");
 // 同序——先注入依赖库脚本（monaco / chart / officeview 各自挂 window.GITTER_LIBS.*），
 // 再装页面 entry。harness 经 vite 静态服务 file 产物，动态 import 即脚本注入。
 (window as any).GITTER_LIBS = (window as any).GITTER_LIBS ?? {};
+// Monaco 中文语言包（lang.monaco.zhcn 插件——真实装载序由页装载器按文件页依赖声明
+// 保证先于编辑器库；harness 直接按同序 import）
+await import("../../app/resources/packages/lang.monaco.zhcn/nls.js");
 await import("../../app/resources/packages/gitui.lib.monaco/monaco.js");
 await import("../../app/resources/packages/gitui.lib.chart/chart.js");
 await import("../../app/resources/packages/gitui.page.office/officeview.js");
