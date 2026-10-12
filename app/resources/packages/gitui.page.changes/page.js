@@ -196,6 +196,189 @@
     if (!res.ok) throw new BridgeCallError(res.error.message, res.error.detail);
     return res.data;
   }
+  let state = {
+    i18n: null
+  };
+  function t$1(key, ...args) {
+    var _a2;
+    const dict = (_a2 = state.i18n) == null ? void 0 : _a2.strings;
+    let s = (dict == null ? void 0 : dict[key]) ?? key;
+    args.forEach((a, i) => {
+      s = s.replace(`{${i}}`, String(a));
+    });
+    return s;
+  }
+  function relativeTime(unix) {
+    const diff = Date.now() / 1e3 - unix;
+    if (diff < 60) return t$1("Log_JustNow");
+    if (diff < 3600) return t$1("Log_MinutesAgo", Math.floor(diff / 60));
+    if (diff < 86400) return t$1("Log_HoursAgo", Math.floor(diff / 3600));
+    if (diff < 86400 * 30) return t$1("Log_DaysAgo", Math.floor(diff / 86400));
+    return new Date(unix * 1e3).toLocaleDateString();
+  }
+  function StashDialog(props) {
+    const [entries, setEntries] = react.useState(null);
+    const [error, setError] = react.useState(null);
+    const [done, setDone] = react.useState(null);
+    const [message, setMessage] = react.useState("");
+    const [busy, setBusy] = react.useState(false);
+    const [expanded, setExpanded] = react.useState(null);
+    const [files, setFiles] = react.useState([]);
+    const reload = async () => {
+      try {
+        setEntries(await call$1("stash.list", {}));
+      } catch (e) {
+        setError(e.message);
+      }
+    };
+    react.useEffect(() => {
+      void reload();
+    }, []);
+    const act = async (fn, doneText) => {
+      var _a2;
+      setBusy(true);
+      setError(null);
+      setDone(null);
+      try {
+        await fn();
+        setMessage("");
+        setExpanded(null);
+        setFiles([]);
+        (_a2 = props.onChanged) == null ? void 0 : _a2.call(props);
+        await reload();
+        setDone(doneText);
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+    const toggleExpand = async (index) => {
+      if (expanded === index) {
+        setExpanded(null);
+        return;
+      }
+      setExpanded(index);
+      try {
+        setFiles(await call$1("stash.show", { index }));
+      } catch (e) {
+        setFiles([]);
+        setError(e.message);
+      }
+    };
+    return /* @__PURE__ */ jsxRuntime.jsxs(
+      Modal,
+      {
+        title: t$1("Changes_StashManage"),
+        width: 620,
+        confirmText: t$1("Common_Close"),
+        confirmDisabled: busy,
+        onClose: () => {
+          if (!busy) props.onClose();
+        },
+        onConfirm: () => props.onClose(),
+        children: [
+          error && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-red)", fontSize: 12, marginBottom: 6, wordBreak: "break-all" }, children: error }),
+          done && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-green)", fontSize: 12, marginBottom: 6 }, children: done }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5, marginBottom: 6 }, children: t$1("Changes_StashHint") }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 8 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                className: "input",
+                style: { flex: 1 },
+                placeholder: t$1("Changes_StashMessagePlaceholder"),
+                spellCheck: false,
+                value: message,
+                onChange: (e) => setMessage(e.target.value),
+                onKeyDown: (e) => {
+                  if (e.key === "Enter" && props.hasChanges) void act(async () => {
+                    await call$1("stash.push", { message: message.trim() || null });
+                  }, t$1("Changes_StashSaved"));
+                }
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsxs(
+              "button",
+              {
+                className: "tool-btn primary",
+                disabled: busy || !props.hasChanges,
+                onClick: () => void act(async () => {
+                  await call$1("stash.push", { message: message.trim() || null });
+                }, t$1("Changes_StashSaved")),
+                children: [
+                  /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "archive", size: 12 }),
+                  t$1("Changes_StashSave")
+                ]
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { maxHeight: 320, overflowY: "auto", border: "1px solid var(--c-border)", borderRadius: "var(--radius-md)" }, children: entries === null ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: 16, color: "var(--c-text3)", fontSize: 12 }, children: t$1("Common_Loading") }) : entries.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { padding: 16, color: "var(--c-text3)", fontSize: 12 }, children: t$1("Changes_StashEmpty") }) : entries.map((en) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderBottom: "1px solid var(--c-border)" }, children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "list-row", style: { minHeight: 30 }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "icon-btn",
+                  "data-tip": t$1("Common_Expand"),
+                  disabled: busy,
+                  onClick: () => void toggleExpand(en.index),
+                  style: { width: 18, height: 18 },
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 10, className: expanded === en.index ? void 0 : "cv-closed" })
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { fontSize: 10.5, flex: "none", width: 58 }, children: en.selector }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "trim", style: { flex: 1, minWidth: 0, fontSize: 12 }, title: en.subject, children: en.message }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "trim", style: { flex: "none", color: "var(--c-text3)", fontSize: 11, maxWidth: 140 }, children: [en.branch, relativeTime(en.timestamp)].filter(Boolean).join(" · ") }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "tool-btn",
+                  style: { padding: "0 8px", fontSize: 11.5 },
+                  title: t$1("Changes_StashPopTip"),
+                  disabled: busy,
+                  onClick: () => void act(async () => {
+                    await call$1("stash.apply", { index: en.index, drop: true });
+                  }, t$1("Changes_StashAppliedPop", en.selector)),
+                  children: t$1("Changes_StashPop")
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "tool-btn",
+                  style: { padding: "0 8px", fontSize: 11.5 },
+                  title: t$1("Changes_StashApplyTip"),
+                  disabled: busy,
+                  onClick: () => void act(async () => {
+                    await call$1("stash.apply", { index: en.index });
+                  }, t$1("Changes_StashApplied", en.selector)),
+                  children: t$1("Changes_StashApply")
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "tool-btn danger",
+                  style: { padding: "0 8px", fontSize: 11.5 },
+                  title: t$1("Changes_StashDrop"),
+                  disabled: busy,
+                  onClick: () => void act(async () => {
+                    await call$1("stash.drop", { index: en.index });
+                  }, t$1("Changes_StashDropped", en.selector)),
+                  children: t$1("Changes_StashDrop")
+                }
+              )
+            ] }),
+            expanded === en.index && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { margin: "0 10px 6px 44px", padding: "4px 10px", borderLeft: "2px solid var(--c-border-strong)" }, children: files.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11, padding: "2px 0" }, children: t$1("Common_Loading") }) : files.map((f) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, alignItems: "center", padding: "1.5px 0" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "status-letter " + (f.code === "?" ? "st-U" : "st-" + f.code), style: { fontSize: 9, width: 12, height: 12 }, children: f.code === "?" ? "?" : f.code }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--c-text2)", wordBreak: "break-all", userSelect: "text" }, children: f.path })
+            ] }, f.path)) })
+          ] }, en.selector)) }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 8 }, children: t$1("Changes_StashConflictHint") })
+        ]
+      }
+    );
+  }
   function parseConflictHunks(content) {
     const eol = content.includes("\r\n") ? "\r\n" : "\n";
     const lines = content.split(/\r?\n/);
@@ -276,10 +459,8 @@
       setBusy(true);
       setErr(null);
       try {
-        const base = ops.kind === "rebase" ? "git.rebase" : "git.merge";
-        if (ops.kind === "rebase" || ops.kind === "merge") {
-          await call$1(kind === "continue" ? `${base}Continue` : `${base}Abort`, {});
-        }
+        const base = ops.kind === "rebase" ? "git.rebase" : ops.kind === "merge" ? "git.merge" : ops.kind === "cherry-pick" ? "git.cherryPick" : "git.revert";
+        await call$1(kind === "continue" ? `${base}Continue` : `${base}Abort`, {});
         props.onChanged();
         await refreshOps();
       } catch (e) {
@@ -407,7 +588,7 @@
     var _a2;
     const app = useApp();
     const repo = app.repo;
-    const [state, setStateDto] = react.useState(null);
+    const [state2, setStateDto] = react.useState(null);
     const [error, setError] = react.useState(null);
     const [errorDetail, setErrorDetail] = react.useState(null);
     const [transient, setTransient] = react.useState(null);
@@ -482,9 +663,9 @@
     });
     const activeFindings = findings.filter((f) => !resolvedFindings.has(findingKey(f)));
     const jumpToFinding = (f) => {
-      const unstaged = state == null ? void 0 : state.changes.find((x) => x.path === f.filePath);
-      const staged = state == null ? void 0 : state.staged.find((x) => x.path === f.filePath);
-      const conflict = state == null ? void 0 : state.conflicts.find((x) => x.path === f.filePath);
+      const unstaged = state2 == null ? void 0 : state2.changes.find((x) => x.path === f.filePath);
+      const staged = state2 == null ? void 0 : state2.staged.find((x) => x.path === f.filePath);
+      const conflict = state2 == null ? void 0 : state2.conflicts.find((x) => x.path === f.filePath);
       const target = unstaged ?? staged ?? conflict;
       if (target) {
         select(target, !unstaged && !!staged);
@@ -498,6 +679,14 @@
     const [explainText, setExplainText] = react.useState(null);
     const [createBranch, setCreateBranch] = react.useState(null);
     const [pushErrorKind, setPushErrorKind] = react.useState(null);
+    const [stashOpen, setStashOpen] = react.useState(false);
+    const [stashCount, setStashCount] = react.useState(0);
+    const [multiSel, setMultiSel] = react.useState(/* @__PURE__ */ new Set());
+    const [discardTarget, setDiscardTarget] = react.useState(null);
+    const [amend, setAmend] = react.useState(false);
+    const [amendDraft, setAmendDraft] = react.useState(null);
+    const [headInfo, setHeadInfo] = react.useState(null);
+    const [forcePreview, setForcePreview] = react.useState(null);
     const { showMenu, menuElement } = useContextMenu();
     const transientTimer = react.useRef(null);
     const [syncProgress, clearSyncProgress] = useSyncProgress();
@@ -518,6 +707,11 @@
       } catch (e) {
         setError(e.message);
         setErrorDetail(e.detail ?? null);
+      }
+      try {
+        setStashCount((await call("stash.list", {})).length);
+      } catch {
+        setStashCount(0);
       }
     }, [repo]);
     react.useEffect(() => {
@@ -541,6 +735,13 @@
       if (transientTimer.current) window.clearTimeout(transientTimer.current);
       transientTimer.current = window.setTimeout(() => setTransient(null), 5e3);
     };
+    react.useEffect(() => {
+      const onKey = (e) => {
+        if (e.key === "Escape") setMultiSel(/* @__PURE__ */ new Set());
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, []);
     const run = async (fn) => {
       setBusy(true);
       try {
@@ -614,17 +815,21 @@
       void loadDiff(sel);
     };
     const allFiles = react.useMemo(
-      () => state ? [...state.staged, ...state.changes, ...state.unversioned, ...state.conflicts] : [],
-      [state]
+      () => state2 ? [...state2.staged, ...state2.changes, ...state2.unversioned, ...state2.conflicts] : [],
+      [state2]
+    );
+    const selPaths = react.useMemo(
+      () => state2 ? [...multiSel].filter((p) => state2.changes.some((f) => f.path === p) || state2.unversioned.some((f) => f.path === p)) : [],
+      [multiSel, state2]
     );
     const stagedPaths = react.useMemo(
       () => allFiles.filter((f) => checked.has(f.path) && f.category !== "staged" && f.category !== "conflicts").map((f) => f.path),
       [allFiles, checked]
     );
     const commitStat = react.useMemo(() => {
-      if (!state) return { n: 0, added: 0, deleted: 0 };
+      if (!state2) return { n: 0, added: 0, deleted: 0 };
       const files = [
-        ...state.staged.filter((f) => !excludedStaged.has(f.path)),
+        ...state2.staged.filter((f) => !excludedStaged.has(f.path)),
         ...allFiles.filter((f) => checked.has(f.path) && f.category !== "staged" && f.category !== "conflicts")
       ];
       let added = 0;
@@ -634,8 +839,9 @@
         deleted += f.deleted ?? 0;
       }
       return { n: files.length, added, deleted };
-    }, [state, allFiles, checked, excludedStaged]);
-    const canCommit = !!state && (state.staged.some((f) => !excludedStaged.has(f.path)) || stagedPaths.length > 0) && message.trim().length > 0 && !busy;
+    }, [state2, allFiles, checked, excludedStaged]);
+    const canCommit = !!state2 && (state2.staged.some((f) => !excludedStaged.has(f.path)) || stagedPaths.length > 0) && message.trim().length > 0 && !busy && // amend 只在拿到 HEAD 信息后可用（toggleAmend 成功才会置 amend）
+    (!amend || headInfo !== null);
     const doCommit = async (push) => {
       if (!canCommit) return;
       setBusy(true);
@@ -644,15 +850,18 @@
           message: message.trim(),
           push,
           toStage: stagedPaths,
-          toUnstage: [...excludedStaged]
+          toUnstage: [...excludedStaged],
+          amend
         });
         setMessage("");
         setChecked(/* @__PURE__ */ new Set());
+        setAmend(false);
+        setAmendDraft(null);
         if (r.pushError) {
           setError(t("Changes_PushFailed", r.pushError));
           setErrorDetail(null);
         } else {
-          showTransient(push ? t("Changes_CommittedAndPushed") : t("Changes_Committed"));
+          showTransient(push ? t("Changes_CommittedAndPushed") : amend ? t("Changes_Amended") : t("Changes_Committed"));
         }
         notifyRepoChanged();
       } catch (e) {
@@ -661,6 +870,33 @@
         setErrorDetail(err.detail ?? null);
       } finally {
         clearSyncProgress();
+        setBusy(false);
+      }
+    };
+    const toggleAmend = async () => {
+      if (amend) {
+        setAmend(false);
+        setHeadInfo(null);
+        if (amendDraft !== null) {
+          setMessage(amendDraft);
+          setAmendDraft(null);
+        }
+        return;
+      }
+      setBusy(true);
+      try {
+        const h = await call("changes.headInfo", {});
+        if (!h) {
+          showTransient(t("Changes_AmendNoHead"));
+          return;
+        }
+        setHeadInfo(h);
+        setAmendDraft(message);
+        setMessage(h.message);
+        setAmend(true);
+      } catch (e) {
+        setError(e.message);
+      } finally {
         setBusy(false);
       }
     };
@@ -688,17 +924,17 @@
         setAiBusy(false);
       }
     };
-    const doPush = async () => {
+    const doPushEx = async (opts) => {
       setBusy(true);
       try {
-        const err = await call("changes.push", {});
+        const err = await call("changes.push", opts);
         if (err) {
           setPushErrorKind(err);
           setError(t("Changes_PushFailed", err));
           setErrorDetail(null);
         } else {
           setPushErrorKind(null);
-          showTransient(t("Changes_Pushed"));
+          showTransient(opts.forceWithLease ? t("Changes_ForcePushed") : opts.tags ? t("Changes_PushTagsDone") : t("Changes_Pushed"));
           notifyRepoChanged();
         }
       } catch (e) {
@@ -709,6 +945,36 @@
         setBusy(false);
       }
     };
+    const doPush = () => doPushEx({});
+    const openForcePush = async () => {
+      setBusy(true);
+      try {
+        const commits = await call("changes.pushPreview", {});
+        setForcePreview({ branch: (state2 == null ? void 0 : state2.branch) ?? "HEAD", commits });
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+    const askDiscard = (paths) => {
+      if (paths.length > 0) setDiscardTarget(paths);
+    };
+    const doDiscard = async () => {
+      const paths = discardTarget ?? [];
+      setDiscardTarget(null);
+      setMultiSel(/* @__PURE__ */ new Set());
+      await run(async () => {
+        await call("changes.discardFiles", { paths });
+        return t("Changes_Discarded", paths.length);
+      });
+    };
+    const toggleMulti = (path) => setMultiSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
     const doSetUpstreamPush = async () => {
       setBusy(true);
       try {
@@ -738,13 +1004,13 @@
       if (cmd.id === "changes.commit") void doCommit(false);
       else if (cmd.id === "changes.commitPush") void doCommit(true);
       else if (cmd.id === "changes.stageAll") {
-        const paths = [...(state == null ? void 0 : state.changes) ?? [], ...(state == null ? void 0 : state.unversioned) ?? []].map((f) => f.path);
+        const paths = [...(state2 == null ? void 0 : state2.changes) ?? [], ...(state2 == null ? void 0 : state2.unversioned) ?? []].map((f) => f.path);
         void run(async () => {
           await call("changes.stage", { paths });
           return t("Changes_StagedAll");
         });
       } else if (cmd.id === "changes.unstageAll") {
-        const paths = ((state == null ? void 0 : state.staged) ?? []).map((f) => f.path);
+        const paths = ((state2 == null ? void 0 : state2.staged) ?? []).map((f) => f.path);
         void run(async () => {
           await call("changes.unstage", { paths });
           return t("Changes_UnstagedAll");
@@ -783,13 +1049,26 @@
       return /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
-          className: "chg-row" + ((selected == null ? void 0 : selected.path) === f.path && (selected == null ? void 0 : selected.staged) === stagedView ? " selected" : "") + (isConflict ? " conflict" : ""),
-          onClick: () => select(f, stagedView),
+          className: "chg-row" + ((selected == null ? void 0 : selected.path) === f.path && (selected == null ? void 0 : selected.staged) === stagedView ? " selected" : "") + (isConflict ? " conflict" : "") + (multiSel.has(f.path) ? " multi-sel" : ""),
+          onClick: (e) => {
+            if (!stagedView && !isConflict && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              toggleMulti(f.path);
+              return;
+            }
+            select(f, stagedView);
+          },
           onContextMenu: (e) => {
             void (async () => {
               const local = [
                 stagedView ? { label: t("Changes_UnstageFile"), action: unstageOne } : { label: t("Changes_StageFile"), action: stageOne },
                 ...isConflict ? [{ label: t("Changes_MarkResolved"), action: stageOne }] : [],
+                // 放弃入口：已跟踪「放弃修改…」（回 HEAD）/ 未跟踪「删除文件…」（不可从 git 恢复）
+                ...!stagedView && !isConflict ? [
+                  { sep: true, label: "", action: () => {
+                  } },
+                  f.category === "unversioned" ? { label: t("Changes_DeleteFileMenu"), action: () => askDiscard([f.path]) } : { label: t("Changes_DiscardFileMenu"), action: () => askDiscard([f.path]) }
+                ] : [],
                 { sep: true, label: "", action: () => {
                 } }
               ];
@@ -838,19 +1117,34 @@
                   },
                   children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 12 })
                 }
-              ) : /* @__PURE__ */ jsxRuntime.jsx(
-                "button",
-                {
-                  className: "icon-btn",
-                  "data-tip": t("Changes_StageFile"),
-                  disabled: busy,
-                  onClick: (e) => {
-                    e.stopPropagation();
-                    stageOne();
-                  },
-                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 12 })
-                }
-              ) })
+              ) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "button",
+                  {
+                    className: "icon-btn",
+                    "data-tip": t("Changes_StageFile"),
+                    disabled: busy,
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      stageOne();
+                    },
+                    children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 12 })
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "button",
+                  {
+                    className: "icon-btn discard",
+                    "data-tip": f.category === "unversioned" ? t("Changes_DeleteHover") : t("Changes_DiscardHover"),
+                    disabled: busy,
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      askDiscard([f.path]);
+                    },
+                    children: f.category === "unversioned" ? /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "trash", size: 12 }) : /* @__PURE__ */ jsxRuntime.jsx(DiscardIcon, { size: 12 })
+                  }
+                )
+              ] }) })
             ] })
           ]
         },
@@ -931,10 +1225,10 @@
     };
     const hasSelectedHunks = selectedHunks.size > 0 && diff && !diff.isBinary;
     const selectedFile = react.useMemo(() => {
-      if (!selected || !state) return null;
-      const list = selected.staged ? state.staged : selected.isConflict ? state.conflicts : selected.isNew ? state.unversioned : state.changes;
+      if (!selected || !state2) return null;
+      const list = selected.staged ? state2.staged : selected.isConflict ? state2.conflicts : selected.isNew ? state2.unversioned : state2.changes;
       return list.find((f) => f.path === selected.path) ?? null;
-    }, [selected, state]);
+    }, [selected, state2]);
     const selLetter = selectedFile ? letterOf(selectedFile) : "";
     const selSplit = selected ? splitPath(selected.path) : { dir: "", base: "" };
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
@@ -1051,21 +1345,21 @@
           /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-head", children: [
             /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "chg-branch", "data-tip": t("Changes_BranchSwitch"), onClick: () => navigate("branches"), children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 12 }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: (state == null ? void 0 : state.branch) ?? "—" })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", children: (state2 == null ? void 0 : state2.branch) ?? "—" })
             ] }),
-            state && !!state.ahead && !!state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", state.ahead, state.behind), children: [
+            state2 && !!state2.ahead && !!state2.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", state2.ahead, state2.behind), children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 10, className: "up" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state.ahead }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state2.ahead }),
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 10, className: "dn" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state.behind })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state2.behind })
             ] }),
-            state && !!state.ahead && !state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_Ahead", state.ahead), children: [
+            state2 && !!state2.ahead && !state2.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_Ahead", state2.ahead), children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 10, className: "up" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state.ahead })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "up", children: state2.ahead })
             ] }),
-            state && !state.ahead && !!state.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", 0, state.behind), children: [
+            state2 && !state2.ahead && !!state2.behind && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sync", "data-tip": t("Changes_AheadBehind", 0, state2.behind), children: [
               /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 10, className: "dn" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state.behind })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "dn", children: state2.behind })
             ] }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
             /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Fetch"), disabled: busy, onClick: () => void run(async () => {
@@ -1080,7 +1374,32 @@
               await call("changes.pull", { rebase: true });
               return t("Changes_PulledRebase");
             }), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "down", size: 13 }) }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Push"), disabled: busy, onClick: () => void doPush(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "icon-btn stash-btn", "data-tip": t("Changes_StashManage"), disabled: busy, onClick: () => setStashOpen(true), children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "archive", size: 13 }),
+              stashCount > 0 && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "stash-badge", children: stashCount > 99 ? "99+" : stashCount })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "push-split", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_Push"), disabled: busy, onClick: () => void doPush(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 }) }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "icon-btn push-more",
+                  "data-tip": t("Changes_PushMore"),
+                  disabled: busy,
+                  "aria-haspopup": "menu",
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    showMenu(e, [
+                      { label: t("Changes_PushTags"), action: () => void doPushEx({ tags: true }) },
+                      { sep: true, label: "", action: () => {
+                      } },
+                      { label: t("Changes_ForcePush"), action: () => void openForcePush() }
+                    ]);
+                  },
+                  children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 9 })
+                }
+              )
+            ] }),
             /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Branches_CreateTitle"), onClick: () => setCreateBranch(""), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "plus", size: 13 }) })
           ] }),
           /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "chg-filter" + (filter ? " has" : ""), children: [
@@ -1099,11 +1418,39 @@
             ),
             filter && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "chg-clr", onClick: () => setFilter(""), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "x", size: 11 }) })
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx(ScrollArea, { className: "file-scroll", style: { flex: 1 }, children: state && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-            group("conflicts", t("Changes_Conflicts"), state.conflicts, false, { checkable: false, act: null }),
-            group("staged", t("Changes_StagedGroup"), state.staged, true, { checkable: true, act: "unstage" }),
-            group("changes", t("Changes_ChangesGroup"), state.changes, false, { checkable: true, act: "stage" }),
-            group("unversioned", t("Changes_UnversionedGroup"), state.unversioned, false, { checkable: true, act: "stage" }),
+          selPaths.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "sel-strip", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("Changes_SelCount", selPaths.length) }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+            /* @__PURE__ */ jsxRuntime.jsxs(
+              "button",
+              {
+                className: "tool-btn sm",
+                disabled: busy,
+                onClick: () => {
+                  const paths = [...selPaths];
+                  void run(async () => {
+                    await call("changes.stage", { paths });
+                    setMultiSel(/* @__PURE__ */ new Set());
+                    return t("Changes_Staged");
+                  });
+                },
+                children: [
+                  /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 11 }),
+                  t("Changes_SelStage")
+                ]
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn sm danger", disabled: busy, onClick: () => askDiscard([...selPaths]), children: [
+              /* @__PURE__ */ jsxRuntime.jsx(DiscardIcon, { size: 11 }),
+              t("Changes_SelDiscard")
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn sm icon", "data-tip": t("Changes_SelClear"), disabled: busy, onClick: () => setMultiSel(/* @__PURE__ */ new Set()), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "x", size: 11 }) })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx(ScrollArea, { className: "file-scroll", style: { flex: 1 }, children: state2 && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            group("conflicts", t("Changes_Conflicts"), state2.conflicts, false, { checkable: false, act: null }),
+            group("staged", t("Changes_StagedGroup"), state2.staged, true, { checkable: true, act: "unstage" }),
+            group("changes", t("Changes_ChangesGroup"), state2.changes, false, { checkable: true, act: "stage" }),
+            group("unversioned", t("Changes_UnversionedGroup"), state2.unversioned, false, { checkable: true, act: "stage" }),
             allFiles.length === 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
               t("Changes_WorktreeClean"),
               /* @__PURE__ */ jsxRuntime.jsx(EmptyHints, { slot: "changes.empty" })
@@ -1166,11 +1513,11 @@
                     /* @__PURE__ */ jsxRuntime.jsx("div", { className: "pop-hint", children: t("Changes_PrefixMenuHint") })
                   ] }),
                   /* @__PURE__ */ jsxRuntime.jsx("span", { className: "grow", style: { flex: 1 } }),
-                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": aiBusy ? t("Common_Loading") : t("Changes_AiGenerate"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13 }) })
+                  /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": aiBusy ? t("Common_Loading") : t("Changes_AiGenerate"), disabled: aiBusy || ((state2 == null ? void 0 : state2.staged.length) ?? 0) === 0, onClick: () => void generateMessage(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 13 }) })
                 ]
               }
             ),
-            /* @__PURE__ */ jsxRuntime.jsx(CommitBlocks, { fileCount: (state == null ? void 0 : state.staged.length) ?? 0 }),
+            /* @__PURE__ */ jsxRuntime.jsx(CommitBlocks, { fileCount: (state2 == null ? void 0 : state2.staged.length) ?? 0 }),
             /* @__PURE__ */ jsxRuntime.jsx(
               "textarea",
               {
@@ -1186,8 +1533,26 @@
                 }
               }
             ),
+            amend && (headInfo == null ? void 0 : headInfo.pushed) && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "amend-warn", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-amber)", fontWeight: 700, flex: "none" }, children: "⚠" }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("Changes_AmendPushedWarn", headInfo.shortSha) })
+            ] }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "commit-actions", style: { alignItems: "center", justifyContent: "flex-start" }, children: [
-              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "chg-sum", children: [
+              /* @__PURE__ */ jsxRuntime.jsxs(
+                "button",
+                {
+                  className: "amend-pill" + (amend ? " on" : ""),
+                  "aria-pressed": amend,
+                  "data-tip": t("Changes_Amend"),
+                  disabled: busy,
+                  onClick: () => void toggleAmend(),
+                  children: [
+                    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "amend-box", children: amend && /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check", size: 9 }) }),
+                    t("Changes_Amend")
+                  ]
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "chg-sum", children: amend && headInfo ? t("Changes_AmendStat", headInfo.shortSha) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
                 t("Changes_CommitStat", commitStat.n),
                 (commitStat.added > 0 || commitStat.deleted > 0) && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
                   " · ",
@@ -1201,11 +1566,11 @@
                     commitStat.deleted
                   ] })
                 ] })
-              ] }),
+              ] }) }),
               /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
               /* @__PURE__ */ jsxRuntime.jsxs("button", { className: "tool-btn solid", "data-tip": t("Changes_Commit"), disabled: !canCommit, onClick: () => void doCommit(false), children: [
                 /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check", size: 12 }),
-                t("Changes_Commit")
+                amend ? t("Changes_AmendBtn") : t("Changes_Commit")
               ] }),
               /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", "data-tip": t("Changes_CommitAndPush"), disabled: !canCommit, onClick: () => void doCommit(true), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "up", size: 13 }) })
             ] })
@@ -1232,8 +1597,8 @@
               ] })
             ] }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiExplain"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("explain"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chat", size: 13 }) }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiReview"), disabled: aiBusy || ((state == null ? void 0 : state.staged.length) ?? 0) === 0, onClick: () => void explain("review"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiExplain"), disabled: aiBusy || ((state2 == null ? void 0 : state2.staged.length) ?? 0) === 0, onClick: () => void explain("explain"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chat", size: 13 }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "icon-btn", "data-tip": t("Changes_AiReview"), disabled: aiBusy || ((state2 == null ? void 0 : state2.staged.length) ?? 0) === 0, onClick: () => void explain("review"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13 }) }),
             selected.staged ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
               /* @__PURE__ */ jsxRuntime.jsxs(
                 "button",
@@ -1351,6 +1716,60 @@
           )
         }
       ),
+      discardTarget && (() => {
+        const untrackedSet = new Set((state2 == null ? void 0 : state2.unversioned.map((f) => f.path)) ?? []);
+        const tracked = discardTarget.filter((p) => !untrackedSet.has(p));
+        const untracked = discardTarget.filter((p) => untrackedSet.has(p));
+        const single = discardTarget.length === 1;
+        const isDelete = single && untracked.length === 1;
+        return /* @__PURE__ */ jsxRuntime.jsxs(
+          Modal,
+          {
+            title: isDelete ? t("Changes_DeleteTitle") : t("Changes_DiscardTitle"),
+            confirmText: single ? isDelete ? t("Changes_DeleteConfirm") : t("Changes_DiscardConfirm") : t("Changes_DiscardManyBtn", discardTarget.length),
+            danger: true,
+            onClose: () => setDiscardTarget(null),
+            onConfirm: () => void doDiscard(),
+            children: [
+              /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, color: "var(--c-text2)", lineHeight: 1.6, wordBreak: "break-all" }, children: single ? isDelete ? t("Changes_DeleteOneBody", discardTarget[0]) : t("Changes_DiscardOneBody", discardTarget[0]) : t("Changes_DiscardManyBody", discardTarget.length) }),
+              !single && tracked.length > 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "discard-list", children: tracked.map((p) => /* @__PURE__ */ jsxRuntime.jsx("span", { className: "discard-file", children: p }, p)) }),
+              isDelete ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-red)", fontSize: 11.5 }, children: t("Changes_DeleteUnrecoverable") }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                untracked.length > 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-red)", fontSize: 11.5 }, children: t("Changes_MixedWarning") }),
+                /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-red)", fontSize: 11.5 }, children: t("Changes_Irreversible") })
+              ] })
+            ]
+          }
+        );
+      })(),
+      forcePreview && /* @__PURE__ */ jsxRuntime.jsx(
+        Modal,
+        {
+          title: t("Changes_ForcePushTitle"),
+          confirmText: t("Changes_ForcePushBtn"),
+          danger: true,
+          onClose: () => setForcePreview(null),
+          onConfirm: () => {
+            setForcePreview(null);
+            void doPushEx({ forceWithLease: true });
+          },
+          children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 12, color: "var(--c-text2)", lineHeight: 1.6 }, children: [
+            t("Changes_ForcePushBody", forcePreview.branch),
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "discard-list", children: forcePreview.commits.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontFamily: "inherit" }, children: t("Changes_ForcePushNone") }) : forcePreview.commits.map((c) => /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "discard-file", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)" }, children: c.shortSha }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "trim", style: { flex: 1, minWidth: 0 }, children: c.subject })
+            ] }, c.shortSha)) }),
+            /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5, marginTop: 8 }, children: t("Changes_ForcePushLease") })
+          ] })
+        }
+      ),
+      stashOpen && /* @__PURE__ */ jsxRuntime.jsx(
+        StashDialog,
+        {
+          hasChanges: ((state2 == null ? void 0 : state2.changes.length) ?? 0) + ((state2 == null ? void 0 : state2.staged.length) ?? 0) + ((state2 == null ? void 0 : state2.unversioned.length) ?? 0) + ((state2 == null ? void 0 : state2.conflicts.length) ?? 0) > 0,
+          onChanged: () => notifyRepoChanged(),
+          onClose: () => setStashOpen(false)
+        }
+      ),
       menuElement
     ] });
   }
@@ -1360,6 +1779,27 @@
     if (f.category === "unversioned") return "?";
     if (f.category === "staged") return "A";
     return "M";
+  }
+  function DiscardIcon({ size = 12 }) {
+    return /* @__PURE__ */ jsxRuntime.jsxs(
+      "svg",
+      {
+        width: size,
+        height: size,
+        viewBox: "0 0 16 16",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 1.7,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        style: { flex: "none" },
+        "aria-hidden": "true",
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2 8a6 6 0 1 0 6-6 6.5 6.5 0 0 0-4.49 1.83L2 5.33" }),
+          /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M2 2v3.33h3.33" })
+        ]
+      }
+    );
   }
   function splitPath(p) {
     const i = p.lastIndexOf("/");

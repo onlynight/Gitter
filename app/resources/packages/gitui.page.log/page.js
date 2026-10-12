@@ -1701,8 +1701,18 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     const [branchTarget, setBranchTarget] = React$1.useState(null);
     const [branchName, setBranchName] = React$1.useState("");
     const [branchCheckout, setBranchCheckout] = React$1.useState(true);
+    const [revertTarget, setRevertTarget] = React$1.useState(null);
+    const [revertNow, setRevertNow] = React$1.useState(false);
+    const [headSha, setHeadSha] = React$1.useState(null);
+    const [transient, setTransient] = React$1.useState(null);
+    const transientTimer = React$1.useRef(null);
     const { showMenu, menuElement } = useContextMenu();
     const listRef = React$1.useRef(null);
+    const showTransient = (text) => {
+      setTransient(text);
+      if (transientTimer.current) window.clearTimeout(transientTimer.current);
+      transientTimer.current = window.setTimeout(() => setTransient(null), 5e3);
+    };
     const loadPage = React$1.useCallback(
       async (skip, replace) => {
         if (!repo) return;
@@ -1756,6 +1766,13 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     React$1.useEffect(() => {
       if (!repo) return;
       void loadBranches();
+    }, [repo, app.repoChangedTick]);
+    React$1.useEffect(() => {
+      if (!repo) {
+        setHeadSha(null);
+        return;
+      }
+      call("changes.headInfo", {}).then((h) => setHeadSha((h == null ? void 0 : h.sha) ?? null)).catch(() => setHeadSha(null));
     }, [repo, app.repoChangedTick]);
     React$1.useEffect(() => {
       if (!repo) return;
@@ -1888,6 +1905,31 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
         setError(e.message);
       }
     };
+    const doRevert = async () => {
+      if (!revertTarget) return;
+      try {
+        await call("log.revert", { sha: revertTarget.sha, commitNow: revertNow });
+        setError(null);
+        showTransient(revertNow ? t("Log_RevertDone") : t("Log_RevertDoneStaged"));
+        setRevertTarget(null);
+        setSelectedSha(null);
+        setCompareBase(null);
+        notifyRepoChanged();
+      } catch (e) {
+        setError(e.message);
+      }
+    };
+    const doCherryPick = async (c) => {
+      try {
+        await call("log.cherryPick", { sha: c.sha });
+        setError(null);
+        showTransient(t("Log_CherryPicked", c.shortSha));
+        setSelectedSha(null);
+        notifyRepoChanged();
+      } catch (e) {
+        setError(e.message);
+      }
+    };
     if (!repo) {
       return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "empty-state", children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "big", children: "⏱" }),
@@ -1919,6 +1961,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
         loading && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "spinner", children: t("Common_Loading") })
       ] }),
       error && /* @__PURE__ */ jsxRuntime.jsx(Banner, { text: error, error: true, onClose: () => setError(null) }),
+      transient && /* @__PURE__ */ jsxRuntime.jsx(Banner, { text: transient, onClose: () => setTransient(null) }),
       compareBase && detail && /* @__PURE__ */ jsxRuntime.jsx(
         Banner,
         {
@@ -2018,6 +2061,14 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
                       setBranchName("");
                       setBranchCheckout(true);
                       setBranchTarget(c);
+                    } },
+                    // Revert = 生成反向提交（非破坏，不标红）；Cherry-pick 顶端提交无意义 → 禁用
+                    { label: t("Log_Revert"), action: () => {
+                      setRevertNow(false);
+                      setRevertTarget(c);
+                    } },
+                    { label: t("Log_CherryPick"), disabled: c.sha === headSha, action: () => void doCherryPick(c) },
+                    { sep: true, label: "", action: () => {
                     } },
                     { label: t("Log_ViewReflog"), action: () => setReflogBranch(branch || branches.current || "HEAD") },
                     {
@@ -2120,6 +2171,31 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
               ] })
             ] }, m)),
             resetMode === "hard" && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-red)", fontSize: 11.5, marginTop: 8 }, children: t("Log_ResetHardWarning") })
+          ] })
+        }
+      ),
+      revertTarget && /* @__PURE__ */ jsxRuntime.jsx(
+        Modal,
+        {
+          title: t("Log_RevertTitle"),
+          confirmText: revertNow ? t("Log_RevertBtnNow") : t("Log_RevertBtn"),
+          onClose: () => setRevertTarget(null),
+          onConfirm: () => void doRevert(),
+          children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { userSelect: "text", fontSize: 12, color: "var(--c-text2)", lineHeight: 1.6 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { children: t("Log_RevertIntro") }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginTop: 8, padding: "8px 10px", border: "1px solid var(--c-border)", borderRadius: "var(--radius-md)", background: "var(--c-panel)" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { color: "var(--c-text3)" }, children: revertTarget.shortSha }),
+              " ",
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text)" }, children: revertTarget.subject })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", marginTop: 10, cursor: "pointer" }, children: [
+              /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: revertNow, onChange: (e) => setRevertNow(e.target.checked), style: { marginTop: 2 } }),
+              /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text)" }, children: [
+                t("Log_RevertCommitNow"),
+                /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 11, color: "var(--c-text3)" }, children: t("Log_RevertCommitNowSub") })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 11.5, color: "var(--c-text3)", marginTop: 8, borderLeft: "2px solid var(--c-border-strong)", paddingLeft: 8 }, children: revertNow ? t("Log_RevertEffectNow") : t("Log_RevertEffectStaged") })
           ] })
         }
       ),

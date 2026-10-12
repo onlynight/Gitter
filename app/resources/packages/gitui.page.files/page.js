@@ -2389,6 +2389,7 @@
             }
           ),
           /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Files_Refresh"), onClick: props.onRefresh, children: /* @__PURE__ */ jsxRuntime.jsx(RefreshIcon, {}) }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Files_ExpandAll"), onClick: () => setCollapsed(/* @__PURE__ */ new Set()), children: /* @__PURE__ */ jsxRuntime.jsx(ExpandAllIcon, {}) }),
           /* @__PURE__ */ jsxRuntime.jsx(
             "button",
             {
@@ -2397,8 +2398,7 @@
               onClick: () => setCollapsed(new Set(visibleNodes.filter((n) => n.entry.isDir && !n.draft).map((n) => n.entry.path))),
               children: /* @__PURE__ */ jsxRuntime.jsx(CollapseAllIcon, {})
             }
-          ),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "files-ibtn", title: t("Files_ExpandAll"), onClick: () => setCollapsed(/* @__PURE__ */ new Set()), children: /* @__PURE__ */ jsxRuntime.jsx(ExpandAllIcon, {}) })
+          )
         ] })
       ] }),
       filterOn && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "files-filter", children: [

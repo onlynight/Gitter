@@ -200,8 +200,27 @@
     }, [repo, app.refreshTick, app.repoChangedTick]);
     react.useEffect(() => {
       var _a3;
-      if (((_a3 = app.routedCommand) == null ? void 0 : _a3.id) === "branches.create") {
+      const id = (_a3 = app.routedCommand) == null ? void 0 : _a3.id;
+      if (!id) return;
+      if (id === "branches.create") {
         setDialog({ kind: "create", name: "", startPoint: "HEAD", startPointTab: "branch", checkout: true });
+      } else if (id === "branches.pull") {
+        void run(async () => {
+          await call("branches.pull", { rebase: false });
+          return t("Branches_Pulled");
+        });
+      } else if (id === "branches.pullRebase") {
+        void run(async () => {
+          await call("branches.pull", { rebase: true });
+          return t("Branches_PulledRebase");
+        });
+      } else if (id === "branches.push") {
+        void run(async () => {
+          await call("branches.push", {});
+          return t("Branches_Pushed");
+        });
+      } else if (id === "branches.checkout") {
+        setDialog({ kind: "checkout", name: "" });
       }
     }, [app.routedCommand]);
     const startPointOptions = () => {
@@ -472,6 +491,39 @@
               ] })
             ] })
           ]
+        }
+      ),
+      (dialog == null ? void 0 : dialog.kind) === "checkout" && /* @__PURE__ */ jsxRuntime.jsx(
+        Modal,
+        {
+          title: t("Branches_CheckoutTitle"),
+          confirmText: t("Branches_Checkout"),
+          confirmDisabled: !dialog.name || dialog.name === (state == null ? void 0 : state.current),
+          onClose: () => setDialog(null),
+          onConfirm: () => {
+            const name = dialog.name;
+            setDialog(null);
+            void run(async () => {
+              await call("branches.checkout", { name });
+              return t("Branches_CheckedOut", name);
+            });
+          },
+          children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 6 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 12 }, children: t("Branches_CheckoutPick") }),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              Select,
+              {
+                className: "full",
+                style: { width: "100%" },
+                value: dialog.name,
+                options: ((state == null ? void 0 : state.local) ?? []).filter((b) => b.name !== (state == null ? void 0 : state.current)).map((b) => ({ value: b.name, label: b.name })),
+                onChange: (v) => setDialog({ ...dialog, name: v }),
+                searchable: true,
+                searchPlaceholder: t("Branches_SearchPlaceholder"),
+                placeholder: t("Branches_NamePlaceholder")
+              }
+            )
+          ] })
         }
       ),
       (dialog == null ? void 0 : dialog.kind) === "rename" && /* @__PURE__ */ jsxRuntime.jsx(

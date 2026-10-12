@@ -1897,6 +1897,30 @@
       ]
     },
     {
+      labelKey: "Settings_ScGroupMonaco",
+      noteKey: "Settings_ScGroupMonacoNote",
+      entries: [
+        { keys: ["Ctrl+/"], titleKey: "Settings_ScToggleComment" },
+        { keys: ["Shift+Alt+A"], titleKey: "Settings_ScToggleBlockComment" },
+        { keys: ["Alt+↑", "Alt+↓"], titleKey: "Settings_ScMoveLine" },
+        { keys: ["Shift+Alt+↑", "Shift+Alt+↓"], titleKey: "Settings_ScCopyLine" },
+        { keys: ["Ctrl+Shift+K"], titleKey: "Settings_ScDeleteLine" },
+        { keys: ["Ctrl+Enter", "Ctrl+Shift+Enter"], titleKey: "Settings_ScInsertLine" },
+        { keys: ["Alt+Click", "Ctrl+Alt+↑", "Ctrl+Alt+↓"], titleKey: "Settings_ScAddCursor", noteKey: "Settings_ScAddCursorNote" },
+        { keys: ["Ctrl+D"], titleKey: "Settings_ScAddCursorNext" },
+        { keys: ["Ctrl+F2", "Ctrl+Shift+L"], titleKey: "Settings_ScSelectOccurrences" },
+        { keys: ["Ctrl+F", "Ctrl+H"], titleKey: "Settings_ScFind" },
+        { keys: ["F3", "Shift+F3"], titleKey: "Settings_ScFindNext" },
+        { keys: ["Ctrl+G"], titleKey: "Settings_ScGotoLine" },
+        { keys: ["Ctrl+Shift+O"], titleKey: "Settings_ScGotoSymbol" },
+        { keys: ["F12"], titleKey: "Settings_ScGotoDef" },
+        { keys: ["Ctrl+]", "Ctrl+["], titleKey: "Settings_ScIndent" },
+        { keys: ["Shift+Alt+F"], titleKey: "Settings_ScFormatDoc" },
+        { keys: ["F8", "Shift+F8"], titleKey: "Settings_ScNextProblem" },
+        { keys: ["Ctrl+Space"], titleKey: "Settings_ScTriggerSuggest" }
+      ]
+    },
+    {
       labelKey: "Settings_ScGroupTerminal",
       entries: [{ keys: ["Ctrl+Tab", "Ctrl+Shift+Tab"], titleKey: "Settings_ScCycleSessions" }]
     },
@@ -1909,53 +1933,85 @@
       ]
     }
   ];
+  function staticGroupModel(g) {
+    return {
+      label: t(g.labelKey),
+      note: g.noteKey ? t(g.noteKey) : void 0,
+      rows: g.entries.map((e) => ({
+        title: t(e.titleKey),
+        keys: e.keys,
+        enabled: true,
+        note: e.noteKey ? t(e.noteKey) : void 0
+      }))
+    };
+  }
   function ShortcutsPage() {
     var _a2;
     const app = useApp();
     const lang = ((_a2 = app.i18n) == null ? void 0 : _a2.lang) ?? "en";
     const [cmds, setCmds] = react.useState([]);
+    const [query, setQuery] = react.useState("");
     react.useEffect(() => {
       void call("commands.list", { lang }).then(setCmds).catch(() => {
       });
     }, [lang]);
-    const cmdGroups = (() => {
-      const byCat = /* @__PURE__ */ new Map();
-      for (const c of cmds) {
-        if (!c.keyHint) continue;
-        const label = (c.categoryKey ? t(c.categoryKey) : c.category) ?? t("Settings_ScGroupGlobal");
-        if (!byCat.has(label)) byCat.set(label, { label, entries: [] });
-        byCat.get(label).entries.push({
-          keys: [c.keyHint],
-          title: (c.titleKey ? t(c.titleKey) : c.title) ?? c.id,
-          enabled: c.enabled !== false
-        });
-      }
-      return [...byCat.values()];
-    })();
-    const group = (label, rows) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 16 }, children: [
-      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontWeight: 600, fontSize: 12, margin: "0 0 4px", color: "var(--c-text2)" }, children: label }),
-      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", flexDirection: "column" }, children: rows })
-    ] });
-    const row = (props) => /* @__PURE__ */ jsxRuntime.jsxs(
-      "div",
-      {
-        className: "settings-row",
-        style: { opacity: props.enabled === false ? 0.45 : 1 },
-        title: props.enabled === false ? t("Settings_ScUnavailable") : void 0,
-        children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { flex: 1, fontSize: 12.5 }, children: [
-            props.title,
-            props.note && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", style: { marginLeft: 8 }, children: props.note })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { display: "inline-flex", gap: 4, flex: "none" }, children: props.keys.map((k) => /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "kbd", children: k }, k)) })
-        ]
-      }
-    );
+    const models = [
+      ...SC_PAGE_GROUPS.slice(0, 1).map(staticGroupModel),
+      ...(() => {
+        const byCat = /* @__PURE__ */ new Map();
+        for (const c of cmds) {
+          if (!c.keyHint) continue;
+          const label = (c.categoryKey ? t(c.categoryKey) : c.category) ?? t("Settings_ScGroupGlobal");
+          if (!byCat.has(label)) byCat.set(label, { label, rows: [] });
+          byCat.get(label).rows.push({
+            keys: [c.keyHint],
+            title: (c.titleKey ? t(c.titleKey) : c.title) ?? c.id,
+            enabled: c.enabled !== false
+          });
+        }
+        return [...byCat.values()];
+      })(),
+      ...SC_PAGE_GROUPS.slice(1).map(staticGroupModel)
+    ];
+    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const keep = (hay) => tokens.every((tk) => hay.toLowerCase().includes(tk));
+    const shown = tokens.length === 0 ? models : models.map((g) => keep(g.label) ? g : { ...g, rows: g.rows.filter((r) => keep([r.title, r.note ?? "", ...r.keys].join("\n"))) }).filter((g) => g.rows.length > 0);
+    const group = (g) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 16 }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 600, fontSize: 12, margin: "0 0 4px", color: "var(--c-text2)" }, children: [
+        g.label,
+        g.note && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", style: { marginLeft: 8, fontWeight: 400 }, children: g.note })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", flexDirection: "column" }, children: g.rows.map((r, i) => /* @__PURE__ */ jsxRuntime.jsxs(
+        "div",
+        {
+          className: "settings-row",
+          style: { opacity: r.enabled ? void 0 : 0.45 },
+          title: !r.enabled ? t("Settings_ScUnavailable") : void 0,
+          children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { flex: 1, fontSize: 12.5 }, children: [
+              r.title,
+              r.note && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", style: { marginLeft: 8 }, children: r.note })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { display: "inline-flex", gap: 4, flex: "none" }, children: r.keys.map((k) => /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "kbd", children: k }, k)) })
+          ]
+        },
+        `${r.title}:${i}`
+      )) })
+    ] }, g.label);
     return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", style: { marginBottom: 10 }, children: t("Settings_ShortcutsHint") }),
-      group(t("Settings_ScGroupGlobal"), SC_PAGE_GROUPS[0].entries.map((e) => row({ title: t(e.titleKey), keys: e.keys }))),
-      cmdGroups.map((g) => group(g.label, g.entries.map((e) => row({ title: e.title, keys: e.keys, enabled: e.enabled })))),
-      SC_PAGE_GROUPS.slice(1).map((g) => group(t(g.labelKey), g.entries.map((e) => row({ title: t(e.titleKey), keys: e.keys, note: e.noteKey ? t(e.noteKey) : void 0 }))))
+      /* @__PURE__ */ jsxRuntime.jsx(
+        "input",
+        {
+          className: "input",
+          style: { width: "100%", marginBottom: 12 },
+          placeholder: t("Settings_ShortcutsSearch"),
+          value: query,
+          onChange: (e) => setQuery(e.target.value)
+        }
+      ),
+      shown.map((g) => group(g)),
+      shown.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", children: t("Settings_ShortcutsNoMatches") })
     ] });
   }
   const AGENT_RULE_TOOLS = [
