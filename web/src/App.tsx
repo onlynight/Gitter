@@ -125,15 +125,8 @@ function useShortcuts(openPalette: (prefill?: string) => void) {
       const ctrl = e.ctrlKey && !e.altKey;
       // 命令面板仅 Ctrl+Shift+P（Ctrl+P 让给文件页「转到文件」，files-editor-redesign-mockup.html §三）
       if (ctrl && e.shiftKey && (e.key === "P" || e.key === "p")) { e.preventDefault(); openPalette(); return; }
-      if (ctrl && e.key >= "1" && e.key <= "9") {
-        const order = uiPages().filter((x) => x.id !== "settings");
-        const idx = parseInt(e.key, 10) - 1;
-        if (order[idx]) {
-          e.preventDefault();
-          navigate(order[idx].id);
-        }
-        return;
-      }
+      // Ctrl+1..7 不在此硬编码：goto.* 命令的 keyHint 经 commands.list 分发（下方循环）——
+      // 硬编码按注册 id 导航在全量插件化后拿的是 ext.<pkg>.<pid> 而非槽位 id，且会遮蔽接缝分发
       if (ctrl && e.key === "Tab") {
         e.preventDefault();
         // R0-8：循环顺序由页面注册表驱动（槽位 order，settings 天然在末位）
