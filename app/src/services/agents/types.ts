@@ -83,7 +83,11 @@ export type SubtaskState = "running" | "completed" | "failed" | "timeout" | "can
 /** 判别联合：结构化克隆安全，可跨 preload bridge。 */
 export type AgentSessionEvent =
   | { type: "status"; phase: AgentPhase; summary?: string }
-  | { type: "output"; text: string; stream: "terminal" | "assistant" | "tool" | "thinking"; subtaskId?: string }
+  | { type: "output"; text: string; stream: "terminal" | "assistant" | "tool" | "thinking"; subtaskId?: string; shellId?: string }
+  /** shell 输出流（task-page-command-terminal-design.md §6.3）：「后台」tab 详情页实时跟随用。
+   *  与上面 output/stream:"tool" 并行不冲突（后者给时间线卡片，前者给详情页）。
+   *  eof=true 标记命令结束，详情页停止自动跟随。 */
+  | { type: "shell-output"; shellId: string; chunk: string; eof: boolean; subtaskId?: string }
   | { type: "checkpoint"; commitSha: string; summary: string }
   | {
       type: "permission";
@@ -103,9 +107,15 @@ export type AgentSessionEvent =
   | { type: "session-meta"; externalSessionId: string }
   | { type: "file-change"; path: string; kind: FileChangeKind; summary?: string; subtaskId?: string }
   | { type: "turn-completed"; usage?: { input?: number; output?: number }; lastMessage?: string }
+  /** 已排队的输入被注入为新一轮（turn 边界自动续轮 / 插话立即注入）：
+   *  携带注入条数与轮序号——渲染层据「条数 + 注入轮是否已开始」把排队提示翻转为已注入。
+   *  原文不带（模型看到的是 reminder 包装文本，不是用户原文；只带计数避免泄漏包装文案） */
+  | { type: "queued-drained"; count: number; turn: number }
   | {
       type: "tool";
-      phase: "start" | "end";
+      /** "args" = 工具执行中回填 args（terminal_run 据此把 shellId 注入卡片）；
+       *  "start" = 模型发出调用；"end" = 工具执行完成 */
+      phase: "start" | "args" | "end";
       callId: string;
       name: string;
       args?: unknown;

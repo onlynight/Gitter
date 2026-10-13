@@ -398,9 +398,11 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
   padding: 2px 8px; border-radius: 8px; user-select: none;
   transition: background var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std);
 }
-.tl-turn:hover { color: var(--c-text); background: var(--c-hover); }
-.tl-turn .tl-chev { transition: transform var(--dur-fast) var(--ease-std); }
+.tl-turn:hover { color: var(--c-text2); background: var(--c-hover); }
+/* 折叠箭头随当前色（currentcolor），与摘要文字同色、hover 同色变化——不给固定色 */
+.tl-turn .tl-chev { flex: none; transition: transform var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std); }
 .tl-turn .tl-chev.open { transform: rotate(90deg); }
+.tl-turn > * { transition: color var(--dur-fast) var(--ease-std); }
 /* DeepSeek 式执行中提示：文字流光（渐变高亮带周期扫过） */
 @keyframes tl-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .shimmer-text {
@@ -580,13 +582,19 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
  * fr 合计为 1 的缺省；内联值合法时特异性不变、内联始终覆盖，零影响。 */
 .tk-root { grid-template-columns: 210px 6px minmax(0, 1fr); }
 .tk-detail { grid-template-columns: minmax(280px, 4fr) 6px minmax(280px, 3fr); }
-/* 时间线滚动容器保留滚动条（细、透明轨道）：静止态贴分割线只有一条线，不产生双线观感；
-   滚动/悬停时 thumb 可见——完全隐藏导致长会话没有滚动位置感（用户反馈回退） */
-.tl-scroll { scrollbar-width: thin; scrollbar-color: var(--c-border-strong) transparent; }
-.tl-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+/* 时间线滚动条：overlay 式（贴容器右缘、不占布局宽度）+ 静止半隐、滚动/悬停显现。
+   贴分割线时不再产生「分割线 + 滚动条」双线观感；完全隐藏又丢失长会话的滚动位置感 */
+.tl-scroll { scrollbar-gutter: auto; }
+.tl-scroll::-webkit-scrollbar { width: 8px; height: 8px; overflow: hidden; }
 .tl-scroll::-webkit-scrollbar-track { background: transparent; }
-.tl-scroll::-webkit-scrollbar-thumb { background: var(--c-border-strong); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+.tl-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--c-border-strong) 55%, transparent);
+  border-radius: 4px; border: 2px solid transparent; background-clip: content-box;
+  transition: background var(--dur-fast) var(--ease-std);
+}
 .tl-scroll::-webkit-scrollbar-thumb:hover { background: var(--c-text3); background-clip: content-box; }
+.tl-scroll:hover::-webkit-scrollbar-thumb,
+.tl-scroll:active::-webkit-scrollbar-thumb { background: var(--c-text3); background-clip: content-box; }
 .tk-pill {
   display: inline-flex; align-items: center; gap: 6px;
   border-radius: 999px; padding: 1.5px 10px; font-size: 11.5px;
@@ -752,27 +760,37 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
   white-space: pre-wrap; word-break: break-word; background: color-mix(in srgb, var(--c-base, transparent) 40%, transparent);
 }
 
-/* 时间线工具卡（v3）：面板卡 + 状态色图标章 + 折叠箭头 + 分区结果 */
-/* 内容区滚动条贴着分割线时读作双线（深槽 + 亮 thumb + 分割线 1px）：
-   贴分割线的滚动容器隐藏滚动条，只留分割线一条线（滚轮/拖拽滚动不受影响） */
-.tl-scroll { scrollbar-width: none; }
-.tl-scroll::-webkit-scrollbar { width: 0; height: 0; }
+/* 轮次分隔（v4.8）：两条相邻 assistant 消息之间靠分隔线 + 间距切分，
+   不引入新块模型/新渲染路径——只在时间线外层按「块类型 + 相邻同类」判定。
+   相邻同类保持 6px，跨类切 18px + 1px 线，避免与卡片自带边距叠加出忽大忽小的间距 */
+.tl-conv { gap: 0; }
+.tl-gap-conv { margin-top: 18px; }
+.tl-gap-conv::before {
+  content: ""; display: block; height: 1px; margin: 0 0 17px;
+  background: linear-gradient(90deg, transparent, var(--c-border) 14%, var(--c-border) 86%, transparent);
+}
+.tl-gap-soft { margin-top: 8px; }
+/* 排队消息提示：排队投递在主进程内是 reminder 注入，不在会话流里产生 user 消息
+   （否则模型看到的是「提醒包装」而非用户原文）；用户按下发送后又看不到自己的输入，
+   只能靠页头排队计数猜。发送时立刻本地记入时间线（不重放），轮末随回合一起滚动过 */
+.tl-queued-hint {
+  display: flex; align-items: center; justify-content: flex-end; gap: 7px;
+  color: var(--c-amber); font-size: 11.5px; margin-top: 10px; padding: 0 2px;
+}
 /* ═══ 任务页 v4.7（task-page-v4-mockup.html）：左轨动作行 / 圆角读出框 / 思考尾随 / 文件组 ═══ */
-.v47-hic { flex: none; width: 14px; height: 14px; }
+.v47-hic { flex: none; width: 14px; height: 14px; color: inherit; }
 /* 进行中图标闪烁（灰）/ 错误红 */
 @keyframes v47-blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 .v47-blink { animation: v47-blink 1s ease-in-out infinite; }
 /* 动作行：图标+命令一体，hover 圆角背景横跨左轨与文字 */
 .v47-al { cursor: pointer; min-width: 0; }
 .v47-al .v47-hd {
-  display: flex; align-items: center; gap: 6px; height: 20px; min-width: 0; padding: 0 6px;
-  border-radius: 8px;
+  display: flex; align-items: center; gap: 6px; height: 22px; min-width: 0; padding: 0 6px;
+  border-radius: 8px; color: var(--c-text2);
 }
 .v47-al .v47-hd:hover { color: var(--c-text); }
-.v47-al .v47-hd:hover .v47-ar { color: var(--c-text2); }
-.v47-nm { font-weight: 400; font-size: 13px; flex: none; color: var(--c-text2); }
-.v47-al .v47-hd:hover .v47-nm { color: var(--c-text); }
-.v47-ar { font-family: var(--mono, monospace); font-size: 13px; color: var(--c-text3); margin-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.v47-nm { font-weight: 400; font-size: 13px; flex: none; }
+.v47-ar { font-family: var(--mono, monospace); font-size: 12px; color: inherit; margin-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .v47-du { font-size: 12px; color: var(--c-text3); margin-left: 9px; flex: none; }
 .v47-fail { font-size: 12px; color: var(--c-red); margin-left: 9px; flex: none; }
 .v47-preview { margin-left: 9px; flex: none; }
@@ -806,11 +824,25 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .v47-think .v47-tlabel { flex: none; }
 .v47-think:hover .v47-th { color: var(--c-text2); }
 .v47-think .v47-mq { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
-.v47-think.live .v47-mq { display: flex; justify-content: flex-end;
-  mask-image: linear-gradient(90deg, transparent, #000 12%);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%); }
-/* 密排运行组：连续指令行 gap 2px（与事件间 6px 区分） */
+/* 思考中：尾随文字固定灰、不透明度恒定。渐变文字（background-clip:text）会让
+   mask 渐隐与渐变高亮叠加成半透明、随动画漂移，在深色底上读作「透过去的字」 */
+.v47-think.live .v47-mq {
+  display: flex; justify-content: flex-end; color: var(--c-text3);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%);
+  mask-image: linear-gradient(90deg, transparent, #000 14%);
+}
+.v47-think.live .v47-mq span {
+  color: var(--c-text3); opacity: 1; background: none;
+  -webkit-background-clip: border-box; background-clip: border-box;
+  -webkit-text-fill-color: var(--c-text3); animation: none;
+}
+/* 密排运行组：连续指令行（tool/thinking/checkpoint）竖向 15px 间距——与「事件间」15px 对齐，
+   让思考卡片无论是否紧邻工具行，顶部间距都统一。
+   .tl-gap-soft（8px）只用于跨类小分隔（如结论→用户下一条），
+   若思考卡片前一条是非 TIGHT 块（todo 卡片、编辑文件组），单挂的 .v47-think
+   会走 8px 软分隔，出现「有时贴 15 有时贴 8」的忽大忽小——用 :not 兜底把单挂的也提到 15px */
 .v47-run { display: flex; flex-direction: column; gap: 15px; min-width: 0; }
+.tl-conv > .v47-think:not(.v47-run > .v47-think) { margin-top: 15px; }
 .v47-think .v47-mq span { display: inline-block; white-space: nowrap; }
 .v47-think .v47-tbody {
   max-height: 0; opacity: 0; overflow: hidden; margin: 0; padding: 0 12px;

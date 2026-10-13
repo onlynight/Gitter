@@ -588,13 +588,20 @@ export type AgentMergeResultDTO = {
   archived: boolean;
 };
 
-/** 后台 shell 条目（agent.task.shells；仅 live 会话有数据）。 */
+/** 后台 shell 条目（agent.task.shells；仅 live 会话有数据）。
+ *  task-page-command-terminal-design.md §6.4：扩 shellId/foreground/startedAt/persisted——
+ *  shellId 与 tool/start 的 args.shellId 同源（卡片 ↔ shell 条目关联键）；
+ *  foreground 标记前台命令（design §6.2）；persisted 标记来自 journal 的历史回看。 */
 export type AgentShellDTO = {
   id: string;
   command: string;
   running: boolean;
   exitCode: number | null;
   tail: string;
+  shellId: string;
+  foreground: boolean;
+  startedAt: number;
+  persisted: boolean;
 };
 
 export type AgentContextStatsDTO = {
@@ -627,11 +634,17 @@ export type AgentPermissionPayloadDTO = {
 export type AgentEventDTO = {
   type:
     | "status" | "output" | "checkpoint" | "permission" | "question" | "plan" | "completed"
-    | "session-meta" | "file-change" | "turn-completed" | "log" | "tool" | "todo" | "subtask";
+    | "session-meta" | "file-change" | "turn-completed" | "log" | "tool" | "todo" | "subtask"
+    | "queued-drained" | "shell-output";
+  /** tool 事件阶段：start = 模型发出调用；args = 工具执行中回填 args（terminal_run 注入 shellId）；end = 完成 */
   phase?: string;
   summary?: string;
   text?: string;
   stream?: "terminal" | "assistant" | "tool" | "thinking";
+  /** shell-output 事件：shellId + 增量 chunk + 结束标记 */
+  shellId?: string;
+  chunk?: string;
+  eof?: boolean;
   commitSha?: string;
   title?: string;
   detail?: string;
@@ -651,6 +664,8 @@ export type AgentEventDTO = {
   kind?: string;
   usage?: { input?: number; output?: number };
   lastMessage?: string;
+  /** queued-drained：本次注入的排队条数 */
+  queuedDrained?: number;
   level?: "debug" | "info" | "warn" | "error";
   // tool / subtask 事件
   callId?: string;

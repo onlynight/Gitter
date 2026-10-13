@@ -62,8 +62,8 @@ function stateChip(s: AgentTaskDTO["state"], awaitKind?: "question" | "plan" | n
   }
   switch (s) {
     case "starting": return { label: "启动中", color: "var(--c-text3)" };
-    case "working": return { label: "● 执行中", color: "var(--c-green)" };
-    case "awaiting-permission": return { label: "● 待确认", color: "var(--c-amber)" };
+    case "working": return { label: "执行中", color: "var(--c-green)" };
+    case "awaiting-permission": return { label: "待确认", color: "var(--c-amber)" };
     case "completed": return { label: "已完成", color: "var(--c-accent)" };
     case "failed": return { label: "失败", color: "var(--c-red)" };
     case "interrupted": return { label: "已中断", color: "var(--c-amber)" };
@@ -168,6 +168,8 @@ export function TasksPage() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [delPopId, setDelPopId] = useState<string | null>(null);
   const [shellRunning, setShellRunning] = useState(0);
+  // 「后台」页签跳转锚（design v2 §5）：卡片点 ⤴ 后台 → 切 tab 并自动展开对应 shellId 详情
+  const [shellFocus, setShellFocus] = useState<{ shellId: string; ts: number } | null>(null);
   const [wrapupOpen, setWrapupOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [taskTypes, setTaskTypes] = useState<TaskTypeDTO[]>([]);
@@ -294,7 +296,21 @@ export function TasksPage() {
   }, [addImages]);
   // v3.1 实时变更面板（docs/task-page-live-changes.md）：对话 4/7 + 变更 3/7 分栏；
   // 对话流 查看/预览 一律驱动面板（右侧 = 主预览面），不再开 Modal / 跳改动页
-  const [changesPanelOpen, setChangesPanelOpen] = useState(true);
+  const [changesPanelOpen, setChangesPanelOpen] = useState(false); // 右侧面板默认不显示（v4.7）
+  // 已排队尚未注入的输入（乐观渲染）：排队投递在主进程内以 reminder 包装注入下一轮，
+  // 不会在会话流产生 user 消息——不本地记入时间线时，用户按回车后输入框被清空、
+  // 自己发的内容凭空消失，只有页头「排队 N」角标可查。渲染层补一条提示（不回放，
+  // 与主进程 journal 的「排队：…」注记同源，不会重复展示原文）
+  const [queuedHints, setQueuedHints] = useState<Record<string, string[]>>({});
+  const addQueuedHint = (taskId: string, text: string) =>
+    setQueuedHints((m) => {
+      const cur = m[taskId] ?? [];
+      const next = [text];
+      next.splice(0, 1, ...cur.slice(-5));
+      return { ...m, [taskId]: next };
+    });
+  const clearQueuedHints = (taskId: string) =>
+    setQueuedHints((m) => { if (!(m[taskId] ?? []).length) return m; const { [taskId]: _d, ...rest } = m; return rest; });
   // 标题栏页动作（v3.2 设计稿：分屏/新窗口在 app titlebar）：页面被 keep-alive 隐藏时经
   // IntersectionObserver 感知并摘除 portal 按钮；slot 容器由宿主 TitleBar 渲染，晚于页面
   // 挂载时轮询补一帧渲染（harness 无 TitleBar 时自然不渲染按钮）。
@@ -607,6 +623,20 @@ export function TasksPage() {
       onEvent("agent.event", (p) => {
         const { taskId, event } = p as { taskId: string; event: AgentEventDTO };
         setEvMap((m) => ({ ...m, [taskId]: reduceBlocks(m[taskId] ?? [], event) }));
+        // 已排队的输入被注入为新一轮（主进程 agent.event 只带计数与轮号，不带原文）：
+        // 按序清除先前显示的提示，提示从「排队」变成「已注入」，轮次收尾后整体滚动
+        if (event.type === "queued-drained" && (event.queuedDrained ?? 0) > 0) {
+          setQueuedHints((m) => {
+            const n = Math.min(event.queuedDrained ?? 0, (m[taskId] ?? []).length);
+            if (n === 0) return m;
+            const left = (m[taskId] ?? []).slice(n);
+            const out: Record<string, string[]> = {};
+            for (const [k, v] of Object.entries(m)) if (v.length) out[k] = v;
+            out[taskId] = left;
+            if (!left.length) delete out[taskId];
+            return out;
+          });
+        }
         if (event.type === "turn-completed" || event.type === "completed") {
           void reloadAgents();
           setChangesTick((n) => n + 1);
@@ -692,8 +722,10 @@ export function TasksPage() {
   };
 
   // 运行中工具 + 子代理计数 + 上下文用量
+  // design v2 §3.1：任务非 live 时，仍在 running 的工具不再计时（渲染层同步归约为 aborted）
   const runningTool = (() => {
     if (!selectedTask) return null;
+    if (!selected || !LIVE_STATES.has(selected.state)) return null;
     const blocks = evMap[selectedTask] ?? [];
     for (let i = blocks.length - 1; i >= 0; i--) {
       const b = blocks[i];
@@ -701,7 +733,9 @@ export function TasksPage() {
     }
     return null;
   })();
-  const runningSubs = selectedTask ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length : 0;
+  const runningSubs = selectedTask && selected && LIVE_STATES.has(selected.state)
+    ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length
+    : 0;
 
   // 切任务即复位：避免上一个任务的用量残留到新任务（轮询数据到达前短暂空窗，正确优于误导）
   useEffect(() => { setStats(null); }, [selectedTask]);
@@ -984,7 +1018,7 @@ export function TasksPage() {
           if (builtin.template) {
             // 模板命令（review/init）：展开后走 resume/queue（同包命令语义）
             const expanded = builtin.template.replace(/\$\{input\}/g, arg);
-            if (BUSY_STATES.has(selected.state)) await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded });
+            if (BUSY_STATES.has(selected.state)) { await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded }); addQueuedHint(selected.taskId, expanded); }
             else await call("agent.task.resume", { taskId: selected.taskId, prompt: expanded, thinking, mode });
             setInputText("");
             return;
@@ -1024,7 +1058,7 @@ export function TasksPage() {
           const pc = pkgCommands.find((c) => c.name === cmd.slice(1));
           if (pc) {
             const expanded = pc.template.replace(/\$\{input\}/g, arg);
-            if (BUSY_STATES.has(selected.state)) await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded });
+            if (BUSY_STATES.has(selected.state)) { await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded }); addQueuedHint(selected.taskId, expanded); }
             else await call("agent.task.resume", { taskId: selected.taskId, prompt: expanded, thinking, mode });
           } else {
             const pkgHint = pkgCommands.length > 0 ? `；包命令：${pkgCommands.map((c) => "/" + c.name).join(" ")}` : "";
@@ -1058,6 +1092,8 @@ export function TasksPage() {
         // 排队轮不支持多模态注入：busy 时图片随文本提示走下轮（主进程忽略排队附件）
         if (attachments.length > 0) setError("任务运行中：图片将不随排队消息注入，请等本轮结束再发送");
         await call("agent.task.queue", { taskId: selected.taskId, prompt: text, ...(busySend === "interrupt" ? { interrupt: true } : {}) });
+        // 乐观提示（非插话）：输入已排队、尚未注入，用户需看到自己发了什么
+        if (busySend !== "interrupt") addQueuedHint(selected.taskId, text);
       } else {
         try {
           await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode, ...(attachments.length > 0 ? { attachments } : {}) });
@@ -1067,6 +1103,7 @@ export function TasksPage() {
           if (!/排队/.test(msg)) throw e;
           setError("agent 正在等待你对上方卡片的回答：输入已排队，回合结束后自动注入");
           await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
+          addQueuedHint(selected.taskId, text);
         }
       }
       await reloadAgents();
@@ -1282,32 +1319,42 @@ export function TasksPage() {
     return out;
   })();
   const renderBlock = (b: Block, key: string | number, process = false): ReactNode => {
-    switch (b.kind) {
+    // 任务非 live（stopped/completed/interrupted/failed）时，把仍在 running 的工具卡归约为 aborted——
+    // journal 不会补发 tool/end，前端渲染层做兜底，避免"停止的任务还在计时"（design v2 §3.1）
+    const live = selected ? LIVE_STATES.has(selected.state) : true;
+    const block: Block = !live && b.kind === "tool" && b.state === "running"
+      ? { ...b, state: "aborted" as const, durationMs: b.durationMs ?? (Date.now() - b.startTs) }
+      : b;
+    switch (block.kind) {
       case "permission":
         // v4.5/v4.7：授权改由 composer 上方浮层承载，历史不留在流里
         return null;
       case "question":
-        return <QuestionCard key={key} b={b} decided={decided[b.requestId]} onAnswer={replyAnswer} />;
+        return <QuestionCard key={key} b={block} decided={decided[block.requestId]} onAnswer={replyAnswer} />;
       case "plan":
-        return <PlanCard key={key} b={b} decided={decided[b.requestId]} onPlan={replyPlan} />;
+        return <PlanCard key={key} b={block} decided={decided[block.requestId]} onPlan={replyPlan} />;
       case "todo":
         // todo 清单以右上角悬浮态展示，不占用时间线版面
         return null;
       default:
         break;
     }
-    const renderer = resolveTimelineRenderer(b.kind === "tool" ? b.name : undefined, b.kind);
+    const renderer = resolveTimelineRenderer(block.kind === "tool" ? block.name : undefined, block.kind);
     if (!renderer) return null;
     const ctx: TimelineCardCtx = {
       taskId: selectedTask ?? "",
       viewFile: (path) => { setPendingFile(path); setPanelReq({ path, mode: "diff", ts: Date.now() }); setTab("chat"); animatePanel(true); },
       previewFile,
+      openShell: (shellId) => {
+        setShellFocus({ shellId, ts: Date.now() });
+        setTab("shells");
+      },
       contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : undefined,
-      showCopy: !process && copyBlocks.has(b),
+      showCopy: !process && copyBlocks.has(block),
       verbose: verboseTimeline,
       renderChildren: (children) => <Fragment>{(children as Block[]).map((c, i) => renderBlock(c, `${key}-${i}`, true))}</Fragment>,
     };
-    return <Fragment key={key}>{renderer.render({ block: b, taskId: ctx.taskId ?? "", ctx })}</Fragment>;
+    return <Fragment key={key}>{renderer.render({ block, taskId: ctx.taskId ?? "", ctx })}</Fragment>;
   };
   // 过程块列表渲染（含连续日志折叠组、连续文件合并组）；轮折叠展开与进行中轮共用
   const renderProcess = (prefix: string, list: Block[]): ReactNode => {
@@ -1703,7 +1750,7 @@ function OutcomeFold(props: { icon: "dot"; color: string; summary: string; child
                   const pre = (e.target as HTMLElement).closest("pre");
                   if (pre) void navigator.clipboard?.writeText(pre.textContent ?? "");
                 }}>
-              <div ref={streamInnerRef} style={{ maxWidth: 880, margin: "0 auto", padding: "14px 20px 26px", display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+              <div ref={streamInnerRef} className="tl-conv" style={{ maxWidth: 880, margin: "0 auto", padding: "14px 20px 26px", display: "flex", flexDirection: "column", gap: 0, minWidth: 0 }}>
                 {loadingOlder && (
                   <div style={{ textAlign: "center", color: "var(--c-text3)", fontSize: 11 }}>
                     <span className="tl-pulse">加载中…</span>
@@ -1713,50 +1760,79 @@ function OutcomeFold(props: { icon: "dot"; color: string; summary: string; child
                   <div style={{ textAlign: "center", color: "var(--c-text3)", fontSize: 11, opacity: .6 }}>↑ 上滚加载更早</div>
                 )}
                 {timeline.length === 0 && <div style={{ color: "var(--c-text3)", fontSize: 12 }}>{t("Agents_TimelineEmpty")}</div>}
-                {groupTurns(timeline).map((g, gi) => {
-                  const ended = !!g.turn;
-                  const expanded = !ended || expandedTurns.has(g.anchor);
-                  const tools = g.process.filter((b) => b.kind === "tool").length;
-                  const subs = g.process.filter((b) => b.kind === "subtask").length;
-                  void ended; void expanded;
-                  return (
-                    <Fragment key={gi}>
-                      {g.human ? renderBlock(g.human, `g${gi}-h`) : null}
-                      {ended && g.process.length > 0 ? (
-                        <>
-                          <div className="tl-turn" onClick={() => toggleTurn(g.anchor)} role="button" tabIndex={0} aria-expanded={expanded}
-                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleTurn(g.anchor); } }}>
-                            <TlIcon name="chevron-right" size={11} className={"tl-chev" + (expanded ? " open" : "")} />
-                            <span style={{ fontWeight: 600 }}>执行过程</span>
-                            {tools > 0 ? <span>工具 {tools}</span> : null}
-                            {subs > 0 ? <span>子代理 {subs}</span> : null}
-                            {tools === 0 && subs === 0 ? <span>{g.process.length} 条</span> : null}
-                          </div>
-                          {expanded && renderProcess(`g${gi}-p`, g.process)}
-                        </>
-                      ) : (
-                        renderProcess(`g${gi}-p`, g.process)
-                      )}
-                      {g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null}
-                      {g.outcome.length > 0 ? (
-                        g.outcome.some((b) => b.kind === "status" && b.text.includes("中断")) ? (
-                          <OutcomeFold icon="dot" color="var(--c-amber)" summary="会话已中断 · 发送消息可继续">
-                            {g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`, true))}
-                          </OutcomeFold>
+                {(() => {
+                  const groups = groupTurns(timeline);
+                  // 轮次切分：与上一条 assistant 之间画分隔线；相邻同类（如连续两条正文）只给小间距
+                  const gapOf = (i: number): "conv" | "soft" | "" => {
+                    if (i === 0) return "";
+                    const a = groups[i - 1];
+                    const prev = a.conclusion?.kind ?? (a.active ? (a.process[a.process.length - 1]?.kind ?? "") : a.turn ? "" : "");
+                    const cur = groups[i].human ? "human" : (groups[i].active && groups[i].process.length > 0 ? groups[i].process[0].kind : "");
+                    if (prev !== "assistant") return cur === "assistant" ? "conv" : "soft";
+                    if (cur === "human") return "soft";
+                    if (cur === "assistant") return "soft";
+                    return "conv";
+                  };
+                  return groups.map((g, gi) => {
+                    const gap = gapOf(gi);
+                    const ended = !!g.turn;
+                    const expanded = !ended || expandedTurns.has(g.anchor);
+                    const tools = g.process.filter((b) => b.kind === "tool").length;
+                    const subs = g.process.filter((b) => b.kind === "subtask").length;
+                    void ended; void expanded;
+                    return (
+                      <Fragment key={gi}>
+                        {gap === "conv" ? <div className="tl-gap-conv" /> : null}
+                        {gap === "soft" ? <div className="tl-gap-soft" /> : null}
+                        {g.human ? renderBlock(g.human, `g${gi}-h`) : null}
+                        {ended && g.process.length > 0 ? (
+                          <>
+                            <div className="tl-turn" onClick={() => toggleTurn(g.anchor)} role="button" tabIndex={0} aria-expanded={expanded}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleTurn(g.anchor); } }}>
+                              <TlIcon name="chevron-right" size={11} className={"tl-chev" + (expanded ? " open" : "")} />
+                              <span style={{ fontWeight: 600 }}>执行过程</span>
+                              {tools > 0 ? <span>工具 {tools}</span> : null}
+                              {subs > 0 ? <span>子代理 {subs}</span> : null}
+                              {tools === 0 && subs === 0 ? <span>{g.process.length} 条</span> : null}
+                            </div>
+                            {expanded && renderProcess(`g${gi}-p`, g.process)}
+                          </>
                         ) : (
-                          g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`))
-                        )
-                      ) : null}
-                      {g.turn ? renderBlock(g.turn, `g${gi}-t`) : null}
-                      {/* 中断/失败/停止：流末尾折叠行（中断=「发送消息可继续」） */}
-                      {gi === groupTurns(timeline).length - 1 && failBar && !(timeline.length > 0 && timeline[timeline.length - 1].kind === "status") && (
-                        <OutcomeFold icon={failBar.icon} color={failBar.color} summary={failBar.summary}>
-                          <span style={{ overflowWrap: "anywhere", userSelect: "text" }}>{failBar.reason || failBar.summary}</span>
-                        </OutcomeFold>
-                      )}
-                    </Fragment>
-                  );
-                })}
+                          renderProcess(`g${gi}-p`, g.process)
+                        )}
+                        {g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null}
+                        {g.outcome.length > 0 ? (
+                          g.outcome.some((b) => b.kind === "status" && b.text.includes("中断")) ? (
+                            <OutcomeFold icon="dot" color="var(--c-amber)" summary="会话已中断 · 发送消息可继续">
+                              {g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`, true))}
+                            </OutcomeFold>
+                          ) : (
+                            g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`))
+                          )
+                        ) : null}
+                        {g.turn ? renderBlock(g.turn, `g${gi}-t`) : null}
+                        {/* 中断/失败/停止：流末尾折叠行（中断=「发送消息可继续」） */}
+                        {gi === groups.length - 1 && failBar && !(timeline.length > 0 && timeline[timeline.length - 1].kind === "status") && (
+                          <OutcomeFold icon={failBar.icon} color={failBar.color} summary={failBar.summary}>
+                            <span style={{ overflowWrap: "anywhere", userSelect: "text" }}>{failBar.reason || failBar.summary}</span>
+                          </OutcomeFold>
+                        )}
+                      </Fragment>
+                    );
+                  });
+                })()}
+                {/* 已排队、尚未注入的本轮补充输入（乐观提示，挂在流末尾；轮末随回合滚动过） */}
+                {(queuedHints[selected?.taskId ?? ""] ?? []).length > 0 ? (
+                  (queuedHints[selected!.taskId] ?? []).map((q, qi) => (
+                    <div key={`queued-${qi}`} className="tl-queued-hint">
+                      <TlIcon name="clock" size={11} style={{ flex: "none", marginTop: 3 }} />
+                      <span style={{ whiteSpace: "nowrap", fontWeight: 600 }}>排队 · 本轮结束后自动注入</span>
+                      <span style={{ flex: 1, minWidth: 0, textAlign: "left", color: "var(--c-text2)", fontSize: 12.5, lineHeight: 1.6, overflowWrap: "anywhere", userSelect: "text" }}>
+                        {q.length > 120 ? q.slice(0, 120) + "…" : q}
+                      </span>
+                    </div>
+                  ))
+                ) : null}
               </div>
               </div>
               {/* 悬浮任务清单：从时间线提取最新 todo 块，固定右上，实时刷新状态 */}
@@ -1945,7 +2021,8 @@ function OutcomeFold(props: { icon: "dot"; color: string; summary: string; child
 
         {/* ═══ 后台 shell 页（v3.3 工作流 C：terminal_run 后台模式的面板化）═══ */}
         {tab === "shells" && selected && (
-          <ShellsTab taskId={selected.taskId} live={LIVE_STATES.has(selected.state)} tick={changesTick} setError={setError} onCount={setShellRunning} />
+          <ShellsTab taskId={selected.taskId} live={LIVE_STATES.has(selected.state)} tick={changesTick} setError={setError} onCount={setShellRunning}
+            focus={shellFocus} onFocused={() => setShellFocus(null)} />
         )}
         </div>
 

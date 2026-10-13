@@ -33,7 +33,7 @@ export type Block =
   | { kind: "assistant"; text: string; merge: boolean }
   | { kind: "thinking"; text: string; merge: boolean; closed?: boolean }
   | { kind: "status"; text: string; phase?: string }
-  | { kind: "tool"; callId: string; name: string; args?: unknown; state: "running" | "ok" | "error"; result?: string; durationMs?: number; source?: string | null; tail?: string; startTs: number }
+  | { kind: "tool"; callId: string; name: string; args?: unknown; state: "running" | "ok" | "error" | "aborted"; result?: string; durationMs?: number; source?: string | null; tail?: string; startTs: number }
   | { kind: "permission"; requestId: string; toolName: string; title: string; command?: string | null; payload?: AgentEventDTO["payload"]; rememberable?: boolean }
   | { kind: "question"; requestId: string; question: string; options: string[] }
   | { kind: "plan"; requestId: string; plan: string }
@@ -130,6 +130,20 @@ export function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
     case "tool": {
       if (ev.phase === "start") {
         return pushCap(blocks, { kind: "tool", callId: ev.callId ?? "", name: ev.name ?? "", args: ev.args, state: "running", source: ev.source, startTs: Date.now() });
+      }
+      if (ev.phase === "args") {
+        // 工具执行中回填 args（terminal_run 由 tool/args 事件带 shellId，卡片与 shell 条目由此关联）
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i];
+          if (b.kind === "tool" && b.callId === ev.callId) {
+            const next = [...blocks];
+            const prev = (b.args ?? {}) as Record<string, unknown>;
+            const inc = (ev.args ?? {}) as Record<string, unknown>;
+            next[i] = { ...b, args: { ...prev, ...inc } };
+            return next;
+          }
+        }
+        return blocks;
       }
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
@@ -247,7 +261,15 @@ function ToolCard({ b, ctx }: { b: Extract<Block, { kind: "tool" }>; ctx?: Timel
   const [userOpen, setUserOpen] = useState(false);
   const open = !!ctx?.verbose || userOpen;
   const live = b.state === "running";
+  const aborted = b.state === "aborted";
   const label = TOOL_LABELS[b.name] ?? b.name;
+  const shellId = (() => {
+    if (b.name !== "terminal_run" && b.name !== "terminal_poll") return null;
+    try {
+      const a = b.args as Record<string, unknown> | undefined;
+      return typeof a?.shellId === "string" ? a.shellId : null;
+    } catch { return null; }
+  })();
   const filePath = (() => {
     if (b.name !== "file_write" && b.name !== "file_patch") return null;
     try {
@@ -296,18 +318,23 @@ function ToolCard({ b, ctx }: { b: Extract<Block, { kind: "tool" }>; ctx?: Timel
     );
   }
   return (
-    <div className={"v47-al" + (open ? " open" : "") + (live ? " live" : "") + (b.state === "error" ? " err" : "")}>
+    <div className={"v47-al" + (open ? " open" : "") + (live ? " live" : "") + (b.state === "error" ? " err" : "") + (aborted ? " aborted" : "")}>
       <div className="v47-hd" onClick={() => setUserOpen((v) => !v)} role="button" tabIndex={0} aria-expanded={open}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setUserOpen((v) => !v); } }}>
         <TlIcon name={toolIconName(b.name)} size={13}
-          color={b.state === "error" ? "var(--c-red)" : live ? "var(--c-amber)" : undefined}
+          color={b.state === "error" ? "var(--c-red)" : live ? "var(--c-amber)" : aborted ? "var(--c-text3)" : undefined}
           className={"v47-hic" + (live ? " v47-blink" : undefined)} />
-        <span className={"v47-nm" + (live ? " shimmer-text" : "")}>{label}</span>
-            <span className={"v47-ar" + (live ? " shimmer-text" : "")}>{argSummary}</span>
+        <span className={"v47-nm" + (live ? " shimmer-text" : "") + (aborted ? " aborted" : "")}>{label}</span>
+            <span className={"v47-ar" + (live ? " shimmer-text" : "") + (aborted ? " aborted" : "")}>{argSummary}</span>
             {filePath && ctx?.previewFile ? (
               <button className="tool-btn v47-preview" onClick={(e) => { e.stopPropagation(); ctx.previewFile?.(filePath); }}>预览</button>
             ) : null}
+            {shellId && ctx?.openShell ? (
+              <button className="tool-btn v47-preview" title="在「后台」页签查看执行详情"
+                onClick={(e) => { e.stopPropagation(); ctx.openShell?.(shellId); }}>⤴ 后台</button>
+            ) : null}
             {b.state === "error" ? <span className="v47-fail">失败</span> : null}
+            {aborted ? <span className="v47-fail" style={{ color: "var(--c-text3)", borderColor: "var(--c-border)" }}>已中断</span> : null}
             {b.durationMs !== undefined ? <span className="v47-du">· {(b.durationMs / 1000).toFixed(1)}s</span> : null}
           </div>
           {hasBody ? (
@@ -416,6 +443,12 @@ export function TodoList({ todos }: { todos: Todo[] }) {
     </div>
   );
 }
+
+/** 任务清单卡片（ZCode TodoList 形态）：头部显示进度，点击整行折叠/展开；状态色点随状态推进。 */
+export const TODO_TIMELINE_RENDERER: TimelineRendererDef = {
+  blockKind: "todo",
+  render: ({ block }) => <TodoList todos={(block as Extract<Block, { kind: "todo" }>).todos} />,
+};
 
 
 export function PermissionCard(props: {
@@ -700,7 +733,7 @@ export const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
       if (!b.text.trim()) return null;
       // 复制钮只挂本轮结论（ctx.showCopy 由 renderBlock 前向扫描判定）
       return (
-        <div className="msg-row" style={{ padding: "2px 0" }}>
+        <div className="msg-row" style={{ padding: "8px 0" }}>
           <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(b.text) }} />
           {ctx?.showCopy ? <CopyMessageButton text={b.text} align="left" /> : null}
         </div>

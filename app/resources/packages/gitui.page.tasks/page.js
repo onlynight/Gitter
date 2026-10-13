@@ -258,6 +258,28 @@
     if (!res.ok) throw new BridgeCallError(res.error.message, res.error.detail);
     return res.data;
   }
+  const listeners = /* @__PURE__ */ new Set();
+  let subscribed = false;
+  function ensureSubscribe() {
+    if (subscribed) return;
+    subscribed = true;
+    api().onEvent((method, params) => {
+      for (const fn of listeners) {
+        try {
+          fn(method, params);
+        } catch {
+        }
+      }
+    });
+  }
+  function onEvent$1(method, cb) {
+    ensureSubscribe();
+    const fn = (m, p) => {
+      if (m === method) cb(p);
+    };
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }
   const K = () => {
     const k = window.GITTER_KIT;
     if (!k) throw new Error("GITTER_KIT 未注入（外部页必须经宿主 pageLoader 装载）");
@@ -396,15 +418,137 @@ li { margin: .25em 0; }
       };
     }, [props.path, dark]);
     const name = props.path.split("/").pop() ?? props.path;
+    const frameRef = react.useRef(null);
+    const preRef = react.useRef(null);
+    const scrollTimerRef = react.useRef(null);
+    const propsRef = react.useRef({ initialScrollTop: props.initialScrollTop, onScrollTop: props.onScrollTop });
+    propsRef.current = { initialScrollTop: props.initialScrollTop, onScrollTop: props.onScrollTop };
+    const reportScroll = react.useCallback((top) => {
+      if (scrollTimerRef.current !== null) window.clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current = window.setTimeout(() => {
+        var _a2, _b2;
+        scrollTimerRef.current = null;
+        (_b2 = (_a2 = propsRef.current).onScrollTop) == null ? void 0 : _b2.call(_a2, top);
+      }, 400);
+    }, []);
+    react.useEffect(() => {
+      if (phase.kind !== "html") return;
+      const f = frameRef.current;
+      if (!f) return;
+      let cleanedUp = false;
+      const applyInitial = () => {
+        if (cleanedUp) return;
+        const w = f.contentWindow;
+        if (!w) return;
+        const t2 = propsRef.current.initialScrollTop;
+        if (typeof t2 === "number" && t2 > 0) {
+          try {
+            if (htmlRaw) {
+              w.postMessage({ type: "preview-restore", scrollY: t2 }, "*");
+            } else {
+              w.scrollTo(0, t2);
+            }
+          } catch {
+          }
+        }
+      };
+      f.addEventListener("load", applyInitial);
+      return () => {
+        var _a2, _b2;
+        cleanedUp = true;
+        f.removeEventListener("load", applyInitial);
+        const pending = scrollTimerRef.current;
+        if (pending !== null) {
+          window.clearTimeout(pending);
+          const w = f.contentWindow;
+          if (w) {
+            try {
+              if (htmlRaw) {
+                w.postMessage({ type: "preview-flush" }, "*");
+              } else {
+                const t2 = w.scrollY ?? 0;
+                (_b2 = (_a2 = propsRef.current).onScrollTop) == null ? void 0 : _b2.call(_a2, t2);
+              }
+            } catch {
+            }
+          }
+        }
+        scrollTimerRef.current = null;
+      };
+    }, [phase.kind, htmlRaw, reportScroll]);
+    const [htmlWithTracker, setHtmlWithTracker] = react.useState(null);
+    const phaseContent = phase.kind === "html" || phase.kind === "text" ? phase.content : "";
+    react.useEffect(() => {
+      if (phase.kind !== "html" || !htmlRaw) {
+        setHtmlWithTracker(null);
+        return;
+      }
+      const script = `<script>(function(){var t=null;function flush(){parent.postMessage({type:'preview-scroll',scrollY:window.scrollY},'*')}window.addEventListener('scroll',function(){if(t)clearTimeout(t);t=setTimeout(function(){t=null;flush()},400)},{passive:true});window.addEventListener('message',function(e){var d=e.data;if(d&&d.type==='preview-restore'&&typeof d.scrollY==='number'){window.scrollTo(0,d.scrollY)}else if(d&&d.type==='preview-flush'){flush()}});parent.postMessage({type:'preview-ready'},'*')})();<\/script>`;
+      setHtmlWithTracker(phaseContent + script);
+    }, [phase.kind, htmlRaw, phaseContent]);
+    react.useEffect(() => {
+      if (!htmlRaw) return;
+      const onMsg = (e) => {
+        const f = frameRef.current;
+        if (!f || e.source !== f.contentWindow) return;
+        const d = e.data;
+        if ((d == null ? void 0 : d.type) === "preview-scroll" && typeof d.scrollY === "number") {
+          reportScroll(d.scrollY);
+        }
+      };
+      window.addEventListener("message", onMsg);
+      return () => window.removeEventListener("message", onMsg);
+    }, [htmlRaw, reportScroll]);
+    const onPreScroll = react.useCallback(() => {
+      const el = preRef.current;
+      if (el) reportScroll(el.scrollTop);
+    }, [reportScroll]);
+    react.useEffect(() => {
+      if (phase.kind !== "text") return;
+      const el = preRef.current;
+      if (!el) return;
+      const t2 = propsRef.current.initialScrollTop;
+      if (typeof t2 === "number" && t2 > 0) {
+        try {
+          el.scrollTop = t2;
+        } catch {
+        }
+      }
+    }, [phase.kind]);
+    react.useEffect(() => () => {
+      var _a2, _b2;
+      const pending = scrollTimerRef.current;
+      if (pending !== null) {
+        window.clearTimeout(pending);
+        scrollTimerRef.current = null;
+      }
+      const el = preRef.current;
+      if (el) {
+        try {
+          (_b2 = (_a2 = propsRef.current).onScrollTop) == null ? void 0 : _b2.call(_a2, el.scrollTop);
+        } catch {
+        }
+      }
+    }, []);
     return /* @__PURE__ */ jsxRuntime.jsx("div", { style: { position: "absolute", inset: 0 }, children: phase.kind === "loading" ? null : phase.kind === "html" ? /* @__PURE__ */ jsxRuntime.jsx(
       "iframe",
       {
+        ref: frameRef,
         className: "extpreview-frame",
-        sandbox: htmlRaw ? "allow-scripts allow-forms allow-modals" : "",
+        sandbox: htmlRaw ? "allow-scripts allow-forms allow-modals" : "allow-same-origin",
         title: name,
-        srcDoc: htmlRaw ? phase.content : mdSrcdoc(phase.content, dark)
+        srcDoc: htmlRaw ? htmlWithTracker ?? phase.content : mdSrcdoc(phase.content, dark),
+        onLoad: () => {
+          const f = frameRef.current;
+          const w = f == null ? void 0 : f.contentWindow;
+          if (w && !htmlRaw) {
+            w.addEventListener("scroll", () => {
+              reportScroll(w.scrollY ?? 0);
+            });
+          }
+        }
       }
-    ) : phase.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "extpreview-text", children: phase.content }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "office-welcome", children: [
+    ) : phase.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { ref: preRef, className: "extpreview-text", onScroll: onPreScroll, children: phase.content }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "office-welcome", children: [
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "edwm", children: name }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "list", style: { alignItems: "flex-start" }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "h", children: props.fallbackTitle ?? "外部预览不可用" }),
@@ -943,6 +1087,19 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         if (ev.phase === "start") {
           return pushCap(blocks, { kind: "tool", callId: ev.callId ?? "", name: ev.name ?? "", args: ev.args, state: "running", source: ev.source, startTs: Date.now() });
         }
+        if (ev.phase === "args") {
+          for (let i = blocks.length - 1; i >= 0; i--) {
+            const b = blocks[i];
+            if (b.kind === "tool" && b.callId === ev.callId) {
+              const next = [...blocks];
+              const prev = b.args ?? {};
+              const inc = ev.args ?? {};
+              next[i] = { ...b, args: { ...prev, ...inc } };
+              return next;
+            }
+          }
+          return blocks;
+        }
         for (let i = blocks.length - 1; i >= 0; i--) {
           const b = blocks[i];
           if (b.kind === "tool" && b.callId === ev.callId) {
@@ -1046,7 +1203,17 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     const [userOpen, setUserOpen] = react.useState(false);
     const open = !!(ctx == null ? void 0 : ctx.verbose) || userOpen;
     const live = b.state === "running";
+    const aborted = b.state === "aborted";
     const label = TOOL_LABELS[b.name] ?? b.name;
+    const shellId = (() => {
+      if (b.name !== "terminal_run" && b.name !== "terminal_poll") return null;
+      try {
+        const a = b.args;
+        return typeof (a == null ? void 0 : a.shellId) === "string" ? a.shellId : null;
+      } catch {
+        return null;
+      }
+    })();
     const filePath = (() => {
       if (b.name !== "file_write" && b.name !== "file_patch") return null;
       try {
@@ -1124,7 +1291,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         ] }) : null
       ] }) });
     }
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-al" + (open ? " open" : "") + (live ? " live" : "") + (b.state === "error" ? " err" : ""), children: [
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-al" + (open ? " open" : "") + (live ? " live" : "") + (b.state === "error" ? " err" : "") + (aborted ? " aborted" : ""), children: [
       /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
@@ -1145,18 +1312,32 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
               {
                 name: toolIconName(b.name),
                 size: 13,
-                color: b.state === "error" ? "var(--c-red)" : live ? "var(--c-amber)" : void 0,
+                color: b.state === "error" ? "var(--c-red)" : live ? "var(--c-amber)" : aborted ? "var(--c-text3)" : void 0,
                 className: "v47-hic" + (live ? " v47-blink" : void 0)
               }
             ),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-nm" + (live ? " shimmer-text" : ""), children: label }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-ar" + (live ? " shimmer-text" : ""), children: argSummary }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-nm" + (live ? " shimmer-text" : "") + (aborted ? " aborted" : ""), children: label }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-ar" + (live ? " shimmer-text" : "") + (aborted ? " aborted" : ""), children: argSummary }),
             filePath && (ctx == null ? void 0 : ctx.previewFile) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn v47-preview", onClick: (e) => {
               var _a2;
               e.stopPropagation();
               (_a2 = ctx.previewFile) == null ? void 0 : _a2.call(ctx, filePath);
             }, children: "预览" }) : null,
+            shellId && (ctx == null ? void 0 : ctx.openShell) ? /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "tool-btn v47-preview",
+                title: "在「后台」页签查看执行详情",
+                onClick: (e) => {
+                  var _a2;
+                  e.stopPropagation();
+                  (_a2 = ctx.openShell) == null ? void 0 : _a2.call(ctx, shellId);
+                },
+                children: "⤴ 后台"
+              }
+            ) : null,
             b.state === "error" ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-fail", children: "失败" }) : null,
+            aborted ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-fail", style: { color: "var(--c-text3)", borderColor: "var(--c-border)" }, children: "已中断" }) : null,
             b.durationMs !== void 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "v47-du", children: [
               "· ",
               (b.durationMs / 1e3).toFixed(1),
@@ -1531,7 +1712,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       render: ({ block, ctx }) => {
         const b = block;
         if (!b.text.trim()) return null;
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "msg-row", style: { padding: "2px 0" }, children: [
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "msg-row", style: { padding: "8px 0" }, children: [
           /* @__PURE__ */ jsxRuntime.jsx("div", { className: "md-body", dangerouslySetInnerHTML: { __html: renderMarkdown(b.text) } }),
           (ctx == null ? void 0 : ctx.showCopy) ? /* @__PURE__ */ jsxRuntime.jsx(CopyMessageButton, { text: b.text, align: "left" }) : null
         ] });
@@ -2365,9 +2546,15 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     ] });
   }
   function ShellsTab(props) {
+    var _a2;
     const { taskId, live, tick } = props;
     const [shells, setShells] = react.useState([]);
     const [busyId, setBusyId] = react.useState(null);
+    const [selectedId, setSelectedId] = react.useState(null);
+    const [detail, setDetail] = react.useState(null);
+    const [truncated, setTruncated] = react.useState(false);
+    const detailShellRef = react.useRef(null);
+    const detailEndRef = react.useRef(null);
     const reload = react.useCallback(() => {
       void call$1("agent.task.shells", { taskId }).then((x) => {
         setShells(x);
@@ -2384,6 +2571,63 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       const iv = setInterval(reload, 2e3);
       return () => clearInterval(iv);
     }, [reload]);
+    react.useEffect(() => {
+      var _a3;
+      if (!props.focus) return;
+      setSelectedId(props.focus.shellId);
+      (_a3 = props.onFocused) == null ? void 0 : _a3.call(props);
+    }, [(_a2 = props.focus) == null ? void 0 : _a2.ts]);
+    react.useEffect(() => {
+      if (!selectedId) {
+        setDetail(null);
+        setTruncated(false);
+        detailShellRef.current = null;
+        return;
+      }
+      detailShellRef.current = selectedId;
+      let cancelled = false;
+      void call$1(
+        "agent.shell.output",
+        { taskId, shellId: selectedId }
+      ).then((r) => {
+        if (cancelled) return;
+        if (!r) {
+          setDetail(null);
+          setTruncated(false);
+          return;
+        }
+        setDetail({ output: r.output ?? "", running: r.running ?? false, exitCode: r.exitCode ?? null });
+        setTruncated(!!r.truncated);
+        requestAnimationFrame(() => {
+          var _a3;
+          return (_a3 = detailEndRef.current) == null ? void 0 : _a3.scrollIntoView({ block: "end" });
+        });
+      }).catch(() => {
+        if (!cancelled) setDetail(null);
+      });
+      return () => {
+        cancelled = true;
+        detailShellRef.current = null;
+      };
+    }, [selectedId, taskId]);
+    react.useEffect(() => {
+      return onEvent$1("agent.event", (p) => {
+        const { taskId: tid, event } = p;
+        if (tid !== taskId || event.type !== "shell-output") return;
+        if (!selectedId || event.shellId !== selectedId) return;
+        const chunk = event.chunk ?? "";
+        if (chunk) {
+          setDetail((d) => d ? { ...d, output: d.output + chunk } : { output: chunk, running: true, exitCode: null });
+        }
+        if (event.eof) {
+          reload();
+        }
+        requestAnimationFrame(() => {
+          var _a3;
+          return (_a3 = detailEndRef.current) == null ? void 0 : _a3.scrollIntoView({ block: "end" });
+        });
+      });
+    }, [taskId, selectedId, reload]);
     const kill = async (shellId) => {
       setBusyId(shellId);
       try {
@@ -2399,35 +2643,71 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       if (!s.running) return `exit ${s.exitCode ?? "-"}`;
       return "运行中";
     };
+    const sel = selectedId ? shells.find((s) => s.shellId === selectedId) ?? null : null;
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 14px", borderBottom: "1px solid var(--c-border)" }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("b", { style: { fontSize: 12.5 }, children: "后台" }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: "agent 后台 shell（terminal_run 后台模式）· 仅 live 会话有数据 · 2s 轮询" }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)", fontSize: 11 }, children: "agent 命令执行记录（terminal_run 前/后台）· 仅 live 会话有数据" }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
         /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: reload, children: "刷新" })
       ] }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880, width: "100%", margin: "0 auto" }, children: [
-        !live && shells.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }, children: "重启后后台 shell 不保留（仅 live 会话内存）——时间线里 terminal_poll 的输出仍可回看" }),
-        live && shells.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }, children: "暂无后台 shell" }),
-        shells.map((s) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-shell", children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-shell-h", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-dot", style: { color: s.running ? "var(--c-amber)" : (s.exitCode ?? 0) === 0 ? "var(--c-green)" : "var(--c-red)", animation: s.running ? "tk-pulse 1.2s infinite" : void 0 } }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-shell-cmd", title: s.command, children: s.command }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-shell-tm", children: fmtDur(s) }),
-            s.running && /* @__PURE__ */ jsxRuntime.jsx(
+      sel ? (
+        // ═══ 详情页：命令 + 完整输出 + 元信息 ═══
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }, children: [
+            /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => setSelectedId(null), children: "← 列表" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-dot", style: { color: sel.running ? "var(--c-amber)" : (sel.exitCode ?? 0) === 0 ? "var(--c-green)" : "var(--c-red)", animation: sel.running ? "tk-pulse 1.2s infinite" : void 0 } }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-shell-cmd", title: sel.command, children: sel.command }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-shell-tm", children: fmtDur(sel) }),
+            sel.running && /* @__PURE__ */ jsxRuntime.jsx(
               "button",
               {
                 className: "tool-btn",
                 style: { color: "var(--c-red)", borderColor: "color-mix(in srgb, var(--c-red) 38%, transparent)", flex: "none" },
-                disabled: busyId === s.id,
-                onClick: () => void kill(s.id),
+                disabled: busyId === sel.id,
+                onClick: () => void kill(sel.id),
                 children: "终止"
               }
             )
           ] }),
-          s.tail && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-shell-tail", children: s.tail })
-        ] }, s.id))
-      ] })
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 14px" }, children: [
+            detail === null ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12 }, children: "加载中…" }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontFamily: "var(--mono, monospace)", fontSize: 11.5, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--c-text)" }, children: [
+              detail.output || /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text3)" }, children: "（无输出）" }),
+              /* @__PURE__ */ jsxRuntime.jsx("div", { ref: detailEndRef })
+            ] }),
+            truncated && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-amber)", fontSize: 11, marginTop: 6 }, children: "⚠ 输出超过 128KB 上限，仅显示尾部" })
+          ] })
+        ] })
+      ) : (
+        // ═══ 列表页：全部 shell 条目 ═══
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880, width: "100%", margin: "0 auto" }, children: [
+          !live && shells.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }, children: "重启后后台 shell 不保留（仅 live 会话内存）——时间线里 terminal_poll 的输出仍可回看" }),
+          live && shells.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }, children: "暂无命令执行记录" }),
+          shells.map((s) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-shell", style: { cursor: "pointer" }, onClick: () => setSelectedId(s.shellId), children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-shell-h", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-dot", style: { color: s.running ? "var(--c-amber)" : (s.exitCode ?? 0) === 0 ? "var(--c-green)" : "var(--c-red)", animation: s.running ? "tk-pulse 1.2s infinite" : void 0 } }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-shell-cmd", title: s.command, children: s.command }),
+              s.foreground ? /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 10, color: "var(--c-text3)", border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px", flex: "none" }, children: "前台" }) : null,
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-shell-tm", children: fmtDur(s) }),
+              s.running && /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  className: "tool-btn",
+                  style: { color: "var(--c-red)", borderColor: "color-mix(in srgb, var(--c-red) 38%, transparent)", flex: "none" },
+                  disabled: busyId === s.id,
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    void kill(s.id);
+                  },
+                  children: "终止"
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { marginLeft: "auto", color: "var(--c-text3)", fontSize: 11, flex: "none" }, children: "详情 ›" })
+            ] }),
+            s.tail && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-shell-tail", style: { opacity: 0.75 }, children: s.tail })
+          ] }, s.id))
+        ] })
+      )
     ] });
   }
   function TaskWrapupDialog(props) {
@@ -2695,9 +2975,9 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       case "starting":
         return { label: "启动中", color: "var(--c-text3)" };
       case "working":
-        return { label: "● 执行中", color: "var(--c-green)" };
+        return { label: "执行中", color: "var(--c-green)" };
       case "awaiting-permission":
-        return { label: "● 待确认", color: "var(--c-amber)" };
+        return { label: "待确认", color: "var(--c-amber)" };
       case "completed":
         return { label: "已完成", color: "var(--c-accent)" };
       case "failed":
@@ -2794,6 +3074,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     const [renamingId, setRenamingId] = react.useState(null);
     const [delPopId, setDelPopId] = react.useState(null);
     const [shellRunning, setShellRunning] = react.useState(0);
+    const [shellFocus, setShellFocus] = react.useState(null);
     const [wrapupOpen, setWrapupOpen] = react.useState(false);
     const [feedbackOpen, setFeedbackOpen] = react.useState(false);
     const [taskTypes, setTaskTypes] = react.useState([]);
@@ -2914,7 +3195,14 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         reader.readAsDataURL(f);
       }
     }, [addImages]);
-    const [changesPanelOpen, setChangesPanelOpen] = react.useState(true);
+    const [changesPanelOpen, setChangesPanelOpen] = react.useState(false);
+    const [queuedHints, setQueuedHints] = react.useState({});
+    const addQueuedHint = (taskId, text) => setQueuedHints((m) => {
+      const cur = m[taskId] ?? [];
+      const next = [text];
+      next.splice(0, 1, ...cur.slice(-5));
+      return { ...m, [taskId]: next };
+    });
     const detailRef = react.useRef(null);
     const [pageVisible, setPageVisible] = react.useState(true);
     const [, setTitlebarTick] = react.useState(0);
@@ -3208,6 +3496,18 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       () => onEvent("agent.event", (p) => {
         const { taskId, event } = p;
         setEvMap((m) => ({ ...m, [taskId]: reduceBlocks(m[taskId] ?? [], event) }));
+        if (event.type === "queued-drained" && (event.queuedDrained ?? 0) > 0) {
+          setQueuedHints((m) => {
+            const n = Math.min(event.queuedDrained ?? 0, (m[taskId] ?? []).length);
+            if (n === 0) return m;
+            const left = (m[taskId] ?? []).slice(n);
+            const out = {};
+            for (const [k, v] of Object.entries(m)) if (v.length) out[k] = v;
+            out[taskId] = left;
+            if (!left.length) delete out[taskId];
+            return out;
+          });
+        }
         if (event.type === "turn-completed" || event.type === "completed") {
           void reloadAgents();
           setChangesTick((n) => n + 1);
@@ -3301,6 +3601,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     };
     const runningTool = (() => {
       if (!selectedTask) return null;
+      if (!selected || !LIVE_STATES.has(selected.state)) return null;
       const blocks = evMap[selectedTask] ?? [];
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
@@ -3308,7 +3609,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       }
       return null;
     })();
-    const runningSubs = selectedTask ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length : 0;
+    const runningSubs = selectedTask && selected && LIVE_STATES.has(selected.state) ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length : 0;
     react.useEffect(() => {
       setStats(null);
     }, [selectedTask]);
@@ -3620,8 +3921,10 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
             }
             if (builtin.template) {
               const expanded = builtin.template.replace(/\$\{input\}/g, arg);
-              if (BUSY_STATES.has(selected.state)) await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded });
-              else await call("agent.task.resume", { taskId: selected.taskId, prompt: expanded, thinking, mode });
+              if (BUSY_STATES.has(selected.state)) {
+                await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded });
+                addQueuedHint(selected.taskId, expanded);
+              } else await call("agent.task.resume", { taskId: selected.taskId, prompt: expanded, thinking, mode });
               setInputText("");
               return;
             }
@@ -3671,8 +3974,10 @@ ${target.instructions}
             const pc = pkgCommands.find((c) => c.name === cmd.slice(1));
             if (pc) {
               const expanded = pc.template.replace(/\$\{input\}/g, arg);
-              if (BUSY_STATES.has(selected.state)) await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded });
-              else await call("agent.task.resume", { taskId: selected.taskId, prompt: expanded, thinking, mode });
+              if (BUSY_STATES.has(selected.state)) {
+                await call("agent.task.queue", { taskId: selected.taskId, prompt: expanded });
+                addQueuedHint(selected.taskId, expanded);
+              } else await call("agent.task.resume", { taskId: selected.taskId, prompt: expanded, thinking, mode });
             } else {
               const pkgHint = pkgCommands.length > 0 ? `；包命令：${pkgCommands.map((c) => "/" + c.name).join(" ")}` : "";
               setError(`未知命令 ${cmd}（内置：${BUILTIN_SLASH.map((c) => "/" + c.name).join(" ")}${pkgHint}）`);
@@ -3704,6 +4009,7 @@ ${target.instructions}
         if (busy2) {
           if (attachments.length > 0) setError("任务运行中：图片将不随排队消息注入，请等本轮结束再发送");
           await call("agent.task.queue", { taskId: selected.taskId, prompt: text, ...busySend === "interrupt" ? { interrupt: true } : {} });
+          if (busySend !== "interrupt") addQueuedHint(selected.taskId, text);
         } else {
           try {
             await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode, ...attachments.length > 0 ? { attachments } : {} });
@@ -3712,6 +4018,7 @@ ${target.instructions}
             if (!/排队/.test(msg)) throw e;
             setError("agent 正在等待你对上方卡片的回答：输入已排队，回合结束后自动注入");
             await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
+            addQueuedHint(selected.taskId, text);
           }
         }
         await reloadAgents();
@@ -3990,17 +4297,19 @@ ${target.instructions}
       return out;
     })();
     const renderBlock = (b, key, process = false) => {
-      switch (b.kind) {
+      const live = selected ? LIVE_STATES.has(selected.state) : true;
+      const block = !live && b.kind === "tool" && b.state === "running" ? { ...b, state: "aborted", durationMs: b.durationMs ?? Date.now() - b.startTs } : b;
+      switch (block.kind) {
         case "permission":
           return null;
         case "question":
-          return /* @__PURE__ */ jsxRuntime.jsx(QuestionCard, { b, decided: decided[b.requestId], onAnswer: replyAnswer }, key);
+          return /* @__PURE__ */ jsxRuntime.jsx(QuestionCard, { b: block, decided: decided[block.requestId], onAnswer: replyAnswer }, key);
         case "plan":
-          return /* @__PURE__ */ jsxRuntime.jsx(PlanCard, { b, decided: decided[b.requestId], onPlan: replyPlan }, key);
+          return /* @__PURE__ */ jsxRuntime.jsx(PlanCard, { b: block, decided: decided[block.requestId], onPlan: replyPlan }, key);
         case "todo":
           return null;
       }
-      const renderer = resolveTimelineRenderer(b.kind === "tool" ? b.name : void 0, b.kind);
+      const renderer = resolveTimelineRenderer(block.kind === "tool" ? block.name : void 0, block.kind);
       if (!renderer) return null;
       const ctx = {
         taskId: selectedTask ?? "",
@@ -4011,12 +4320,16 @@ ${target.instructions}
           animatePanel(true);
         },
         previewFile,
+        openShell: (shellId) => {
+          setShellFocus({ shellId, ts: Date.now() });
+          setTab("shells");
+        },
         contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : void 0,
-        showCopy: !process && copyBlocks.has(b),
+        showCopy: !process && copyBlocks.has(block),
         verbose: verboseTimeline,
         renderChildren: (children) => /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: children.map((c, i) => renderBlock(c, `${key}-${i}`, true)) })
       };
-      return /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: renderer.render({ block: b, taskId: ctx.taskId ?? "", ctx }) }, key);
+      return /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: renderer.render({ block, taskId: ctx.taskId ?? "", ctx }) }, key);
     };
     const renderProcess = (prefix, list) => {
       const entries = [];
@@ -4573,58 +4886,80 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
                     const pre = e.target.closest("pre");
                     if (pre) void ((_a3 = navigator.clipboard) == null ? void 0 : _a3.writeText(pre.textContent ?? ""));
                   },
-                  children: /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: streamInnerRef, style: { maxWidth: 880, margin: "0 auto", padding: "14px 20px 26px", display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }, children: [
+                  children: /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: streamInnerRef, className: "tl-conv", style: { maxWidth: 880, margin: "0 auto", padding: "14px 20px 26px", display: "flex", flexDirection: "column", gap: 0, minWidth: 0 }, children: [
                     loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11 }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-pulse", children: "加载中…" }) }),
                     hasMoreHistory && !loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11, opacity: 0.6 }, children: "↑ 上滚加载更早" }),
                     timeline.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12 }, children: t("Agents_TimelineEmpty") }),
-                    groupTurns(timeline).map((g, gi) => {
-                      const ended = !!g.turn;
-                      const expanded = !ended || expandedTurns.has(g.anchor);
-                      const tools = g.process.filter((b) => b.kind === "tool").length;
-                      const subs = g.process.filter((b) => b.kind === "subtask").length;
-                      return /* @__PURE__ */ jsxRuntime.jsxs(react.Fragment, { children: [
-                        g.human ? renderBlock(g.human, `g${gi}-h`) : null,
-                        ended && g.process.length > 0 ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-                          /* @__PURE__ */ jsxRuntime.jsxs(
-                            "div",
-                            {
-                              className: "tl-turn",
-                              onClick: () => toggleTurn(g.anchor),
-                              role: "button",
-                              tabIndex: 0,
-                              "aria-expanded": expanded,
-                              onKeyDown: (e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  toggleTurn(g.anchor);
-                                }
-                              },
-                              children: [
-                                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, className: "tl-chev" + (expanded ? " open" : "") }),
-                                /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontWeight: 600 }, children: "执行过程" }),
-                                tools > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-                                  "工具 ",
-                                  tools
-                                ] }) : null,
-                                subs > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-                                  "子代理 ",
-                                  subs
-                                ] }) : null,
-                                tools === 0 && subs === 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-                                  g.process.length,
-                                  " 条"
-                                ] }) : null
-                              ]
-                            }
-                          ),
-                          expanded && renderProcess(`g${gi}-p`, g.process)
-                        ] }) : renderProcess(`g${gi}-p`, g.process),
-                        g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null,
-                        g.outcome.length > 0 ? g.outcome.some((b) => b.kind === "status" && b.text.includes("中断")) ? /* @__PURE__ */ jsxRuntime.jsx(OutcomeFold, { icon: "dot", color: "var(--c-amber)", summary: "会话已中断 · 发送消息可继续", children: g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`, true)) }) : g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`)) : null,
-                        g.turn ? renderBlock(g.turn, `g${gi}-t`) : null,
-                        gi === groupTurns(timeline).length - 1 && failBar && !(timeline.length > 0 && timeline[timeline.length - 1].kind === "status") && /* @__PURE__ */ jsxRuntime.jsx(OutcomeFold, { icon: failBar.icon, color: failBar.color, summary: failBar.summary, children: /* @__PURE__ */ jsxRuntime.jsx("span", { style: { overflowWrap: "anywhere", userSelect: "text" }, children: failBar.reason || failBar.summary }) })
-                      ] }, gi);
-                    })
+                    (() => {
+                      const groups = groupTurns(timeline);
+                      const gapOf = (i) => {
+                        var _a3, _b3;
+                        if (i === 0) return "";
+                        const a = groups[i - 1];
+                        const prev = ((_a3 = a.conclusion) == null ? void 0 : _a3.kind) ?? (a.active ? ((_b3 = a.process[a.process.length - 1]) == null ? void 0 : _b3.kind) ?? "" : a.turn ? "" : "");
+                        const cur = groups[i].human ? "human" : groups[i].active && groups[i].process.length > 0 ? groups[i].process[0].kind : "";
+                        if (prev !== "assistant") return cur === "assistant" ? "conv" : "soft";
+                        if (cur === "human") return "soft";
+                        if (cur === "assistant") return "soft";
+                        return "conv";
+                      };
+                      return groups.map((g, gi) => {
+                        const gap = gapOf(gi);
+                        const ended = !!g.turn;
+                        const expanded = !ended || expandedTurns.has(g.anchor);
+                        const tools = g.process.filter((b) => b.kind === "tool").length;
+                        const subs = g.process.filter((b) => b.kind === "subtask").length;
+                        return /* @__PURE__ */ jsxRuntime.jsxs(react.Fragment, { children: [
+                          gap === "conv" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tl-gap-conv" }) : null,
+                          gap === "soft" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tl-gap-soft" }) : null,
+                          g.human ? renderBlock(g.human, `g${gi}-h`) : null,
+                          ended && g.process.length > 0 ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                            /* @__PURE__ */ jsxRuntime.jsxs(
+                              "div",
+                              {
+                                className: "tl-turn",
+                                onClick: () => toggleTurn(g.anchor),
+                                role: "button",
+                                tabIndex: 0,
+                                "aria-expanded": expanded,
+                                onKeyDown: (e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    toggleTurn(g.anchor);
+                                  }
+                                },
+                                children: [
+                                  /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, className: "tl-chev" + (expanded ? " open" : "") }),
+                                  /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontWeight: 600 }, children: "执行过程" }),
+                                  tools > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                                    "工具 ",
+                                    tools
+                                  ] }) : null,
+                                  subs > 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                                    "子代理 ",
+                                    subs
+                                  ] }) : null,
+                                  tools === 0 && subs === 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                                    g.process.length,
+                                    " 条"
+                                  ] }) : null
+                                ]
+                              }
+                            ),
+                            expanded && renderProcess(`g${gi}-p`, g.process)
+                          ] }) : renderProcess(`g${gi}-p`, g.process),
+                          g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null,
+                          g.outcome.length > 0 ? g.outcome.some((b) => b.kind === "status" && b.text.includes("中断")) ? /* @__PURE__ */ jsxRuntime.jsx(OutcomeFold, { icon: "dot", color: "var(--c-amber)", summary: "会话已中断 · 发送消息可继续", children: g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`, true)) }) : g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`)) : null,
+                          g.turn ? renderBlock(g.turn, `g${gi}-t`) : null,
+                          gi === groups.length - 1 && failBar && !(timeline.length > 0 && timeline[timeline.length - 1].kind === "status") && /* @__PURE__ */ jsxRuntime.jsx(OutcomeFold, { icon: failBar.icon, color: failBar.color, summary: failBar.summary, children: /* @__PURE__ */ jsxRuntime.jsx("span", { style: { overflowWrap: "anywhere", userSelect: "text" }, children: failBar.reason || failBar.summary }) })
+                        ] }, gi);
+                      });
+                    })(),
+                    (queuedHints[(selected == null ? void 0 : selected.taskId) ?? ""] ?? []).length > 0 ? (queuedHints[selected.taskId] ?? []).map((q, qi) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-queued-hint", children: [
+                      /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "clock", size: 11, style: { flex: "none", marginTop: 3 } }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { style: { whiteSpace: "nowrap", fontWeight: 600 }, children: "排队 · 本轮结束后自动注入" }),
+                      /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1, minWidth: 0, textAlign: "left", color: "var(--c-text2)", fontSize: 12.5, lineHeight: 1.6, overflowWrap: "anywhere", userSelect: "text" }, children: q.length > 120 ? q.slice(0, 120) + "…" : q })
+                    ] }, `queued-${qi}`)) : null
                   ] })
                 }
               ),
@@ -4860,7 +5195,18 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
             }
           ),
           tab === "cp" && selected && /* @__PURE__ */ jsxRuntime.jsx(CheckpointsTab, { taskId: selected.taskId, branch: selected.branch, tick: changesTick, setError, onCount: setCpCount, onViewDiff: () => setTab("diff"), onMutate: () => setChangesTick((n) => n + 1) }),
-          tab === "shells" && selected && /* @__PURE__ */ jsxRuntime.jsx(ShellsTab, { taskId: selected.taskId, live: LIVE_STATES.has(selected.state), tick: changesTick, setError, onCount: setShellRunning })
+          tab === "shells" && selected && /* @__PURE__ */ jsxRuntime.jsx(
+            ShellsTab,
+            {
+              taskId: selected.taskId,
+              live: LIVE_STATES.has(selected.state),
+              tick: changesTick,
+              setError,
+              onCount: setShellRunning,
+              focus: shellFocus,
+              onFocused: () => setShellFocus(null)
+            }
+          )
         ] }),
         selected && changesPanelOpen && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", style: { gridColumn: "2", gridRow: "1 / 3", display: panelClosing ? "none" : void 0 }, title: "拖拽调整分栏比例", onPointerDown: startSplitDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),

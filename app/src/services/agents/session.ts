@@ -124,6 +124,8 @@ interface LiveSession {
   reviewInjectedAt?: string | null;
   /** 插话（interrupt 发送）挂起标记：当前轮被中断后，取消分支据此把排队输入立即注入为新一轮 */
   interjectPending?: boolean;
+  /** 本次续轮注入的排队条数（排空时写入，startTurn 发 queued-drained 事件后清零） */
+  pendingDrainCount: number;
 }
 
 const BUILTIN_HARNESS_ID = "builtin/gitter-agent";
@@ -1270,14 +1272,38 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     return this.computeStats(session.messages, 0, session, window);
   }
 
-  /** 后台 shell 状态（F4 逃生舱联动：任务卡面板数据源）。 */
-  taskShells(args: { taskId: string }): { id: string; command: string; running: boolean; exitCode: number | null; tail: string }[] {
+  /** 后台 shell 状态（F4 逃生舱联动：任务卡面板数据源）。
+   *  task-page-command-terminal-design.md §6.4：扩 shellId/foreground/startedAt/persisted 字段——
+   *  shellId 与 tool/start 的 args.shellId 同源（卡片 ↔ shell 条目关联键）；
+   *  foreground 标记前台命令（design §6.2）；persisted 标记来自 journal 的历史回看。 */
+  taskShells(args: { taskId: string }): {
+    id: string; command: string; running: boolean; exitCode: number | null; tail: string;
+    shellId: string; foreground: boolean; startedAt: number; persisted: boolean;
+  }[] {
     const live = this.live.get(args.taskId);
     if (!live) return [];
     return [...live.shells.values()].map((s) => ({
       id: s.id, command: s.command.slice(0, 200), running: s.running, exitCode: s.exitCode,
       tail: s.output.slice(-2000),
+      shellId: s.id, foreground: s.foreground === true, startedAt: s.startedAt, persisted: false,
     }));
+  }
+
+  /** 按 shellId 拉取完整输出（task-page-command-terminal-design.md §6.6）——
+   *  agent.shell.output 事件通道丢失时的兜底重建源。上限 128KB，超出取尾。 */
+  shellOutput(args: { taskId: string; shellId: string }): { command: string; output: string; running: boolean; exitCode: number | null; foreground: boolean; startedAt: number; truncated: boolean } | null {
+    const live = this.live.get(args.taskId);
+    if (!live) return null;
+    const rec = live.shells.get(args.shellId);
+    if (!rec) return null;
+    const CAP = 128 * 1024;
+    const truncated = rec.output.length > CAP;
+    return {
+      command: rec.command.slice(0, 200),
+      output: truncated ? rec.output.slice(rec.output.length - CAP) : rec.output,
+      running: rec.running, exitCode: rec.exitCode,
+      foreground: rec.foreground === true, startedAt: rec.startedAt, truncated,
+    };
   }
 
   /** 图片预览（F2.1：read-image 附件数据源；base64 data URL，cap 2MB）。 */
@@ -1387,6 +1413,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         turnStartTs: Date.now(),
         tokenCal: 1,
         reviewInjectedAt: null,
+        pendingDrainCount: 0,
       };
       this.live.set(record.taskId, live);
     }
@@ -1420,6 +1447,11 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         this.emit(record, { type: "log", level: "info", text: `审查结论已注入：${rv.status === "approved" ? "通过" : "退回"}` });
       }
       live.journal.push({ ts: new Date().toISOString(), actor: "human", kind: "text", text: humanNote ?? "任务下发" });
+      // 排队→新一轮的注入边界：drain 分支在上一轮末把待注入条数写入 pendingDrainCount 后 continue 回本循环，
+      // 这里在下一次 journal 落盘前发 queued-drained（渲染层据此把「排队」提示翻转为「已注入」），
+      // 再清零。参数化 isQueuedDrain 不可行——drain 发生在同一 startTurn 的循环内，参数无法在循环里被改写。
+      if (live.pendingDrainCount > 0) this.emit(record, { type: "queued-drained", count: live.pendingDrainCount, turn: autoTurns + 1 });
+      live.pendingDrainCount = 0;
       live.abort = new AbortController();
       live.turnStartTs = Date.now();
       record.state = "starting";
@@ -1507,6 +1539,9 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         worktreePath: record.worktreePath,
         taskId: record.taskId,
         mode,
+        // 当前 tool callId（loop 在 tool/start 前经 onToolCallStart 写入）——
+        // terminal_run 据此把 shell 与卡片关联（task-page-command-terminal-design.md §6.1）
+        callId: undefined,
         signal: live.abort.signal,
         emit: (ev) => this.emit(record, ev),
         requestPermission: (toolName, req, subtaskId) => this.requestPermission(record, live, toolName, req, subtaskId),
@@ -1567,6 +1602,8 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         signal: live.abort.signal,
         worktreePath: record.worktreePath,
         maxSteps: Math.min(live.taskType.maxSteps ?? 50, 200),
+        // tool-call 开始时把 callId 写进 env（工具内关联 shellId 等子实体用）
+        onToolCallStart: (callId) => { env.callId = callId; },
         // §20.3.4 循环契约 v2：只读服务代理（门在宿主）
         services: {
           requestPermission: (toolName, req) => this.requestPermission(record, live, toolName, req),
@@ -1749,6 +1786,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           content: wrapReminder(`用户中断了当前轮并补充了以下输入，请立即按新输入继续（此前的进行中工作可能被截断）：\n${drained.map((q) => `- ${q}`).join("\n")}`),
         });
         humanNote = `插话注入：${drained.length} 条`;
+        live.pendingDrainCount = drained.length;
         autoTurns++;
         continue;
       }
@@ -1761,6 +1799,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           content: wrapReminder(`用户在工作期间补充了以下输入，请结合处理：\n${drained.map((q) => `- ${q}`).join("\n")}`),
         });
         humanNote = `排队输入注入：${drained.length} 条`;
+        live.pendingDrainCount = drained.length;
         autoTurns++;
         continue;
       }
@@ -2020,6 +2059,12 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
 
   private emit(record: AgentTaskRecord, ev: AgentSessionEvent): void {
     const live = this.live.get(record.taskId);
+    // shell-output 高频（每 120ms 一 chunk），不入 journal（会撑爆缓冲）——只广播给渲染层详情页。
+    // 详情页的完整输出由 ShellRecord.output 兜底（agent.shell.output RPC 可重拉）。
+    if (ev.type === "shell-output") {
+      this.deps.send("agent.event", { taskId: record.taskId, event: ev });
+      return;
+    }
     if (live) {
       live.journal.push({ ts: new Date().toISOString(), actor: ev.type === "checkpoint" || ev.type === "log" ? "host" : "agent", kind: "event", event: ev });
       if (live.journal.length > JOURNAL_BUFFER_CAP) live.journal.splice(0, live.journal.length - JOURNAL_BUFFER_CAP);

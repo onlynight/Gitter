@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TODO_TIMELINE_RENDERER } from "./pages/TaskTimeline";
 
 /**
  * Agent UI 注册表（agent-harness-v4.md §14.6/§20.3.7）：
@@ -21,6 +22,8 @@ export interface TimelineCardCtx {
   viewFile?: (path: string) => void;
   /** file 块「预览」→ 只读正文预览（§21.3.4） */
   previewFile?: (path: string) => void;
+  /** 命令卡「⤴ 后台」→ 跳「后台」页签并选中该 shellId 展开详情（design §5） */
+  openShell?: (shellId: string) => void;
   /** turn 块上下文用量文案（宿主轮询 stats） */
   contextPct?: string;
   /** 本块是否本轮结论性回复（仅结论挂复制钮；中间过程片段/子代理子块为 false） */
@@ -95,8 +98,19 @@ interface Scored {
 const TIER_ORDER: Record<AgentUITier, number> = { host: 1, builtin: 2, user: 3 };
 
 const registrations = new Map<string, AgentUIRegistration>();
+
+// 宿主自举层（非任何页面包）：只装宿主专属的卡片渲染器。
+// gitui.page.tasks 的 builtin 注册（registerBuiltinAgentUI，页面模块加载时执行）
+// 是 Map 里另一个 packageId，两者不会互相覆盖；这里若塞进 builtin 包同名 key
+// 就会被页面侧的注册整表替换掉——任务清单卡片就是因此丢成「任务清单 {"todos":…}」
+// 一行文字回退（BUILTIN_TIMELINE_RENDERERS 里没有 todo 条目，解析后 renderer 为 null）。
+const HOST_TIMELINE_RENDERERS: TimelineRendererDef[] = [TODO_TIMELINE_RENDERER];
 const listeners = new Set<() => void>();
 let version = 0;
+
+// 宿主自举注册：agentUIRegistry 与 agentUIShim 同层，页面产物经 sdk 消费同一份，
+// 无需页面侧 registerBuiltinAgentUI 也能解析到宿主渲染器。
+registerAgentUI({ packageId: "host", tier: "host", timelineRenderers: HOST_TIMELINE_RENDERERS, composerProviders: [] });
 
 function notify(): void {
   version++;
