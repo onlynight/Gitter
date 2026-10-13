@@ -15,7 +15,7 @@ import { TaskChangesPanel } from "./TaskChangesPanel";
 import {
   TOOL_LABELS, BUILTIN_TIMELINE_RENDERERS, pushCap, reduceBlocks, groupLogs, groupTurns, permOptions,
   type Block, type Todo, type TurnGroup, type PermOption,
-  TodoList, PermissionCard, QuestionCard, PlanCard, SubtaskBlock,
+  TodoList, PermissionCard, QuestionCard, PlanCard, SubtaskBlock, FileGroup,
 } from "./TaskTimeline";
 import { Composer, MentionPopover, SlashPopover, BUILTIN_COMPOSER_PROVIDERS, MODE_ORDER, MODE_META, THINKING_META, type ModelGroupVM } from "./TaskComposer";
 import { ChangesTab, CheckpointsTab, ShellsTab } from "./TaskDetailPages";
@@ -61,13 +61,13 @@ function stateChip(s: AgentTaskDTO["state"], awaitKind?: "question" | "plan" | n
     return { label: "已完成", color: "var(--c-text3)" };
   }
   switch (s) {
-    case "starting": return { label: "Starting", color: "var(--c-text3)" };
-    case "working": return { label: "● Working", color: "var(--c-green)" };
+    case "starting": return { label: "启动中", color: "var(--c-text3)" };
+    case "working": return { label: "● 执行中", color: "var(--c-green)" };
     case "awaiting-permission": return { label: "● 待确认", color: "var(--c-amber)" };
-    case "completed": return { label: "Completed", color: "var(--c-accent)" };
-    case "failed": return { label: "Failed", color: "var(--c-red)" };
-    case "interrupted": return { label: "Interrupted", color: "var(--c-amber)" };
-    case "stopped": return { label: "Stopped", color: "var(--c-text3)" };
+    case "completed": return { label: "已完成", color: "var(--c-accent)" };
+    case "failed": return { label: "失败", color: "var(--c-red)" };
+    case "interrupted": return { label: "已中断", color: "var(--c-amber)" };
+    case "stopped": return { label: "已停止", color: "var(--c-text3)" };
   }
 }
 
@@ -176,6 +176,13 @@ export function TasksPage() {
   const [modelId, setModelId] = useState("");
   const [mode, setMode] = useState<"plan" | "default" | "yolo">("default");
   const [tab, setTab] = useState<"chat" | "diff" | "cp" | "shells">("chat");
+  // 详细模式（v4.7 §4.3，照抄 ZCode ctrl+o）：工具结果/思考默认全展开
+  const [verboseTimeline, setVerboseTimeline] = useState(false);
+  // 分支模式提示浮层（收进图标按钮，不再占用会话流版面）
+  const [branchHintOpen, setBranchHintOpen] = useState(false);
+  // 悬浮输入框 dock / 流内容 ref：流底留白随 dock 实际高度自适应（v4.7）
+  const composerDockRef = useRef<HTMLDivElement | null>(null);
+  const streamInnerRef = useRef<HTMLDivElement | null>(null);
   // 切回对话页：恢复离开时的滚动位置（面板保持挂载，无需重新加载历史）
   useEffect(() => {
     if (tab !== "chat") return;
@@ -247,6 +254,8 @@ export function TasksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelId, modelProfiles]);
   const [sending, setSending] = useState(false);
+  // 发送互斥用同步 ref（React state 异步提交，同一渲染帧内的第二次 Enter 拦不住 → 重复建任务）
+  const sendingRef = useRef(false);
   const [decided, setDecided] = useState<Record<string, string>>({});
   const [stats, setStats] = useState<AgentContextStatsDTO | null>(null);
   const [changesTick, setChangesTick] = useState(0);
@@ -307,12 +316,20 @@ export function TasksPage() {
     }, 100);
     return () => window.clearInterval(timer);
   }, []);
-  // 分栏布局：任务列表 / 对话分栏都记比例（fr 份额），窗口缩放比例不变；拖拽实时调、松手落 localStorage。
-  // minmax 下限兜底窄窗（列表 ≥210px，对话 ≥340px，面板 ≥280px），比例再小也不得挤破下限。
-  const [listRatio, setListRatio] = useState(() => {
-    localStorage.removeItem("gitter.taskListWidth"); // 旧绝对值键清理
-    const v = Number(localStorage.getItem("gitter.taskListRatio"));
-    return Number.isFinite(v) && v >= 0.12 && v <= 0.5 ? v : 0.23;
+  // 分栏布局：左任务列表分割线按像素持久化（比例在不同窗口宽度下位置漂移，观感奇怪——用户反馈）；
+  // 右侧对话|变更分栏仍记比例（fr 份额）。拖拽实时调、松手落 localStorage。
+  const TASK_LIST_MIN_W = 210;
+  const TASK_LIST_MAX_W = 520;
+  const [listWidth, setListWidth] = useState(() => {
+    const v = Number(localStorage.getItem("gitter.taskListWidth"));
+    if (Number.isFinite(v) && v >= TASK_LIST_MIN_W && v <= TASK_LIST_MAX_W) return Math.round(v);
+    // 旧比例键一次性迁移：按当前窗口宽换算成像素后即弃用
+    const legacy = Number(localStorage.getItem("gitter.taskListRatio"));
+    localStorage.removeItem("gitter.taskListRatio");
+    if (Number.isFinite(legacy) && legacy >= 0.12 && legacy <= 0.5) {
+      return Math.max(TASK_LIST_MIN_W, Math.min(TASK_LIST_MAX_W, Math.round(legacy * window.innerWidth)));
+    }
+    return 300;
   });
   const [splitRatio, setSplitRatio] = useState(() => {
     localStorage.removeItem("gitter.taskSplitChatW");
@@ -329,7 +346,14 @@ export function TasksPage() {
   // 中断（快速连点）只重定 transform 目标，从当前位置续滑；结束清理是惰性写入
   // （transform:none == translateX(0)，无布局变更，不闪）。锁宽/ResizeObserver 机制随
   // 布局动画一并移除——轨道不再逐帧变化，内容跟随 flex 自然填充，无挤压问题。
-  const panelTemplate = (r: number) => `minmax(280px, ${r.toFixed(4)}fr) 6px minmax(280px, ${(1 - r).toFixed(4)}fr)`;
+  // 轨道值必须绝对干净：内联 grid-template-columns 里只要出现一个非法轨道（NaNfr/
+  // undefinedfr），CSSOM 会把整条声明丢弃，网格退化成按内容宽度的隐式轨道——对话列
+  // 被 overflow 裁切、面板缩成内容宽、右侧留出整条空带（实测截图复现）。入参钳位兜底
+  // 之外，.tk-detail 的 CSS 兜底模板再保一层（内联合法时始终覆盖它，见 styles.css）。
+  const panelTemplate = (r: number) => {
+    const rr = Number.isFinite(r) ? Math.min(0.85, Math.max(0.2, r)) : 4 / 7;
+    return `minmax(280px, ${rr.toFixed(4)}fr) 6px minmax(280px, ${(1 - rr).toFixed(4)}fr)`;
+  };
   const PANEL_TRANSFORM_TRANSITION = "transform 400ms var(--ease-std)";
   const panelWrapRef = useRef<HTMLDivElement | null>(null);
   const panelTimerRef = useRef<number | null>(null);
@@ -413,24 +437,26 @@ export function TasksPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panelClosing]);
-  // 分割线拖拽：拖拽中直写 grid 列（不经 React 渲染，无抖动），松手落比例
+  // 左列表分割线拖拽：拖拽中直写 grid 列（不经 React 渲染，无抖动），松手落像素值
   const startListDrag = (e: { currentTarget: HTMLElement; preventDefault(): void }) => {
     e.preventDefault();
     const grip = e.currentTarget;
     const main = grip.parentElement;
     if (!main) return;
     grip.classList.add("drag");
+    let px = listWidth;
     const move = (ev: PointerEvent) => {
       const rect = main.getBoundingClientRect();
-      const r = Math.max(0.14, Math.min(0.45, (ev.clientX - rect.left - 3) / rect.width));
-      main.style.gridTemplateColumns = `minmax(210px, ${r.toFixed(4)}fr) 6px minmax(0, ${(1 - r).toFixed(4)}fr)`;
+      // 上限取像素帽与「留 340px 给对话列」的较小者（窄窗不挤破右侧）
+      px = Math.round(Math.max(TASK_LIST_MIN_W, Math.min(TASK_LIST_MAX_W, ev.clientX - rect.left, rect.width - 346)));
+      main.style.gridTemplateColumns = `${px}px 6px minmax(0, 1fr)`;
     };
     const up = () => {
       grip.classList.remove("drag");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      const m = main.style.gridTemplateColumns.match(/([0-9.]+)fr/);
-      if (m) { const r = Number(m[1]); setListRatio(r); localStorage.setItem("gitter.taskListRatio", String(r)); }
+      setListWidth(px);
+      localStorage.setItem("gitter.taskListWidth", String(px));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -466,6 +492,9 @@ export function TasksPage() {
   const [cpCount, setCpCount] = useState(0);
   const [diffCount, setDiffCount] = useState(0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
+  // 贴底跟随开关：视窗停在底部附近才随新内容自动滚底；用户上滚阅读即停用，回到底部（含浮钮）
+  // 自动恢复。程序化贴底与回补位置也会触发 scroll 事件，状态在这里统一收敛。
+  const stickBottomRef = useRef(true);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   // 最近一次时间线滚动位置：切改动/检查点后切回对话时恢复，避免回顶
   const lastChatScrollRef = useRef<number | null>(null);
@@ -476,6 +505,7 @@ export function TasksPage() {
     const el = timelineRef.current;
     if (!el) return;
     const away = el.scrollHeight - el.scrollTop - el.clientHeight > 80;
+    stickBottomRef.current = !away;
     setAwayFromBottom((v) => (v === away ? v : away));
     // 持续记录滚动位置：切改动/检查点再切回时恢复（面板保持挂载，不重载）
     lastChatScrollRef.current = el.scrollTop;
@@ -504,7 +534,8 @@ export function TasksPage() {
       if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
       else el.scrollTop = el.scrollHeight;
       // 程序化设置 scrollTop 不一定触发 scroll 事件（尤其 IAB/Playwright），
-      // 显式同步浮钮状态，避免「已到底部但按钮仍在」
+      // 显式同步浮钮与贴底跟随状态，避免「已到底部但按钮仍在/跟随仍停用」
+      stickBottomRef.current = true;
       setAwayFromBottom(false);
     };
     // 立即滚一次（覆盖点击当时的状态），再在下一帧滚一次吸收新增 DOM 布局
@@ -562,10 +593,13 @@ export function TasksPage() {
   }, [repo, app.refreshTick, reloadWorktrees, reloadAgents]);
 
   useEffect(() => {
-    void call<{ agentsMaxSubagents?: number }>("settings.get").then((s) => {
+    void call<{ agentsMaxSubagents?: number; agentsBusySend?: "queue" | "interrupt" | "block" }>("settings.get").then((s) => {
       if (s?.agentsMaxSubagents) setMaxSubagents(s.agentsMaxSubagents);
+      if (s?.agentsBusySend) setBusySend(s.agentsBusySend);
     }).catch(() => {});
   }, []);
+  // 运行中发送策略：queue=排队（默认）/ interrupt=插话（中断当前轮立即注入）/ block=禁止
+  const [busySend, setBusySend] = useState<"queue" | "interrupt" | "block">("queue");
 
   // 事件摄入 → 时间线块
   useEffect(
@@ -770,8 +804,13 @@ export function TasksPage() {
   // 上滚加载更早时置位，抑制「回填后自动滚底」副作用（loadOlder 内已按新增高度补偿 scrollTop）
   const skippingAutoScroll = useRef(false);
 
+  // 切任务恢复贴底跟随（任务打开默认展示最新内容）
+  useEffect(() => { stickBottomRef.current = true; }, [selectedTask]);
+
   useEffect(() => {
     if (skippingAutoScroll.current) { skippingAutoScroll.current = false; return; }
+    // 用户上滚阅读时不再强制拽回底部（否则与滚动操作打架）：仅视窗停在底部附近才跟随新内容
+    if (!stickBottomRef.current) return;
     scrollTimelineToBottom();
   }, [evMap, selectedTask, scrollTimelineToBottom]);
 
@@ -790,6 +829,28 @@ export function TasksPage() {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [selectedTask]);
+
+  // Ctrl+O 详细模式切换（v4.7 §4.3）
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "o" || e.key === "O")) {
+        e.preventDefault();
+        setVerboseTimeline((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+  // 流底留白自适应：dock（composer 容器）高度变化 → 写入流内容 padding-bottom
+  useEffect(() => {
+    const dock = composerDockRef.current, inner = streamInnerRef.current;
+    if (!dock || !inner || typeof ResizeObserver === "undefined") return;
+    const fit = () => { inner.style.paddingBottom = `${dock.offsetHeight + 56}px`; };
+    const ro = new ResizeObserver(fit);
+    ro.observe(dock);
+    fit();
+    return () => ro.disconnect();
+  }, [selected]);
 
   const pendingPerm = (() => {
     if (!selectedTask) return null;
@@ -893,8 +954,15 @@ export function TasksPage() {
     try { await call("agent.perm.reply", { requestId, ok, answer: feedback }); } catch (e) { setError((e as Error).message); }
   };
 
+  // 互斥壳：同一时刻只放行一次发送/创建（state 异步，必须用同步 ref 拦同一帧内的重复触发）
   const sendInput = async () => {
-    if (!selected || !inputText.trim() || sending) return;
+    if (!selected || !inputText.trim() || sendingRef.current) return;
+    sendingRef.current = true;
+    try { await sendInputInner(); } finally { sendingRef.current = false; }
+  };
+
+  const sendInputInner = async () => {
+    if (!selected || !inputText.trim()) return;
     const text = inputText.trim();
 
     if (text.startsWith("/")) {
@@ -968,6 +1036,12 @@ export function TasksPage() {
       return;
     }
 
+    const busy = BUSY_STATES.has(selected.state);
+    // 运行中发送策略（设置 → Agent 运行时）：queue=排队 / interrupt=插话（中断当前轮立即注入）/ block=禁止
+    if (busy && busySend === "block") {
+      setError("agent 正在运行，发送已被禁止——可在 设置 → Agent 运行时 →「运行中发送」改为排队/插话，或先停止本轮");
+      return;
+    }
     if (pendingImages.length > 0 && !visionOk) {
       setConfigError("当前模型档案未声明视觉（vision）能力，无法发送图片——请在 设置 → 模型档案 勾选「视觉」", "去设置", "models");
       return;
@@ -979,26 +1053,35 @@ export function TasksPage() {
     setSending(true);
     const attachments = attachmentsPayload;
     setPendingImages([]);
-    const busy = BUSY_STATES.has(selected.state);
     try {
       if (busy) {
         // 排队轮不支持多模态注入：busy 时图片随文本提示走下轮（主进程忽略排队附件）
         if (attachments.length > 0) setError("任务运行中：图片将不随排队消息注入，请等本轮结束再发送");
-        await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
+        await call("agent.task.queue", { taskId: selected.taskId, prompt: text, ...(busySend === "interrupt" ? { interrupt: true } : {}) });
       } else {
-        await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode, ...(attachments.length > 0 ? { attachments } : {}) });
+        try {
+          await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode, ...(attachments.length > 0 ? { attachments } : {}) });
+        } catch (e) {
+          // 「等你回答/待确认计划」时轮次仍挂起，resume 会被拒 → 降级为排队投递，轮次结束后自动注入
+          const msg = (e as Error).message ?? "";
+          if (!/排队/.test(msg)) throw e;
+          setError("agent 正在等待你对上方卡片的回答：输入已排队，回合结束后自动注入");
+          await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
+        }
       }
       await reloadAgents();
     } catch (e) { setError((e as Error).message); } finally { setSending(false); }
   };
 
   const createFromCompose = async () => {
-    if (!composeText.trim() || sending) return;
+    if (!composeText.trim() || sendingRef.current) return;
+    sendingRef.current = true;
     // 新任务页的斜杠命令：/attach 是纯 UI 动作可直接执行；其余命令需要具体任务上下文
     if (composeText.trim().startsWith("/")) {
       const cmd = composeText.trim().split(/\s+/)[0].slice(1);
-      if (cmd === "attach") { imageInputRef.current?.click(); setComposeText(""); return; }
+      if (cmd === "attach") { imageInputRef.current?.click(); setComposeText(""); sendingRef.current = false; return; }
       setError(`命令 /${cmd} 需在具体任务的对话中使用（新任务页仅支持 /attach）`);
+      sendingRef.current = false;
       return;
     }
     setSending(true);
@@ -1020,7 +1103,7 @@ export function TasksPage() {
       setSelectedTask(record.taskId);
       setEvMap((m) => ({ ...m, [record.taskId]: [{ kind: "human", text: composeText.trim() }] }));
       await reloadAgents();
-    } catch (e) { setError((e as Error).message); } finally { setSending(false); }
+    } catch (e) { setError((e as Error).message); } finally { sendingRef.current = false; setSending(false); }
   };
 
   const stopTask = async (taskId: string) => {
@@ -1138,15 +1221,19 @@ export function TasksPage() {
     return false;
   };
 
-  // 聊天/新任务 composer 共用键盘处理：Enter 发送，Shift+Enter 换行，Shift+Tab 切模式
+  // 聊天/新任务 composer 共用键盘处理：Enter 发送，Shift+Enter 换行，Shift+Tab 切模式。
+  // IME 组合中的按键（选词/上屏，isComposing / keyCode 229）一律忽略——中文输入按 Enter
+  // 上屏会误触发送，连续上屏就是「创建任务多出同样会话」的常见来源。
   const chatKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (navKeyDown(e, inputText, setInputText)) return;
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendInput(); return; }
+    if (e.key === "Enter" && !e.repeat && !e.shiftKey) { e.preventDefault(); void sendInput(); return; }
     if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); setMode((m) => MODE_ORDER[(MODE_ORDER.indexOf(m) + 1) % MODE_ORDER.length]); return; }
   };
   const composeKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (navKeyDown(e, composeText, setComposeText)) return;
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void createFromCompose(); return; }
+    if (e.key === "Enter" && !e.repeat && !e.shiftKey) { e.preventDefault(); void createFromCompose(); return; }
     if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); setMode((m) => MODE_ORDER[(MODE_ORDER.indexOf(m) + 1) % MODE_ORDER.length]); return; }
   };
 
@@ -1197,7 +1284,8 @@ export function TasksPage() {
   const renderBlock = (b: Block, key: string | number, process = false): ReactNode => {
     switch (b.kind) {
       case "permission":
-        return <PermissionCard key={key} b={b} decided={decided[b.requestId]} sel={permSel[b.requestId] ?? 0} showFullAccess={showFullAccess} onSel={(id, i) => setPermSel((m) => ({ ...m, [id]: i }))} onReply={replyPerm} onFullAccess={(id) => void replyFullAccess(id)} />;
+        // v4.5/v4.7：授权改由 composer 上方浮层承载，历史不留在流里
+        return null;
       case "question":
         return <QuestionCard key={key} b={b} decided={decided[b.requestId]} onAnswer={replyAnswer} />;
       case "plan":
@@ -1216,24 +1304,72 @@ export function TasksPage() {
       previewFile,
       contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : undefined,
       showCopy: !process && copyBlocks.has(b),
+      verbose: verboseTimeline,
       renderChildren: (children) => <Fragment>{(children as Block[]).map((c, i) => renderBlock(c, `${key}-${i}`, true))}</Fragment>,
     };
     return <Fragment key={key}>{renderer.render({ block: b, taskId: ctx.taskId ?? "", ctx })}</Fragment>;
   };
-  // 过程块列表渲染（含连续日志折叠组）；轮折叠展开与进行中轮共用
-  const renderProcess = (prefix: string, list: Block[]): ReactNode =>
-    groupLogs(list).map((lg, li) =>
-      lg.kind === "logs" ? (
-        <details key={`${prefix}${li}`} style={{ fontSize: 11 }}>
-          <summary style={{ cursor: "pointer", color: "var(--c-text3)" }}>▸ 显示 {lg.items.length} 条日志</summary>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-            {lg.items.map((b, j) => renderBlock(b, `${prefix}${li}-${j}`))}
-          </div>
-        </details>
-      ) : (
-        renderBlock(lg.block, `${prefix}${li}`)
-      ),
-    );
+  // 过程块列表渲染（含连续日志折叠组、连续文件合并组）；轮折叠展开与进行中轮共用
+  const renderProcess = (prefix: string, list: Block[]): ReactNode => {
+    type Entry = { k: "one"; b: Block } | { k: "logs"; items: Extract<Block, { kind: "log" }>[] } | { k: "files"; items: Extract<Block, { kind: "file" }>[] };
+    const entries: Entry[] = [];
+    let fileRun: Extract<Block, { kind: "file" }>[] = [];
+    const flushFiles = () => {
+      if (fileRun.length === 0) return;
+      if (fileRun.length > 1) entries.push({ k: "files", items: fileRun });
+      else entries.push({ k: "one", b: fileRun[0] });
+      fileRun = [];
+    };
+    // 已被 编辑文件/写文件 动作行覆盖的同路径 file 变更不再重复展示（v4.7）
+    const editedPaths = new Set<string>();
+    for (const b of list) {
+      if (b.kind === "tool" && (b.name === "file_patch" || b.name === "file_write")) {
+        try { const a = b.args as Record<string, unknown> | undefined; if (typeof a?.path === "string") editedPaths.add(a.path); } catch { /* ignore */ }
+      }
+    }
+    // 空文本块（流式分片残留）先过滤：否则会随机切断密排组，造成间距忽大忽小（v4.7）
+    const list2 = list.filter((b) => !(b.kind === "assistant" && !b.text.trim()));
+    for (const b of list2) {
+      if (b.kind === "file" && b.changeKind !== "read-image") {
+        if (editedPaths.has(b.path)) continue;
+        fileRun.push(b);
+        continue;
+      }
+      flushFiles();
+      entries.push({ k: "one", b });
+    }
+    flushFiles();
+    const fgCtx = { taskId: selectedTask ?? "", viewFile: (path: string) => { setPendingFile(path); setPanelReq({ path, mode: "diff", ts: Date.now() }); setTab("chat"); animatePanel(true); }, previewFile };
+    // 连续指令块（tool/thinking/checkpoint）并入密排运行组：块间 2px，与事件间 6px 区分
+    const TIGHT = new Set(["tool", "thinking", "checkpoint"]);
+    const groups: ({ k: "run"; items: Block[] } | Entry)[] = [];
+    let runBuf: Block[] | null = null;
+    const flushRun = () => { if (runBuf && runBuf.length) groups.push({ k: "run", items: runBuf }); runBuf = null; };
+    for (const en of entries) {
+      if (en.k === "one" && TIGHT.has(en.b.kind)) { (runBuf ??= []).push(en.b); continue; }
+      flushRun();
+      groups.push(en);
+    }
+    flushRun();
+    return groups.map((en, li) => {
+      const key = `${prefix}${li}`;
+      if (en.k === "run") {
+        return <div key={key} className="v47-run">{en.items.map((b, j) => renderBlock(b, `${key}-${j}`, true))}</div>;
+      }
+      if (en.k === "files") return <FileGroup key={key} items={en.items} ctx={fgCtx} />;
+      if (en.k === "logs") {
+        return (
+          <details key={key} style={{ fontSize: 11 }}>
+            <summary style={{ cursor: "pointer", color: "var(--c-text3)" }}>▸ 显示 {en.items.length} 条日志</summary>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+              {en.items.map((b, j) => renderBlock(b, `${key}-${j}`))}
+            </div>
+          </details>
+        );
+      }
+      return renderBlock(en.b, key);
+    });
+  };
 
   // 任务列表行（v3 设计稿 + v3.3 增强）：状态点 + 标题；悬停行尾 分叉/归档·恢复/删除；
   // 双击标题行内重命名；归档行半透明 + 恢复入口；已合并任务带「已合并」标
@@ -1335,13 +1471,47 @@ export function TasksPage() {
     if (runningSubs > 0) return `子代理执行中 ${runningSubs}/${maxSubagents}…`;
     return "正在思考与执行…";
   })();
+  // 失败/中断原因条（输入框上方常驻，原因来自后端 lastMessage / completed 事件摘要）
+/** 中断/失败结果折叠行（v4.7）：默认只显示一行摘要（如「会话已中断 · 发送消息可继续」），点击展开原因。 */
+function OutcomeFold(props: { icon: "dot"; color: string; summary: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="v47-outcome">
+      <div className="v47-oline" onClick={() => setOpen((v) => !v)} role="button" tabIndex={0} aria-expanded={open}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}>
+        <TlIcon name={props.icon} size={13} color={props.color} style={{ flex: "none" }} />
+        <span style={{ flex: "none" }}>{props.summary}</span>
+        <span style={{ flex: 1 }} />
+        <TlIcon name="chevron-right" size={10} className={"tl-chev" + (open ? " open" : "")} />
+      </div>
+      {open && <div className="v47-obody">{props.children}</div>}
+    </div>
+  );
+}
+
+  const failBar = (() => {
+    if (!selected) return null;
+    if (selected.state === "failed") {
+      return { kind: "failed" as const, color: "var(--c-red)", icon: "dot" as const,
+        summary: "任务失败 · 点击查看原因", reason: selected.lastMessage ?? "原因未知（可查看时间线错误日志）" };
+    }
+    if (selected.state === "interrupted") {
+      return { kind: "interrupted" as const, color: "var(--c-amber)", icon: "dot" as const,
+        summary: "会话已中断 · 发送消息可继续", reason: selected.lastMessage ?? "" };
+    }
+    if (selected.state === "stopped") {
+      return { kind: "stopped" as const, color: "var(--c-text3)", icon: "dot" as const,
+        summary: "已手动停止本轮", reason: "" };
+    }
+    return null;
+  })();
   // D1 vision 门控：当前生效档案（任务绑定 → 默认★）按实际选中成员判定
   const activeProfile = resolveRefProfile(selected?.modelRef) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
   const visionOk = resolveRefVision(selected?.modelRef ?? activeProfile?.id);
   const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `minmax(210px, ${listRatio.toFixed(4)}fr) 6px minmax(0, ${(1 - listRatio).toFixed(4)}fr)`, flex: 1, minHeight: 0, height: "100%" }}>
+    <div className="tk-root" style={{ display: "grid", gridTemplateColumns: `${Math.max(TASK_LIST_MIN_W, Math.min(TASK_LIST_MAX_W, listWidth))}px 6px minmax(0, 1fr)`, flex: 1, minHeight: 0, height: "100%" }}>
       {/* 图片附加：粘贴/拖拽之外提供点击入口（视觉能力门控在选择时校验） */}
       <input ref={imageInputRef} type="file" accept="image/*" multiple style={{ display: "none" }}
         onChange={(e) => {
@@ -1444,20 +1614,43 @@ export function TasksPage() {
       {/* v3.2 设计稿 detail 级 grid：页签行只跨对话列，变更面板 + 分割线从页签行 band 起全高、
           三页签常驻（切换改动/检查点不卸面板）；minWidth: 0 = grid item 自动最小尺寸回收，
           对话内容的 min-content 宽度不再把 1fr 轨道撑破窗口 */}
-      <div ref={detailRef} style={{ display: "grid", position: "relative", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen && !panelClosing ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }}>
+      <div ref={detailRef} className="tk-detail" style={{ display: "grid", position: "relative", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen && !panelClosing ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }}>
         <div className="tk-tabs" style={{ gridColumn: "1", gridRow: "1" }}>
           {([["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount], ["shells", "后台", shellRunning]] as const).map(([id, label, n]) => (
             <div key={id} className={"tk-tab" + (tab === id ? " on" : "")} onClick={() => setTab(id)}>
               {label}{n > 0 ? <span className="tk-tab-n">{n}</span> : null}
             </div>
           ))}
+          <span style={{ flex: 1 }} />
+          <button className={"tool-btn icon" + (verboseTimeline ? " on" : "")} title="详细模式（Ctrl+O）：结果/思考默认全展开" aria-label="详细模式"
+            style={verboseTimeline ? { background: "var(--c-selected)", color: "var(--c-text)" } : undefined}
+            onClick={() => setVerboseTimeline((v) => !v)}>
+            <TlIcon name="list" size={13} />
+          </button>
+          {showCommitHint && (
+          <span className="comp-anchor">
+            <button className={"tool-btn icon" + (branchHintOpen ? " on" : "")} title="分支模式与提交提示" aria-label="分支模式与提交提示"
+              onClick={(e) => { e.stopPropagation(); setBranchHintOpen((v) => !v); }}>
+              <TlIcon name="branch" size={13} />
+            </button>
+            <div className={"hint-pop" + (branchHintOpen ? " on" : "")} onClick={(e) => e.stopPropagation()}>
+              <div className="hint-pop-row">
+                <TlIcon name="branch" size={13} color="var(--c-text3)" style={{ flex: "none", marginTop: 3 }} />
+                <span>当前分支模式：<b>改动已直接在工作区</b>（{diffCount} 个文件），无独立分支可合并</span>
+              </div>
+              <div className="hint-pop-row">
+                <button className="tool-btn" onClick={() => { pageSdk.navigate("changes"); setBranchHintOpen(false); }}>去变更页提交</button>
+              </div>
+            </div>
+          </span>
+          )}
         </div>
 
         {/* 页内容区（c1 r2）：对话 / 新任务空态 / 改动 / 检查点 */}
         <div style={{ gridColumn: "1", gridRow: "2", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
         {/* ═══ 对话页（保持挂载：切改动/检查点不重新加载历史、不丢滚动位置） ═══ */}
         {selected && (
-          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto auto minmax(0, 1fr) auto", overflow: "hidden" }}>
+          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto auto minmax(0, 1fr)", overflow: "hidden" }}>
             <div className="tk-pagehead" style={{ gridColumn: "1", gridRow: "1" }}>
               <span className="tk-pill" style={{ color: stateChip(selected.state, selected.awaitKind).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 9%, transparent)` }}>
                 <span className="tk-pill-dot" />
@@ -1501,15 +1694,7 @@ export function TasksPage() {
                 <button className="tool-btn" onClick={() => pageSdk.navigate("log")}>查看 Log</button>
               </div>
             )}
-            {showCommitHint && (
-              <div className="tk-wrapbar" style={{ gridColumn: "1", gridRow: "2" }}>
-                <TlIcon name="diff" size={13} color="var(--c-text3)" />
-                <span className="meta">当前分支模式：改动已直接在工作区（{diffCount} 个文件），无独立分支可合并</span>
-                <span className="sp" />
-                <button className="tool-btn" onClick={() => pageSdk.navigate("changes")}>去变更页提交</button>
-              </div>
-            )}
-            <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "3" }}>
+            <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "3 / 5" }}>
               {/* 错误浮层：悬于时间线之上、顶部状态条正下方；不打断版面流 */}
               {error && <ErrorFloat text={error} maxWidth="calc(100% - 292px)" go={errorGo} onGo={(s) => { openSettings(s); setError(null); }} onClose={() => setError(null)} />}
               <div ref={timelineRef} className="tl-scroll" style={{ height: "100%", overflowY: "auto", overflowX: "hidden" }}
@@ -1518,7 +1703,7 @@ export function TasksPage() {
                   const pre = (e.target as HTMLElement).closest("pre");
                   if (pre) void navigator.clipboard?.writeText(pre.textContent ?? "");
                 }}>
-              <div style={{ maxWidth: 880, margin: "0 auto", padding: "18px 20px 26px", display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+              <div ref={streamInnerRef} style={{ maxWidth: 880, margin: "0 auto", padding: "14px 20px 26px", display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
                 {loadingOlder && (
                   <div style={{ textAlign: "center", color: "var(--c-text3)", fontSize: 11 }}>
                     <span className="tl-pulse">加载中…</span>
@@ -1533,6 +1718,7 @@ export function TasksPage() {
                   const expanded = !ended || expandedTurns.has(g.anchor);
                   const tools = g.process.filter((b) => b.kind === "tool").length;
                   const subs = g.process.filter((b) => b.kind === "subtask").length;
+                  void ended; void expanded;
                   return (
                     <Fragment key={gi}>
                       {g.human ? renderBlock(g.human, `g${gi}-h`) : null}
@@ -1552,7 +1738,22 @@ export function TasksPage() {
                         renderProcess(`g${gi}-p`, g.process)
                       )}
                       {g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null}
+                      {g.outcome.length > 0 ? (
+                        g.outcome.some((b) => b.kind === "status" && b.text.includes("中断")) ? (
+                          <OutcomeFold icon="dot" color="var(--c-amber)" summary="会话已中断 · 发送消息可继续">
+                            {g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`, true))}
+                          </OutcomeFold>
+                        ) : (
+                          g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`))
+                        )
+                      ) : null}
                       {g.turn ? renderBlock(g.turn, `g${gi}-t`) : null}
+                      {/* 中断/失败/停止：流末尾折叠行（中断=「发送消息可继续」） */}
+                      {gi === groupTurns(timeline).length - 1 && failBar && !(timeline.length > 0 && timeline[timeline.length - 1].kind === "status") && (
+                        <OutcomeFold icon={failBar.icon} color={failBar.color} summary={failBar.summary}>
+                          <span style={{ overflowWrap: "anywhere", userSelect: "text" }}>{failBar.reason || failBar.summary}</span>
+                        </OutcomeFold>
+                      )}
                     </Fragment>
                   );
                 })}
@@ -1581,7 +1782,7 @@ export function TasksPage() {
                   data-tip="返回底部"
                   aria-label="返回底部"
                   style={{
-                    position: "absolute", left: "50%", bottom: 10, transform: "translateX(-50%)",
+                    position: "absolute", left: "50%", bottom: 132, transform: "translateX(-50%)",
                     width: 28, height: 28, padding: 0, borderRadius: 999,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     background: "var(--c-panel2)", border: "1px solid var(--c-border-strong)",
@@ -1592,20 +1793,23 @@ export function TasksPage() {
                   <TlIcon name="chevron-down" size={14} />
                 </button>
               )}
-            </div>
-            <div style={{ borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "4" }}>
-              <div style={{ maxWidth: 880, margin: "0 auto", position: "relative" }}>
+            {/* 输入框悬浮 dock（v4.7）：浮于时间线之上，内容从下方穿过被遮挡 */}
+            <div className="chat-dock">
+              <div ref={composerDockRef} style={{ maxWidth: 880, margin: "0 auto", position: "relative" }}>
+                {/* 授权浮层（v4.5/v4.7）：覆盖 composer，黑白编号选项，↑↓/Enter/数字直选 */}
+                {pendingPerm && (
+                  <div className="perm-dock">
+                    <PermissionCard b={pendingPerm} decided={undefined} sel={permSel[pendingPerm.requestId] ?? 0} showFullAccess={showFullAccess}
+                      onSel={(id, i) => setPermSel((m) => ({ ...m, [id]: i }))} onReply={replyPerm} onFullAccess={(id) => void replyFullAccess(id)} />
+                    <div className="perm-dock-foot">↑↓ 选择 · Enter 确认 · 数字直选 · 选择结果会回给 agent 继续工作</div>
+                  </div>
+                )}
+                {/* 失败/中断/停止原因条：任务态非正常收尾时常驻展示，直到下一轮开始 */}
                 {/* DeepSeek 式执行中提示：脉冲星光 + 流光文字（运行工具名/秒数实时刷新） */}
                 {busy && !pendingPerm && (
                   <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "0 2px 7px", fontSize: 12 }}>
                     <TlIcon name="sparkle" size={12} color="var(--c-amber)" className="tl-pulse" />
                     <span className="shimmer-text">{busyHint}</span>
-                  </div>
-                )}
-                {pendingPerm && (
-                  <div style={{ marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)", display: "flex", alignItems: "center", gap: 6 }}>
-                    <TlIcon name="shield" size={12} className="tl-pulse" />
-                    <span>等待授权（↑↓+Enter 或数字直选上方卡片选项）</span>
                   </div>
                 )}
                 {pendingImages.length > 0 && (
@@ -1626,12 +1830,20 @@ export function TasksPage() {
                   onChange={(v) => onComposeChange(v, setInputText)}
                   maxH={240}
                   placeholder={busy
-                    ? "agent 正在工作——输入将排队，本轮结束后自动注入（Esc 中断 / Esc×2 回滚）"
+                    ? (busySend === "block"
+                        ? "agent 正在工作——运行中发送已禁用（设置 → Agent 运行时 可改），可先停止本轮"
+                        : busySend === "interrupt"
+                          ? "agent 正在工作——Enter 插话发送：中断当前轮，你的输入立即生效"
+                          : "agent 正在工作——Enter 排队发送，本轮结束后自动注入（双击 Esc 打开检查点）")
                     : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式"}
                   busy={busy}
                   sending={sending}
                   canSend={!!inputText.trim()}
-                  sendTitle={busy ? "停止（Esc 同效）" : "发送（Enter）"}
+                  sendTitle={busy
+                    ? (inputText.trim()
+                        ? (busySend === "interrupt" ? "插话发送（中断当前轮，立即生效）" : "排队发送（本轮结束后自动注入）")
+                        : "停止本轮")
+                    : "发送（Enter）"}
                   onStop={() => void stopTask(selected.taskId)}
                   onSend={() => void sendInput()}
                   mode={selected.permissionMode ?? "default"}
@@ -1663,6 +1875,7 @@ export function TasksPage() {
                   </>}
                 />
               </div>
+            </div>
             </div>
         </div>
         )}

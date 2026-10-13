@@ -288,8 +288,14 @@ export function TaskChangesPanel(props: {
         <span style={{ flex: 1 }} />
         {reviewEditing === false ? (
           <>
-            <button className="tool-btn" title="通过本轮改动（结论注入 agent 下一轮）" onClick={() => submitReview("approve", "")}>通过</button>
-            <button className="tool-btn" title="退回并附审查意见（自动直投修复轮）" onClick={() => { setReviewEditing("reject"); setReviewComment(""); }}>退回…</button>
+            <button className="tool-btn icon" title="通过本轮改动（结论注入 agent 下一轮）" aria-label="通过"
+              onClick={() => submitReview("approve", "")}>
+              <TlIcon name="check" size={13} color="var(--c-green)" />
+            </button>
+            <button className="tool-btn icon" title="退回并附审查意见（自动直投修复轮）" aria-label="退回"
+              onClick={() => { setReviewEditing("reject"); setReviewComment(""); }}>
+              <TlIcon name="x" size={13} color="var(--c-red)" />
+            </button>
           </>
         ) : (
           <>
@@ -327,7 +333,9 @@ export function TaskChangesPanel(props: {
           </button>
         ))}
         <span style={{ flex: 1 }} />
-        <button className="tool-btn" title="收起面板，回到纯对话" onClick={props.onCollapse}>收起</button>
+        <button className="tool-btn icon" title="收起面板，回到纯对话" aria-label="收起面板" onClick={props.onCollapse}>
+          <TlIcon name="splitpane" size={13} />
+        </button>
       </div>
 
       {activePlugin ? (

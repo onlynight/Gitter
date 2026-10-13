@@ -27,6 +27,8 @@ export interface TimelineCardCtx {
   showCopy?: boolean;
   /** subtask 子块渲染（递归走同一解析管线，含交互卡） */
   renderChildren?: (children: unknown[]) => ReactNode;
+  /** 详细模式（Ctrl+O）：工具结果/思考默认全展开（宿主全局切换，v4.7 §4.3） */
+  verbose?: boolean;
 }
 
 export interface TimelineCardProps {

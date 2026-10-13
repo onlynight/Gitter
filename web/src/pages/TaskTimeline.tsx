@@ -3,7 +3,7 @@
  * 全部时间线卡片（工具/思考/清单/授权/提问/计划/子代理/图片）与内置渲染器。
  * 由 TasksPage 消费：registerBuiltinAgentUI（页面侧）注册渲染器与 composer 提供者。
  */
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
 import type { AgentEventDTO, AgentTaskDTO, DiffDTO } from "../bridge/types";
 import { DiffView, renderMarkdown } from "../kit";
@@ -157,8 +157,15 @@ export function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
       return pushCap(blocks, { kind: "subtask", subtaskId: ev.subtaskId ?? "", name: ev.name ?? "", mode: ev.mode ?? "", state: ev.state ?? "running", final: ev.finalMessage, durationMs: ev.durationMs, children: [] });
     case "turn-completed":
       return pushCap(blocks, { kind: "turn", text: `turn #${blocks.filter((b) => b.kind === "turn").length + 1}`, usage: ev.usage });
-    case "completed":
-      return pushCap(blocks, { kind: "status", text: `${ev.outcome ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}` });
+    case "completed": {
+      // 终态落时间线（失败/停止原因由此进入会话流）：outcome 翻译为中文标签；失败标红
+      const outcomeLabel = ev.outcome === "failed" ? "失败"
+        : ev.outcome === "stopped" ? "已停止"
+        : ev.outcome === "interrupted" ? "已中断"
+        : ev.outcome === "cancelled" ? "已中断"
+        : (ev.outcome ?? "");
+      return pushCap(blocks, { kind: "status", text: `${outcomeLabel}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.outcome === "failed" ? "failed" : undefined });
+    }
     case "log":
       return pushCap(blocks, { kind: "log", level: ev.level ?? "info", text: ev.text ?? "" });
     default:
@@ -201,11 +208,45 @@ function AgentImage(props: { taskId: string; path: string }) {
   return <img src={src} alt={props.path} style={{ maxWidth: 320, maxHeight: 220, borderRadius: 6, border: "1px solid var(--c-border)" }} />;
 }
 
-/** ⏺ 工具卡（ZCode 形态：默认折叠一行，⎿ 结果缩进一行；点击展开完整；terminal 运行中 tail 4 行）。
- * 行首图标按工具类别区分（taskIcons），颜色随状态：运行琥珀脉冲 / 成功绿 / 失败红。
- * 文件类工具（file_write / file_patch）头部带「预览」钮——直接预览落盘后的文件。 */
+/** v4.7 读出行构建：read 类=行号→内容；diff 类=彩色 +− 标记；其余=纯文本行。 */
+type ReadoutLine =
+  | { kind: "num"; no: string; tx: string }
+  | { kind: "diff"; mk: "+" | "-" | " "; tone: "add" | "del" | "ctx"; tx: string }
+  | { kind: "plain"; tx: string };
+
+const READOUT_MAX = 400;
+
+function buildReadout(tool: string, text: string): { lines: ReadoutLine[]; total: number } {
+  const all = text.replace(/\u0000/g, "").split("\n");
+  while (all.length > 0 && all[all.length - 1].trim() === "") all.pop();
+  const total = all.length;
+  const shown = all.slice(0, READOUT_MAX);
+  if (tool === "repo_read_file") {
+    return {
+      lines: shown.map((tx, i) => ({ kind: "num" as const, no: String(i + 1), tx })),
+      total,
+    };
+  }
+  const diffish = shown.filter((l) => /^[+-]/.test(l)).length >= 2;
+  if (diffish) {
+    return {
+      lines: shown.map((l) => {
+        const mk = l[0] === "+" || l[0] === "-" ? l[0] : " ";
+        const tone = mk === "+" ? "add" : mk === "-" ? "del" : "ctx";
+        return { kind: "diff" as const, mk, tone, tx: l.slice(1) };
+      }),
+      total,
+    };
+  }
+  return { lines: shown.map((tx) => ({ kind: "plain" as const, tx })), total };
+}
+
+/** 动作行（v4.7）：图标+命令一体（默认单行折叠），点击展开圆角读出框（340px 内滚动）。
+ * 图标状态：运行=琥珀闪烁 / 失败=红；hover 圆角背景横跨左轨与文字。 */
 function ToolCard({ b, ctx }: { b: Extract<Block, { kind: "tool" }>; ctx?: TimelineCardCtx }) {
-  const [open, setOpen] = useState(false);
+  const [userOpen, setUserOpen] = useState(false);
+  const open = !!ctx?.verbose || userOpen;
+  const live = b.state === "running";
   const label = TOOL_LABELS[b.name] ?? b.name;
   const filePath = (() => {
     if (b.name !== "file_write" && b.name !== "file_patch") return null;
@@ -226,69 +267,87 @@ function ToolCard({ b, ctx }: { b: Extract<Block, { kind: "tool" }>; ctx?: Timel
       return JSON.stringify(a).slice(0, 110);
     } catch { return ""; }
   })();
-  const firstLine = (b.result ?? "").split("\n")[0] ?? "";
-  return (
-    <div className="tl-tool">
-      <div className="tl-tool-head" onClick={() => setOpen(!open)} role="button" tabIndex={0}
-        aria-expanded={open}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }}>
-        <span className={"tl-glyph " + (b.state === "running" ? "run" : b.state === "error" ? "err" : "ok")}>
-          <TlIcon name={toolIconName(b.name)} size={13} className={b.state === "running" ? "tl-pulse" : undefined} />
-        </span>
-        <span className="tl-tool-name">{label}</span>
-        <span className="tl-tool-args">{argSummary}</span>
-        {filePath && ctx?.previewFile ? (
-          <button className="tool-btn tl-tool-btn" onClick={(e) => { e.stopPropagation(); ctx.previewFile?.(filePath); }}>预览</button>
-        ) : null}
-        {b.source ? <span className="tl-tool-src">{b.source}</span> : null}
-        {b.durationMs !== undefined ? <span className="tl-tool-ms">{(b.durationMs / 1000).toFixed(1)}s</span> : null}
-        <TlIcon name="chevron-right" size={11} className={"tl-chev" + (open ? " open" : "")} />
-      </div>
-      {(b.state === "running" && b.tail) || b.result ? (
-        <div className="tl-tool-result">
-          {b.state === "running" && b.tail ? (
-            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0, fontFamily: "inherit", color: "var(--c-text)" }}>{b.tail.split("\n").slice(-4).join("\n")}</pre>
-          ) : (
-            <>
-              <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: open ? 420 : 22, overflow: "hidden", cursor: "pointer" }} onClick={() => setOpen(!open)}>
-                {open ? (b.result ?? "").slice(0, 16_000) : firstLine.slice(0, 200) || "（无输出）"}
-              </div>
-              {open && (
-                <button className="tool-btn" style={{ fontSize: 10.5, margin: "4px 0" }} onClick={() => void navigator.clipboard?.writeText(b.result ?? "")}>复制结果</button>
-              )}
-            </>
-          )}
+  const readout = useMemo(
+    () => buildReadout(b.name, live ? (b.tail ?? "") : (b.result ?? "")),
+    [b.name, b.result, b.tail, live],
+  );
+  const hasBody = live ? !!b.tail : readout.lines.length > 0;
+  if (b.name === "file_patch" || b.name === "file_write") {
+    const paren = (b.result ?? "").match(/[（(]([^）)]+)[）)]/);
+    const stats = paren ? ((paren[1] ?? "").split(/[;；]/).pop() ?? "").trim() : "";
+    return (
+      <div className="v47-al">
+        <div className="v47-hd">
+          <TlIcon name={toolIconName(b.name)} size={13}
+            color={b.state === "error" ? "var(--c-red)" : live ? "var(--c-amber)" : undefined}
+            className={live ? "v47-blink" : undefined} />
+          <span className="v47-nm">{label}</span>
+          <span className="v47-ar v47-fpath" title="打开右侧预览修改"
+            onClick={(e) => { e.stopPropagation(); if (filePath) ctx?.previewFile?.(filePath); }}>{argSummary}</span>
+          {stats ? <span className="v47-fsi">{stats}</span> : null}
+          {ctx?.viewFile && filePath ? (
+            <button className="tool-btn v47-preview" title="打开右侧差异面板"
+              onClick={(e) => { e.stopPropagation(); ctx.viewFile?.(filePath); }}>差异</button>
+          ) : null}
+          {b.state === "error" ? <span className="v47-fail">失败</span> : null}
+          {b.durationMs !== undefined ? <span className="v47-du">· {(b.durationMs / 1000).toFixed(1)}s</span> : null}
         </div>
-      ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className={"v47-al" + (open ? " open" : "") + (live ? " live" : "") + (b.state === "error" ? " err" : "")}>
+      <div className="v47-hd" onClick={() => setUserOpen((v) => !v)} role="button" tabIndex={0} aria-expanded={open}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setUserOpen((v) => !v); } }}>
+        <TlIcon name={toolIconName(b.name)} size={13}
+          color={b.state === "error" ? "var(--c-red)" : live ? "var(--c-amber)" : undefined}
+          className={"v47-hic" + (live ? " v47-blink" : undefined)} />
+        <span className={"v47-nm" + (live ? " shimmer-text" : "")}>{label}</span>
+            <span className={"v47-ar" + (live ? " shimmer-text" : "")}>{argSummary}</span>
+            {filePath && ctx?.previewFile ? (
+              <button className="tool-btn v47-preview" onClick={(e) => { e.stopPropagation(); ctx.previewFile?.(filePath); }}>预览</button>
+            ) : null}
+            {b.state === "error" ? <span className="v47-fail">失败</span> : null}
+            {b.durationMs !== undefined ? <span className="v47-du">· {(b.durationMs / 1000).toFixed(1)}s</span> : null}
+          </div>
+          {hasBody ? (
+            <div className="v47-res">
+              {readout.lines.map((r, i) =>
+                r.kind === "num" ? (
+                  <div key={i} className="v47-rl"><span className="no">{r.no}</span><span className="ar">→</span><span className="tx">{r.tx}</span></div>
+                ) : r.kind === "diff" ? (
+                  <div key={i} className="v47-rl"><span className={"mk " + r.tone}>{r.mk}</span><span className={"tx " + r.tone}>{r.tx}</span></div>
+                ) : (
+                  <div key={i} className="v47-rl"><span className="tx">{r.tx || " "}</span></div>
+                ),
+              )}
+              {readout.total > readout.lines.length ? (
+                <div className="v47-rl"><span className="no">…</span><span className="ar">→</span><span className="tx" style={{ color: "var(--c-text3)" }}>共 {readout.total} 行</span></div>
+              ) : null}
+            </div>
+          ) : null}
     </div>
   );
 }
 
-/** 思考卡（⏺ 思考过程）：流式期间自动展开，后续块入场（closed）自动折叠；全程可手动开合。
- * 斜体弱化呈现——思考是过程信息，视觉层级低于正文与工具卡。 */
-function ThinkingCard({ b }: { b: Extract<Block, { kind: "thinking" }> }) {
-  const [open, setOpen] = useState(() => !b.closed);
-  // 用户手动开合后，不再被 closed 翻转强制收起
-  const userTouched = useRef(false);
-  useEffect(() => {
-    if (b.closed && !userTouched.current) setOpen(false);
-  }, [b.closed]);
-  const streaming = open && !b.closed;
+/** 思考行（v4.7）：✻ 入左轨与其他指令对齐；默认折叠一行（思考文本单行尾随，
+ * 内容从末端持续追加、左缘渐隐）；点击展开 = 圆角框全文竖向滚动（200px 上限）。
+ * 全程正常灰（无琥珀、无斜体），进行中 ✻ 灰色闪烁。 */
+function ThinkingCard({ b, ctx }: { b: Extract<Block, { kind: "thinking" }>; ctx?: TimelineCardCtx }) {
+  const [userOpen, setUserOpen] = useState(false);
+  const open = !!ctx?.verbose || userOpen;
+  const streaming = !b.closed;
+  const text = b.text.trim() || "…";
   return (
-    <div className="tl-think" style={{ borderLeft: open ? "2px solid var(--c-border)" : undefined, paddingLeft: open ? 10 : undefined }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: "var(--c-text3)", padding: "2px 0", userSelect: "none" }}
-        onClick={() => { userTouched.current = true; setOpen((v) => !v); }}
-        role="button" tabIndex={0} aria-expanded={open}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); userTouched.current = true; setOpen((v) => !v); } }}>
-        <TlIcon name="sparkle" size={12} color={streaming ? "var(--c-amber)" : "var(--c-text3)"} className={streaming ? "tl-pulse" : undefined} />
-        <span style={{ fontStyle: "italic", fontWeight: streaming ? 600 : 400 }}>{streaming ? "思考中…" : "思考过程"}</span>
-        <TlIcon name="chevron-right" size={10} className={"tl-chev" + (open ? " open" : "")} />
+    <div className={"v47-think" + (open ? " open" : "") + (streaming ? " live" : "")}
+      onClick={() => setUserOpen((v) => !v)} role="button" tabIndex={0} aria-expanded={open}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setUserOpen((v) => !v); } }}>
+      <div className="v47-th">
+        <span className="v47-spk">✻</span>
+        <span className="v47-tlabel">{streaming ? "思考中…" : "思考过程"}</span>
+        <span className="v47-mq"><span>{text}</span></span>
       </div>
-      {open && (
-        <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--c-text3)", fontStyle: "italic", fontSize: 12.5, lineHeight: 1.6, padding: "2px 0 4px", userSelect: "text" }}>
-          {b.text.trim() || "…"}
-        </div>
-      )}
+      <div className="v47-tbody">{text}</div>
     </div>
   );
 }
@@ -376,14 +435,14 @@ export function PermissionCard(props: {
   const kind = b.payload?.kind ?? "command";
   const options = permOptions(b, props.showFullAccess);
   return (
-    <div style={{ border: `1px solid ${decided ? "var(--c-border)" : "var(--c-amber)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }}>
-      <div style={{ color: decided ? "var(--c-text3)" : "var(--c-amber)", fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+    <div style={{ minWidth: 0, opacity: decided ? 0.65 : 1 }}>
+      <div style={{ fontWeight: 650, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
         <TlIcon name="shield" size={13} />
         <span>授权请求 · {kindLabel[kind] ?? kind}</span>
-        {b.payload?.source ? <span style={{ fontSize: 10, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px" }}>{b.payload.source}</span> : null}
-        {b.payload?.risk && <span style={{ color: b.payload.risk === "high" ? "var(--c-red)" : "var(--c-amber)", marginLeft: "auto", fontWeight: 700 }}>■ {b.payload.risk === "high" ? "高危" : "注意"}</span>}
+        {b.payload?.source ? <span style={{ fontSize: 10, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px", color: "var(--c-text3)" }}>{b.payload.source}</span> : null}
+        {b.payload?.risk && <span style={{ color: b.payload.risk === "high" ? "var(--c-red)" : "var(--c-text3)", marginLeft: "auto", fontWeight: 650 }}>{b.payload.risk === "high" ? "高危" : "注意"}</span>}
       </div>
-      {b.command && <div style={{ fontFamily: "var(--mono, monospace)", fontSize: 12, background: "var(--c-panel)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "6px 10px", margin: "4px 0", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{b.command}</div>}
+      {b.command && <div style={{ fontFamily: "var(--mono, monospace)", fontSize: 12, color: "var(--c-text2)", margin: "4px 0 8px", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{b.command}</div>}
       {b.payload?.paths && b.payload.paths.length > 0 && (
         <div style={{ fontSize: 11.5, color: "var(--c-text3)", margin: "4px 0", maxHeight: 64, overflowY: "auto" }}>
           {b.payload.paths.slice(0, 20).map((p) => <div key={p}>{p}</div>)}
@@ -403,13 +462,12 @@ export function PermissionCard(props: {
                   else if (o.reply.rulePrefix !== undefined && o.reply.rulePrefix !== null && o.reply.ok) props.onReply(b.requestId, true, true, o.reply.rulePrefix);
                   else props.onReply(b.requestId, o.reply.ok, o.reply.remember);
                 }}
-                style={{ display: "flex", gap: 8, padding: "4px 10px", borderRadius: 8, cursor: "pointer", border: `1px solid ${sel === i ? "var(--c-border)" : "transparent"}`, background: sel === i ? "var(--c-panel)" : "transparent" }}>
-                <span style={{ color: sel === i ? "var(--c-text)" : "transparent", width: 12 }}>{sel === i ? "❯" : ""}</span>
+                style={{ display: "flex", gap: 8, padding: "3px 8px", borderRadius: 6, cursor: "pointer", color: sel === i ? "var(--c-text)" : "var(--c-text2)", background: sel === i ? "var(--c-panel)" : "transparent" }}>
+                <span style={{ color: sel === i ? "var(--c-text)" : "transparent", width: 12, flex: "none" }}>{sel === i ? "❯" : ""}</span>
                 <span>{o.label}</span>
               </div>
             ))}
           </div>
-          <div style={{ color: "var(--c-text3)", fontSize: 10.5, marginTop: 6 }}>↑↓ 选择 · Enter 确认 · 数字直选 · 选择结果会回给 agent 继续工作</div>
         </>
       )}
     </div>
@@ -538,6 +596,8 @@ export interface TurnGroup {
   human: Block | null;
   process: Block[];
   conclusion: Block | null;
+  /** 过程尾部的中断/失败/停止状态（独立结果行，不入折叠层，v4.7） */
+  outcome: Block[];
   turn: Block | null;
   /** true = 最后一组且尚未收到 turn 标记（本轮仍在流式） */
   active: boolean;
@@ -547,7 +607,7 @@ export function groupTurns(blocks: Block[]): TurnGroup[] {
   const groups: TurnGroup[] = [];
   let cur: TurnGroup | null = null;
   const newGroup = (human: Block | null): TurnGroup =>
-    ({ anchor: null, human, process: [], conclusion: null, turn: null, active: false });
+    ({ anchor: null, human, process: [], conclusion: null, outcome: [], turn: null, active: false });
   const flush = () => { if (cur) groups.push(cur); cur = null; };
   for (const b of blocks) {
     if (b.kind === "human") { flush(); cur = newGroup(b); continue; }
@@ -564,6 +624,13 @@ export function groupTurns(blocks: Block[]): TurnGroup[] {
       const b = g.process[j];
       if (b.kind === "tool" || b.kind === "subtask") break;
       if (b.kind === "assistant") { g.conclusion = b; g.process.splice(j, 1); break; }
+    }
+    // 中断/结果状态抽取：过程尾部的连续 status 块独立成行（不入折叠层，v4.7）
+    while (g.process.length > 0) {
+      const last = g.process[g.process.length - 1];
+      if (last.kind !== "status") break;
+      g.outcome.unshift(last);
+      g.process.pop();
     }
   }
   return groups;
@@ -589,6 +656,27 @@ function CopyMessageButton({ text, align }: { text: string; align: "left" | "rig
   );
 }
 
+/** 文件变更组（v4.7）：回合内连续 file 块合并为一组（≥2 时由 TasksPage 调用），行点击跳改动页。 */
+export function FileGroup({ items, ctx }: { items: Extract<Block, { kind: "file" }>[]; ctx?: TimelineCardCtx }) {
+  return (
+    <div className="v47-ln">
+      <div className="v47-g"><TlIcon name="diff" size={13} color="var(--c-text2)" /></div>
+      <div className="v47-c">
+        <div className="v47-fgrp">
+          <div className="v47-fh"><span className="fn">本轮变更</span><span className="fc">{items.length} 个文件</span></div>
+          {items.map((b, i) => (
+            <div key={i} className="v47-frow" title="打开右侧预览修改" onClick={() => ctx?.previewFile?.(b.path)}>
+              <span className="st">{b.changeKind === "deleted" ? "D" : b.changeKind === "added" ? "A" : "M"}</span>
+              <span className="p">{b.path}</span>
+              {b.summary ? <span className="stats">{b.summary}</span> : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
   {
     blockKind: "human",
@@ -597,7 +685,7 @@ export const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
       // 对话形式：用户消息靠右圆角气泡（ZCode 形态），上下留宽间距（文本可选中，无复制钮）
       return (
         <div className="msg-row" style={{ display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }}>
-          <div style={{ maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }}>
+          <div style={{ maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 15, lineHeight: 1.65 }}>
             {b.text}
           </div>
         </div>
@@ -608,9 +696,11 @@ export const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
     blockKind: "assistant",
     render: ({ block, ctx }) => {
       const b = block as Extract<Block, { kind: "assistant" }>;
+      // 空文本块不渲染（流式分片产生的空 assistant 块会在指令组之间留幽灵空行）
+      if (!b.text.trim()) return null;
       // 复制钮只挂本轮结论（ctx.showCopy 由 renderBlock 前向扫描判定）
       return (
-        <div className="msg-row" style={{ padding: "0 4px" }}>
+        <div className="msg-row" style={{ padding: "2px 0" }}>
           <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(b.text) }} />
           {ctx?.showCopy ? <CopyMessageButton text={b.text} align="left" /> : null}
         </div>
@@ -619,12 +709,22 @@ export const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
   },
   {
     blockKind: "thinking",
-    render: ({ block }) => <ThinkingCard b={block as Extract<Block, { kind: "thinking" }>} />,
+    render: ({ block, ctx }) => <ThinkingCard b={block as Extract<Block, { kind: "thinking" }>} ctx={ctx} />,
   },
   {
     blockKind: "status",
     render: ({ block }) => {
       const b = block as Extract<Block, { kind: "status" }>;
+      const isOutcome = !b.phase || b.phase === "failed"; // completed 落地的中断/结果行（独立类型）
+      if (isOutcome) {
+        const failed = b.phase === "failed";
+        return (
+          <div className="v47-outcome">
+            <TlIcon name={failed ? "dot" : "check-circle"} size={14} color={failed ? "var(--c-red)" : "var(--c-green)"} style={{ flex: "none", marginTop: 3 }} />
+            <span className="tx">{b.text || (failed ? "任务失败" : "本轮已完成")}</span>
+          </div>
+        );
+      }
       const icon = b.phase === "thinking" ? "sparkle" : b.phase === "editing" ? "pencil" : "dot";
       return (
         <div style={{ fontSize: 11.5, color: "var(--c-text3)", display: "flex", alignItems: "center", gap: 6 }}>
@@ -642,10 +742,10 @@ export const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
     render: ({ block }) => {
       const b = block as Extract<Block, { kind: "checkpoint" }>;
       return (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 12, fontFamily: "var(--mono, monospace)" }}>
-          <TlIcon name="check-circle" size={13} color="var(--c-text)" /><span>cp {b.sha.slice(0, 8)}</span>
-          <span style={{ color: "var(--c-text)", fontFamily: "inherit", overflowWrap: "anywhere" }}>{b.summary}</span>
-          <span style={{ fontSize: 10.5 }}>· Esc×2 可回滚</span>
+        <div className="v47-meta">
+          <span>· 检查点 {b.sha.slice(0, 8)}</span>
+          <span style={{ color: "var(--c-text2)", overflowWrap: "anywhere" }}>{b.summary}</span>
+          <span style={{ opacity: .8 }}>Esc×2 可回滚</span>
         </div>
       );
     },
@@ -656,18 +756,13 @@ export const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
       const b = block as Extract<Block, { kind: "file" }>;
       if (b.changeKind === "read-image") return <div><AgentImage taskId={ctx?.taskId ?? ""} path={b.path} /></div>;
       const letter = b.changeKind === "deleted" ? "D" : b.changeKind === "added" ? "A" : "M";
-      const color = b.changeKind === "deleted" ? "var(--c-red)" : b.changeKind === "added" ? "var(--c-green)" : "var(--c-amber)";
       return (
-        <div className="tl-file" title={b.path}>
-          <span className="mono" style={{ fontWeight: 700, fontSize: 11.5, color, flex: "none" }}>{letter}</span>
-          <span className="tl-file-path">{b.path}</span>
-          {b.summary ? <span className="mono tl-file-stats">{b.summary}</span> : null}
-          {ctx?.viewFile && (
-            <button className="tool-btn tl-file-btn" onClick={() => ctx.viewFile?.(b.path)}>查看</button>
-          )}
-          {ctx?.previewFile && b.changeKind !== "deleted" && (
-            <button className="tool-btn tl-file-btn" onClick={() => ctx.previewFile?.(b.path)}>预览</button>
-          )}
+        <div className="v47-frow" title="打开右侧预览修改" onClick={() => ctx?.previewFile?.(b.path)}>
+          <span className="st">{letter}</span>
+          <span className="p">{b.path}</span>
+          {b.summary ? <span className="stats">{b.summary}</span> : null}
+          {ctx?.viewFile ? <button className="tool-btn v47-preview" onClick={(e) => { e.stopPropagation(); ctx.viewFile?.(b.path); }}>查看</button> : null}
+          {ctx?.previewFile && b.changeKind !== "deleted" ? <button className="tool-btn v47-preview" onClick={(e) => { e.stopPropagation(); ctx.previewFile?.(b.path); }}>预览</button> : null}
         </div>
       );
     },
@@ -684,13 +779,11 @@ export const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
     blockKind: "turn",
     render: ({ block, ctx }) => {
       const b = block as Extract<Block, { kind: "turn" }>;
+      const total = ((b.usage?.input ?? 0) + (b.usage?.output ?? 0)) / 1000;
       return (
-        <div style={{ color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <TlIcon name="usage" size={12} />{b.text}
-          </span>
-          {b.usage ? <span>{(((b.usage.input ?? 0) + (b.usage.output ?? 0)) / 1000).toFixed(1)}k tokens（{b.usage.input ?? "?"} in / {b.usage.output ?? "?"} out）</span> : null}
-          {ctx?.contextPct ? <span>context {ctx.contextPct}</span> : null}
+        <div className="v47-usage">
+          · {b.usage ? `${total.toFixed(1)}k tokens（${b.usage.input ?? "?"} in / ${b.usage.output ?? "?"} out）` : b.text}
+          {ctx?.contextPct ? ` · context ${ctx.contextPct}` : ""}
         </div>
       );
     },
