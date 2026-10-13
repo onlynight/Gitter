@@ -1783,7 +1783,7 @@ function OutcomeFold(props: { icon: "dot"; color: string; summary: string; child
                   const pre = (e.target as HTMLElement).closest("pre");
                   if (pre) void navigator.clipboard?.writeText(pre.textContent ?? "");
                 }}>
-              <div ref={streamInnerRef} className="tl-conv" style={{ padding: "14px 20px 26px", display: "flex", flexDirection: "column", gap: 0, minWidth: 0 }}>
+              <div ref={streamInnerRef} className="tl-conv" style={{ maxWidth: 880, margin: "0 auto", padding: "14px 20px 26px", display: "flex", flexDirection: "column", gap: 0, minWidth: 0 }}>
                 {loadingOlder && (
                   <div style={{ textAlign: "center", color: "var(--c-text3)", fontSize: 11 }}>
                     <span className="tl-pulse">加载中…</span>
@@ -1904,7 +1904,7 @@ function OutcomeFold(props: { icon: "dot"; color: string; summary: string; child
               )}
             {/* 输入框悬浮 dock（v4.7）：浮于时间线之上，内容从下方穿过被遮挡 */}
             <div className="chat-dock">
-              <div ref={composerDockRef} style={{ position: "relative" }}>
+              <div ref={composerDockRef} style={{ maxWidth: 880, margin: "0 auto", position: "relative" }}>
                 {/* 授权浮层（v4.5/v4.7）：覆盖 composer，黑白编号选项，↑↓/Enter/数字直选 */}
                 {pendingPerm && (
                   <div className="perm-dock">
