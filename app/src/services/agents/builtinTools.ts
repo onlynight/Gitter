@@ -593,6 +593,27 @@ function headTail(out: string): string {
   return out.slice(0, HEAD_TAIL) + `\n…（中间省略 ${out.length - HEAD_TAIL * 2} 字符）\n` + out.slice(-HEAD_TAIL);
 }
 
+/**
+ * Windows 上 Node 的 `shell: true` 默认走 cmd.exe——对 PowerShell 风格语法（`for…do…done`、
+ * `while…do…done`、`$(seq …)`、`;` 分隔）静默失败或死循环 hang。PowerShell 同时支持
+ * `;` 与 `for/do/done` 循环，兼容性最好，作为 Windows 默认。
+ *
+ * 用 shell:false + 显式 file+args，不依赖平台默认 shell；env 显式继承 process.env
+ * （避免 shell:false 默认给子进程干净 env，PATH/npm 会丢）。NoProfile/NonInteractive/NoLogo
+ * 避免 PS 加载用户配置或提示打断；-ea Continue 保持非零退出而非抛异常终止后续命令。
+ */
+function shellCommand(command: string): { file: string; args: string[] } {
+  if (process.platform === "win32") {
+    return { file: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-NoLogo", "-Command", command] };
+  }
+  return { file: "/bin/bash", args: ["-c", command] };
+}
+
+function spawnOptions(cwd: string): { cwd: string; env: NodeJS.ProcessEnv; shell: false; windowsHide?: boolean } {
+  const base = { cwd, env: { ...process.env }, shell: false } as const;
+  return process.platform === "win32" ? { ...base, windowsHide: true } : { ...base };
+}
+
 registerAgentTool({
   name: "terminal_run",
   description:
@@ -620,19 +641,34 @@ registerAgentTool({
     const command = String(args.command ?? "");
     const timeoutMs = Math.max(5000, Math.min(Number(args.timeoutMs ?? 120_000), 600_000));
     const cwd = args.cwd ? await resolveAccess(env, String(args.cwd)) : env.worktreePath;
+    const background = !!args.background;
 
-    const run = (id: string | null): Promise<string> =>
+    // 前台/后台都登记 shell（design §6.2）——「后台」tab 统一展示执行详情；
+    // 前台命令的执行语义不变（同步 resolve、结果进时间线），仅多做一次注册。
+    const id = `sh-${env.shells.size + 1}-${Date.now().toString(36)}`;
+    env.shells.set(id, {
+      id, command, output: "", running: true, exitCode: null, startedAt: Date.now(),
+      foreground: !background, callId: env.callId,
+    });
+    // 回填 callId 到 tool/start 的 args（前端据此把卡片关联到 shell 条目）
+    if (env.callId) env.emit({ type: "tool", phase: "args", callId: env.callId, name: "terminal_run",
+      args: { ...(args as Record<string, unknown>), shellId: id }, subtaskId: env.subtaskId });
+
+    const run = (sid: string): Promise<string> =>
       new Promise((resolve) => {
         let child: ReturnType<typeof spawn>;
         try {
-          child = spawn(command, { cwd, shell: true, windowsHide: true });
+          // 平台显式选 shell（见 shellCommand 注释）——不再用 shell:true
+          //（Windows 上默认 cmd.exe，对 PowerShell/bash 语法会 hang 或静默失败）。
+          const { file, args } = shellCommand(command);
+          child = spawn(file, args, spawnOptions(cwd));
         } catch (e) {
           resolve(err(e));
           return;
         }
-        // pid 挂到 shell 记录（后台 shell 终止 = taskkill /T /F 杀整树）
-        if (id && child.pid) {
-          const rec0 = env.shells.get(id);
+        // pid 挂到 shell 记录（终止 = taskkill /T /F 杀整树）
+        if (child.pid) {
+          const rec0 = env.shells.get(sid);
           if (rec0) rec0.pid = child.pid;
         }
         let out = "";
@@ -641,21 +677,23 @@ registerAgentTool({
           out += delta;
           if (out.length > RING_CAP) out = out.slice(out.length - RING_CAP);
           const now = Date.now();
-          if (id && now - lastFlush > 120 && delta) {
+          if (now - lastFlush > 120 && delta) {
             lastFlush = now;
-            env.emit({ type: "output", text: delta, stream: "tool", subtaskId: env.subtaskId });
+            // 时间线卡片流（既有）—— 前台后台都发（原 id 守卫去掉）
+            env.emit({ type: "output", text: delta, stream: "tool", subtaskId: env.subtaskId, shellId: sid });
+            // 「后台」tab 详情页流（design §6.3）—— 与上面并行不冲突
+            env.emit({ type: "shell-output", shellId: sid, chunk: delta, eof: false, subtaskId: env.subtaskId });
           }
         };
         const finish = (text: string, exitCode: number | null) => {
           clearTimeout(timer);
-          if (id) {
-            const rec = env.shells.get(id);
-            if (rec) {
-              rec.output = out;
-              rec.running = false;
-              rec.exitCode = exitCode;
-            }
+          const rec = env.shells.get(sid);
+          if (rec) {
+            rec.output = out;
+            rec.running = false;
+            rec.exitCode = exitCode;
           }
+          env.emit({ type: "shell-output", shellId: sid, chunk: "", eof: true, subtaskId: env.subtaskId });
           resolve(text);
         };
         const timer = setTimeout(() => {
@@ -669,13 +707,13 @@ registerAgentTool({
         child.on("close", (code) => finish(`退出码 ${code ?? -1}：\n${headTail(out)}`, code ?? -1));
       });
 
-    if (args.background) {
-      const id = `sh-${env.shells.size + 1}-${Date.now().toString(36)}`;
-      env.shells.set(id, { id, command, output: "", running: true, exitCode: null, startedAt: Date.now() });
-      void run(id);
+    if (background) {
+      // fire-and-forget：spawn 与 stdout/close 订阅都在 run() 内部完成；finish() 把
+      // out/exitCode/running 写回 rec，terminal_poll 直接读即可。吞掉 reject 避免 unhandled rejection 打挂 agent loop。
+      void run(id).catch(() => {});
       return `后台 shell 已启动：shellId=${id}\n命令：${command.slice(0, 200)}\n用 terminal_poll(shellId="${id}") 查询输出与退出码。`;
     }
-    return run(null);
+    return run(id);
   },
 });
 
