@@ -167,7 +167,7 @@ export function CheckpointsTab(props: {
         <span style={{ color: "var(--c-text3)", fontSize: 11.5, fontFamily: "var(--mono, monospace)" }}>{props.branch}</span>
         <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{cps.length} 个托管提交 · Esc×2 快捷回此页</span>
       </div>
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880 }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px" }}>
         <div style={{ color: "var(--c-text3)", fontSize: 12, marginBottom: 10 }}>
           每轮结束自动托管 checkpoint。回滚 = ZCode rewind：恢复 worktree 到该轮之前（消息历史保留，可重新续跑）。
         </div>
@@ -344,7 +344,7 @@ export function ShellsTab(props: {
         </div>
       ) : (
         // ═══ 列表页：全部 shell 条目 ═══
-        <div className="tl-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880, width: "100%", margin: "0 auto" }}>
+        <div className="tl-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", width: "100%" }}>
           {!live && shells.length === 0 && (
             <div style={{ color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }}>
               重启后后台 shell 不保留（仅 live 会话内存）——时间线里 terminal_poll 的输出仍可回看
