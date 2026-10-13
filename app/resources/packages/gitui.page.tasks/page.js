@@ -2513,7 +2513,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           " 个托管提交 · Esc×2 快捷回此页"
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880 }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginBottom: 10 }, children: "每轮结束自动托管 checkpoint。回滚 = ZCode rewind：恢复 worktree 到该轮之前（消息历史保留，可重新续跑）。" }),
         cps.map((cp) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid var(--c-border)", borderRadius: 10, padding: "8px 12px", marginBottom: 8, fontFamily: "var(--mono, monospace)", fontSize: 12 }, children: [
           /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: "var(--c-text3)" }, children: [
@@ -2685,7 +2685,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         ] })
       ) : (
         // ═══ 列表页：全部 shell 条目 ═══
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", width: "100%" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", maxWidth: 880, width: "100%", margin: "0 auto" }, children: [
           !live && shells.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }, children: "重启后后台 shell 不保留（仅 live 会话内存）——时间线里 terminal_poll 的输出仍可回看" }),
           live && shells.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12, marginTop: 20, textAlign: "center" }, children: "暂无命令执行记录" }),
           shells.map((s) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-shell", style: { cursor: "pointer" }, onClick: () => setSelectedId(s.shellId), children: [
