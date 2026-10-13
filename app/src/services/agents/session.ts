@@ -1413,6 +1413,10 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         // messages → journal：user → text/human，assistant → output/text，tool → tool 事件
         // content.parts 结构来自 Vercel AI v5：{role:"assistant"|"tool"|"user"|"system", content:string | Part[]}
         // Part: {type:"text", text} | {type:"tool-calls", value:ToolCall[]} | {type:"tool-result", toolCallId, toolName, result} | {type:"reasoning", text}
+        // 合成事件统一打上 subtaskId：前端 subtaskTranscript 结果回给详情页时，
+        // 若 event.subtaskId 缺失，reduceBlocks 走「无 subtask 目标」分支 → 事件被丢弃，
+        // 详情页会渲染成空白（用户看到的「运行中不更新、结束后一次性显示」就是这个的表象）。
+        const withSubtaskId = (ev: AgentSessionEvent): AgentSessionEvent => ({ ...(ev as any), subtaskId: args.subtaskId }) as AgentSessionEvent;
         const baseTs = Date.parse(j.ts ?? Date.now()) - (typeof j.durationMs === "number" ? j.durationMs : 0);
         let seq = 0;
         for (const m of messages) {
@@ -1423,21 +1427,21 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
             if (text) events.push({ ts, actor: "human", kind: "text", text });
           } else if (m.role === "assistant") {
             if (typeof m.content === "string") {
-              if (m.content) events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: m.content, stream: "assistant" } });
+              if (m.content) events.push({ ts, actor: "agent", kind: "event", event: withSubtaskId({ type: "output", text: m.content, stream: "assistant" }) });
             } else if (Array.isArray(m.content)) {
               for (const part of m.content as any[]) {
                 if (!part) continue;
                 if (part.type === "text" && part.text) {
-                  events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: part.text, stream: "assistant" } });
+                  events.push({ ts, actor: "agent", kind: "event", event: withSubtaskId({ type: "output", text: part.text, stream: "assistant" }) });
                 } else if (part.type === "reasoning" && part.text) {
-                  events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: part.text, stream: "thinking" } });
+                  events.push({ ts, actor: "agent", kind: "event", event: withSubtaskId({ type: "output", text: part.text, stream: "thinking" }) });
                 } else if (part.type === "tool-call") {
                   // ai@7 单数式：{ type:"tool-call", toolCallId, toolName, input }
-                  events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: part.toolCallId ?? "", name: part.toolName ?? "", args: part.input, state: "running", startTs: Date.parse(ts) } });
+                  events.push({ ts, actor: "agent", kind: "event", event: withSubtaskId({ type: "tool", phase: "start", callId: part.toolCallId ?? "", name: part.toolName ?? "", args: part.input }) });
                 } else if (part.type === "tool-calls" && Array.isArray(part.value)) {
                   // ai@5 复数式：{ type:"tool-calls", value:[{toolCallId, toolName, args}] }
                   for (const tc of part.value as any[]) {
-                    events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: tc.toolCallId ?? "", name: tc.toolName ?? "", args: tc.args ?? tc.input, state: "running", startTs: Date.parse(ts) } });
+                    events.push({ ts, actor: "agent", kind: "event", event: withSubtaskId({ type: "tool", phase: "start", callId: tc.toolCallId ?? "", name: tc.toolName ?? "", args: tc.args ?? tc.input }) });
                   }
                 }
               }
@@ -1453,7 +1457,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
               else if (typeof r?.result === "string") txt = r.result;
               else if (r?.result && typeof r.result === "object") txt = JSON.stringify(r.result);
               else txt = JSON.stringify(out ?? "");
-              events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: r?.toolCallId ?? "", name: r?.toolName ?? "", state: r?.isError ? "error" : "ok", result: txt.slice(0, 16_000) } });
+              events.push({ ts, actor: "agent", kind: "event", event: withSubtaskId({ type: "tool", phase: "end", callId: r?.toolCallId ?? "", name: r?.toolName ?? "", result: txt.slice(0, 16_000), isError: !!r?.isError }) });
             }
           }
         }

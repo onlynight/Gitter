@@ -431,25 +431,33 @@ export function SubagentsTab(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.focus?.ts]);
 
-  // 详情数据：切换 selectedId 时先拉底，再订阅 agent.event 追增量
-  useEffect(() => {
-    if (!selectedId) { setDetailBlocks([]); return; }
+  // 详情拉底（幂等）：把当前 selectedId 的完整事件流归约为 blocks，仅在归约结果非空时 setDetailBlocks。
+  // 用 setDetailBlocks(prev) 判断，避免 stale closure 覆盖实时增量订阅写入的更新。
+  const pullTranscript = useCallback(() => {
+    if (!selectedId) return;
     setLoading(true);
-    setDetailBlocks([]);
     void call<AgentSubtaskTranscriptDTO>("agent.subtask.transcript", { taskId, subtaskId: selectedId })
       .then((r) => {
         let blocks: Block[] = [];
         for (const e of r.events) {
           if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, e.event);
         }
-        setDetailBlocks(blocks);
+        // 仅在归约出内容时写入；空结果不动当前 state（实时增量可能已经填充过）
+        if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
       })
       .catch((e) => { props.setError(`子代理详情加载失败：${String(e)}`); })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, taskId]);
 
-  // 实时增量：只追当前详情页的 subtaskId
+  // 切换 selectedId：清空 → 拉底
+  useEffect(() => {
+    if (!selectedId) { setDetailBlocks([]); return; }
+    setDetailBlocks([]);
+    pullTranscript();
+  }, [selectedId, taskId, pullTranscript]);
+
+  // 实时增量：只追当前详情页的 subtaskId；其它子代理状态更新只刷列表
   useEffect(() => {
     if (!selectedId) return;
     return onEvent("agent.event", (p) => {
@@ -465,28 +473,15 @@ export function SubagentsTab(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, taskId]);
 
-  // 详情拉底兜底：若初拉空（磁盘文件未及时落盘 / live.journal 尚未收到该 subtaskId 事件），
-  // 或拉底返回但 detailBlocks 仍为空且子代理仍在跑，定期重拉一次。
-  // 触发场景：点开会话页「← 查看详情」时该子代理刚 spawn、spawnSubtask 内部尚未 emit 任何事件；
-  // 此时 transcript RPC 返回空数组，用户看到「子代理对话为空」空白页，但主会话流里单行卡已开始闪烁——
-  // 视觉上像「运行中看不到过程、结束后一次性显示」，实际是首帧时序问题。
+  // 兜底轮询：拉底命中为空但子代理仍在跑时，定期重拉；避免「初拉空 + 首条 agent.event 之间」的空白期。
+  // 停止条件：detailBlocks 非空 或 selectedId 变更 或 组件卸载。
+  const detailEmpty = detailBlocks.length === 0;
   useEffect(() => {
-    if (!selectedId) return;
-    const iv = setInterval(() => {
-      void call<AgentSubtaskTranscriptDTO>("agent.subtask.transcript", { taskId, subtaskId: selectedId })
-        .then((r) => {
-          if (!r.events.length) return;
-          let blocks: Block[] = [];
-          for (const e of r.events) {
-            if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, e.event);
-          }
-          if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
-        })
-        .catch(() => {});
-    }, 1500);
+    if (!selectedId || !detailEmpty) return;
+    const iv = setInterval(() => { pullTranscript(); }, 1500);
     return () => clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, taskId]);
+  }, [selectedId, detailEmpty, pullTranscript]);
 
   const sel = subs.find((x) => x.subtaskId === selectedId) ?? null;
   const sorted = [...subs].sort((a, b) => SUB_STATE_RANK(a.state) - SUB_STATE_RANK(b.state) || (a.startedAt > b.startedAt ? 1 : -1));

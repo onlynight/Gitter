@@ -2747,23 +2747,27 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       setSelectedId(props.focus.subtaskId);
       (_a3 = props.onFocused) == null ? void 0 : _a3.call(props);
     }, [(_a2 = props.focus) == null ? void 0 : _a2.ts]);
-    react.useEffect(() => {
-      if (!selectedId) {
-        setDetailBlocks([]);
-        return;
-      }
+    const pullTranscript = react.useCallback(() => {
+      if (!selectedId) return;
       setLoading(true);
-      setDetailBlocks([]);
       void call$1("agent.subtask.transcript", { taskId, subtaskId: selectedId }).then((r) => {
         let blocks = [];
         for (const e of r.events) {
           if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, e.event);
         }
-        setDetailBlocks(blocks);
+        if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
       }).catch((e) => {
         props.setError(`子代理详情加载失败：${String(e)}`);
       }).finally(() => setLoading(false));
     }, [selectedId, taskId]);
+    react.useEffect(() => {
+      if (!selectedId) {
+        setDetailBlocks([]);
+        return;
+      }
+      setDetailBlocks([]);
+      pullTranscript();
+    }, [selectedId, taskId, pullTranscript]);
     react.useEffect(() => {
       if (!selectedId) return;
       return onEvent$1("agent.event", (p) => {
@@ -2776,21 +2780,14 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         }
       });
     }, [selectedId, taskId]);
+    const detailEmpty = detailBlocks.length === 0;
     react.useEffect(() => {
-      if (!selectedId) return;
+      if (!selectedId || !detailEmpty) return;
       const iv = setInterval(() => {
-        void call$1("agent.subtask.transcript", { taskId, subtaskId: selectedId }).then((r) => {
-          if (!r.events.length) return;
-          let blocks = [];
-          for (const e of r.events) {
-            if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, e.event);
-          }
-          if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
-        }).catch(() => {
-        });
+        pullTranscript();
       }, 1500);
       return () => clearInterval(iv);
-    }, [selectedId, taskId]);
+    }, [selectedId, detailEmpty, pullTranscript]);
     const sel = subs.find((x) => x.subtaskId === selectedId) ?? null;
     const sorted = [...subs].sort((a, b) => SUB_STATE_RANK(a.state) - SUB_STATE_RANK(b.state) || (a.startedAt > b.startedAt ? 1 : -1));
     const runningCount = subs.filter((x) => x.state === "running").length;
