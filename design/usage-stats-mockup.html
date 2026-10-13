@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<title>Gitter 设计稿 —— 用量统计页 v1：概览 × 模型分布 × 趋势 × 任务明细</title>
+<style>
+  /* ============ 用量统计页 v1 —— 排版公理（与任务页 v4.7/v4.9 同源） ============
+     ① 数据优先：第一屏给「结论数」，不给表。五个 KPI 直接回答「花了多少 / 用了多少」。
+     ② 近单色纪律：全页灰三阶 + 唯一彩色强调 = --link(蓝)。涨跌/异常走 amber/red，
+        不引入第四种语义色；token 构成条用三阶灰分档而非彩虹。
+     ③ 密度：行距 20-24px，卡内 12/14px 边距；表头 11px uppercase letter-spacing .6px；
+        数字全部 tabular-nums，成本/百分比右对齐。
+     ④ 无数据 ≠ 0：单价未配置时费用一律「—」，空仓库/空账本走 hint 灰字，不做假零值行。
+     ⑤ 图表只用 SVG/CSS 手绘（echarts 只存在于 iframe 预览运行时，宿主页面零依赖）。
+     ⑥ 时间范围 = 前端切片，不改后端契约；7/30/90/全部 四档，趋势图与 KPI 同源同窗口。
+     符号：▸(展开) ⇅(排序) ↻(刷新) 无 Unicode 图标——主侧栏同款 Segoe Fluent 字形位不可用于纯文本，
+     此处与 mockup 传统一致用 ASCII/SVG，落地时换 taskIcons 的 16×16 SVG path。 */
+  :root{
+    --bg0:#0b0d11;
+    --bg:rgba(15,17,22,.66);
+    --panel:rgba(255,255,255,.035);
+    --panel2:rgba(255,255,255,.065);
+    --solid:rgba(23,26,33,.96);
+    --border:rgba(255,255,255,.075);
+    --border2:rgba(255,255,255,.15);
+    --text:#dfe5ec; --dim:#98a1ae; --dim2:#666f7c;
+    --red:#ff7b72; --amber:#d5a03c; --link:#6babf5;
+    --add-t:#7ee787; --del-t:#ff7b72;
+    --sh1:0 1px 2px rgba(0,0,0,.24);
+    --sh2:0 12px 32px rgba(0,0,0,.38);
+    --mono:"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+    --sans:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+  }
+  body.light{
+    --bg0:#e8ebf0;
+    --bg:rgba(252,253,255,.70);
+    --panel:rgba(255,255,255,.58);
+    --panel2:rgba(255,255,255,.95);
+    --solid:rgba(255,255,255,.98);
+    --border:rgba(15,25,45,.10);
+    --border2:rgba(15,25,45,.18);
+    --text:#1a1e26; --dim:#57616d; --dim2:#8b95a1;
+    --red:#cf222e; --amber:#9a6700; --link:#0b6ccb;
+    --add-t:#1a7f37; --del-t:#cf222e;
+    --sh1:0 1px 2px rgba(20,35,60,.10);
+    --sh2:0 12px 32px rgba(20,35,60,.16);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg0);color:var(--text);font:13px/1.55 var(--sans);overflow:hidden;letter-spacing:.005em;font-variant-numeric:tabular-nums}
+  .ambient{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(640px 420px at 16% -6%, rgba(96,165,250,.10), transparent 68%),
+               radial-gradient(720px 480px at 92% 110%, rgba(168,130,255,.08), transparent 68%);}
+  body.light .ambient{background:radial-gradient(640px 420px at 16% -6%, rgba(96,165,250,.14), transparent 68%),
+                      radial-gradient(720px 480px at 92% 110%, rgba(168,130,255,.10), transparent 68%);}
+
+  /* ============ 顶部工具条（视图切换 + 主题切换） ============ */
+  .toolbar{position:fixed;top:12px;right:12px;z-index:20;
+    display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:10px;
+    background:var(--solid);backdrop-filter:blur(20px) saturate(1.2);
+    border:1px solid var(--border);box-shadow:var(--sh2);font-size:12.5px;color:var(--dim)}
+  .toolbar .tb-item{padding:4px 10px;border-radius:6px;cursor:pointer;transition:background .12s,color .12s}
+  .toolbar .tb-item:hover{background:var(--panel);color:var(--text)}
+  .toolbar .tb-item.on{background:var(--panel2);color:var(--text)}
+  .toolbar .tb-sep{width:1px;height:14px;background:var(--border)}
+
+  /* ============ 应用骨架（左导航 + 内容） ============ */
+  .app{position:fixed;inset:0;z-index:1;display:grid;grid-template-columns:188px minmax(0,1fr);gap:1px;background:var(--border)}
+  .side{background:var(--bg);backdrop-filter:blur(20px) saturate(1.2);padding:12px 10px;font-size:12.5px;color:var(--dim);overflow:auto}
+  .side .brand{display:flex;align-items:center;gap:8px;padding:2px 8px 10px;font-size:13px;font-weight:600;color:var(--text)}
+  .side .brand .lg{width:20px;height:20px;border-radius:6px;background:var(--panel2);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:11px;font-family:var(--mono);color:var(--dim)}
+  .side h4{font-size:10.5px;font-weight:600;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em;margin:14px 8px 6px}
+  .side .item{padding:5px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:9px;color:var(--dim)}
+  .side .item:hover{background:var(--panel);color:var(--text)}
+  .side .item.on{background:var(--panel2);color:var(--text)}
+  .side .item .ico{width:14px;height:14px;flex:none;display:inline-flex;align-items:center;justify-content:center;opacity:.85}
+  .side .item .ico svg{width:14px;height:14px;fill:currentColor}
+  .side .item .k{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--dim2)}
+  .side .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .side .dot.gray{background:var(--dim2)}
+
+  .main{background:var(--bg);backdrop-filter:blur(20px) saturate(1.2);display:grid;grid-template-rows:auto auto minmax(0,1fr);min-width:0;min-height:0;overflow:hidden}
+
+  /* ============ 页头（标题 + 作用域 + 时间范围 + 刷新） ============ */
+  .pagehead{display:flex;align-items:center;gap:10px;padding:11px 20px;border-bottom:1px solid var(--border)}
+  .pagehead .ti{display:flex;align-items:center;gap:9px}
+  .pagehead .ti h1{font-size:14.5px;font-weight:600;color:var(--text)}
+  .pagehead .ti .sub{font-size:11px;color:var(--dim2);font-family:var(--mono)}
+  .pagehead .grow{flex:1}
+  .pagehead .hint{font-size:11px;color:var(--dim2)}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:7px;
+    background:var(--panel);border:1px solid var(--border);color:var(--dim);font-family:inherit;
+    font-size:12px;cursor:pointer;transition:background .12s,color .12s,border-color .12s}
+  .btn:hover{background:var(--panel2);color:var(--text)}
+  .btn.solid{background:var(--text);color:var(--bg0);border-color:transparent;font-weight:600}
+  .btn.solid:hover{background:var(--text);opacity:.9}
+  .btn svg{width:12px;height:12px;fill:currentColor}
+
+  /* 分段切换（时间范围） */
+  .seg{display:inline-flex;align-items:center;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:2px}
+  .seg .sg{padding:3px 11px;border-radius:6px;font-size:12px;color:var(--dim);cursor:pointer;transition:background .12s,color .12s;font-family:var(--mono)}
+  .seg .sg:hover{color:var(--text)}
+  .seg .sg.on{background:var(--panel2);color:var(--text)}
+
+  /* 作用域 chip（当前仓库 / 全部项目） */
+  .scope{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;border-radius:7px;
+    background:var(--panel);border:1px solid var(--border);font-size:12px;color:var(--dim);cursor:pointer}
+  .scope:hover{background:var(--panel2);color:var(--text)}
+  .scope .nm{font-family:var(--mono);font-size:11.5px;color:var(--text)}
+  .scope .all{padding:1px 6px;border-radius:3px;background:var(--panel2);border:1px solid var(--border2);font-size:10.5px;color:var(--dim2);font-family:var(--mono)}
+
+  /* ============ 内容滚动区 ============ */
+  .scroll{padding:16px 20px 40px;overflow-y:auto;min-height:0}
+  .scroll::-webkit-scrollbar{width:9px;height:9px;overflow:hidden}
+  .scroll::-webkit-scrollbar-track{background:transparent}
+  .scroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--border2) 55%,transparent);border-radius:5px;border:2px solid transparent;background-clip:content-box;transition:background .12s}
+  .scroll:hover::-webkit-scrollbar-thumb{background:var(--dim2)}
+
+  .grid{display:grid;gap:12px}
+  .g-kpi{grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px}
+  .g-2a{grid-template-columns:minmax(0,1.62fr) minmax(0,1fr);align-items:stretch}
+  .g-2b{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:stretch}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;min-width:0}
+  .card-hd{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .card-hd h3{font-size:11px;font-weight:600;color:var(--dim2);text-transform:uppercase;letter-spacing:.6px}
+  .card-hd .note{font-size:10.5px;color:var(--dim2)}
+  .card-hd .grow{flex:1}
+  .card-hd .act{font-size:11px;color:var(--dim2);cursor:pointer;padding:2px 7px;border-radius:5px}
+  .card-hd .act:hover{background:var(--panel);color:var(--text)}
+
+  /* ============ KPI 卡 ============ */
+  .kpi{display:flex;flex-direction:column;gap:5px}
+  .kpi .lbl{font-size:10.5px;color:var(--dim2);text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center;gap:5px}
+  .kpi .lbl .g{width:13px;height:13px;flex:none;display:inline-flex;align-items:center;justify-content:center;opacity:.7}
+  .kpi .lbl .g svg{width:12px;height:12px;fill:currentColor}
+  .kpi .val{font-size:21px;font-weight:600;color:var(--text);line-height:1.15;letter-spacing:-.01em}
+  .kpi .val .u{font-size:12px;font-weight:400;color:var(--dim2);margin-left:3px;font-family:var(--mono)}
+  .kpi .val.na{color:var(--dim2);font-size:19px}
+  .kpi .meta{font-size:11px;color:var(--dim2);display:flex;align-items:center;gap:6px}
+  .kpi .meta b{color:var(--dim);font-weight:600}
+  .kpi .meta .up{color:var(--add-t)} .kpi .meta .dn{color:var(--dim2)}
+  .kpi .warn{color:var(--amber)}
+
+  /* 构成条：输入 / 缓存命中 / 输出 三段（三阶灰，不用彩虹） */
+  .compose{display:flex;height:5px;border-radius:3px;overflow:hidden;background:var(--border)}
+  .compose i{display:block;height:100%}
+  .compose .c-in{background:var(--dim2)}
+  .compose .c-cache{background:color-mix(in srgb,var(--dim2) 45%,transparent)}
+  .compose .c-out{background:var(--link)}
+  .legend{display:flex;gap:11px;font-size:10.5px;color:var(--dim2)}
+  .legend span{display:inline-flex;align-items:center;gap:4px}
+  .legend .sw{width:7px;height:7px;border-radius:2px;flex:none}
+
+  /* ============ 趋势图（SVG 手绘，按天 × 指标） ============ */
+  .trend-wrap{position:relative}
+  .trend{display:block;width:100%;height:168px;overflow:visible}
+  .trend .baseline{stroke:var(--border);stroke-width:1}
+  .trend .gl{stroke:var(--border);stroke-width:1;stroke-dasharray:2 4;opacity:.65}
+  .trend .ax{font-size:9.5px;fill:var(--dim2);font-family:var(--mono)}
+  .trend .ax-y{text-align:end}
+  .trend .ax-x{text-align:center}
+  .trend .ln{fill:none;stroke-linejoin:round;stroke-linecap:round}
+  .trend .ln-in{stroke:#9AA6B2;stroke-width:1.75}
+  .trend .ln-cache{stroke:#4C5866;stroke-width:1.5}
+  .trend .ln-out{stroke:var(--link);stroke-width:2}
+  .trend .ln-cost{stroke:var(--amber);stroke-width:1.5;stroke-dasharray:4 3}
+  .trend .ln-fill{fill:rgba(107,171,245,.08);stroke:none}
+  .trend .node{stroke:var(--panel);stroke-width:1.25}
+  .trend .bar-hit{fill:transparent}
+  .tip{position:absolute;pointer-events:none;z-index:6;background:var(--solid);border:1px solid var(--border2);
+    border-radius:8px;padding:7px 9px;font-size:11px;color:var(--dim);box-shadow:var(--sh2);min-width:150px;
+    backdrop-filter:blur(16px);display:none}
+  .tip .tp-h{font-size:11.5px;color:var(--text);font-family:var(--mono);margin-bottom:5px}
+  .tip .tp-r{display:flex;justify-content:space-between;gap:12px;padding:1px 0}
+  .tip .tp-r b{color:var(--text);font-weight:600}
+  .trend-metric{display:flex;align-items:center;gap:14px;font-size:11px;color:var(--dim2);margin-top:9px}
+  .trend-metric .m{display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0;user-select:none}
+  .trend-metric .m:hover{color:var(--dim)}
+  .trend-metric .m.off{opacity:.4}
+  .trend-metric .sw{width:16px;height:2px;border-radius:1px;flex:none;position:relative}
+  .trend-metric .sw::after{content:"";position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;
+    transform:translate(-50%,-50%);background:inherit;border:1px solid var(--panel)}
+  .trend-metric .sw.in{background:#9AA6B2}
+  .trend-metric .sw.cache{background:#4C5866}
+  .trend-metric .sw.out{background:var(--link);height:3px}
+  .trend-metric .sw.cost{background:repeating-linear-gradient(90deg,var(--amber) 0 4px,transparent 4px 7px)}
+  .trend-metric .sep{width:1px;background:var(--border)}
+  .trend-model{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:9px;
+    font-size:11px;color:var(--dim2)}
+  .trend-model .m{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;
+    max-width:210px}
+  .trend-model .m:hover{color:var(--dim)}
+  .trend-model .m.off{opacity:.4}
+  .trend-model .sw{width:16px;height:2px;border-radius:1px;flex:none;position:relative}
+  .trend-model .sw::after{content:"";position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;
+    transform:translate(-50%,-50%);background:inherit;border:1px solid var(--panel)}
+  .trend-model .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:10px}
+  .trend-model .m .v{color:var(--dim2);font-family:var(--mono);font-size:9.5px;margin-left:1px}
+  .trend-model .m.on .v{color:var(--dim)}
+  .trend.mt{height:156px}
+  .trend .ln-m{stroke-width:1.9;opacity:.92}
+  .trend-metric .total{margin-left:auto;font-family:var(--mono);color:var(--dim2)}
+
+  /* ============ 模型分布 ============ */
+  .mrow{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:9px;align-items:center;padding:6px 4px;border-radius:6px;cursor:pointer}
+  .mrow:hover{background:var(--panel)}
+  .mrow .rk{font-family:var(--mono);font-size:11px;color:var(--dim2);text-align:center}
+  .mrow .body{min-width:0;display:flex;flex-direction:column;gap:4px}
+  .mrow .nm{font-size:12.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:7px}
+  .mrow .nm .full{font-family:var(--mono);font-size:10.5px;color:var(--dim2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .mrow .bar{position:relative;height:5px;border-radius:3px;background:var(--border);overflow:hidden}
+  .mrow .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--dim2);border-radius:3px}
+  .mrow .bar i.on{background:var(--link);opacity:.85}
+  .mrow .num{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none}
+  .mrow .num .v{font-family:var(--mono);font-size:12px;color:var(--text);font-weight:600}
+  .mrow .num .p{font-size:10.5px;color:var(--dim2);font-family:var(--mono)}
+  .mrow .na{color:var(--dim2)}
+
+  /* ============ 表格 ============ */
+  .tbl{width:100%;border-collapse:collapse;font-size:12px}
+  .tbl th{font-size:10.5px;font-weight:600;color:var(--dim2);text-transform:uppercase;letter-spacing:.6px;
+    text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+  .tbl th:hover{color:var(--dim)}
+  .tbl th .srt{color:var(--dim2);font-family:var(--mono);font-size:10px;margin-left:3px;letter-spacing:0}
+  .tbl th.r,.tbl td.r{text-align:right;font-variant-numeric:tabular-nums}
+  .tbl td{padding:6px 9px;border-bottom:1px solid var(--border);color:var(--dim);vertical-align:middle}
+  .tbl tbody tr:last-child td{border-bottom:0}
+  .tbl tbody tr{cursor:pointer;transition:background .12s}
+  .tbl tbody tr:hover{background:var(--panel)}
+  .tbl td.num{font-family:var(--mono);color:var(--text)}
+  .tbl td.na{color:var(--dim2)}
+  .tbl .ti{color:var(--text);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+  .tbl .sp{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim2);font-family:var(--mono);font-size:11px}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;padding:1px 7px;border-radius:3px;
+    border:1px solid var(--border);color:var(--dim2);white-space:nowrap}
+  .badge .d{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+  .badge.run{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 32%,transparent);background:color-mix(in srgb,var(--amber) 9%,transparent)}
+  .badge.run .d{animation:blink 1s ease-in-out infinite}
+  .badge.err{color:var(--red);border-color:color-mix(in srgb,var(--red) 32%,transparent);background:color-mix(in srgb,var(--red) 9%,transparent)}
+  .badge.done{color:var(--dim2)}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.28}}
+
+  /* 状态分布 mini 条 */
+  .statebar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--border);gap:2px}
+  .statebar i{display:block;height:100%}
+  .statebar .s-run{background:var(--amber)} .statebar .s-err{background:var(--red)} .statebar .s-done{background:var(--dim2)}
+  .state-legend{display:flex;gap:11px;font-size:10.5px;color:var(--dim2);margin-top:8px}
+  .state-legend span{display:inline-flex;align-items:center;gap:4px}
+  .state-legend .sw{width:7px;height:7px;border-radius:2px}
+
+  /* ============ 任务明细页 ============ */
+  .sumrow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:2px 2px 12px;font-size:11.5px;color:var(--dim2)}
+  .sumrow .kv{display:inline-flex;align-items:center;gap:5px}
+  .sumrow .kv b{color:var(--text);font-weight:600;font-family:var(--mono)}
+  .sumrow .sep{width:1px;height:12px;background:var(--border)}
+  .sumrow .grow{flex:1}
+  .sumrow .warn{color:var(--amber)}
+
+  .foot-note{margin-top:12px;font-size:11px;color:var(--dim2);line-height:1.7;padding-top:10px;border-top:1px solid var(--border)}
+  .foot-note code{font-family:var(--mono);font-size:10.5px;background:var(--panel);padding:1px 4px;border-radius:3px;color:var(--dim)}
+
+  .more{display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;margin-top:6px;border-top:1px solid var(--border);
+    font-size:11.5px;color:var(--dim2);cursor:pointer}
+  .more:hover{color:var(--text)}
+
+  /* ============ 空态 ============ */
+  .empty{padding:44px 20px;text-align:center;color:var(--dim2);font-size:12.5px;display:flex;flex-direction:column;align-items:center;gap:9px}
+  .empty .ic{font-size:22px;opacity:.5}
+  .empty b{color:var(--dim);font-weight:600}
+
+  /* ============ 说明浮窗 + 脚注 ============ */
+  .notes{position:fixed;right:16px;bottom:16px;z-index:21;width:308px;background:var(--solid);
+    border:1px solid var(--border2);border-radius:12px;padding:11px 13px;font-size:11.5px;line-height:1.6;
+    color:var(--dim);box-shadow:var(--sh2);backdrop-filter:blur(20px)}
+  .notes h4{margin:0 0 7px;font-size:12px;color:var(--text);font-weight:650;display:flex;align-items:center;gap:6px}
+  .notes .close{position:absolute;top:7px;right:9px;background:none;border:0;color:var(--dim2);font-size:14px;cursor:pointer;line-height:1;padding:2px}
+  .notes .close:hover{color:var(--text)}
+  .notes p{margin:0 0 5px}
+  .notes .k{color:var(--amber);font-weight:600}
+  .notes .box{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+  .foot{position:fixed;left:16px;bottom:16px;z-index:21;font-size:11px;color:var(--dim2);max-width:620px}
+  .foot code{font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="ambient"></div>
+
+<div class="toolbar">
+  <div class="tb-item on" data-view="overview">概览</div>
+  <div class="tb-item" data-view="tasks">任务明细</div>
+  <div class="tb-sep"></div>
+  <div class="tb-item" data-view="empty">空态</div>
+  <div class="tb-sep"></div>
+  <div class="tb-item" data-action="theme">◐ 主题</div>
+</div>
+
+<div class="app">
+  <!-- ============ 主侧栏（真实应用导航，用量页 = 新增第 8 页） ============ -->
+  <aside class="side">
+    <div class="brand"><span class="lg">G</span><span>Gitter</span></div>
+    <h4>仓库</h4>
+    <div class="item"><span class="ico"><svg viewBox="0 0 16 16"><path d="M13.1 3.9a2.3 2.3 0 0 0-3.25 3.25l-.1.1a2.3 2.3 0 0 1-3.25 0L5.4 6.2a2.3 2.3 0 1 0-1.06 1.06l1.1 1.05a3.8 3.8 0 0 0 2.31 1.09v1.2a2.3 2.3 0 1 0 1.5 0V9.4a3.8 3.8 0 0 0 2.31-1.09l.1-.1a2.3 2.3 0 1 0 1.44-4.31z"/></svg></span><span>日志</span><span class="k">1</span></div>
+    <div class="item"><span class="ico"><svg viewBox="0 0 16 16"><path d="M2 4.25 5 8l-3 3.75V4.25ZM6 3h1.5v10H6V3Zm3 0h5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9v-1.5h4.5v-7H9V3Z"/></svg></span><span>变更</span><span class="k">2</span></div>
+    <div class="item"><span class="ico"><svg viewBox="0 0 16 16"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z"/></svg></span><span>分支</span></div>
+    <div class="item"><span class="ico"><svg viewBox="0 0 16 16"><path d="M1.5 3A1.5 1.5 0 0 1 3 1.5h3.4l1.5 2H13A1.5 1.5 0 0 1 14.5 5v8A1.5 1.5 0 0 1 13 14.5H3A1.5 1.5 0 0 1 1.5 13V3Z"/></svg></span><span>项目</span></div>
+    <div class="item"><span class="ico"><svg viewBox="0 0 16 16"><path d="M3 1.5h6L13 5v9a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-12a.5.5 0 0 1 .5-.5ZM9 2.6V5h2.4L9 2.6Z"/></svg></span><span>文件</span><span class="k">4</span></div>
+    <div class="item"><span class="ico"><svg viewBox="0 0 16 16"><path d="M2 3h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm2.7 1.1L3.6 6.6l1.8 1.9-1.8 1.9 1.1 1 2.6-2.9-2.6-2.9ZM8.5 10.5H12V12H8.5Z"/></svg></span><span>终端</span></div>
+    <div class="item"><span class="ico"><svg viewBox="0 0 16 16"><path d="M3.3 3.1a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4zM3.3 6.8a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4zM3.3 10.5a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4zM6.9 3.7h6.1a1 1 0 0 1 0 2H6.9a1 1 0 0 1 0-2zm0 3.7h6.1a1 1 0 0 1 0 2H6.9a1 1 0 0 1 0-2zm0 3.7h6.1a1 1 0 0 1 0 2H6.9a1 1 0 0 1 0-2z"/></svg></span><span>任务</span><span class="k">7</span></div>
+    <div class="item on"><span class="ico"><svg viewBox="0 0 16 16"><path d="M2 13.25h12v1.25H2v-1.25ZM3.25 8.5H5v3.25H3.25V8.5Zm4-4H9v7.25H7.25V4.5Zm4 2H13v5.25h-1.75V6.5Z"/></svg></span><span>用量</span><span class="k">8</span></div>
+    <h4>系统</h4>
+    <div class="item"><span class="ico"><svg viewBox="0 0 16 16"><path d="M6.4 1 4.6 1.3c-.7.2-1.3.8-1.3 1.6v3L2 7l.8 1.5-1.3 1.5.5 1.8c.1.6.5 1 1 1.2l2.6.9v-2.6l1.4-.8 1.4.8v2.6l2.6-.9c.5-.2.9-.6 1-1.2l.5-1.8-1.3-1.5L13 7l-1.3-1.1v-3c0-.8-.6-1.4-1.3-1.6L8.6 1 6.4 1z"/></svg></span><span>设置</span><span class="k">9</span></div>
+    <div style="margin-top:16px;padding:0 10px;font-size:10.5px;color:var(--dim2);line-height:1.5">
+      · 4 个仓库<br>· 3 个已配置单价
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ============================================================ -->
+    <!-- 视图 1：概览 —— 第一屏即结论（KPI × 构成 × 趋势 × 模型分布） -->
+    <!-- ============================================================ -->
+    <section id="view-overview">
+      <div class="pagehead">
+        <div class="ti">
+          <h1>用量统计</h1>
+          <span class="sub">agent.usage.report</span>
+        </div>
+        <span class="grow"></span>
+        <span class="scope" id="scopeBtn">
+          <svg viewBox="0 0 16 16" style="width:12px;height:12px;fill:currentColor"><path d="M1.5 3A1.5 1.5 0 0 1 3 1.5h3.4l1.5 2H13A1.5 1.5 0 0 1 14.5 5v8A1.5 1.5 0 0 1 13 14.5H3A1.5 1.5 0 0 1 1.5 13V3Z"/></svg>
+          <span class="nm">D:/Code/Gitter</span>
+          <span class="all">仅当前仓库</span>
+        </span>
+        <div class="seg" id="rangeSeg">
+          <span class="sg" data-r="7">7 天</span>
+          <span class="sg on" data-r="30">30 天</span>
+          <span class="sg" data-r="90">90 天</span>
+          <span class="sg" data-r="0">全部</span>
+        </div>
+        <button class="btn" id="refreshBtn"><svg viewBox="0 0 16 16"><path d="M8 3a5 5 0 0 1 4.6 3.04l-1.36.55A3.5 3.5 0 0 0 4.6 6.9L6.2 8.5H1.5V3.8l1.7 1.7A5 5 0 0 1 8 3Zm6.5 4.5v4.7l-1.7-1.7A5 5 0 0 1 3.4 9.96l1.36-.55A3.5 3.5 0 0 0 11.4 9.1L9.8 7.5h4.7Z"/></svg>刷新</button>
+      </div>
+
+      <div class="scroll">
+        <!-- ① KPI 行：五个结论数 + 与上一窗口对比 -->
+        <div class="grid g-kpi">
+          <div class="card kpi">
+            <div class="lbl"><span class="g"><svg viewBox="0 0 16 16"><path d="M2 13.25h12v1.25H2v-1.25ZM3.25 8.5H5v3.25H3.25V8.5Zm4-4H9v7.25H7.25V4.5Zm4 2H13v5.25h-1.75V6.5Z"/></svg></span>估算费用</div>
+            <div class="val">$14.83</div>
+            <div class="meta"><span class="up">▲ 22%</span><span>较前 30 天 $12.16</span></div>
+          </div>
+          <div class="card kpi">
+            <div class="lbl"><span class="g"><svg viewBox="0 0 16 16"><path d="M8 2.5 12 6.5H9.75V11h-3.5V6.5H4L8 2.5Z"/></svg></span>输入 Token</div>
+            <div class="val">41.2<span class="u">M</span></div>
+            <div class="meta"><b>2,318 轮</b><span class="sep" style="width:1px;height:11px;background:var(--border)"></span><span class="up">▲ 18%</span></div>
+          </div>
+          <div class="card kpi">
+            <div class="lbl"><span class="g"><svg viewBox="0 0 16 16"><path d="M8 13.5 4 9.5h2.25V5h3.5v4.5H12L8 13.5Z"/></svg></span>输出 Token</div>
+            <div class="val">5.8<span class="u">M</span></div>
+            <div class="meta"><b>均 2.5k / 轮</b><span class="sep" style="width:1px;height:11px;background:var(--border)"></span><span class="up">▲ 31%</span></div>
+          </div>
+          <div class="card kpi">
+            <div class="lbl"><span class="g"><svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm.75 1.5h-1.5v4l3 1.8.75-1.23-2.25-1.35V4.5Z"/></svg></span>缓存命中</div>
+            <div class="val">32.6<span class="u">M</span></div>
+            <div class="meta"><b>79.1%</b> 命中率 <span class="sep" style="width:1px;height:11px;background:var(--border)"></span><span class="warn">12 断点</span></div>
+          </div>
+          <div class="card kpi">
+            <div class="lbl"><span class="g"><svg viewBox="0 0 16 16"><path d="M2 13.25h12v1.25H2v-1.25ZM3.25 8.5H5v3.25H3.25V8.5Zm4-4H9v7.25H7.25V4.5Zm4 2H13v5.25h-1.75V6.5Z"/></svg></span>任务 / 模型</div>
+            <div class="val">96<span class="u">/ 4</span></div>
+            <div class="meta">4 仓库覆盖 <span class="sep" style="width:1px;height:11px;background:var(--border)"></span><span>0 空账本</span></div>
+          </div>
+        </div>
+
+        <!-- ② 趋势 + 模型分布 -->
+        <div class="grid g-2a">
+          <div class="card">
+            <div class="card-hd">
+              <h3>每日趋势</h3>
+              <span class="note">输入 / 缓存命中 / 输出 · 费用折线右轴</span>
+              <span class="grow"></span>
+              <span class="act" id="toggleAll">悬停任意柱查看当日明细</span>
+            </div>
+            <div class="trend-wrap" id="trendWrap">
+              <svg class="trend" id="trend" viewBox="0 0 760 168" preserveAspectRatio="none"></svg>
+              <div class="tip" id="tip"></div>
+            </div>
+            <div class="trend-metric">
+              <span class="m on" data-m="input"><span class="sw in"></span>输入</span>
+              <span class="m on" data-m="cache"><span class="sw cache"></span>缓存命中</span>
+              <span class="m on" data-m="output"><span class="sw out"></span>输出</span>
+              <span class="sep"></span>
+              <span class="m on" data-m="cost"><span class="sw cost"></span>费用</span>
+              <span class="total">30 天 · $14.83</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-hd">
+              <h3>模型分布</h3>
+              <span class="grow"></span>
+              <span class="note">按输入 token</span>
+            </div>
+            <div id="modelList"></div>
+            <div class="foot-note">
+              条长 = 输入 token 占比；条内亮段 = 缓存命中部分（ΣcacheRead）。<br>
+              费用列 <code>—</code> 表示该档案未配置单价，不计入估算。
+            </div>
+          </div>
+        </div>
+
+        <!-- 各模型每日用量：独立图，每条线 = 一个模型的逐日输入 token -->
+        <div class="card">
+          <div class="card-hd">
+            <h3>各模型每日用量</h3>
+            <span class="note">每线一个模型 · 输入 token</span>
+            <span class="grow"></span>
+            <span class="note">按输入量取前 6 个</span>
+          </div>
+          <div class="trend-wrap" id="mtWrap">
+            <svg class="trend mt" id="mt" viewBox="0 0 1400 156" preserveAspectRatio="xMidYMid meet"></svg>
+            <div class="tip" id="mtTip"></div>
+          </div>
+          <div class="trend-model">
+            <span class="m on" data-mm="0"><span class="sw" style="background:#6BABF5"></span><span class="nm">sensenova-6.8-flash-lite</span><span class="v">9.30M</span></span>
+            <span class="m on" data-mm="1"><span class="sw" style="background:#8250DF"></span><span class="nm">claude-4.5-sonnet</span><span class="v">6.40M</span></span>
+            <span class="m off" data-mm="2"><span class="sw" style="background:#F85149"></span><span class="nm">deepseek-v3.2</span><span class="v">1.10M</span></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- 视图 2：任务明细 —— 行级钻取（byTask） -->
+    <!-- ============================================================ -->
+    <section id="view-tasks" style="display:none">
+      <div class="pagehead">
+        <div class="ti">
+          <h1>任务明细</h1>
+          <span class="sub">byTask · 按最近活跃降序</span>
+        </div>
+        <span class="grow"></span>
+        <div class="seg">
+          <span class="sg on">全部</span>
+          <span class="sg">已计费</span>
+          <span class="sg">失败</span>
+        </div>
+        <button class="btn">导出 CSV</button>
+      </div>
+
+      <div class="scroll">
+        <div class="card">
+          <div class="sumrow">
+            <span class="kv">96 个任务</span>
+            <span class="sep"></span>
+            <span class="kv">合计 <b>$14.83</b></span>
+            <span class="sep"></span>
+            <span class="kv">单任务中位数 <b>$0.11</b></span>
+            <span class="sep"></span>
+            <span class="kv">最贵 <b>$1.94</b></span>
+            <span class="sep"></span>
+            <span class="kv">平均 <b>24 轮</b></span>
+            <span class="grow"></span>
+            <span class="kv warn">12 个失败任务仍计费 $0.42</span>
+          </div>
+
+          <table class="tbl" id="taskTbl">
+            <thead>
+              <tr>
+                <th style="width:34%">任务 <span class="srt">⇅</span></th>
+                <th>模型 <span class="srt"></span></th>
+                <th style="width:88px">状态</th>
+                <th class="r" style="width:64px">轮次</th>
+                <th class="r" style="width:78px">输入</th>
+                <th class="r" style="width:74px">输出</th>
+                <th class="r" style="width:86px">缓存命中</th>
+                <th class="r" style="width:78px">费用 <span class="srt">▼</span></th>
+                <th class="r" style="width:96px">最近活跃</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="ti">修复 shellCommand 与 dist 并行退出</td>
+                <td class="sp">senNova-6.8-flash</td>
+                <td><span class="badge run"><span class="d"></span>运行中</span></td>
+                <td class="num">41</td>
+                <td class="num">1.82 M</td>
+                <td class="num">244 k</td>
+                <td class="num">1.41 M</td>
+                <td class="num">$1.94</td>
+                <td class="num" style="color:var(--dim2)">2 分钟前</td>
+              </tr>
+              <tr>
+                <td class="ti">会话流 v4.8 轮次分隔与排队反馈闭环</td>
+                <td class="sp">senNova-6.8-flash</td>
+                <td><span class="badge done"><span class="d"></span>完成</span></td>
+                <td class="num">63</td>
+                <td class="num">4.06 M</td>
+                <td class="num">512 k</td>
+                <td class="num">3.28 M</td>
+                <td class="num">$2.11</td>
+                <td class="num" style="color:var(--dim2)">1 小时前</td>
+              </tr>
+              <tr>
+                <td class="ti">调研 monaco 中文语言包加载顺序</td>
+                <td class="sp">codex-5.5</td>
+                <td><span class="badge done"><span class="d"></span>完成</span></td>
+                <td class="num">18</td>
+                <td class="num">1.24 M</td>
+                <td class="num">386 k</td>
+                <td class="num">0</td>
+                <td class="num na">—</td>
+                <td class="num" style="color:var(--dim2)">昨天 21:14</td>
+              </tr>
+              <tr>
+                <td class="ti">变更页 headInfo stretch amend 勾选修复</td>
+                <td class="sp">senNova-6.8-flash</td>
+                <td><span class="badge err"><span class="d"></span>失败</span></td>
+                <td class="num">37</td>
+                <td class="num">2.11 M</td>
+                <td class="num">96 k</td>
+                <td class="num">1.73 M</td>
+                <td class="num">$0.31</td>
+                <td class="num" style="color:var(--dim2)">昨天 17:02</td>
+              </tr>
+              <tr>
+                <td class="ti">子代理设计稿工具条右上移位</td>
+                <td class="sp">senNova-6.8-flash</td>
+                <td><span class="badge done"><span class="d"></span>完成</span></td>
+                <td class="num">22</td>
+                <td class="num">1.63 M</td>
+                <td class="num">128 k</td>
+                <td class="num">1.34 M</td>
+                <td class="num">$0.18</td>
+                <td class="num" style="color:var(--dim2)">昨天 15:47</td>
+              </tr>
+              <tr>
+                <td class="ti">RPC_SCOPES 登记缺口功能 14 个方法</td>
+                <td class="sp">codex-5.5</td>
+                <td><span class="badge err"><span class="d"></span>失败</span></td>
+                <td class="num">54</td>
+                <td class="num">3.42 M</td>
+                <td class="num">71 k</td>
+                <td class="num">0</td>
+                <td class="num na">—</td>
+                <td class="num" style="color:var(--dim2)">10-11 09:30</td>
+              </tr>
+              <tr>
+                <td class="ti">文件页 DiffView gutter 图标调整</td>
+                <td class="sp">local-qwen3:32b</td>
+                <td><span class="badge done"><span class="d"></span>完成</span></td>
+                <td class="num">9</td>
+                <td class="num">612 k</td>
+                <td class="num">84 k</td>
+                <td class="num">0</td>
+                <td class="num na">—</td>
+                <td class="num" style="color:var(--dim2)">10-10 22:08</td>
+              </tr>
+              <tr>
+                <td class="ti">命令面板导航快捷键重排</td>
+                <td class="sp">senNova-6.8-flash</td>
+                <td><span class="badge done"><span class="d"></span>完成</span></td>
+                <td class="num">14</td>
+                <td class="num">894 k</td>
+                <td class="num">72 k</td>
+                <td class="num">731 k</td>
+                <td class="num">$0.09</td>
+                <td class="num" style="color:var(--dim2)">10-10 14:21</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="more">▸ 已折叠 88 个任务 · 单页上限 100（超出需扩展 RPC 分页）</div>
+
+          <div class="foot-note">
+            点击行 → 跳「任务」页对应会话；悬停行 → 显示当任务构成条与缓存断点数。<br>
+            费用 = 档案单价（订阅卡内配置，$/Mtok）× token；<code>—</code> = 未配置单价，不显示为 0。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- 视图 3：空态（新仓库 / 未跑过 agent 任务） -->
+    <!-- ============================================================ -->
+    <section id="view-empty" style="display:none">
+      <div class="pagehead">
+        <div class="ti">
+          <h1>用量统计</h1>
+          <span class="sub">agent.usage.report</span>
+        </div>
+        <span class="grow"></span>
+        <span class="scope">
+          <svg viewBox="0 0 16 16" style="width:12px;height:12px;fill:currentColor"><path d="M1.5 3A1.5 1.5 0 0 1 3 1.5h3.4l1.5 2H13A1.5 1.5 0 0 1 14.5 5v8A1.5 1.5 0 0 1 13 14.5H3A1.5 1.5 0 0 1 1.5 13V3Z"/></svg>
+          <span class="nm">D:/Code/Gitter</span>
+          <span class="all">仅当前仓库</span>
+        </span>
+        <div class="seg">
+          <span class="sg on">7 天</span>
+          <span class="sg">30 天</span>
+          <span class="sg">90 天</span>
+          <span class="sg">全部</span>
+        </div>
+        <button class="btn">刷新</button>
+      </div>
+
+      <div class="scroll">
+        <div class="card">
+          <div class="empty">
+            <span class="ic">▤</span>
+            <div><b>该仓库还没有用量记录</b></div>
+            <div>尚未在 <code style="font-family:var(--mono);font-size:11px;background:var(--panel);padding:1px 4px;border-radius:3px">.git/gitter/agent-tasks.json</code> 留下账本</div>
+            <div style="margin-top:4px;display:flex;gap:8px;align-items:center">
+              <button class="btn solid">去发一条任务</button>
+              <button class="btn" style="font-family:var(--mono);font-size:11px">含全部项目 →</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div class="card-hd">
+            <h3>扫描范围</h3>
+            <span class="note">emptyRepos：未读到任何账本</span>
+          </div>
+          <table class="tbl">
+            <thead><tr><th>仓库</th><th style="width:150px">路径</th><th style="width:150px">账本状态</th></tr></thead>
+            <tbody>
+              <tr><td class="ti">Gitter</td><td class="sp">D:/Code/Gitter</td><td><span class="badge" style="color:var(--amber);border-color:color-mix(in srgb,var(--amber) 32%,transparent);background:color-mix(in srgb,var(--amber) 9%,transparent)"><span class="d"></span>无账本</span></td></tr>
+              <tr><td class="ti">aura-ide</td><td class="sp">D:/Code/aura-ide</td><td><span class="badge" style="color:var(--amber);border-color:color-mix(in srgb,var(--amber) 32%,transparent);background:color-mix(in srgb,var(--amber) 9%,transparent)"><span class="d"></span>无账本</span></td></tr>
+              <tr><td class="ti">zcode-harness</td><td class="sp">D:/Code/zcode-harness</td><td><span class="badge done"><span class="d"></span>214 轮</span></td></tr>
+              <tr><td class="ti">gitter-sdk</td><td class="sp">D:/Code/gitter-sdk</td><td><span class="badge done"><span class="d"></span>38 轮</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="notes" id="notes">
+  <button class="close" id="noteClose">×</button>
+  <h4>设计要点（v1）</h4>
+  <p><b class="k">1 结论先行</b> — 第一屏五个 KPI 直接给费用/输入/输出/缓存/规模，各带「较前一窗口」涨跌；表与趋势下沉，评审不必算。</p>
+  <p><b class="k">2 三阶灰构成</b> — 输入/缓存命中/输出用灰深浅而非三色，唯一彩色强调留给输出（--link）。全页不出现第二种彩色语义。</p>
+  <p><b class="k">3 — ≠ 0</b> — 未配单价的档案（codex-5.5、本地 qwen）费用显示「—」并做视觉降权，避免虚增信任。</p>
+    <p><b class="k">4 缓存断点</b> — 12 断点以 amber 标记在 KPI 副行，对应 context.stats.cacheBreaks（压缩/换模型/重启），并解释命中率为什么低。</p>
+  <p><b class="k">5 手绘图表</b> — SVG 柱 + 折线，无 echarts（该库仅存于 iframe 预览运行时）；柱组内嵌「缓存命中段」，一柱看清省了多少。</p>
+  <p><b class="k">6 双视图</b> — 概览看趋势，任务明细钻到行；行可跳任务页对应会话，替代设置页里那张纯表格。</p>
+  <div class="box">
+    <b>交互提示</b>：右上切「概览 / 任务明细 / 空态」；时间范围 7/30/90/全部；「◐ 主题」切深/浅。悬停趋势柱看当日 tooltip，点指标名切换显示。
+  </div>
+</div>
+<div class="foot">用量统计页 v1 设计稿 · 详版：docs/usage-stats-design.md · 数据源：<code>agent.usage.report</code>（现有 RPC，无后端改动）</div>
+
+<script>
+(function(){
+  /* ---------- 视图切换 / 主题 ---------- */
+  var views = { overview: document.getElementById('view-overview'),
+                tasks:    document.getElementById('view-tasks'),
+                empty:    document.getElementById('view-empty') };
+  var tbItems = document.querySelectorAll('.toolbar .tb-item[data-view]');
+  function show(v){
+    Object.keys(views).forEach(function(k){ views[k].style.display = (k===v ? 'grid' : 'none'); });
+    tbItems.forEach(function(el){ el.classList.toggle('on', el.dataset.view===v); });
+  }
+  tbItems.forEach(function(el){ el.addEventListener('click', function(){ show(el.dataset.view); }); });
+
+  var themeBtn = document.querySelector('.toolbar .tb-item[data-action="theme"]');
+  themeBtn.addEventListener('click', function(){
+    document.body.classList.toggle('light');
+    themeBtn.textContent = document.body.classList.contains('light') ? '◑ 深色' : '◐ 主题';
+  });
+
+  document.getElementById('noteClose').addEventListener('click', function(){
+    document.getElementById('notes').style.display = 'none';
+    document.querySelector('.foot').style.display = 'none';
+  });
+
+  document.querySelectorAll('.seg').forEach(function(seg){
+    seg.querySelectorAll('.sg').forEach(function(s){
+      s.addEventListener('click', function(){
+        seg.querySelectorAll('.sg').forEach(function(o){ o.classList.remove('on'); });
+        s.classList.add('on');
+      });
+    });
+  });
+
+  /* ---------- 30 天趋势数据（示意：右密左疏，含一次缓存断点） ---------- */
+  var N = 30, START = 41.2, END = 14.83;
+  // 手工塑形：早段平稳、中段爬升（v4.7/v4.8 会话流迭代）、末段高活跃
+  var shape = [1.6,2.1,1.8,2.6,3.4,4.1,3.7,2.9,2.2,3.1,
+               4.6,5.3,4.9,6.2,7.1,5.8,4.4,3.2,5.9,7.6,
+               8.4,6.1,5.2,7.9,9.3,8.0,6.4,9.8,11.2,8.6];
+  var days = [];
+  for (var i=0;i<N;i++){
+    var dt = new Date(2026, 7, 15);            // 2026-09-15 起
+    dt.setDate(dt.getDate() + i);
+    var inp = shape[i] * (1 + (i%5===2 ? 0.18 : 0));   // 输入（M）
+    var out = inp * (0.12 + (i%4===0 ? 0.05 : 0));     // 输出（M）
+    var rate = i===19 ? 0.31 : (0.72 + ((i*37)%13)*0.008); // 第 20 天缓存断点
+    var cache = inp * rate;
+    var cost = (inp*3.5 + out*14) * (1 - rate*0.72) * 0.36;
+    var turns = Math.round(inp*1000/1.76);
+    days.push({
+      label: (dt.getMonth()+1)+'/'+dt.getDate(),
+      full: dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'),
+      turns: turns, input: inp, output: out, cache: cache, cacheRate: rate, cost: cost
+    });
+  }
+
+  var W=760, H=168, PL=34, PR=38, PT=10, PB=20;
+  var svg = document.getElementById('trend');
+  var tip = document.getElementById('tip');
+  var wrap = document.getElementById('trendWrap');
+  var visible = { input:true, cache:true, output:true, cost:true };
+
+  // 各模型每日输入（合成占位；真实数据来自 agent.usage.report.byDayModel）
+  var MT_M = [
+    { name:'sensenova-6.8-flash-lite', color:'#6BABF5', tot:'9.30M',
+      vals:[1.2,1.5,0,2.9,3.0,3.6,4.55].map(function(v){return Math.round(v*1e6);}) },
+    { name:'claude-4.5-sonnet',       color:'#8250DF', tot:'6.40M',
+      vals:[0.35,0.9,0,1.1,1.05,1.35,1.6].map(function(v){return Math.round(v*1e6);}) },
+    { name:'deepseek-v3.2',           color:'#F85149', tot:'1.10M',
+      vals:[0,0,0,0,0.2,0.55,1.35].map(function(v){return Math.round(v*1e6);}) },
+  ];
+  var mtVisible = { 0:true, 1:true, 2:false };
+
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+  function fmtM(v){ return v.toFixed(1)+'M'; }
+  function fmtCost(v){ return v>=10 ? '$'+v.toFixed(2) : '$'+v.toFixed(2); }
+
+  function draw(){
+    var maxIn = Math.max.apply(null, days.map(function(d){ return d.input; })) * 1.12;
+    var maxCost = Math.max.apply(null, days.map(function(d){ return d.cost; })) * 1.25;
+    var iw = W-PL-PR, ih = H-PT-PB;
+    var slot = iw / N;
+    var barW = Math.max(3, slot*0.52);
+    var sub = Math.max(1, barW/3.4);
+
+    var p = '';
+    // y 网格（左轴 token）
+    for (var g=0; g<=3; g++){
+      var y = PT + ih - (ih*g/3);
+      p += '<line class="gl" x1="'+PL+'" y1="'+y+'" x2="'+(W-PR)+'" y2="'+y+'"/>';
+      var tv = (maxIn*g/3);
+      p += '<text class="ax ax-y" x="'+(PL-5)+'" y="'+(y+3)+'" text-anchor="end">'+(tv>=1?tv.toFixed(1):'0')+'M</text>';
+      // 右轴费用
+      p += '<text class="ax" x="'+(W-PR+5)+'" y="'+(y+3)+'" text-anchor="start" fill="var(--amber)" style="opacity:.8">$'+(maxCost*g/3).toFixed(0)+'</text>';
+    }
+    p += '<line class="baseline" x1="'+PL+'" y1="'+(PT+ih)+'" x2="'+(W-PR)+'" y2="'+(PT+ih)+'"/>';
+
+    // 平滑折线（Catmull-Rom → cubic Bezier），返回 path d
+    // 单调保形（Fritsch–Carlson）：朴素 Catmull-Rom 在两高值之间夹 0 时会扎破 0 轴
+    function smooth(xs, ys){
+      var m = xs.length, i;
+      if (!m) return '';
+      if (m === 1) return 'M'+xs[0].toFixed(1)+' '+ys[0].toFixed(1);
+      if (m === 2) return 'M'+xs[0].toFixed(1)+' '+ys[0].toFixed(1)+' L'+xs[1].toFixed(1)+' '+ys[1].toFixed(1);
+      var dx = [], sl = [];
+      for (i=1;i<m;i++) dx[i-1] = xs[i]-xs[i-1];
+      for (i=1;i<m-1;i++) sl[i] = (ys[i+1]-ys[i-1])/(dx[i]+dx[i-1]);
+      sl[0] = (ys[1]-ys[0])/(dx[0]||1);
+      sl[m-1] = (ys[m-1]-ys[m-2])/(dx[m-2]||1);
+      for (i=0;i<m-1;i++){
+        if (ys[i] === ys[i+1]) { sl[i]=0; sl[i+1]=0; continue; }
+        var a = sl[i]/sl[i+1];
+        if (a <= 0) { sl[i]=0; sl[i+1]=0; continue; }
+        var dd = Math.hypot(a,1);
+        if (dd > 3) { var s3 = 3*sl[i+1]/a; sl[i]=s3; sl[i+1]=s3; }
+      }
+      var d = 'M'+xs[0].toFixed(1)+' '+ys[0].toFixed(1);
+      for (i=0;i<m-1;i++){
+        var k = (dx[i]||1)/3;
+        d += ' C'+(xs[i]+k).toFixed(1)+' '+(ys[i]+sl[i]*k).toFixed(1)+' '
+                +(xs[i+1]-k).toFixed(1)+' '+(ys[i+1]-sl[i+1]*k).toFixed(1)+' '
+                +xs[i+1].toFixed(1)+' '+ys[i+1].toFixed(1);
+      }
+      return d;
+    }
+    var X = days.map(function(d,i){ return PL + slot*i + slot/2; });
+    var Yt = function(v){ return PT+ih - (v/maxIn)*ih; };
+    var Yc = function(v){ return PT+ih - (v/maxCost)*ih; };
+
+    // 关键节点：各序列的峰值日 + 首末日
+    function keyIdx(vals){
+      var mx = Math.max.apply(null, vals), s = {};
+      s[0] = s[N-1] = 1;
+      vals.forEach(function(v,i){ if (v===mx) s[i] = 1; });
+      return s;
+    }
+    var keySet = {};
+    [['input',days.map(function(d){return d.input}),'#9AA6B2'],
+     ['cache',days.map(function(d){return d.cache}),'#4C5866'],
+     ['output',days.map(function(d){return d.output}),'#6BABF5']].forEach(function(s){
+      if (!visible[s[0]]) return;
+      Object.keys(keyIdx(s[1])).forEach(function(i){ keySet[i] = 1; });
+    });
+    if (visible.cost){
+      Object.keys(keyIdx(days.map(function(d){return d.cost||0}))).forEach(function(i){ keySet[i] = 1; });
+    }
+
+    // 曲线（面积在下，线在上）
+    if (visible.input){
+      var dIn = smooth(X, days.map(function(d){ return Yt(d.input); }));
+      p += '<path class="ln-fill" d="'+dIn+' L'+X[N-1].toFixed(1)+' '+(PT+ih)+' L'+X[0].toFixed(1)+' '+(PT+ih)+' Z"/>';
+      p += '<path class="ln ln-in" d="'+dIn+'"/>';
+    }
+    if (visible.cache) p += '<path class="ln ln-cache" d="'+smooth(X, days.map(function(d){return Yt(d.cache);}))+'"/>';
+    if (visible.output) p += '<path class="ln ln-out" d="'+smooth(X, days.map(function(d){return Yt(d.output);}))+'"/>';
+    if (visible.cost) p += '<path class="ln ln-cost" d="'+smooth(X, days.map(function(d){return Yc(d.cost||0);}))+'"/>';
+
+    // 关键节点圆点
+    [['input',days.map(function(d){return d.input}),'#9AA6B2'],
+     ['cache',days.map(function(d){return d.cache}),'#6E7C8C'],
+     ['output',days.map(function(d){return d.output}),'#6BABF5']].forEach(function(s){
+      if (!visible[s[0]]) return;
+      Object.keys(keySet).forEach(function(i){
+        p += '<circle class="node" data-i="'+i+'" cx="'+X[i].toFixed(1)+'" cy="'+Yt(s[1][i]).toFixed(1)+'" r="3.2" fill="'+s[2]+'"/>';
+      });
+    });
+    if (visible.cost){
+      var cc = days.map(function(d){return d.cost||0});
+      Object.keys(keySet).forEach(function(i){
+        p += '<circle class="node" data-i="'+i+'" cx="'+X[i].toFixed(1)+'" cy="'+Yc(cc[i]).toFixed(1)+'" r="3.2" fill="#E3B341"/>';
+      });
+    }
+
+    // 命中区 + x 轴标签
+    for (var i=0;i<N;i++){
+      var d = days[i];
+      var seg = 'data-i="'+i+'"';
+      p += '<rect class="bar-hit" '+seg+' x="'+(PL+slot*i).toFixed(1)+'" y="'+PT+'" width="'+slot.toFixed(1)+'" height="'+ih+'"/>';
+      if (i%5===0 || i===N-1)
+        p += '<text class="ax ax-x" x="'+X[i].toFixed(1)+'" y="'+(H-5)+'">'+d.label+'</text>';
+    }
+    svg.innerHTML = p;
+    bindTips();
+  }
+
+  function bindTips(){
+    var wrapRect = wrap.getBoundingClientRect();
+    svg.querySelectorAll('[data-i]').forEach(function(el){
+      el.addEventListener('mouseenter', function(){
+        var d = days[+el.dataset.i];
+        tip.innerHTML =
+          '<div class="tp-h">'+d.full+'</div>'+
+          '<div class="tp-r"><span>轮次</span><b>'+d.turns.toLocaleString()+'</b></div>'+
+          '<div class="tp-r"><span>输入</span><b>'+fmtM(d.input)+'</b></div>'+
+          '<div class="tp-r"><span>输出</span><b>'+fmtM(d.output)+'</b></div>'+
+          '<div class="tp-r"><span>缓存命中</span><b>'+fmtM(d.cache)+' · '+Math.round(d.cacheRate*100)+'%</b></div>'+
+          '<div class="tp-r" style="margin-top:3px;padding-top:3px;border-top:1px solid var(--border)"><span>费用</span><b style="color:var(--amber)">'+fmtCost(d.cost)+'</b></div>';
+        tip.style.display = 'block';
+        var bb = el.getBoundingClientRect();
+        var tx = bb.left + bb.width/2 - wrapRect.left - 75;
+        tip.style.left = Math.max(0, Math.min(wrap.clientWidth-158, tx)) + 'px';
+        tip.style.top = '2px';
+      });
+      el.addEventListener('mouseleave', function(){ tip.style.display = 'none'; });
+    });
+  }
+
+  document.querySelectorAll('.trend-metric .m').forEach(function(m){
+    m.addEventListener('click', function(){
+      var k = m.dataset.m;
+      visible[k] = !visible[k];
+      m.classList.toggle('on', visible[k]);
+      m.classList.toggle('off', !visible[k]);
+      draw();
+    });
+  });
+
+  /* ---------- 各模型每日用量（独立图） ---------- */
+  (function(){
+    var svg = document.getElementById('mt'), tip = document.getElementById('mtTip');
+    var wrap = document.getElementById('mtWrap');
+    var W=1400, H=156, PL=34, PR=38, PT=10, PB=20;
+    var iw=W-PL-PR, ih=H-PT-PB, N=days.length, slot=iw/N;
+    var X = days.map(function(d,i){ return PL + slot*i + slot/2; });
+
+    function drawMT(){
+      var maxIn = 1;
+      MT_M.forEach(function(s){ s.vals.forEach(function(v){ if (v>maxIn) maxIn=v; }); });
+      maxIn *= 1.12;
+      var Yt = function(v){ return PT+ih - (v/maxIn)*ih; };
+      var p='';
+      for (var g=0;g<=3;g++){
+        var y = PT+ih - (ih*g/3);
+        p += '<line class="gl" x1="'+PL+'" y1="'+y+'" x2="'+(W-PR)+'" y2="'+y+'"/>';
+        p += '<text class="ax ax-y" x="'+(PL-5)+'" y="'+(y+3)+'" text-anchor="end">'+((maxIn*g/3)>=1e6?((maxIn*g/3)/1e6).toFixed(1)+'M':'0')+'</text>';
+      }
+      p += '<line class="baseline" x1="'+PL+'" y1="'+(PT+ih)+'" x2="'+(W-PR)+'" y2="'+(PT+ih)+'"/>';
+      for (var i=0;i<N;i++){
+        if (i%5===0 || i===N-1)
+          p += '<text class="ax ax-x" x="'+X[i]+'" y="'+(H-5)+'">'+days[i].label+'</text>';
+      }
+      MT_M.forEach(function(s,si){
+        if (!mtVisible[si]) return;
+        p += '<path class="ln ln-m" style="stroke:'+s.color+'" d="'+smooth(X, s.vals.map(Yt))+'"/>';
+        var mx = Math.max.apply(null, s.vals), key={};
+        key[0]=key[N-1]=1;
+        s.vals.forEach(function(v,i){ if (v===mx && v>0) key[i]=1; });
+        Object.keys(key).forEach(function(i){
+          var v = s.vals[+i];
+          if (!v) return;
+          p += '<circle class="node" data-i="'+i+'" cx="'+X[+i]+'" cy="'+Yt(v)+'" r="3.2" fill="'+s.color+'"/>';
+        });
+      });
+      for (var j=0;j<N;j++)
+        p += '<rect class="bar-hit" data-i="'+j+'" x="'+(PL+slot*j)+'" y="'+PT+'" width="'+slot+'" height="'+ih+'"/>';
+      svg.innerHTML = p;
+
+      svg.querySelectorAll('[data-i]').forEach(function(el){
+        el.addEventListener('mouseenter', function(){
+          var d = days[+el.dataset.i], idx = +el.dataset.i;
+          var rows = MT_M.map(function(s){ return { s:s, v:s.vals[idx], o:Math.round(s.vals[idx]*0.12) }; })
+                          .filter(function(r){ return r.v>0 || r.o>0; })
+                          .sort(function(a,b){ return b.v-a.v; });
+          var html = '<div class="tp-h">'+d.label+'</div>';
+          rows.forEach(function(r){
+            html += '<div class="tp-r"><span><span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:'+r.s.color+';margin-right:5px"></span>'+r.s.name+'</span><b>'+fmtM(r.v)+' · '+fmtM(r.o)+'</b></div>';
+          });
+          tip.innerHTML = html;
+          tip.style.display='block';
+          var bb = el.getBoundingClientRect();
+          var tx = bb.left + bb.width/2 - wrap.getBoundingClientRect().left - 90;
+          tip.style.left = Math.max(0, Math.min(wrap.clientWidth-188, tx)) + 'px';
+          tip.style.top = '2px';
+        });
+        el.addEventListener('mouseleave', function(){ tip.style.display='none'; });
+      });
+    }
+    drawMT();
+
+    document.querySelectorAll('.trend-model .m').forEach(function(m){
+      m.addEventListener('click', function(){
+        var k = +m.dataset.mm;
+        mtVisible[k] = !mtVisible[k];
+        m.classList.toggle('on', mtVisible[k]);
+        m.classList.toggle('off', !mtVisible[k]);
+        drawMT();
+      });
+    });
+  })();
+
+  /* ---------- 模型分布 ---------- */
+  var models = [
+    { name:'senNova-6.8-flash', full:'sensenova-6.8-flash-lite', input:33.1, cache:26.4, out:4.7, cost:12.42, turns:1847 },
+    { name:'codex-5.5',         full:'com.openai/codex-5.5',      input:4.9,  cache:0,    out:0.62, cost:null,  turns:281 },
+    { name:'local-qwen3:32b',   full:'ollama/qwen3:32b',          input:2.4,  cache:0,    out:0.38, cost:null,  turns:124 },
+    { name:'senNova-6.8',       full:'sensenova-6.8-flash',       input:0.8,  cache:1.9,  out:0.1,  cost:0.11,  turns:66 }
+  ];
+  var totIn = models.reduce(function(a,m){ return a+m.input; },0);
+  document.getElementById('modelList').innerHTML = models.map(function(m,i){
+    var pct = m.input/totIn*100;
+    var fill = m.cache/m.input*100;
+    return '<div class="mrow" title="'+esc(m.full)+'">'+
+      '<span class="rk">'+(i+1)+'</span>'+
+      '<span class="body">'+
+        '<span class="nm"><span style="color:var(--text)">'+m.name+'</span><span class="full">'+esc(m.full)+'</span></span>'+
+        '<span class="bar"><i style="width:'+pct.toFixed(1)+'%"></i>'+(fill>0?'<i class="on" style="width:'+fill.toFixed(1)+'%;opacity:.9"></i>':'')+'</span>'+
+      '</span>'+
+      '<span class="num">'+
+        '<span class="v">'+m.input.toFixed(1)+'M</span>'+
+        '<span class="p">'+pct.toFixed(1)+'% · '+(m.cost===null?'<span class="na">费用 —</span>':'$'+m.cost.toFixed(2))+'</span>'+
+      '</span>'+
+    '</div>';
+  }).join('');
+
+  /* ---------- 表格行 hover 提示（示意） ---------- */
+  var tbl = document.getElementById('taskTbl');
+  if (tbl) tbl.querySelectorAll('tbody tr').forEach(function(tr){
+    tr.addEventListener('click', function(){ show('overview'); });
+  });
+
+  draw();
+})();
+</script>
+</body>
+</html>

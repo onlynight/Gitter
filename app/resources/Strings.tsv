@@ -457,6 +457,7 @@ Cmd_GotoTerminal	Go to Terminal	转到终端
 Cmd_GotoFiles	Go to Files	转到文件
 Cmd_GotoOffice	Go to Office	转到 Office 文档
 Cmd_GotoSettings	Go to Settings	转到设置
+Cmd_GotoUsage	Go to Usage	转到用量
 Cmd_RefreshPage	Refresh page	刷新当前页
 Cmd_NewWindow	New window	新窗口
 Cmd_Commit	Commit…	提交…
@@ -488,6 +489,7 @@ Nav_Tasks	Tasks	任务
 Nav_Terminal	Terminal	终端
 Nav_Files	Files	文件
 Nav_Settings	Settings	设置
+Nav_Usage	Usage	用量
 Nav_Dashboard	Dashboard	仪表盘
 Common_Branch	Branch	分支
 Select_SearchPlaceholder	Search (contains)	搜索（关键字包含）
@@ -1266,3 +1268,93 @@ Log_CherryPicked	Cherry-picked {0}	已拣选 {0}
 # ==== Branches（命令面板 branches.checkout 快速检出）====
 Branches_CheckoutTitle	Checkout branch	检出分支
 Branches_CheckoutPick	Branch	分支
+
+# ==== Usage（用量统计页）====
+Usage_Title	Usage	用量统计
+Usage_View_Overview	Overview	概览
+Usage_View_Tasks	Tasks	任务明细
+Usage_Scope_Current	this repo	当前仓库
+Usage_Scope_All	all projects	全部项目
+Usage_Scope_Hint	Toggle between current repo and all registered projects	切换当前仓库与全部已注册项目
+Usage_Refresh	Refresh	刷新
+Usage_Range_7	7d	7 天
+Usage_Range_30	30d	30 天
+Usage_Range_90	90d	90 天
+Usage_Range_All	All	全部
+Usage_Loading	Loading…	加载中…
+Usage_JustNow	just now	刚刚
+Usage_MinAgo	{0}m ago	{0} 分钟前
+Usage_HourAgo	{0}h ago	{0} 小时前
+Usage_Yesterday	yesterday {0}	昨天 {0}
+Usage_NoPrice	no model priced yet	尚无档案配置单价
+Usage_Meta_Prev	prev: {0}	较上期 {0}
+Usage_Empty_Ic	▤	▤
+Usage_Empty_Title	No usage recorded for this repo	该仓库还没有用量记录
+Usage_Empty_Sub	The ledger .git/gitter/agent-tasks.json has no entries yet	账本 .git/gitter/agent-tasks.json 尚无条目
+Usage_Empty_Cta	Start a task	去发一条任务
+Usage_Empty_All	Show all projects →	含全部项目 →
+Usage_Empty_Ledger	no ledger	无账本
+Usage_Has_Ledger	has ledger	有账本
+Usage_Scan_Title	Scan scope	扫描范围
+Usage_Scan_Note	repos scanned · ledger state	仓库 · 账本状态
+Usage_Scan_Repo	Repository	仓库
+Usage_Scan_Status	Ledger	账本
+Usage_Kpi_Cost	Est. cost	估算费用
+Usage_Kpi_Input	Input tokens	输入 Token
+Usage_Kpi_Output	Output tokens	输出 Token
+Usage_Kpi_Cache	Cache reads	缓存命中
+Usage_Kpi_Scale	Tasks / models	任务 / 模型
+Usage_Kpi_Turns	turns	轮
+Usage_Kpi_PerTurn	per turn	均 / 轮
+Usage_Kpi_HitRate	hit rate	命中率
+Usage_Kpi_Breaks	{0} breaks	{0} 断点
+Usage_Kpi_Repos	{0} repo(s)	{0} 个仓库
+Usage_Kpi_Empty	{0} empty	{0} 个空账本
+Usage_Kpi_NoEmpty	all scanned	全部有账本
+Usage_Trend_Title	Daily trend	每日趋势
+Usage_Trend_Note	input / cache reads / output · cost on right axis	输入 / 缓存命中 / 输出 · 费用折线右轴
+Usage_Trend_ByModel	by model	按模型
+Usage_Trend_ByModelHint	{0} input in this range	窗口内输入 {0}
+Usage_Trend_Model_Title	Daily input by model	各模型每日用量
+Usage_Trend_Model_Note	one line per model · input tokens	每线一个模型 · 输入 token
+Usage_Trend_Model_Limit	top {0} by input	按输入量取前 {0} 个
+Usage_Trend_Total	{0}d · {1}	{0} 天 · {1}
+Usage_M_Input	input	输入
+Usage_M_Cache	cache reads	缓存命中
+Usage_M_Output	output	输出
+Usage_M_Cost	cost	费用
+Usage_Tip_Turns	turns	轮次
+Usage_Tip_Input	input	输入
+Usage_Tip_Output	output	输出
+Usage_Tip_Cache	cache	缓存
+Usage_Tip_Cost	cost	费用
+Usage_Tip_Model_Title	models	模型用量
+Usage_Tip_NoUsage	no usage on this day	当日无用量
+Usage_Tip_Model_Empty	no usage recorded	当日无记录
+Usage_NoDayRows	No daily rows in this range	该范围内没有按天数据
+Usage_Model_Title	By model	模型分布
+Usage_Model_Scope	all-time · by input tokens	全量 · 按输入 token
+Usage_NoModelRows	No model rows	没有模型数据
+Usage_NoCost	unpriced	费用 —
+Usage_Foot_Model	Bar length = share of input tokens; bright fill = cache-read portion. «—» means no unit price configured, so it is not counted in the estimate.	条长 = 输入 token 占比；亮色填充 = 缓存命中部分。「—」表示未配置单价，不计入估算。
+Usage_Foot_Cost	Cost = profile unit price (configured per subscription card, $/Mtok) × tokens. Cache reads are not billed. Entries with no configured price show «—» rather than 0.	费用 = 档案单价（订阅卡内配置，$/Mtok）× token；缓存命中不计费。未配置单价的条目显示「—」而非 0。
+Usage_TaskCount	{0} tasks	{0} 个任务
+Usage_TotalCost	total {0}	合计 {0}
+Usage_MostExpensive	most expensive {0}	最贵 {0}
+Usage_AvgTurns	avg {0} turns	平均 {0} 轮
+Usage_FailedCost	{0} failed task(s) still billed {1}	{0} 个失败任务仍计费 {1}
+Usage_Filter_All	All	全部
+Usage_Filter_Priced	Priced	已计费
+Usage_Filter_Failed	Failed	失败
+Usage_NoTaskRows	No matching tasks	没有匹配的任务
+Usage_MoreCollapsed	{0} more tasks collapsed — single-page limit 100 (pagination needs a RPC extension)	已折叠 {0} 个任务 · 单页上限 100（分页需扩展 RPC）
+Usage_Foot_Task	Click a row to open the task page and focus the task. «—» = no unit price configured; never 0.	点击行打开任务页并聚焦该任务。「—」= 未配置单价，绝不显示为 0。
+Usage-Col_Task	Task	任务
+Usage-Col_Model	Model	模型
+Usage-Col_State	State	状态
+Usage-Col_Turns	Turns	轮次
+Usage-Col_Input	Input	输入
+Usage-Col_Output	Output	输出
+Usage-Col_Cache	Cache	缓存命中
+Usage-Col_Cost	Cost	费用
+Usage-Col_When	Last active	最近活跃

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "id": "gitui.page.usage",
+  "name": "内置页面：用量",
+  "version": "0.1.0",
+  "description": "Gitter 内置页面（宿主缺省提供者，不可卸载、可被同槽位插件替换）——Agent 用量统计（KPI/每日趋势/模型分布/任务明细，数据源 agent.usage.report）",
+  "contributes": {
+    "pages": [
+      {
+        "id": "usage",
+        "slot": "usage",
+        "title": "%Nav_Usage%",
+        "entry": "page.js",
+        "icon": null,
+        "svg": "M2 13.25h12v1.25H2v-1.25ZM3.25 8.5H5v3.25H3.25V8.5Zm4-4H9v7.25H7.25V4.5Zm4 2H13v5.25h-1.75V6.5Z",
+        "lazy": true,
+        "permissions": [
+          "open",
+          "git.read",
+          "agent.config"
+        ]
+      }
+    ]
+  }
+}

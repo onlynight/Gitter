@@ -85,8 +85,20 @@ export interface EditorPaneProps {
   onOpenDropped?: (absPath: string) => void;
   /** 全局搜索结果定位（path+line；ts 防重） */
   reveal?: { path: string; line: number; ts: number } | null;
+  /** 会话恢复初始定位：path → 行/列（FilesPage 按锚点文本就近解析后传入；仅首开生效） */
+  initialReveals?: Record<string, { line: number; col: number; ts: number }>;
   /** 外部变更信号（fs.changed 防抖后递增）：批量校验打开标签 mtime */
   fsTick?: number;
+  /** 位置回报（path + 行/列；FilesPage 据此持久化光标位置） */
+  onPositionReport?: (path: string, line: number, col: number) => void;
+  /** 首开查看模式（md/html 等有查看器的文件；仅首开生效）：edit = Monaco 文本，preview = 预览画布 */
+  initialModes?: Map<string, "edit" | "preview">;
+  /** 查看模式切换回报（切文本/切预览；FilesPage 据此持久化下次重开时恢复） */
+  onModeChange?: (path: string, mode: "edit" | "preview") => void;
+  /** 首开预览滚动位置：path → scrollTop（预览 iframe/pre 挂载后消费；仅首开生效） */
+  initialPreviewScrolls?: Map<string, number>;
+  /** 预览态滚动位置回报（滚动停止时上报；FilesPage 据此持久化下次重开时恢复） */
+  onPreviewScroll?: (path: string, top: number) => void;
 }
 
 /** 文件树侧文件系统操作（重命名/删除/剪切移动）发生后，FilesPage 经 ref 调用同步编辑器 */
@@ -114,6 +126,14 @@ interface ProblemRow {
   severity: number;
   message: string;
 }
+
+/** 仓库相对路径 → Monaco model 键（与 createTextModel 挂的 file URI 同形，路径大小写敏感）。 */
+function uriFor(path: string): string {
+  return MonacoNs.Uri.file(path.replace(/\\/g, "/")).toString();
+}
+
+/** URI 键 → model.id 映射：viewStates/positions 按 id 存，持久化按 URI 存。 */
+const uriToModelId = new Map<string, string>();
 
 export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function EditorPane(props, ref) {
   const [editors, setEditors] = useState<Map<string, EditorState>>(new Map());
@@ -148,6 +168,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
   const [confirmReopen, setConfirmReopen] = useState<{ path: string; enc: Encoding } | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
   const [headDiff, setHeadDiff] = useState<{ path: string; diff: DiffDTO } | null>(null);
+
+  // 首开查看模式已应用集合：防止首开 effect 反复触发（每次渲染初值都为 "preview" 会误触发）
+  const initialModesAppliedRef = useRef<Set<string>>(new Set());
 
   // 问题面板 + marker 变化版本号（onAnyMarkers 全局订阅触发重算）
   const [problemsOpen, setProblemsOpen] = useState(false);
@@ -236,6 +259,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
       // 创建 Monaco model（keep-alive；切标签换 model，不重建编辑器）
       const model = createTextModel(path, r.content);
       models.current.set(path, model);
+      // 同 URI 复用（keep-alive 二次打开）：URI 键 → 内部 id 键（视图态/位置按 id 存）
+      uriToModelId.set(uriFor(path), model.id);
       // 缩进按内容探测（页脚可改，仅影响本文件的编辑行为）
       const indent = detectIndent(r.content);
       model.updateOptions(indent);
@@ -302,6 +327,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
     documentClosed(path);
     disposeTextModel(models.current.get(path) ?? null);
     models.current.delete(path);
+    uriToModelId.delete(uriFor(path));
     await loadFile(path, encoding);
   }, [loadFile]);
 
@@ -313,14 +339,19 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
       next.add(path);
       textModeRef.current = next;
       setTextMode(next);
+      props.onModeChange?.(path, "edit");
     }
     void loadFile(path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadFile]);
   const exitTextMode = useCallback((path: string) => {
     const next = new Set(textModeRef.current);
-    next.delete(path);
-    textModeRef.current = next;
-    setTextMode(next);
+    if (next.delete(path)) {
+      textModeRef.current = next;
+      setTextMode(next);
+      props.onModeChange?.(path, "preview");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 保存文件（带 mtime 冲突检测；按读取时的编码 + BOM 写回）
@@ -408,9 +439,11 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
     documentClosed(path);
     disposeTextModel(models.current.get(path) ?? null);
     models.current.delete(path);
-    // 文本模式覆盖随标签消亡：重开该文件恢复默认（查看器/预览优先）
+    uriToModelId.delete(uriFor(path));
+    // 文本模式覆盖随标签消亡：重开该文件恢复默认（查看器/预览优先）；同时清首开已应用标记，
+    // 以便该文件被重开时能重新按持久化的 mode 恢复
     const next = new Set(textModeRef.current);
-    if (next.delete(path)) { textModeRef.current = next; setTextMode(next); }
+    if (next.delete(path)) { textModeRef.current = next; setTextMode(next); initialModesAppliedRef.current.delete(path); }
     props.onCloseTab(path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -435,6 +468,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
       const nModel = createTextModel(np, value);
       models.current.set(np, nModel);
       models.current.delete(p);
+      uriToModelId.delete(uriFor(p));
+      uriToModelId.set(uriFor(np), nModel.id);
       documentClosed(p);
       documentOpened(np, languageForPath(np), value, nModel);
       const timer = saveTimers.current.get(p);
@@ -471,6 +506,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
       documentClosed(p);
       disposeTextModel(models.current.get(p) ?? null);
       models.current.delete(p);
+      uriToModelId.delete(uriFor(p));
       setEditors((prev) => {
         if (!prev.has(p)) return prev;
         const next = new Map(prev);
@@ -545,6 +581,33 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
     return items;
   }, [props.tabs, props.onTogglePin, props.onStageFile, requestClose, batchClose, isTextual, openHeadDiff, t]);
 
+  // 首开查看模式恢复（md/html 等有查看器的文件）：编辑态 = 加入 textMode 覆盖查看器；
+  // 预览态 = 移除覆盖（回落到默认查看器）。仅首开生效一次（initialModesAppliedRef 防重复）。
+  // 必须在下方「切标签加载」effect 之前——loadFile 守卫看的是 textModeRef，顺序错了会漏加载 model
+  useEffect(() => {
+    const modes = props.initialModes;
+    if (!modes) return;
+    let changed = false;
+    const next = new Set(textModeRef.current);
+    for (const [path, mode] of modes) {
+      if (initialModesAppliedRef.current.has(path)) continue;
+      initialModesAppliedRef.current.add(path);
+      // 只有 viewer 接管的路径才有 edit/preview 之分；普通代码文件忽略
+      if (!viewerForPath(path)) continue;
+      const wantEdit = mode === "edit";
+      const hasEdit = next.has(path);
+      if (wantEdit !== hasEdit) {
+        if (wantEdit) next.add(path); else next.delete(path);
+        changed = true;
+      }
+    }
+    if (changed) {
+      textModeRef.current = next;
+      setTextMode(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.initialModes]);
+
   // 切换标签时确保 model 已加载
   useEffect(() => {
     if (props.activeTab) void loadFile(props.activeTab);
@@ -613,6 +676,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
 
   // 组件卸载时清理所有 model 与定时器
   useEffect(() => () => {
+    for (const p of [...models.current.keys()]) uriToModelId.delete(uriFor(p));
     for (const m of models.current.values()) m.dispose();
     models.current.clear();
     for (const timer of saveTimers.current.values()) window.clearTimeout(timer);
@@ -877,6 +941,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
               key={props.activeTab}
               path={props.activeTab}
               onEditText={requestTextMode}
+              initialScrollTop={props.initialPreviewScrolls?.get(props.activeTab)}
+              onScrollTop={(top) => props.onPreviewScroll?.(props.activeTab!, top)}
             />
           ) : activeEditor && activeEditor.binary ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 20, textAlign: "center", opacity: 0.7 }}>{t("Editor_ErrorBinary")}</div>
@@ -888,21 +954,29 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
                 // 新文件加载中（尚无 model）：继续显示上一个已就绪的 model（只读），避免卸载闪烁
                 const stale = !activeModel && !!(lastReady.current
                   && models.current.get(lastReady.current.path) === lastReady.current.model);
-                const shown = activeModel ?? (stale ? lastReady.current!.model : null);
-                return shown ? (
-                  <FilesMonacoEditor
-                    ref={mainEditorRef}
-                    model={shown}
-                    readOnly={stale}
-                    ownsKeys={!stale}
-                    gitBase={stale ? null : activeEditor?.gitBase ?? null}
-                    showDiff={props.showDiff}
-                    onDiffProgress={(index, total) => setDiffInfo({ path: props.activeTab ?? "", index, total })}
-                    revealLine={revealLine}
-                    onChange={(value) => { if (!stale) handleContentChange(activeEditor!.path, value); }}
-                    onPosition={setPosition}
-                    onMarkers={setMarkers}
-                  />
+        const shown = activeModel ?? (stale ? lastReady.current!.model : null);
+        // 只向 Monaco 下发激活标签自己的定位请求：stale 显示的是上一个文件的 model，
+        // 误下发会把上一个文件的光标行写进当前文件的会话
+        const ownReveal = shown && !stale ? props.initialReveals?.[props.activeTab ?? ""] ?? null : null;
+        return shown ? (
+          <FilesMonacoEditor
+            ref={mainEditorRef}
+            model={shown}
+            readOnly={stale}
+            ownsKeys={!stale}
+            gitBase={stale ? null : activeEditor?.gitBase ?? null}
+            showDiff={props.showDiff}
+            onDiffProgress={(index, total) => setDiffInfo({ path: props.activeTab ?? "", index, total })}
+            revealLine={revealLine}
+            initialReveal={ownReveal}
+            onChange={(value) => { if (!stale) handleContentChange(activeEditor!.path, value); }}
+            onPosition={(p) => {
+              setPosition(p);
+              // stale 显示期（文件加载中的保底画面）不回报——那行属于上一个文件
+              if (!stale && props.activeTab) props.onPositionReport?.(props.activeTab, p.line, p.col);
+            }}
+            onMarkers={setMarkers}
+          />
                 ) : activeEditor ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.7 }}>Loading…</div>
                 ) : null;

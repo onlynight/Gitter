@@ -2706,13 +2706,24 @@
   function viewStateOf(model) {
     return viewStates.get(model.id);
   }
+  const positions = /* @__PURE__ */ new Map();
+  function savePosition(model, line, col) {
+    try {
+      const text = model.getLineContent(Math.max(1, line)) ?? "";
+      positions.set(model.id, { line, col, text });
+    } catch {
+    }
+  }
   function createEditor(host, overrides) {
     return editor.create(host, { ...EDITOR_OPTIONS, ...overrides });
   }
   function disposeTextModel(model) {
     var _a2;
     const m = model;
-    if (m && typeof m.id === "string") viewStates.delete(m.id);
+    if (m && typeof m.id === "string") {
+      viewStates.delete(m.id);
+      positions.delete(m.id);
+    }
     (_a2 = model == null ? void 0 : model.dispose) == null ? void 0 : _a2.call(model);
   }
   function onAnyMarkers(cb) {
@@ -2914,7 +2925,7 @@
   }
   const FilesMonacoEditor = React$1.forwardRef(
     function FilesMonacoEditor2(props, ref) {
-      var _a2;
+      var _a2, _b2;
       const hostRef = React$1.useRef(null);
       const edRef = React$1.useRef(null);
       const fontSizeRef = React$1.useRef(loadFontSize());
@@ -2922,7 +2933,7 @@
       const cbRef = React$1.useRef(props);
       cbRef.current = props;
       const reportDiff = () => {
-        var _a3, _b2, _c2;
+        var _a3, _b3, _c2;
         const ed = edRef.current;
         const cur = ((_a3 = ed == null ? void 0 : ed.getPosition()) == null ? void 0 : _a3.lineNumber) ?? 1;
         const anchors = anchorsRef.current;
@@ -2931,7 +2942,7 @@
           if (l > cur) break;
           index++;
         }
-        (_c2 = (_b2 = cbRef.current).onDiffProgress) == null ? void 0 : _c2.call(_b2, index, anchors.length);
+        (_c2 = (_b3 = cbRef.current).onDiffProgress) == null ? void 0 : _c2.call(_b3, index, anchors.length);
       };
       const applyGutter = () => {
         const ed = edRef.current;
@@ -2952,6 +2963,8 @@
           if (m) {
             const vs = ed.saveViewState();
             if (vs) saveViewState(m, vs);
+            const p = ed.getPosition();
+            if (p) savePosition(m, p.lineNumber, p.column);
           }
           ed.dispose();
           edRef.current = null;
@@ -3007,6 +3020,22 @@
         ed.setPosition({ lineNumber: r.line, column: 1 });
         ed.focus();
       }, [(_a2 = props.revealLine) == null ? void 0 : _a2.ts, props.model]);
+      React$1.useEffect(() => {
+        var _a3, _b3;
+        const ed = edRef.current;
+        const r = props.initialReveal;
+        if (!ed || !r || !props.model) return;
+        const model = props.model;
+        const line = Math.max(1, Math.min(r.line, model.getLineCount() || r.line));
+        const col = Math.max(1, Math.min(r.col, model.getLineMaxColumn(line) || r.col));
+        ed.revealLineInCenter(line);
+        ed.setPosition({ lineNumber: line, column: col });
+        const pos = ed.getPosition();
+        if (pos) {
+          (_b3 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b3.call(_a3, { line: pos.lineNumber, col: pos.column });
+          savePosition(model, pos.lineNumber, pos.column);
+        }
+      }, [(_b2 = props.initialReveal) == null ? void 0 : _b2.ts, props.model]);
       React$1.useImperativeHandle(ref, () => ({
         runAction: (actionId) => {
           const ed = edRef.current;
@@ -3032,28 +3061,40 @@
         fontSize: () => fontSizeRef.current
       }), []);
       React$1.useEffect(() => {
-        var _a3, _b2, _c2, _d;
+        var _a3, _b3, _c2, _d;
         const ed = edRef.current;
         if (!ed) return;
         const prev = ed.getModel();
         if (prev) {
           const vs = ed.saveViewState();
           if (vs) saveViewState(prev, vs);
+          const p = ed.getPosition();
+          if (p) savePosition(prev, p.lineNumber, p.column);
         }
         const model = props.model;
         ed.setModel(model);
         if (model) {
           const vs = viewStateOf(model);
-          if (vs) ed.restoreViewState(vs);
+          if (vs) {
+            ed.restoreViewState(vs);
+            try {
+              const after = ed.saveViewState();
+              if (after) saveViewState(model, after);
+            } catch {
+            }
+          }
           ed.focus();
         }
         const pos = ed.getPosition();
-        if (pos) (_b2 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b2.call(_a3, { line: pos.lineNumber, col: pos.column });
+        if (pos) {
+          (_b3 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b3.call(_a3, { line: pos.lineNumber, col: pos.column });
+          if (model) savePosition(model, pos.lineNumber, pos.column);
+        }
         (_d = (_c2 = cbRef.current).onMarkers) == null ? void 0 : _d.call(_c2, markerCounts(model));
         const sub = ed.onDidChangeModelContent((e) => {
-          var _a4, _b3;
+          var _a4, _b4;
           if (e.isFlush) return;
-          (_b3 = (_a4 = cbRef.current).onChange) == null ? void 0 : _b3.call(_a4, model ? model.getValue() : "");
+          (_b4 = (_a4 = cbRef.current).onChange) == null ? void 0 : _b4.call(_a4, model ? model.getValue() : "");
         });
         let gutterTimer = 0;
         const rerunGutter = () => {
@@ -3075,12 +3116,14 @@
         const ed = edRef.current;
         if (!ed) return;
         const reportMarkers = () => {
-          var _a3, _b2;
-          return (_b2 = (_a3 = cbRef.current).onMarkers) == null ? void 0 : _b2.call(_a3, markerCounts(ed.getModel()));
+          var _a3, _b3;
+          return (_b3 = (_a3 = cbRef.current).onMarkers) == null ? void 0 : _b3.call(_a3, markerCounts(ed.getModel()));
         };
         const d1 = ed.onDidChangeCursorPosition((e) => {
-          var _a3, _b2;
-          (_b2 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b2.call(_a3, { line: e.position.lineNumber, col: e.position.column });
+          var _a3, _b3;
+          const m = ed.getModel();
+          if (m) savePosition(m, e.position.lineNumber, e.position.column);
+          (_b3 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b3.call(_a3, { line: e.position.lineNumber, col: e.position.column });
           reportDiff();
         });
         const d2 = editor.onDidChangeMarkers(reportMarkers);
@@ -3908,15 +3951,137 @@ li { margin: .25em 0; }
       };
     }, [props.path, dark]);
     const name = props.path.split("/").pop() ?? props.path;
+    const frameRef = React$1.useRef(null);
+    const preRef = React$1.useRef(null);
+    const scrollTimerRef = React$1.useRef(null);
+    const propsRef = React$1.useRef({ initialScrollTop: props.initialScrollTop, onScrollTop: props.onScrollTop });
+    propsRef.current = { initialScrollTop: props.initialScrollTop, onScrollTop: props.onScrollTop };
+    const reportScroll = React$1.useCallback((top) => {
+      if (scrollTimerRef.current !== null) window.clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current = window.setTimeout(() => {
+        var _a2, _b2;
+        scrollTimerRef.current = null;
+        (_b2 = (_a2 = propsRef.current).onScrollTop) == null ? void 0 : _b2.call(_a2, top);
+      }, 400);
+    }, []);
+    React$1.useEffect(() => {
+      if (phase.kind !== "html") return;
+      const f = frameRef.current;
+      if (!f) return;
+      let cleanedUp = false;
+      const applyInitial = () => {
+        if (cleanedUp) return;
+        const w = f.contentWindow;
+        if (!w) return;
+        const t = propsRef.current.initialScrollTop;
+        if (typeof t === "number" && t > 0) {
+          try {
+            if (htmlRaw) {
+              w.postMessage({ type: "preview-restore", scrollY: t }, "*");
+            } else {
+              w.scrollTo(0, t);
+            }
+          } catch {
+          }
+        }
+      };
+      f.addEventListener("load", applyInitial);
+      return () => {
+        var _a2, _b2;
+        cleanedUp = true;
+        f.removeEventListener("load", applyInitial);
+        const pending = scrollTimerRef.current;
+        if (pending !== null) {
+          window.clearTimeout(pending);
+          const w = f.contentWindow;
+          if (w) {
+            try {
+              if (htmlRaw) {
+                w.postMessage({ type: "preview-flush" }, "*");
+              } else {
+                const t = w.scrollY ?? 0;
+                (_b2 = (_a2 = propsRef.current).onScrollTop) == null ? void 0 : _b2.call(_a2, t);
+              }
+            } catch {
+            }
+          }
+        }
+        scrollTimerRef.current = null;
+      };
+    }, [phase.kind, htmlRaw, reportScroll]);
+    const [htmlWithTracker, setHtmlWithTracker] = React$1.useState(null);
+    const phaseContent = phase.kind === "html" || phase.kind === "text" ? phase.content : "";
+    React$1.useEffect(() => {
+      if (phase.kind !== "html" || !htmlRaw) {
+        setHtmlWithTracker(null);
+        return;
+      }
+      const script = `<script>(function(){var t=null;function flush(){parent.postMessage({type:'preview-scroll',scrollY:window.scrollY},'*')}window.addEventListener('scroll',function(){if(t)clearTimeout(t);t=setTimeout(function(){t=null;flush()},400)},{passive:true});window.addEventListener('message',function(e){var d=e.data;if(d&&d.type==='preview-restore'&&typeof d.scrollY==='number'){window.scrollTo(0,d.scrollY)}else if(d&&d.type==='preview-flush'){flush()}});parent.postMessage({type:'preview-ready'},'*')})();<\/script>`;
+      setHtmlWithTracker(phaseContent + script);
+    }, [phase.kind, htmlRaw, phaseContent]);
+    React$1.useEffect(() => {
+      if (!htmlRaw) return;
+      const onMsg = (e) => {
+        const f = frameRef.current;
+        if (!f || e.source !== f.contentWindow) return;
+        const d = e.data;
+        if ((d == null ? void 0 : d.type) === "preview-scroll" && typeof d.scrollY === "number") {
+          reportScroll(d.scrollY);
+        }
+      };
+      window.addEventListener("message", onMsg);
+      return () => window.removeEventListener("message", onMsg);
+    }, [htmlRaw, reportScroll]);
+    const onPreScroll = React$1.useCallback(() => {
+      const el = preRef.current;
+      if (el) reportScroll(el.scrollTop);
+    }, [reportScroll]);
+    React$1.useEffect(() => {
+      if (phase.kind !== "text") return;
+      const el = preRef.current;
+      if (!el) return;
+      const t = propsRef.current.initialScrollTop;
+      if (typeof t === "number" && t > 0) {
+        try {
+          el.scrollTop = t;
+        } catch {
+        }
+      }
+    }, [phase.kind]);
+    React$1.useEffect(() => () => {
+      var _a2, _b2;
+      const pending = scrollTimerRef.current;
+      if (pending !== null) {
+        window.clearTimeout(pending);
+        scrollTimerRef.current = null;
+      }
+      const el = preRef.current;
+      if (el) {
+        try {
+          (_b2 = (_a2 = propsRef.current).onScrollTop) == null ? void 0 : _b2.call(_a2, el.scrollTop);
+        } catch {
+        }
+      }
+    }, []);
     return /* @__PURE__ */ jsxRuntime.jsx("div", { style: { position: "absolute", inset: 0 }, children: phase.kind === "loading" ? null : phase.kind === "html" ? /* @__PURE__ */ jsxRuntime.jsx(
       "iframe",
       {
+        ref: frameRef,
         className: "extpreview-frame",
-        sandbox: htmlRaw ? "allow-scripts allow-forms allow-modals" : "",
+        sandbox: htmlRaw ? "allow-scripts allow-forms allow-modals" : "allow-same-origin",
         title: name,
-        srcDoc: htmlRaw ? phase.content : mdSrcdoc(phase.content, dark)
+        srcDoc: htmlRaw ? htmlWithTracker ?? phase.content : mdSrcdoc(phase.content, dark),
+        onLoad: () => {
+          const f = frameRef.current;
+          const w = f == null ? void 0 : f.contentWindow;
+          if (w && !htmlRaw) {
+            w.addEventListener("scroll", () => {
+              reportScroll(w.scrollY ?? 0);
+            });
+          }
+        }
       }
-    ) : phase.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { className: "extpreview-text", children: phase.content }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "office-welcome", children: [
+    ) : phase.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { ref: preRef, className: "extpreview-text", onScroll: onPreScroll, children: phase.content }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "office-welcome", children: [
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "edwm", children: name }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "list", style: { alignItems: "flex-start" }, children: [
         /* @__PURE__ */ jsxRuntime.jsx("div", { className: "h", children: props.fallbackTitle ?? "外部预览不可用" }),
@@ -3963,8 +4128,12 @@ li { margin: .25em 0; }
   function fsRemap(p, oldPath, newPath, isDir) {
     return isDir ? newPath + p.slice(oldPath.length) : newPath;
   }
+  function uriFor(path) {
+    return Uri.file(path.replace(/\\/g, "/")).toString();
+  }
+  const uriToModelId = /* @__PURE__ */ new Map();
   const EditorPane = React$1.forwardRef(function EditorPane2(props, ref) {
-    var _a2, _b2;
+    var _a2, _b2, _c2;
     const [editors, setEditors] = React$1.useState(/* @__PURE__ */ new Map());
     const [saving, setSaving] = React$1.useState(false);
     const [confirmClose, setConfirmClose] = React$1.useState(null);
@@ -3987,6 +4156,7 @@ li { margin: .25em 0; }
     const [confirmReopen, setConfirmReopen] = React$1.useState(null);
     const [confirmDiscard, setConfirmDiscard] = React$1.useState(null);
     const [headDiff, setHeadDiff] = React$1.useState(null);
+    const initialModesAppliedRef = React$1.useRef(/* @__PURE__ */ new Set());
     const [problemsOpen, setProblemsOpen] = React$1.useState(false);
     const [markerTick, setMarkerTick] = React$1.useState(0);
     React$1.useEffect(() => {
@@ -4060,6 +4230,7 @@ li { margin: .25em 0; }
         }
         const model = createTextModel(path, r.content);
         models.current.set(path, model);
+        uriToModelId.set(uriFor(path), model.id);
         const indent2 = detectIndent(r.content);
         model.updateOptions(indent2);
         setIndentByPath((prev) => {
@@ -4122,22 +4293,28 @@ li { margin: .25em 0; }
       documentClosed(path);
       disposeTextModel(models.current.get(path) ?? null);
       models.current.delete(path);
+      uriToModelId.delete(uriFor(path));
       await loadFile(path, encoding);
     }, [loadFile]);
     const requestTextMode = React$1.useCallback((path) => {
+      var _a3;
       if (!textModeRef.current.has(path)) {
         const next = new Set(textModeRef.current);
         next.add(path);
         textModeRef.current = next;
         setTextMode(next);
+        (_a3 = props.onModeChange) == null ? void 0 : _a3.call(props, path, "edit");
       }
       void loadFile(path);
     }, [loadFile]);
     const exitTextMode = React$1.useCallback((path) => {
+      var _a3;
       const next = new Set(textModeRef.current);
-      next.delete(path);
-      textModeRef.current = next;
-      setTextMode(next);
+      if (next.delete(path)) {
+        textModeRef.current = next;
+        setTextMode(next);
+        (_a3 = props.onModeChange) == null ? void 0 : _a3.call(props, path, "preview");
+      }
     }, []);
     const doSave = React$1.useCallback(async (path, overwrite = false) => {
       var _a3;
@@ -4219,10 +4396,12 @@ li { margin: .25em 0; }
       documentClosed(path);
       disposeTextModel(models.current.get(path) ?? null);
       models.current.delete(path);
+      uriToModelId.delete(uriFor(path));
       const next = new Set(textModeRef.current);
       if (next.delete(path)) {
         textModeRef.current = next;
         setTextMode(next);
+        initialModesAppliedRef.current.delete(path);
       }
       props.onCloseTab(path);
     }, []);
@@ -4244,6 +4423,8 @@ li { margin: .25em 0; }
         const nModel = createTextModel(np, value);
         models.current.set(np, nModel);
         models.current.delete(p);
+        uriToModelId.delete(uriFor(p));
+        uriToModelId.set(uriFor(np), nModel.id);
         documentClosed(p);
         documentOpened(np, languageForPath(np), value, nModel);
         const timer = saveTimers.current.get(p);
@@ -4284,6 +4465,7 @@ li { margin: .25em 0; }
         documentClosed(p);
         disposeTextModel(models.current.get(p) ?? null);
         models.current.delete(p);
+        uriToModelId.delete(uriFor(p));
         setEditors((prev) => {
           if (!prev.has(p)) return prev;
           const next = new Map(prev);
@@ -4356,6 +4538,28 @@ li { margin: .25em 0; }
       return items;
     }, [props.tabs, props.onTogglePin, props.onStageFile, requestClose, batchClose, isTextual, openHeadDiff, t]);
     React$1.useEffect(() => {
+      const modes = props.initialModes;
+      if (!modes) return;
+      let changed = false;
+      const next = new Set(textModeRef.current);
+      for (const [path, mode] of modes) {
+        if (initialModesAppliedRef.current.has(path)) continue;
+        initialModesAppliedRef.current.add(path);
+        if (!viewerForPath(path)) continue;
+        const wantEdit = mode === "edit";
+        const hasEdit = next.has(path);
+        if (wantEdit !== hasEdit) {
+          if (wantEdit) next.add(path);
+          else next.delete(path);
+          changed = true;
+        }
+      }
+      if (changed) {
+        textModeRef.current = next;
+        setTextMode(next);
+      }
+    }, [props.initialModes]);
+    React$1.useEffect(() => {
       if (props.activeTab) void loadFile(props.activeTab);
     }, [props.activeTab, loadFile]);
     React$1.useEffect(() => {
@@ -4412,6 +4616,7 @@ li { margin: .25em 0; }
       return () => window.removeEventListener("keydown", handler);
     }, [props.activeTab, props.tabs, props.onActivateTab, doSave, requestClose]);
     React$1.useEffect(() => () => {
+      for (const p of [...models.current.keys()]) uriToModelId.delete(uriFor(p));
       for (const m of models.current.values()) m.dispose();
       models.current.clear();
       for (const timer of saveTimers.current.values()) window.clearTimeout(timer);
@@ -4679,13 +4884,20 @@ li { margin: .25em 0; }
               ActiveViewer,
               {
                 path: props.activeTab,
-                onEditText: requestTextMode
+                onEditText: requestTextMode,
+                initialScrollTop: (_c2 = props.initialPreviewScrolls) == null ? void 0 : _c2.get(props.activeTab),
+                onScrollTop: (top) => {
+                  var _a3;
+                  return (_a3 = props.onPreviewScroll) == null ? void 0 : _a3.call(props, props.activeTab, top);
+                }
               },
               props.activeTab
             ) : activeEditor && activeEditor.binary ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 20, textAlign: "center", opacity: 0.7 }, children: t("Editor_ErrorBinary") }) : activeEditor && activeEditor.error && !activeEditor.content ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ed-note", children: activeEditor.error }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
               (() => {
+                var _a3;
                 const stale = !activeModel && !!(lastReady.current && models.current.get(lastReady.current.path) === lastReady.current.model);
                 const shown = activeModel ?? (stale ? lastReady.current.model : null);
+                const ownReveal = shown && !stale ? ((_a3 = props.initialReveals) == null ? void 0 : _a3[props.activeTab ?? ""]) ?? null : null;
                 return shown ? /* @__PURE__ */ jsxRuntime.jsx(
                   FilesMonacoEditor,
                   {
@@ -4697,10 +4909,15 @@ li { margin: .25em 0; }
                     showDiff: props.showDiff,
                     onDiffProgress: (index, total) => setDiffInfo({ path: props.activeTab ?? "", index, total }),
                     revealLine,
+                    initialReveal: ownReveal,
                     onChange: (value) => {
                       if (!stale) handleContentChange(activeEditor.path, value);
                     },
-                    onPosition: setPosition,
+                    onPosition: (p) => {
+                      var _a4;
+                      setPosition(p);
+                      if (!stale && props.activeTab) (_a4 = props.onPositionReport) == null ? void 0 : _a4.call(props, props.activeTab, p.line, p.col);
+                    },
                     onMarkers: setMarkers
                   }
                 ) : activeEditor ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.7 }, children: "Loading…" }) : null;
@@ -5402,6 +5619,89 @@ li { margin: .25em 0; }
       }
     ) });
   }
+  const KEY_PREFIX = "gitter.files.session.v1";
+  const TAB_LIMIT = 64;
+  const VIEW_LIMIT = 200;
+  function keyFor(repo) {
+    return KEY_PREFIX + "|" + repo.replace(/\\/g, "/").replace(/\/+$/, "");
+  }
+  function loadSession(repo) {
+    var _a2;
+    const empty = { tabs: [], active: null, views: {}, modes: {} };
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(keyFor(repo));
+    } catch {
+      return empty;
+    }
+    if (!raw) return empty;
+    try {
+      const d = JSON.parse(raw);
+      const tabs = Array.isArray(d.tabs) ? d.tabs.filter((x) => !!x && typeof x.path === "string").slice(0, TAB_LIMIT).map((x) => ({ path: x.path, pinned: x.pinned === true })) : [];
+      const views = {};
+      if (d.views && typeof d.views === "object") {
+        for (const [k, v] of Object.entries(d.views)) {
+          if (!v || typeof v !== "object") continue;
+          const anchor = v.anchor;
+          const vs = {};
+          if (v.monaco && typeof v.monaco === "object") vs.monaco = v.monaco;
+          if (anchor && typeof anchor.line === "number" && typeof anchor.col === "number") {
+            vs.anchor = { line: anchor.line, col: anchor.col, text: typeof anchor.text === "string" ? anchor.text : "" };
+          }
+          if (typeof v.previewScroll === "number" && Number.isFinite(v.previewScroll)) vs.previewScroll = v.previewScroll;
+          if (vs.monaco || vs.anchor || vs.previewScroll !== void 0) views[k] = vs;
+        }
+      }
+      const modes = {};
+      if (d.modes && typeof d.modes === "object") {
+        for (const [k, v] of Object.entries(d.modes)) {
+          if (v === "edit" || v === "preview") modes[k] = v;
+        }
+      }
+      const active = typeof d.active === "string" && d.active ? d.active : null;
+      return { tabs, active: active ?? ((_a2 = tabs[0]) == null ? void 0 : _a2.path) ?? null, views, modes };
+    } catch {
+      try {
+        window.localStorage.setItem(keyFor(repo), JSON.stringify(empty));
+      } catch {
+      }
+      return empty;
+    }
+  }
+  function saveSession(repo, s) {
+    const tabs = s.tabs.slice(0, TAB_LIMIT);
+    const views = {};
+    let n = 0;
+    for (const [k, v] of Object.entries(s.views)) {
+      if (n >= VIEW_LIMIT) break;
+      if (v.monaco || v.anchor || v.previewScroll !== void 0) {
+        const out2 = {};
+        if (v.monaco) out2.monaco = v.monaco;
+        if (v.anchor) out2.anchor = v.anchor;
+        if (v.previewScroll !== void 0) out2.previewScroll = v.previewScroll;
+        views[k] = out2;
+        n++;
+      }
+    }
+    const modes = {};
+    for (const [k, v] of Object.entries(s.modes ?? {})) {
+      if (v === "edit" || v === "preview") modes[k] = v;
+    }
+    const out = {
+      tabs,
+      active: s.active && tabs.some((t) => t.path === s.active) ? s.active : null,
+      views,
+      modes
+    };
+    try {
+      window.localStorage.setItem(keyFor(repo), JSON.stringify(out));
+    } catch {
+      try {
+        window.localStorage.setItem(keyFor(repo), JSON.stringify({ ...out, views: {} }));
+      } catch {
+      }
+    }
+  }
   const SIDEBAR_KEY = "gitter.files.sidebar.v2";
   const SIDEBAR_DEFAULT = 248;
   const SIDEBAR_MIN = 170;
@@ -5411,10 +5711,54 @@ li { margin: .25em 0; }
     const n = raw ? Number(raw) : NaN;
     return Number.isFinite(n) ? Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, n)) : SIDEBAR_DEFAULT;
   }
+  function loadRepoSession(repo) {
+    return repo ? loadSession(repo.workDir) : { tabs: [], active: null, views: {}, modes: {} };
+  }
+  function monacoUriFor(path) {
+    return "file://" + path.replace(/\\/g, "/");
+  }
+  async function resolveAnchor(repo, rel, line, col, text) {
+    const clamp = (max) => Math.max(1, Math.min(line, max || 1));
+    try {
+      const r = await pageSdk.call("file.content", { path: rel, maxBytes: 2 * 1024 * 1024 });
+      if (!r) return line;
+      const lines = r.content.split("\n");
+      if (lines.length === 0) return 1;
+      const target = (text || "").trimEnd();
+      if (target && target.length <= 200) {
+        const win = Math.min(40, Math.floor(lines.length / 2));
+        const from = Math.max(0, line - 1 - win);
+        const to = Math.min(lines.length, line + win);
+        let best = -1;
+        let bestDist = Infinity;
+        for (let i = from; i < to; i++) {
+          if ((lines[i] || "").trimEnd() === target) {
+            const d = Math.abs(i + 1 - line);
+            if (d < bestDist) {
+              bestDist = d;
+              best = i + 1;
+            }
+          }
+        }
+        if (best > 0) return best;
+      }
+      return clamp(lines.length);
+    } catch {
+      return line;
+    }
+  }
   function FilesPage() {
+    var _a2;
     const [treeData, setTreeData] = React$1.useState({ entries: [], hasMore: false });
-    const [tabs, setTabs] = React$1.useState([]);
-    const [activeTab, setActiveTab] = React$1.useState(null);
+    const [tabs, setTabs] = React$1.useState(() => {
+      const s = loadRepoSession(pageSdk.repo());
+      return s.tabs.map((t) => ({ path: t.path, preview: !t.pinned, pinned: t.pinned }));
+    });
+    const [activeTab, setActiveTab] = React$1.useState(() => {
+      var _a3;
+      const s = loadRepoSession(pageSdk.repo());
+      return s.tabs.some((t) => t.path === s.active) ? s.active : ((_a3 = s.tabs[0]) == null ? void 0 : _a3.path) ?? null;
+    });
     const [loading, setLoading] = React$1.useState(false);
     const [width, setWidth] = React$1.useState(loadWidth);
     const [collapsed, setCollapsed] = React$1.useState(false);
@@ -5425,11 +5769,123 @@ li { margin: .25em 0; }
     const [reveal, setReveal] = React$1.useState(null);
     const [fsTick, setFsTick] = React$1.useState(0);
     const repo = pageSdk.repo();
+    const repoKey = (repo == null ? void 0 : repo.workDir) ?? "";
     const tabsRef = React$1.useRef(tabs);
     tabsRef.current = tabs;
+    const activeTabRef = React$1.useRef(activeTab);
+    activeTabRef.current = activeTab;
     const quickOpenRef = React$1.useRef(quickOpen);
     quickOpenRef.current = quickOpen;
     const editorRef = React$1.useRef(null);
+    const sessionsRef = React$1.useRef({});
+    (_a2 = sessionsRef.current)[repoKey] ?? (_a2[repoKey] = loadRepoSession(repo));
+    const session = sessionsRef.current[repoKey];
+    const sessionSeqRef = React$1.useRef(0);
+    const pendingAnchorRef = React$1.useRef(/* @__PURE__ */ new Map());
+    const fillAnchorText = React$1.useCallback(async (uri) => {
+      const item = pendingAnchorRef.current.get(uri);
+      const s = sessionsRef.current[repoKey];
+      if (!item || !s) return;
+      try {
+        const r = await pageSdk.call("file.content", { path: item.path, maxBytes: 2 * 1024 * 1024 });
+        if (!r) return;
+        const lines = r.content.split("\n");
+        const line = Math.max(1, Math.min(item.line, lines.length || 1));
+        const text = (lines[line - 1] ?? "").trimEnd();
+        const v = s.views[uri];
+        if (!text) {
+          pendingAnchorRef.current.delete(uri);
+          return;
+        }
+        if (!(v == null ? void 0 : v.anchor)) return;
+        v.anchor.text = text;
+        pendingAnchorRef.current.delete(uri);
+        saveSession(repoKey, s);
+      } catch {
+      }
+    }, [repoKey]);
+    React$1.useEffect(() => {
+      if (!repoKey) return;
+      const s = sessionsRef.current[repoKey];
+      if (!s) return;
+      s.tabs = tabs.map((t) => ({ path: t.path, pinned: !!t.pinned }));
+      s.active = tabs.some((t) => t.path === activeTab) ? activeTab : null;
+      saveSession(repoKey, s);
+    }, [repoKey, tabs, activeTab]);
+    const positionReport = React$1.useCallback((path, line, col) => {
+      var _a3, _b2;
+      const s = sessionsRef.current[repoKey];
+      if (!s) return;
+      const uri = monacoUriFor(path);
+      const v = (_a3 = s.views)[uri] ?? (_a3[uri] = {});
+      v.anchor = { line, col, text: ((_b2 = v.anchor) == null ? void 0 : _b2.text) ?? "" };
+      if (!v.anchor.text) {
+        pendingAnchorRef.current.set(uri, { path, line, col });
+        void fillAnchorText(uri);
+      }
+      saveSession(repoKey, s);
+    }, [repoKey, fillAnchorText]);
+    const modeReport = React$1.useCallback((path, mode) => {
+      const s = sessionsRef.current[repoKey];
+      if (!s) return;
+      if (!s.modes) s.modes = {};
+      if (s.modes[path] === mode) return;
+      s.modes[path] = mode;
+      saveSession(repoKey, s);
+    }, [repoKey]);
+    const previewScrollReport = React$1.useCallback((path, top) => {
+      var _a3;
+      const s = sessionsRef.current[repoKey];
+      if (!s) return;
+      const uri = monacoUriFor(path);
+      const v = (_a3 = s.views)[uri] ?? (_a3[uri] = {});
+      if (v.previewScroll === top) return;
+      v.previewScroll = top;
+      saveSession(repoKey, s);
+    }, [repoKey]);
+    React$1.useEffect(() => () => {
+      if (repoKey && sessionsRef.current[repoKey]) saveSession(repoKey, sessionsRef.current[repoKey]);
+    }, [repoKey]);
+    const [initialReveals, setInitialReveals] = React$1.useState(null);
+    React$1.useEffect(() => {
+      if (!repoKey || !repo) {
+        setInitialReveals(null);
+        return;
+      }
+      let cancelled = false;
+      const paths = tabs.map((t) => t.path);
+      (async () => {
+        const out = {};
+        for (const p of paths) {
+          const v = session.views[monacoUriFor(p)];
+          if (!(v == null ? void 0 : v.anchor)) continue;
+          const line = await resolveAnchor(repo.workDir, p, v.anchor.line, v.anchor.col, v.anchor.text);
+          out[p] = { line, col: v.anchor.col, ts: ++sessionSeqRef.current };
+        }
+        if (!cancelled) setInitialReveals(Object.keys(out).length > 0 ? out : null);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [repoKey, tabs.map((t) => t.path).join("|")]);
+    const initialModes = React$1.useMemo(() => {
+      if (!session.modes || Object.keys(session.modes).length === 0) return null;
+      const m = /* @__PURE__ */ new Map();
+      for (const p of tabs) {
+        const mode = session.modes[p.path];
+        if (mode) m.set(p.path, mode);
+      }
+      return m.size > 0 ? m : null;
+    }, [session.modes, tabs.map((t) => t.path).join("|")]);
+    const initialPreviewScrolls = React$1.useMemo(() => {
+      var _a3;
+      const m = /* @__PURE__ */ new Map();
+      for (const p of tabs) {
+        const top = (_a3 = session.views[monacoUriFor(p.path)]) == null ? void 0 : _a3.previewScroll;
+        if (typeof top === "number" && Number.isFinite(top)) m.set(p.path, top);
+      }
+      return m.size > 0 ? m : null;
+    }, [session.views, tabs.map((t) => t.path).join("|")]);
     const loadTree = React$1.useCallback(async () => {
       if (!repo) return;
       setLoading(true);
@@ -5508,11 +5964,11 @@ li { margin: .25em 0; }
       }
     }, [repo, loadTree, openFile]);
     const remapTabs = React$1.useCallback((oldPath, newPath, isDir) => {
-      var _a2;
+      var _a3;
       const remap = (p) => p === oldPath ? newPath : isDir && p.startsWith(oldPath + "/") ? newPath + p.slice(oldPath.length) : p;
       setTabs((prev) => prev.map((tb) => ({ ...tb, path: remap(tb.path) })));
       setActiveTab((a) => a ? remap(a) : a);
-      (_a2 = editorRef.current) == null ? void 0 : _a2.handleFsRenamed(oldPath, newPath, isDir);
+      (_a3 = editorRef.current) == null ? void 0 : _a3.handleFsRenamed(oldPath, newPath, isDir);
     }, []);
     const renameEntry = React$1.useCallback(async (oldPath, newName, isDir) => {
       try {
@@ -5532,7 +5988,7 @@ li { margin: .25em 0; }
       }
     }, [loadTree, remapTabs]);
     const deleteEntry = React$1.useCallback(async (path, isDir) => {
-      var _a2;
+      var _a3;
       const affected = (p) => p === path || isDir && p.startsWith(path + "/");
       try {
         const r = await pageSdk.call("file.delete", { path });
@@ -5544,13 +6000,13 @@ li { margin: .25em 0; }
         const old = tabsRef.current;
         setTabs((prev) => prev.filter((tb) => !affected(tb.path)));
         setActiveTab((a) => {
-          var _a3;
+          var _a4;
           if (!a || !affected(a)) return a;
           const rest = old.filter((tb) => !affected(tb.path));
           const i = old.findIndex((tb) => tb.path === a);
-          return ((_a3 = rest[Math.min(i, rest.length - 1)]) == null ? void 0 : _a3.path) ?? null;
+          return ((_a4 = rest[Math.min(i, rest.length - 1)]) == null ? void 0 : _a4.path) ?? null;
         });
-        (_a2 = editorRef.current) == null ? void 0 : _a2.handleFsDeleted(path, isDir);
+        (_a3 = editorRef.current) == null ? void 0 : _a3.handleFsDeleted(path, isDir);
         await loadTree();
         return true;
       } catch (e) {
@@ -5580,8 +6036,8 @@ li { margin: .25em 0; }
       const next = tabsRef.current.filter((x) => x.path !== path);
       setTabs(next);
       setActiveTab((a) => {
-        var _a2;
-        return a === path ? ((_a2 = next[Math.min(i, next.length - 1)]) == null ? void 0 : _a2.path) ?? null : a;
+        var _a3;
+        return a === path ? ((_a3 = next[Math.min(i, next.length - 1)]) == null ? void 0 : _a3.path) ?? null : a;
       });
     }, []);
     const togglePin = React$1.useCallback((path) => {
@@ -5742,8 +6198,15 @@ li { margin: .25em 0; }
             onDiscardFile: discardFile,
             onOpenDropped: openDropped,
             reveal,
+            initialReveals: initialReveals ?? void 0,
+            onPositionReport: positionReport,
+            initialModes: initialModes ?? void 0,
+            onModeChange: modeReport,
+            initialPreviewScrolls: initialPreviewScrolls ?? void 0,
+            onPreviewScroll: previewScrollReport,
             fsTick
-          }
+          },
+          repoKey
         ),
         quickOpen && /* @__PURE__ */ jsxRuntime.jsx(
           QuickOpen,

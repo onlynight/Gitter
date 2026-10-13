@@ -19,6 +19,10 @@ export interface FileViewerProps {
   path: string;
   /** 请求切回 Monaco 文本模式（EditorPane 据此覆盖查看器接管） */
   onEditText?: (path: string) => void;
+  /** 首开预览滚动位置（会话恢复；iframe/pre 挂载后应用一次） */
+  initialScrollTop?: number;
+  /** 预览态滚动位置回报（滚动停止时；EditorPane 据此持久化下次重开时恢复） */
+  onScrollTop?: (top: number) => void;
 }
 
 export type FileViewerComponent = (props: FileViewerProps) => ReactNode;

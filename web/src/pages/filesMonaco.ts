@@ -203,6 +203,38 @@ export function viewStateOf(model: monaco.editor.ITextModel): monaco.editor.ICod
   return viewStates.get(model.id);
 }
 
+// ---- 光标位置（行/列 + 锚点文本）按 model.id 存取 ----
+// 与 viewStates 同域：跨会话持久化的唯一可靠来源是「位置 + 锚点文本」，
+// 视图态本身随 Monaco 内部版本变化不可长期序列化，故位置另存。
+export interface EditorPositionAnchor {
+  line: number;
+  col: number;
+  /** 光标所在行文本：文件被改动后按锚点就近搜索定位，比裸行号抗错位 */
+  text: string;
+}
+
+const positions = new Map<string, EditorPositionAnchor>();
+
+/** 记录当前光标位置（切标签/编辑区变更时调用；同 id 覆盖为最新位置） */
+export function savePosition(model: monaco.editor.ITextModel, line: number, col: number): void {
+  try {
+    const text = model.getLineContent(Math.max(1, line)) ?? "";
+    positions.set(model.id, { line, col, text });
+  } catch {
+    // model 已销毁/取值失败：跳过（不写脏锚点）
+  }
+}
+
+/** 取最近一次记录的光标位置（不删除——反复切换要持续可恢复） */
+export function positionOf(model: monaco.editor.ITextModel): EditorPositionAnchor | undefined {
+  return positions.get(model.id);
+}
+
+/** 清空位置缓存（与 viewStates 同在 model 销毁时清理） */
+export function clearPositions(): void {
+  positions.clear();
+}
+
 /** 创建编辑器实例（构造选项统一走 EDITOR_OPTIONS；overrides 供字号恢复等实例级覆盖）。 */
 export function createEditor(
   host: HTMLElement,
@@ -211,10 +243,13 @@ export function createEditor(
   return monaco.editor.create(host, { ...EDITOR_OPTIONS, ...overrides });
 }
 
-/** 销毁文本模型（幂等）；视图状态随 model 一并清理（重开文件回首行是预期）。 */
+/** 销毁文本模型（幂等）；视图状态与位置缓存随 model 一并清理（重开文件回首行是预期）。 */
 export function disposeTextModel(model: unknown | null): void {
   const m = model as monaco.editor.ITextModel | null;
-  if (m && typeof m.id === "string") viewStates.delete(m.id);
+  if (m && typeof m.id === "string") {
+    viewStates.delete(m.id);
+    positions.delete(m.id);
+  }
   (model as { dispose?: () => void } | null)?.dispose?.();
 }
 

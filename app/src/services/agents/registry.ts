@@ -66,6 +66,12 @@ export interface ShellRecord {
   startedAt: number;
   /** 进程树终止用（taskkill /T /F）；spawn 失败时为 null */
   pid?: number | null;
+  /** true = 前台命令（terminal_run 无 background 参数，同步等待）也登记入 shells——
+   *  供「后台」tab 统一展示执行详情；false/缺省 = 显式 background 模式。
+   *  前台命令的执行语义不变（同步 resolve、结果进时间线），仅多做一次注册。 */
+  foreground?: boolean;
+  /** 发起该命令的 tool callId（tool/start 事件同源）——卡片 ↔ shell 条目的关联键 */
+  callId?: string;
 }
 
 /** 每会话工具环境：buildToolset 时注入，工具 execute 只经此触达宿主能力。 */
@@ -77,6 +83,9 @@ export interface ToolEnv {
   emit: (ev: AgentSessionEvent) => void;
   /** 统一授权门：false = 用户拒绝。payload 决定授权卡渲染形态。subtaskId = 子代理冒泡标。 */
   requestPermission: (toolName: string, req: PermissionRequest, subtaskId?: string) => Promise<boolean>;
+  /** 当前 tool callId（tool/start 事件的同源键）——terminal_run 据此把 shell 与卡片关联。
+   *  loop 在 dispatch 工具前写入。 */
+  callId?: string;
   /** 读取登记（写前读校验数据源）+ 变更通知（ChangeSet/时间线） */
   readLog: Map<string, { mtimeMs: number; size: number }>;
   noteFileChange: (p: string, kind: FileChangeKind, summary?: string) => void;

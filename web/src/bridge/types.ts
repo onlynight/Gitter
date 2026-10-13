@@ -414,8 +414,12 @@ export interface RiskReport {
 export interface UsageReport {
   repoPaths: string[];
   totals: { turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheBreaks: number; cost: number | null };
+  /** 配置的模型显示名映射（UserModelProfileDTO.name）——modelRef 可能是带 #tag 的内部 id */
+  modelNames: Record<string, string>;
   byDay: { day: string; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null }[];
   byModel: { modelRef: string; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null }[];
+  /** 按「日 × 模型」聚合——趋势图节点提示框内展开当日各模型用量 */
+  byDayModel: { day: string; modelRef: string; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null }[];
   byTask: { taskId: string; title: string; state: string; modelRef: string | null; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null; lastActiveAt: string | null }[];
   /** 缓存断点轮数（usageHistory 带 note 注记：压缩/换模型/重启续跑/模式切换）——跨任务聚合，命中率归因用 */
   cacheBreaks: number;

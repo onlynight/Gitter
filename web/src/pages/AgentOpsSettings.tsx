@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { onEvent } from "../bridge/client";
 import { call } from "../bridge/client";
+import { pageSdk } from "../pageSdk";
 import type { ModelProfileDTO, UsageReport } from "../bridge/types";
 
 function fmtTok(n: number): string {
@@ -167,37 +168,17 @@ export function UsageSection() {
       {rep.emptyRepos.length > 0 && (
         <div className="hint">{rep.emptyRepos.length} 个仓库暂无任务账本（未跑过 agent 任务）</div>
       )}
-      <h4 style={{ margin: "10px 0 4px", fontSize: 12 }}>按天</h4>
-      <table className="usage-table">
-        <thead><tr><th>日期</th><th>轮次</th><th>输入 tok</th><th>输出 tok</th><th>缓存命中</th><th>费用</th></tr></thead>
-        <tbody>
-          {rep.byDay.slice(-30).reverse().map((d) => (
-            <tr key={d.day}><td>{d.day}</td><td>{d.turns}</td><td>{fmtTok(d.inputTokens)}</td><td>{fmtTok(d.outputTokens)}</td><td>{fmtTok(d.cacheReadTokens)}</td><td>{fmtCost(d.cost)}</td></tr>
-          ))}
-          {rep.byDay.length === 0 && <tr><td colSpan={6} className="hint">暂无数据</td></tr>}
-        </tbody>
-      </table>
-      <h4 style={{ margin: "10px 0 4px", fontSize: 12 }}>按模型</h4>
-      <table className="usage-table">
-        <thead><tr><th>档案</th><th>轮次</th><th>输入 tok</th><th>输出 tok</th><th>费用</th></tr></thead>
-        <tbody>
-          {rep.byModel.map((m) => (
-            <tr key={m.modelRef}><td title={m.modelRef}>{m.modelRef.split("/").pop()}</td><td>{m.turns}</td><td>{fmtTok(m.inputTokens)}</td><td>{fmtTok(m.outputTokens)}</td><td>{fmtCost(m.cost)}</td></tr>
-          ))}
-          {rep.byModel.length === 0 && <tr><td colSpan={5} className="hint">暂无数据</td></tr>}
-        </tbody>
-      </table>
-      <h4 style={{ margin: "10px 0 4px", fontSize: 12 }}>按任务（最近 20）</h4>
-      <table className="usage-table">
-        <thead><tr><th>任务</th><th>状态</th><th>轮次</th><th>输入 tok</th><th>输出 tok</th><th>费用</th></tr></thead>
-        <tbody>
-          {rep.byTask.slice(0, 20).map((t) => (
-            <tr key={t.taskId}><td title={t.title}>{t.title.slice(0, 32)}</td><td>{t.state}</td><td>{t.turns}</td><td>{fmtTok(t.inputTokens)}</td><td>{fmtTok(t.outputTokens)}</td><td>{fmtCost(t.cost)}</td></tr>
-          ))}
-          {rep.byTask.length === 0 && <tr><td colSpan={6} className="hint">暂无数据</td></tr>}
-        </tbody>
-      </table>
-      <div className="hint" style={{ marginTop: 4 }}>费用 = 档案单价（订阅卡内配置，$/Mtok）× token；未配置单价的档案不计费。</div>
+      {/* 详细视图已迁至独立用量页（usage 槽，KPI/每日趋势/模型分布/任务明细）；
+          此处仅保留汇总与跳转，避免设置页承载长表。 */}
+      <div className="settings-row" style={{ marginTop: 6 }}>
+        <span className="hint" style={{ fontSize: 11 }}>
+          {rep.byTask.length} 个任务 · {rep.byModel.length} 个模型档案
+          {rep.cacheBreaks > 0 ? ` · ${rep.cacheBreaks} 次缓存断点` : ""}
+        </span>
+        <span style={{ flex: 1 }} />
+        <button className="tool-btn" onClick={() => pageSdk.navigate("usage")}>在用量页查看 →</button>
+      </div>
+      <div className="hint" style={{ marginTop: 4 }}>费用 = 档案单价（订阅卡内配置，$/Mtok）× token；未配置单价的档案显示「—」而非 0。</div>
     </div>
   );
 }

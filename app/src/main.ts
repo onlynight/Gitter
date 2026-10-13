@@ -193,9 +193,19 @@ function createWindow(repoPath?: string): void {
   win.on("unmaximize", () => win.webContents.send("evt", { method: "win.maximized", params: { value: false } }));
 
   if (repoPath) {
-    // 渲染层加载后按显式路径恢复仓库
-    win.webContents.once("did-finish-load", () => {
+    // 按显式路径恢复仓库。必须在渲染层自报就绪（gitter:dom-ready）之后发送：
+    // did-finish-load 早于 React 首次提交，此刻 App 的 app.openRepo 监听尚未注册，
+    // 直接 send 事件被丢弃——新窗只落项目页、不打开选中项目。
+    // 若主窗口在渲染层就绪前就 did-finish-load（竞态），回退定时器兜底补发。
+    let sent = false;
+    const openRequested = (): void => {
+      if (sent) return;
+      sent = true;
       win.webContents.send("evt", { method: "app.openRepo", params: { path: repoPath } });
+    };
+    win.webContents.on("dom-ready", openRequested);
+    win.webContents.once("did-finish-load", () => {
+      if (!sent) setTimeout(openRequested, 2500);
     });
   }
 

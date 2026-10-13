@@ -25,7 +25,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(here, "..");
 const outRoot = path.resolve(webRoot, "..", "app", "resources", "packages");
 
-const PAGES = ["projects", "log", "changes", "branches", "tasks", "bash", "files", "office", "settings"];
+const PAGES = ["projects", "log", "changes", "branches", "tasks", "bash", "files", "office", "usage", "settings"];
 const OFFICEVIEW_VERSION = "1.0.0";
 
 /**

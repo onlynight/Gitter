@@ -2578,44 +2578,99 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
 /* 趋势 + 模型分布：左宽右窄 */
 .usage-page .grid-2a { display: grid; grid-template-columns: 1.62fr 1fr; gap: 10px; align-items: stretch; }
 
-/* ═══ 每日趋势（手绘 SVG：柱组 输入/缓存/输出 + 费用折线右轴）═══ */
+/* ═══ 每日趋势（手绘 SVG：多色曲线 + 关键节点圆点，费用走右轴）═══
+   曲线色与图例一一对应；圆点只落在各序列的峰值日与首末日，避免满图噪点。 */
 .usage-page .trend-box { position: relative; }
-.usage-page .trend { display: block; width: 100%; height: 172px; overflow: visible; }
+.usage-page .trend { display: block; width: 100%; height: 188px; overflow: visible; }
+/* 按模型的每日用量图：每条线独占一个模型，独立卡片、独立 y 轴 */
+.usage-page .trend.mt { height: 156px; }
+.usage-page .trend .ln-m { stroke-width: 1.9; opacity: .92; }
 .usage-page .trend .gl { stroke: var(--c-border); stroke-width: 1; stroke-dasharray: 2 4; }
 .usage-page .trend .baseline { stroke: var(--c-border); stroke-width: 1; }
 .usage-page .trend .ax { font-size: 9.5px; fill: var(--c-text3); font-family: var(--mono); }
-.usage-page .trend .ax-yr { fill: var(--c-amber); }
-.usage-page .trend .bar-in { fill: var(--c-text3); opacity: .75; }
-.usage-page .trend .bar-cache { fill: var(--c-text3); opacity: .32; }
-.usage-page .trend .bar-out { fill: var(--c-link); }
-.usage-page .trend .bar-hit { fill: transparent; }
-.usage-page .trend .cost-line { stroke: var(--c-amber); stroke-width: 1.25; stroke-dasharray: 3 2; fill: none; }
-.usage-page .trend .cost-dot { fill: var(--c-amber); }
+.usage-page .trend .ax-yr { fill: #E3B341; }
+.usage-page .trend .ln { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.usage-page .trend .ln-in { stroke: #9AA6B2; stroke-width: 1.75; }
+.usage-page .trend .ln-cache { stroke: #4C5866; stroke-width: 1.5; }
+.usage-page .trend .ln-out { stroke: #6BABF5; stroke-width: 2; }
+.usage-page .trend .ln-cost { stroke: #E3B341; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.usage-page .trend .ln-fill { fill: rgba(107, 171, 245, .08); stroke: none; }
+.usage-page .trend .node { stroke: var(--c-panel); stroke-width: 1.25; }
+.usage-page .trend .hit { fill: transparent; }
 
 .usage-page .usage-tip {
   position: absolute; top: 4px; transform: translateX(-50%); z-index: 12;
-  min-width: 148px; padding: 7px 10px; border-radius: var(--radius);
+  min-width: 152px; padding: 7px 10px; border-radius: var(--radius);
   background: var(--c-panel2); border: 1px solid var(--c-border-strong);
   box-shadow: 0 6px 18px rgba(0, 0, 0, .25); pointer-events: none;
   font-size: 11px; color: var(--c-text2);
 }
+.usage-page .usage-tip .tp-empty { color: var(--c-text3); padding: 1px 0; }
 .usage-page .usage-tip .tp-h { font-size: 11.5px; font-weight: 600; color: var(--c-text); margin-bottom: 4px; }
 .usage-page .usage-tip .tp-r { display: flex; justify-content: space-between; gap: 12px; padding: 1px 0; }
 .usage-page .usage-tip .tp-r b { color: var(--c-text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .usage-page .usage-tip .tp-cost { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--c-border); }
-.usage-page .usage-tip .tp-cost b { color: var(--c-amber); }
+.usage-page .usage-tip .tp-cost b { color: #E3B341; }
+/* 当日模型明细：面板下方再分一层；模型名截断，数值右对齐 */
+.usage-page .usage-tip { min-width: 168px; }
+.usage-page .usage-tip .tp-models { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--c-border); }
+.usage-page .usage-tip .tp-m-h { font-size: 9.5px; letter-spacing: .06em; color: var(--c-text3); margin-bottom: 3px; }
+.usage-page .usage-tip .tp-m-r { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 1px 0; max-width: 268px; }
+.usage-page .usage-tip .tp-m-nm { position: relative; padding-left: 11px; color: var(--c-text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.usage-page .usage-tip .tp-m-nm::before {
+  content: ""; position: absolute; left: 1px; top: 50%; transform: translateY(-50%);
+  width: 6px; height: 6px; border-radius: 2px; background: var(--md, var(--c-text3));
+}
+.usage-page .usage-tip .tp-m-r b { color: var(--c-text); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage-page .usage-tip .tp-m-r b .u { color: var(--c-text3); font-weight: 400; font-size: 10px; }
 
-/* 指标图例（点击切换序列显隐） */
+/* 指标图例（线段样式 + 点击切换序列显隐） */
 .usage-page .trend-metric { display: flex; align-items: center; gap: 12px; margin-top: 9px; font-size: 11px; color: var(--c-text3); }
-.usage-page .trend-metric .m { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+.usage-page .trend-metric .m { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
 .usage-page .trend-metric .m:hover { color: var(--c-text2); }
 .usage-page .trend-metric .m.off { opacity: .4; }
-.usage-page .trend-metric .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
-.usage-page .trend-metric .sw.input { background: var(--c-text3); opacity: .75; }
-.usage-page .trend-metric .sw.cache { background: var(--c-text3); opacity: .32; }
-.usage-page .trend-metric .sw.output { background: var(--c-link); }
-.usage-page .trend-metric .sw.cost { background: var(--c-amber); border-radius: 50%; }
+.usage-page .trend-metric .sw { width: 16px; height: 2px; border-radius: 1px; display: inline-block; position: relative; }
+.usage-page .trend-metric .sw::after { content: ""; position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; border-radius: 50%; transform: translate(-50%, -50%); background: inherit; border: 1px solid var(--c-panel); }
+.usage-page .trend-metric .sw.input { background: #9AA6B2; }
+.usage-page .trend-metric .sw.cache { background: #4C5866; }
+.usage-page .trend-metric .sw.output { background: #6BABF5; height: 3px; }
+.usage-page .trend-metric .sw.cost { background: repeating-linear-gradient(90deg, #E3B341 0 4px, transparent 4px 7px); }
 .usage-page .trend-metric .sep { width: 1px; height: 11px; background: var(--c-border); }
+
+/* 按模型的每日用量图例：与上方趋势图图例同形态（16px 线段 + 中点圆点），
+   只是色块换成各模型分色，故不复用 .sw.input/.cache/.output/.cost。 */
+.usage-page .trend-model {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 9px; font-size: 11px; color: var(--c-text3);
+}
+.usage-page .trend-model .m {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  user-select: none; max-width: 210px;
+}
+.usage-page .trend-model .m:hover { color: var(--c-text2); }
+.usage-page .trend-model .m.off { opacity: .4; }
+.usage-page .trend-model .sw {
+  width: 16px; height: 2px; border-radius: 1px; display: inline-block;
+  position: relative; flex: none;
+}
+.usage-page .trend-model .sw::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 5px; height: 5px;
+  border-radius: 50%; transform: translate(-50%, -50%);
+  background: inherit; border: 1px solid var(--c-panel);
+}
+.usage-page .trend-model .nm {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 10px;
+}
+.usage-page .trend-model .m .v { color: var(--c-text3); font-family: var(--mono); font-size: 9.5px; margin-left: 1px; }
+.usage-page .trend-model .m.on .v { color: var(--c-text2); }
+/* 图例线段上覆盖底色段，把 SVG 的 stroke-dasharray 画成 CSS 虚线预览；
+   段长/间隔由 --mdash 控制（与 SVG 同值：`10 5` → 10px 实、5px 空） */
+.usage-page .trend-model .sw[style*="--mdash"]::before {
+  content: ""; position: absolute; left: 0; top: 0; height: 100%;
+  background: repeating-linear-gradient(90deg, transparent 0 5px, var(--c-panel) 5px 10px);
+  background-size: 10px 100%;
+}
 
 /* ═══ 模型分布 ═══ */
 .usage-page .usage-mrow { display: grid; grid-template-columns: 16px 1fr auto; gap: 9px; align-items: center; padding: 5px 2px; border-bottom: 1px solid var(--c-border); }

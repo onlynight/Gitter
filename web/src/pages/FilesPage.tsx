@@ -5,6 +5,7 @@ import { EditorPane, type EditorPaneHandle, type EditorTab } from "./FilesEditor
 import { QuickOpen } from "./FilesQuickOpen";
 import { GlobalSearch } from "./FilesGlobalSearch";
 import { relOfWork } from "./filesPaths";
+import { loadSession, saveSession, type EditorSession, type EditorSessionTab } from "./filesEditorSession";
 
 /**
  * 项目文件树页面（files-editor-redesign-mockup.html）：
@@ -26,10 +27,64 @@ function loadWidth(): number {
   return Number.isFinite(n) ? Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, n)) : SIDEBAR_DEFAULT;
 }
 
+/** 仓库切换 → 会话（标签/激活位/光标位置 + 查看模式 + 预览滚动）按仓库加载；无仓库返回空会话 */
+function loadRepoSession(repo: { workDir: string; name: string } | null): EditorSession {
+  return repo ? loadSession(repo.workDir) : { tabs: [], active: null, views: {}, modes: {} };
+}
+
+/** 仓库相对路径 → Monaco model 键（与 createTextModel 挂的 file URI 同形；
+ *  不用 monaco.Uri——FilesPage 不依赖 Monaco 本体，避免页面间循环依赖）。 */
+function monacoUriFor(path: string): string {
+  return "file://" + path.replace(/\\/g, "/");
+}
+
+/** 会话锚点 → 当前内容中的实际行（抗文件改动错位）。
+ *  锚点文本 = 上次光标所在行；在当前内容中就近搜索命中即按命中行定位，
+ *  未命中（行已改写/删除）回退原行号并夹紧到文件内。
+ *  读失败/文件不在时直接返回原行号。 */
+async function resolveAnchor(repo: string, rel: string, line: number, col: number, text: string): Promise<number> {
+  const clamp = (max: number) => Math.max(1, Math.min(line, max || 1));
+  try {
+    // maxBytes 2MB：只取定位所需的前段内容，不做全量读取
+    const r = await pageSdk.call<{ content: string } | null>("file.content", { path: rel, maxBytes: 2 * 1024 * 1024 });
+    if (!r) return line;
+    const lines = r.content.split("\n");
+    if (lines.length === 0) return 1;
+    const target = (text || "").trimEnd();
+    // 空锚点（光标停在空行）不匹配——空串与任意空行都相等，会把恢复位误判到第 1 行
+    if (target && target.length <= 200) {
+      // 就近搜索：原行 ±40 行窗口，命中最近的一处
+      const win = Math.min(40, Math.floor(lines.length / 2));
+      const from = Math.max(0, line - 1 - win);
+      const to = Math.min(lines.length, line + win);
+      let best = -1;
+      let bestDist = Infinity;
+      for (let i = from; i < to; i++) {
+        if ((lines[i] || "").trimEnd() === target) {
+          const d = Math.abs(i + 1 - line);
+          if (d < bestDist) { bestDist = d; best = i + 1; }
+        }
+      }
+      if (best > 0) return best;
+    }
+    return clamp(lines.length);
+  } catch {
+    return line;
+  }
+}
+
 export function FilesPage() {
   const [treeData, setTreeData] = useState<{ entries: TreeEntry[]; hasMore: boolean }>({ entries: [], hasMore: false });
-  const [tabs, setTabs] = useState<EditorTab[]>([]);
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  // 标签/激活位初始化自会话持久化（跨窗口/重启恢复上次打开的文件）；
+  // key 使 EditorPane 随仓库变化重置内部 model 缓存，避免跨仓库残留
+  const [tabs, setTabs] = useState<EditorTab[]>(() => {
+    const s = loadRepoSession(pageSdk.repo());
+    return s.tabs.map((t) => ({ path: t.path, preview: !t.pinned, pinned: t.pinned }));
+  });
+  const [activeTab, setActiveTab] = useState<string | null>(() => {
+    const s = loadRepoSession(pageSdk.repo());
+    return s.tabs.some((t) => t.path === s.active) ? s.active : (s.tabs[0]?.path ?? null);
+  });
   const [loading, setLoading] = useState(false);
   const [width, setWidth] = useState(loadWidth);
   const [collapsed, setCollapsed] = useState(false);
@@ -43,12 +98,145 @@ export function FilesPage() {
   const [fsTick, setFsTick] = useState(0);
 
   const repo = pageSdk.repo();
+  const repoKey = repo?.workDir ?? "";
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
   const quickOpenRef = useRef(quickOpen);
   quickOpenRef.current = quickOpen;
   // 编辑器 imperative 面（文件树重命名/删除/剪切后同步标签与 model）
   const editorRef = useRef<EditorPaneHandle | null>(null);
+
+  // ---- 会话持久化（标签/激活位 + 光标位置；按仓库隔离，多窗口共享）----
+  const sessionsRef = useRef<Record<string, EditorSession>>({});
+  sessionsRef.current[repoKey] ??= loadRepoSession(repo);
+  const session = sessionsRef.current[repoKey];
+  const sessionSeqRef = useRef(0);
+
+  // 待补记锚点文本的位置（uri → 行/列）：锚点文本在会话恢复时为空，
+  // 首次写入该行位置时异步读取文件补记，保证下次恢复有锚点可用
+  const pendingAnchorRef = useRef(new Map<string, { path: string; line: number; col: number }>());
+
+  // 补记锚点文本（当前文件中该行的文本），写入会话后落盘
+  const fillAnchorText = useCallback(async (uri: string) => {
+    const item = pendingAnchorRef.current.get(uri);
+    const s = sessionsRef.current[repoKey];
+    if (!item || !s) return;
+    try {
+      const r = await pageSdk.call<{ content: string } | null>("file.content", { path: item.path, maxBytes: 2 * 1024 * 1024 });
+      if (!r) return;
+      const lines = r.content.split("\n");
+      const line = Math.max(1, Math.min(item.line, lines.length || 1));
+      const text = (lines[line - 1] ?? "").trimEnd();
+      const v = s.views[uri];
+      // 空行：锚点无法用于就近搜索（resolveAnchor 跳过空锚点），回退行号定位，不再补记
+      if (!text) { pendingAnchorRef.current.delete(uri); return; }
+      if (!v?.anchor) return;
+      v.anchor.text = text;
+      pendingAnchorRef.current.delete(uri);
+      saveSession(repoKey, s);
+    } catch {
+      // 读取失败：保留行号锚点，下次恢复回退行号定位
+    }
+  }, [repoKey]);
+
+  // 标签/激活位变化 → 记入会话并落盘（位置由 onPositionReport 写入同一份会话）
+  useEffect(() => {
+    if (!repoKey) return;
+    const s = sessionsRef.current[repoKey];
+    if (!s) return;
+    s.tabs = tabs.map((t) => ({ path: t.path, pinned: !!t.pinned }));
+    s.active = tabs.some((t) => t.path === activeTab) ? activeTab : null;
+    saveSession(repoKey, s);
+  }, [repoKey, tabs, activeTab]);
+
+  // 光标位置回报：写行/列（锚点文本异步补记）并落盘
+  const positionReport = useCallback((path: string, line: number, col: number) => {
+    const s = sessionsRef.current[repoKey];
+    if (!s) return;
+    const uri = monacoUriFor(path);
+    const v = (s.views[uri] ??= {});
+    v.anchor = { line, col, text: v.anchor?.text ?? "" };
+    if (!v.anchor.text) {
+      pendingAnchorRef.current.set(uri, { path, line, col });
+      void fillAnchorText(uri);
+    }
+    saveSession(repoKey, s);
+  }, [repoKey, fillAnchorText]);
+
+  // 查看模式回报（md/html 等查看器文件在编辑/预览间切换）：落盘下次重开时恢复。
+  // 仅当文件有查看器时该 mode 才有意义，普通代码文件不需要（但也不会上报，安全）
+  const modeReport = useCallback((path: string, mode: "edit" | "preview") => {
+    const s = sessionsRef.current[repoKey];
+    if (!s) return;
+    if (!s.modes) s.modes = {};
+    if (s.modes[path] === mode) return;
+    s.modes[path] = mode;
+    saveSession(repoKey, s);
+  }, [repoKey]);
+
+  // 预览态滚动位置回报（md/html 预览面板 onScroll）：落盘下次重开时恢复
+  const previewScrollReport = useCallback((path: string, top: number) => {
+    const s = sessionsRef.current[repoKey];
+    if (!s) return;
+    const uri = monacoUriFor(path);
+    const v = (s.views[uri] ??= {});
+    if (v.previewScroll === top) return;
+    v.previewScroll = top;
+    saveSession(repoKey, s);
+  }, [repoKey]);
+
+  // 卸载时兜底落盘一次（标签 effect 已覆盖常规路径；此处针对最后阶段的位置回报）
+  useEffect(() => () => {
+    if (repoKey && sessionsRef.current[repoKey]) saveSession(repoKey, sessionsRef.current[repoKey]!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoKey]);
+  // 首开定位：会话锚点 → 行/列（锚点文本抗文件改动错位，当前内容中就近搜索后取实际行）
+  const [initialReveals, setInitialReveals] = useState<Record<string, { line: number; col: number; ts: number }> | null>(null);
+  useEffect(() => {
+    if (!repoKey || !repo) {
+      setInitialReveals(null);
+      return;
+    }
+    let cancelled = false;
+    const paths = tabs.map((t) => t.path);
+    (async () => {
+      const out: Record<string, { line: number; col: number; ts: number }> = {};
+      for (const p of paths) {
+        const v = session.views[monacoUriFor(p)];
+        if (!v?.anchor) continue;
+        const line = await resolveAnchor(repo.workDir, p, v.anchor.line, v.anchor.col, v.anchor.text);
+        out[p] = { line, col: v.anchor.col, ts: ++sessionSeqRef.current };
+      }
+      if (!cancelled) setInitialReveals(Object.keys(out).length > 0 ? out : null);
+    })();
+    return () => { cancelled = true; };
+    // 定位是「首开」语义：仓库/标签集变化时重算一次，后续开关标签不再重复触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoKey, tabs.map((t) => t.path).join("|")]);
+
+  // 首开查看模式：从会话 modes 表读出（仅对有查看器的文件生效，md/html）；
+  // 编辑/预览状态在会话恢复后应用；预览态首次挂 preview iframe 前注入初始滚动
+  const initialModes = useMemo(() => {
+    if (!session.modes || Object.keys(session.modes).length === 0) return null;
+    const m = new Map<string, "edit" | "preview">();
+    for (const p of tabs) {
+      const mode = session.modes[p.path];
+      if (mode) m.set(p.path, mode);
+    }
+    return m.size > 0 ? m : null;
+  }, [session.modes, tabs.map((t) => t.path).join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 首开预览滚动：从会话 views[uri].previewScroll 读出，仅当该文件当前处于预览态时消费
+  const initialPreviewScrolls = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of tabs) {
+      const top = session.views[monacoUriFor(p.path)]?.previewScroll;
+      if (typeof top === "number" && Number.isFinite(top)) m.set(p.path, top);
+    }
+    return m.size > 0 ? m : null;
+  }, [session.views, tabs.map((t) => t.path).join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 加载文件树
   const loadTree = useCallback(async () => {
@@ -394,6 +582,7 @@ export function FilesPage() {
       />
       <div className="files-main">
         <EditorPane
+          key={repoKey}
           ref={editorRef}
           tabs={tabs}
           activeTab={activeTab}
@@ -412,6 +601,12 @@ export function FilesPage() {
           onDiscardFile={discardFile}
           onOpenDropped={openDropped}
           reveal={reveal}
+          initialReveals={initialReveals ?? undefined}
+          onPositionReport={positionReport}
+          initialModes={initialModes ?? undefined}
+          onModeChange={modeReport}
+          initialPreviewScrolls={initialPreviewScrolls ?? undefined}
+          onPreviewScroll={previewScrollReport}
           fsTick={fsTick}
         />
         {quickOpen && (

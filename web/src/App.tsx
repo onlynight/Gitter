@@ -157,6 +157,9 @@ export function App() {
   const app = useApp();
   const [palette, setPalette] = useState<{ prefill?: string; ts: number } | null>(null);
   const [mcpApproval, setMcpApproval] = useState<{ id: string; description: string; repo: string } | null>(null);
+  // 新窗/second-instance 请求的仓库（app.openRepo 事件）：优先于「上次仓库」恢复——
+  // 否则两者并发时后写覆盖前者，新窗可能落回主窗的上次项目
+  const openRepoReqRef = useRef<{ path: string; ts: number } | null>(null);
 
   // MCP 写操作人审卡（McpPipeHost.requestApproval 的 GUI 侧）
   useEffect(
@@ -175,16 +178,22 @@ export function App() {
         setState({ settings });
         await reapplyTheme(settings);
         await reapplyLanguage(settings);
-        const last = settings.currentProjectPath;
-        if (last) {
+        // 新窗请求的仓库抢占「上次仓库」：app.openRepo 与启动恢复并发时
+        // 以新窗意图为准（openRepo 事件先于/晚于本处取 settings 都可能发生）
+        const req = openRepoReqRef.current;
+        const target = req?.path ?? settings.currentProjectPath ?? null;
+        let opened = false;
+        if (target) {
           try {
-            const repo = await call<{ workDir: string; name: string }>("repo.open", { path: last });
+            const repo = await call<{ workDir: string; name: string }>("repo.open", { path: target });
             setState({ repo });
+            opened = true;
           } catch {
             setState({ repo: null });
           }
         }
-        setState({ booted: true, page: settings.currentProjectPath ? "log" : "projects" });
+        // 启动恢复期间 app.openRepo 才到达（req 为空）：处理器自行打开并切页，无需兜底
+        setState({ booted: true, page: opened ? "log" : (req || settings.currentProjectPath ? "log" : "projects") });
         // U1c：外部页面装载（R0/A3：bridge 侧内置包免门、用户包按 allowCodePlugins 门；SDK 全局先装）
         installUiApi();
         void loadExternalPages(settings.allowCodePlugins, settings.language);
@@ -210,9 +219,11 @@ export function App() {
     }
   }, [app.settings?.theme, app.settings?.themePackageId, app.settings?.diffMode, app.theme]);
 
-  // 主进程请求打开仓库（新窗口 / second-instance）
+  // 主进程请求打开仓库（新窗口 / second-instance）：记录意图供启动装配消费，
+  // 并直接打开——已启动完毕时立即生效，启动期间由 boot effect 统一收敛页面态
   useEffect(() =>
     onEvent("app.openRepo", async (p: { path: string }) => {
+      openRepoReqRef.current = { path: p.path, ts: Date.now() };
       try {
         const repo = await call<{ workDir: string; name: string }>("repo.open", { path: p.path });
         setState({ repo, page: "log" });

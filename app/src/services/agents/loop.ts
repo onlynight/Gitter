@@ -37,6 +37,8 @@ export interface LoopOptions {
   /** §20.3.4 循环契约 v2：只读服务代理（授权/提问/计划/todo/子代理）——门在宿主，插件拿不到裸执行体 */
   services?: LoopServices;
   onEvent: (ev: AgentSessionEvent) => void;
+  /** 工具调用开始回调（宿主侧把 callId 写进 ToolEnv.callId，供工具内关联 shellId 等子实体） */
+  onToolCallStart?: (callId: string, name: string) => void;
 }
 
 export interface LoopResult {
@@ -196,6 +198,8 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
             const callId = String((part as { toolCallId?: string }).toolCallId ?? `c${openCalls.size}`);
             const source = toolSourceOf(part.toolName);
             openCalls.set(callId, { name: part.toolName, args: part.input, start: Date.now(), source });
+            // 宿主侧把 callId 写进 ToolEnv.callId（工具内据此关联 shellId 等子实体）
+            o.onToolCallStart?.(callId, part.toolName);
             o.onEvent({
               type: "tool",
               phase: "start",
@@ -274,6 +278,17 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
       // 中断判定不依赖 usage 是否 reject：挂起流被 abort 后 fullStream 正常收尾、流中无 error part，
       // 必须显式检查信号，否则误判为 completed
       if (o.signal.aborted) {
+        // 补发未闭合工具的终结事件（task-page-command-terminal-design.md §3.4）——
+        // 否则时间线里这些工具卡永久停留 running（journal 持久化后跨重启保留）。
+        // 归约（前端）负责历史孤儿块；补事件负责增量，两者互补。
+        for (const [cid, open] of openCalls) {
+          o.onEvent({
+            type: "tool", phase: "end", callId: cid, name: open.name, args: open.args,
+            result: "命令已中断（会话停止）。", durationMs: Date.now() - open.start,
+            isError: true, source: open.source, subtaskId: undefined,
+          });
+          openCalls.delete(cid);
+        }
         o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
         return { outcome: "cancelled", lastMessage: finalText.trim() || null, usage, error: "已中断" };
       }
@@ -304,6 +319,15 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
       const err = e as Error;
       if (err.name === "AbortError" || o.signal.aborted) {
         await writebackMessages(o.messages, result);
+        // 补发未闭合工具的终结事件（同 try 块的中断分支；task-page-command-terminal-design.md §3.4）
+        for (const [cid, open] of openCalls) {
+          o.onEvent({
+            type: "tool", phase: "end", callId: cid, name: open.name, args: open.args,
+            result: "命令已中断（会话停止）。", durationMs: Date.now() - open.start,
+            isError: true, source: open.source, subtaskId: undefined,
+          });
+          openCalls.delete(cid);
+        }
         o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
         return { outcome: "cancelled", lastMessage: finalText.trim() || null, usage, error: "已中断" };
       }

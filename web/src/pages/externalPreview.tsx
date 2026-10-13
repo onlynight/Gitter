@@ -9,7 +9,7 @@
  * 文件页画布（filesViewers seam）与任务面板预览共用——本模块不依赖 monaco/pageSdk
  * （页面私有依赖边界），RPC 走 bridge/client。
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { call } from "../bridge/client";
 import { useAppState } from "../pageSdk";
 
@@ -146,6 +146,10 @@ export function ExternalFilePreview(props: {
   fallbackTitle?: string;
   fallbackBody?: string;
   editLabel?: string;
+  /** 首开预览滚动位置（会话恢复；iframe 加载后 / pre 挂载后应用一次） */
+  initialScrollTop?: number;
+  /** 预览态滚动位置回报（滚动停止 400ms 后；供宿主持久化） */
+  onScrollTop?: (top: number) => void;
 }) {
   // 主题（亮暗）来自页面状态：变化即重拉 file.preview——代码块高亮色随主题即时更新
   const theme = useAppState().theme;
@@ -181,17 +185,149 @@ export function ExternalFilePreview(props: {
 
   const name = props.path.split("/").pop() ?? props.path;
 
+  // 预览态滚动位置持久化：iframe（html/md）与 <pre> 两种形态分别走不同通道。
+  // MD iframe 加 allow-same-origin（不放 allow-scripts，脚本仍禁）——parent 才能读 contentWindow。
+  // HTML 原文 sandbox 保留 allow-scripts（原文里的脚本照常跑），用 postMessage 收 scroll。
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const preRef = useRef<HTMLPreElement | null>(null);
+  const scrollTimerRef = useRef<number | null>(null);
+  const propsRef = useRef({ initialScrollTop: props.initialScrollTop, onScrollTop: props.onScrollTop });
+  propsRef.current = { initialScrollTop: props.initialScrollTop, onScrollTop: props.onScrollTop };
+
+  // 滚动停止 400ms 后上报（避免滚轮事件密度爆 localStorage 写盘）
+  const reportScroll = useCallback((top: number) => {
+    if (scrollTimerRef.current !== null) window.clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = window.setTimeout(() => {
+      scrollTimerRef.current = null;
+      propsRef.current.onScrollTop?.(top);
+    }, 400);
+  }, []);
+
+  // iframe 挂载：注入初始 scrollTop + 订阅 scroll 事件
+  useEffect(() => {
+    if (phase.kind !== "html") return;
+    const f = frameRef.current;
+    if (!f) return;
+    let cleanedUp = false;
+    const applyInitial = () => {
+      if (cleanedUp) return;
+      const w = f.contentWindow;
+      if (!w) return;
+      const t = propsRef.current.initialScrollTop;
+      if (typeof t === "number" && t > 0) {
+        try {
+          // MD iframe 有 allow-same-origin：直接 scroll。HTML 原文保持 origin 隔离：postMessage 命令滚动
+          if (htmlRaw) {
+            w.postMessage({ type: "preview-restore", scrollY: t }, "*");
+          } else {
+            w.scrollTo(0, t);
+          }
+        } catch { /* 静默 */ }
+      }
+    };
+    f.addEventListener("load", applyInitial);
+    return () => {
+      cleanedUp = true;
+      f.removeEventListener("load", applyInitial);
+      // 卸载时把待上报的滚动位置直接刷出（否则快速关闭时会丢最后一次滚动）
+      const pending = scrollTimerRef.current;
+      if (pending !== null) {
+        window.clearTimeout(pending);
+        // 400ms 计时器触发前手动 flush 最后一次 scrollY
+        const w = f.contentWindow;
+        if (w) {
+          try {
+            if (htmlRaw) {
+              // HTML 原文（origin 隔离）：postMessage 命令读一次
+              w.postMessage({ type: "preview-flush" }, "*");
+            } else {
+              const t = w.scrollY ?? 0;
+              propsRef.current.onScrollTop?.(t);
+            }
+          } catch { /* 静默 */ }
+        }
+      }
+      scrollTimerRef.current = null;
+    };
+  }, [phase.kind, htmlRaw, reportScroll]);
+
+  // HTML 原文 srcdoc：追加滚动上报脚本（postMessage 到 parent；不放开 allow-same-origin，保留 origin 隔离）
+  // 直接字符串拼接——不改 head/body 结构（原文里的 head/style/script 全部保留原样）
+  const [htmlWithTracker, setHtmlWithTracker] = useState<string | null>(null);
+  const phaseContent = phase.kind === "html" || phase.kind === "text" ? phase.content : "";
+  useEffect(() => {
+    if (phase.kind !== "html" || !htmlRaw) { setHtmlWithTracker(null); return; }
+    const script = `<script>(function(){var t=null;function flush(){parent.postMessage({type:'preview-scroll',scrollY:window.scrollY},'*')}window.addEventListener('scroll',function(){if(t)clearTimeout(t);t=setTimeout(function(){t=null;flush()},400)},{passive:true});window.addEventListener('message',function(e){var d=e.data;if(d&&d.type==='preview-restore'&&typeof d.scrollY==='number'){window.scrollTo(0,d.scrollY)}else if(d&&d.type==='preview-flush'){flush()}});parent.postMessage({type:'preview-ready'},'*')})();<\/script>`;
+    setHtmlWithTracker(phaseContent + script);
+  }, [phase.kind, htmlRaw, phaseContent]);
+
+  // HTML 原文：postMessage 接收滚动位置
+  useEffect(() => {
+    if (!htmlRaw) return;
+    const onMsg = (e: MessageEvent) => {
+      const f = frameRef.current;
+      if (!f || e.source !== f.contentWindow) return;
+      const d = e.data as { type?: string; scrollY?: number };
+      if (d?.type === "preview-scroll" && typeof d.scrollY === "number") {
+        reportScroll(d.scrollY);
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [htmlRaw, reportScroll]);
+
+  // <pre> 文本形态：onScroll 事件
+  const onPreScroll = useCallback(() => {
+    const el = preRef.current;
+    if (el) reportScroll(el.scrollTop);
+  }, [reportScroll]);
+  useEffect(() => {
+    if (phase.kind !== "text") return;
+    const el = preRef.current;
+    if (!el) return;
+    const t = propsRef.current.initialScrollTop;
+    if (typeof t === "number" && t > 0) {
+      try { el.scrollTop = t; } catch { /* 越界时静默 */ }
+    }
+  }, [phase.kind]);
+
+  // 组件卸载：flush 待上报的滚动位置（<pre> 走的是 scrollTimerRef 共享计时器，
+  // iframe effect 的清理只在 phase.kind === "html" 时执行，text 形态在此兜底）
+  useEffect(() => () => {
+    const pending = scrollTimerRef.current;
+    if (pending !== null) {
+      window.clearTimeout(pending);
+      scrollTimerRef.current = null;
+    }
+    const el = preRef.current;
+    if (el) {
+      try { propsRef.current.onScrollTop?.(el.scrollTop); } catch { /* 静默 */ }
+    }
+  }, []);
+
   return (
     <div style={{ position: "absolute", inset: 0 }}>
       {phase.kind === "loading" ? null : phase.kind === "html" ? (
         <iframe
+          ref={frameRef}
           className="extpreview-frame"
-          sandbox={htmlRaw ? "allow-scripts allow-forms allow-modals" : ""}
+          sandbox={htmlRaw ? "allow-scripts allow-forms allow-modals" : "allow-same-origin"}
           title={name}
-          srcDoc={htmlRaw ? phase.content : mdSrcdoc(phase.content, dark)}
+          srcDoc={htmlRaw ? (htmlWithTracker ?? phase.content) : mdSrcdoc(phase.content, dark)}
+          onLoad={() => {
+            // MD iframe：sandbox="allow-same-origin"（脚本仍禁，但 origin 与 parent 同）——
+            // parent 可安全订阅 contentWindow scroll 事件。HTML 原文走 postMessage（不放开 origin）
+            const f = frameRef.current;
+            const w = f?.contentWindow;
+            if (w && !htmlRaw) {
+              w.addEventListener("scroll", () => {
+                reportScroll(w.scrollY ?? 0);
+              });
+            }
+          }}
         />
       ) : phase.kind === "text" ? (
-        <pre className="extpreview-text">{phase.content}</pre>
+        <pre ref={preRef} className="extpreview-text" onScroll={onPreScroll}>{phase.content}</pre>
       ) : (
         <div className="office-welcome">
           <div className="edwm">{name}</div>

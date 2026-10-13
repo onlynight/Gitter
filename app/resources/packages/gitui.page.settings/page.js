@@ -407,71 +407,18 @@
         rep.emptyRepos.length,
         " 个仓库暂无任务账本（未跑过 agent 任务）"
       ] }),
-      /* @__PURE__ */ jsxRuntime.jsx("h4", { style: { margin: "10px 0 4px", fontSize: 12 }, children: "按天" }),
-      /* @__PURE__ */ jsxRuntime.jsxs("table", { className: "usage-table", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("thead", { children: /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "日期" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "轮次" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输入 tok" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输出 tok" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "缓存命中" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "费用" })
-        ] }) }),
-        /* @__PURE__ */ jsxRuntime.jsxs("tbody", { children: [
-          rep.byDay.slice(-30).reverse().map((d) => /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: d.day }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: d.turns }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(d.inputTokens) }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(d.outputTokens) }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(d.cacheReadTokens) }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtCost(d.cost) })
-          ] }, d.day)),
-          rep.byDay.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("tr", { children: /* @__PURE__ */ jsxRuntime.jsx("td", { colSpan: 6, className: "hint", children: "暂无数据" }) })
-        ] })
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", style: { marginTop: 6 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", style: { fontSize: 11 }, children: [
+          rep.byTask.length,
+          " 个任务 · ",
+          rep.byModel.length,
+          " 个模型档案",
+          rep.cacheBreaks > 0 ? ` · ${rep.cacheBreaks} 次缓存断点` : ""
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => pageSdk.navigate("usage"), children: "在用量页查看 →" })
       ] }),
-      /* @__PURE__ */ jsxRuntime.jsx("h4", { style: { margin: "10px 0 4px", fontSize: 12 }, children: "按模型" }),
-      /* @__PURE__ */ jsxRuntime.jsxs("table", { className: "usage-table", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("thead", { children: /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "档案" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "轮次" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输入 tok" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输出 tok" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "费用" })
-        ] }) }),
-        /* @__PURE__ */ jsxRuntime.jsxs("tbody", { children: [
-          rep.byModel.map((m) => /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
-            /* @__PURE__ */ jsxRuntime.jsx("td", { title: m.modelRef, children: m.modelRef.split("/").pop() }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: m.turns }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(m.inputTokens) }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(m.outputTokens) }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtCost(m.cost) })
-          ] }, m.modelRef)),
-          rep.byModel.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("tr", { children: /* @__PURE__ */ jsxRuntime.jsx("td", { colSpan: 5, className: "hint", children: "暂无数据" }) })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntime.jsx("h4", { style: { margin: "10px 0 4px", fontSize: 12 }, children: "按任务（最近 20）" }),
-      /* @__PURE__ */ jsxRuntime.jsxs("table", { className: "usage-table", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("thead", { children: /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "任务" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "状态" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "轮次" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输入 tok" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "输出 tok" }),
-          /* @__PURE__ */ jsxRuntime.jsx("th", { children: "费用" })
-        ] }) }),
-        /* @__PURE__ */ jsxRuntime.jsxs("tbody", { children: [
-          rep.byTask.slice(0, 20).map((t2) => /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
-            /* @__PURE__ */ jsxRuntime.jsx("td", { title: t2.title, children: t2.title.slice(0, 32) }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: t2.state }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: t2.turns }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(t2.inputTokens) }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtTok(t2.outputTokens) }),
-            /* @__PURE__ */ jsxRuntime.jsx("td", { children: fmtCost(t2.cost) })
-          ] }, t2.taskId)),
-          rep.byTask.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("tr", { children: /* @__PURE__ */ jsxRuntime.jsx("td", { colSpan: 6, className: "hint", children: "暂无数据" }) })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", style: { marginTop: 4 }, children: "费用 = 档案单价（订阅卡内配置，$/Mtok）× token；未配置单价的档案不计费。" })
+      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint", style: { marginTop: 4 }, children: "费用 = 档案单价（订阅卡内配置，$/Mtok）× token；未配置单价的档案显示「—」而非 0。" })
     ] });
   }
   function AboutUpdateSection() {

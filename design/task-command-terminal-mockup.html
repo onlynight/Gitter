@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>任务页设计稿 v2 —— 命令可观测性（中断归约 × 卡片可点 × 跳「后台」tab）</title>
+<style>
+:root{
+  --bg:#ffffff; --panel:#fafafa; --panel2:#f2f2f2; --border:#e2e2e2; --border2:#d4d4d4;
+  --text:#1a1a1a; --dim:#6b6b6b; --dim2:#9a9a9a;
+  --amber:#b45309; --amber-bg:rgba(180,83,9,.10); --red:#b3261e; --red-bg:rgba(179,38,30,.08);
+  --code-bg:#f7f7f7; --plus:#1a7f37; --minus:#b3261e;
+}
+html[data-theme="dark"]{
+  --bg:#1e1e1e; --panel:#242424; --panel2:#2a2a2a; --border:#3a3a3a; --border2:#4a4a4a;
+  --text:#e6e6e6; --dim:#9a9a9a; --dim2:#6b6b6b;
+  --amber:#d97706; --amber-bg:rgba(217,119,6,.14); --red:#e5534b; --red-bg:rgba(229,83,75,.10);
+  --code-bg:#202020; --plus:#4caf50; --minus:#e5534b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:13px/1.55 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+.mono{font-family:"Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.app{display:grid;grid-template-rows:32px 1fr;height:100vh}
+/* ── 标题栏 ── */
+.tb{display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--border);background:var(--panel)}
+.tb .lg{width:16px;height:16px;border-radius:4px;background:var(--text);color:var(--bg);display:grid;place-items:center;font-size:10px;font-weight:700}
+.tb .tt{font-size:12px;color:var(--dim)}
+.tb .sp{flex:1}
+.tb .demo{font-size:11px;color:var(--dim2);padding:2px 8px;border:1px solid var(--border);border-radius:10px}
+.tb .th{font-size:11px;color:var(--dim);padding:3px 9px;border:1px solid var(--border);border-radius:6px}
+.tb .th:hover{background:var(--panel2)}
+/* ── 布局 ── */
+.main{display:grid;grid-template-columns:200px 1fr 1fr;min-height:0}
+.side{border-right:1px solid var(--border);padding:10px 8px;overflow:auto}
+.side .h{font-size:11px;color:var(--dim2);margin:8px 4px 4px}
+.task{padding:7px 9px;border-radius:7px;cursor:pointer;margin-bottom:2px}
+.task:hover{background:var(--panel2)}
+.task.on{background:var(--panel2);border:1px solid var(--border)}
+.task .n{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task .s{font-size:10.5px;color:var(--dim2);display:flex;align-items:center;gap:5px;margin-top:2px}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot.stop{background:var(--dim2)}
+.dot.run{background:var(--amber);box-shadow:0 0 0 3px var(--amber-bg)}
+/* ── 会话列 ── */
+.chat{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border)}
+.tabs{display:flex;align-items:center;gap:2px;padding:6px 10px 0;border-bottom:1px solid var(--border)}
+.tk-tab{font-size:12px;color:var(--dim);padding:5px 10px;border-bottom:2px solid transparent;cursor:pointer;display:flex;align-items:center;gap:5px}
+.tk-tab:hover{color:var(--text)}
+.tk-tab.on{color:var(--text);border-bottom-color:var(--text)}
+.tk-tab .n{font-size:10px;background:var(--panel2);border-radius:8px;padding:0 5px;color:var(--dim)}
+.tk-pill{margin-left:auto;font-size:11px;padding:3px 9px;border-radius:11px;border:1px solid var(--border);color:var(--dim2);display:flex;align-items:center;gap:6px}
+.tk-pill.amber{background:var(--amber-bg);border-color:transparent;color:var(--amber)}
+.tk-pill .d{width:6px;height:6px;border-radius:50%;background:var(--amber);animation:pulse 1.2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.stream{flex:1;overflow:auto;padding:14px 18px 20px}
+.stream .turn-h{font-size:11px;color:var(--dim2);display:flex;align-items:center;gap:7px;margin:14px 0 8px}
+.stream .turn-h .sep{flex:1;height:1px;background:var(--border)}
+.user-bub{margin-left:auto;max-width:78%;background:var(--panel2);border:1px solid var(--border);
+  border-radius:14px 14px 4px 14px;padding:8px 12px;font-size:13.5px;margin-bottom:12px}
+.assistant{font-size:13.5px;line-height:1.7;margin-bottom:12px}
+/* 动作行 */
+.al{display:flex;align-items:center;gap:9px;padding:2px 8px;border-radius:8px;cursor:pointer;min-height:24px}
+.al:hover{background:var(--panel2)}
+.al .ic{width:16px;height:16px;flex:none;color:var(--dim);font-size:13px;text-align:center}
+.al.live .ic{color:var(--amber);animation:blink 1.1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.al .nm{font-size:13px;font-weight:600;flex:none}
+.al.live .nm{background:linear-gradient(90deg,var(--amber) 0%,var(--amber) 100%);background-size:200% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;animation:shim 1.6s infinite linear}
+@keyframes shim{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.al .arg{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.al .du{font-size:11px;color:var(--dim2);flex:none;font-family:"Cascadia Code",Consolas,monospace}
+.al .du.aborted{color:var(--dim2)}
+.al .du.err{color:var(--red)}
+.al .du.amber{color:var(--amber)}
+.al .termbtn{flex:none;padding:2px 8px;border-radius:5px;display:inline-flex;align-items:center;gap:4px;color:var(--dim2);font-size:11px;border:1px solid transparent;white-space:nowrap}
+.al .termbtn:hover{color:var(--text);background:var(--bg);border-color:var(--border)}
+.al .termbtn.dis{opacity:.35;cursor:not-allowed}
+.al .termbtn.open{color:var(--text);background:var(--bg);border-color:var(--border)}
+.tag{font-size:10px;padding:1px 6px;border-radius:9px;border:1px solid var(--border);color:var(--dim2);font-family:"Cascadia Code",Consolas,monospace}
+/* 读出框 */
+.readout{margin:3px 0 4px 25px;border:1px solid var(--border);background:var(--panel);border-radius:10px;
+  overflow:hidden;max-height:200px;display:flex;flex-direction:column}
+.readout.err{border-color:rgba(179,38,30,.32)}
+.readout .hd{font-size:10.5px;color:var(--dim2);padding:4px 10px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center}
+.readout .bd{padding:6px 10px;font-family:"Cascadia Code",Consolas,monospace;font-size:11.5px;line-height:1.65;color:var(--dim);overflow:auto}
+.readout .bd .cut{color:var(--red)}
+.abort-line{display:flex;align-items:center;gap:8px;color:var(--dim2);font-size:11px;margin-top:4px}
+.abort-line .l{flex:1;height:1px;background:var(--border)}
+/* 状态行 */
+.statbar{height:30px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:0 14px;font-size:11.5px;color:var(--dim2)}
+.statbar .live{color:var(--amber);display:flex;align-items:center;gap:6px}
+/* ── 改动面板（终端 tab 宿主） ── */
+.panel{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.ptabs{display:flex;align-items:center;gap:3px;padding:7px 10px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:thin}
+.ptab{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:7px;font-size:12px;color:var(--dim);
+  cursor:pointer;flex:none;max-width:180px;border:1px solid transparent}
+.ptab:hover{background:var(--panel2)}
+.ptab.on{background:var(--panel2);color:var(--text);border-color:var(--border)}
+.ptab .ic{width:14px;height:14px;flex:none;color:var(--dim2);font-size:11px;text-align:center}
+.ptab .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ptab .x{flex:none;width:16px;height:16px;border-radius:4px;display:grid;place-items:center;font-size:11px;color:var(--dim2);opacity:0}
+.ptab:hover .x,.ptab.on .x{opacity:1}
+.ptab .x:hover{background:var(--bg);color:var(--text)}
+.ptab.new{border:1px dashed var(--border2);color:var(--dim2);justify-content:center;width:26px}
+.ptab.add{margin-left:auto;border:1px solid var(--border);color:var(--dim2);justify-content:center;width:26px}
+.ptab.amber-dot .dot{background:var(--amber);box-shadow:0 0 0 2px var(--amber-bg)}
+.pbody{flex:1;overflow:hidden;display:flex;flex-direction:column;background:var(--bg)}
+.pbody.empty{align-items:center;justify-content:center;color:var(--dim2);font-size:12px;text-align:center;padding:24px}
+.term{display:flex;flex-direction:column;min-height:0;flex:1}
+.term-h{height:34px;display:flex;align-items:center;gap:9px;padding:0 10px;border-bottom:1px solid var(--border);background:var(--panel);flex:none}
+.term-h .ic{font-size:13px;color:var(--dim)}
+.term-h .tt{font-size:12px;font-weight:600}
+.term-h .sp{flex:1}
+.term-h .st{font-size:11px;color:var(--dim2);font-family:"Cascadia Code",Consolas,monospace;display:flex;align-items:center;gap:6px}
+.term-h .st.amber{color:var(--amber)}
+.term-h .st.err{color:var(--red)}
+.term-h .st .d{width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.term-h .x{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;color:var(--dim2);font-size:12px}
+.term-h .x:hover{background:var(--bg);color:var(--text)}
+.cmdline{font-family:"Cascadia Code",Consolas,monospace;font-size:12px;line-height:1.5;padding:6px 10px;
+  overflow-x:auto;white-space:nowrap;border-bottom:1px solid var(--border);color:var(--dim);flex:none;scrollbar-width:thin}
+.cmdline .pr{color:var(--dim2);margin-right:6px}
+.term-body{flex:1;overflow:auto;font-family:"Cascadia Code",Consolas,monospace;font-size:12px;line-height:1.65;
+  padding:8px 10px 40px;position:relative;scrollbar-width:thin}
+.term-body .l{white-space:pre-wrap;word-break:break-all}
+.term-body .dim{color:var(--dim2)}
+.term-body .gr{color:var(--dim)}
+.term-body .am{color:var(--amber)}
+.term-body .rd{color:var(--red)}
+.term-body .bl{color:var(--blue,#2563eb)}
+.cursor{display:inline-block;width:7px;height:14px;background:var(--amber);vertical-align:-2px;animation:pulse 1s infinite}
+.toLatest{position:absolute;bottom:8px;right:12px;font-size:11px;padding:4px 10px;border-radius:12px;
+  background:var(--panel2);border:1px solid var(--border);color:var(--dim);cursor:pointer;display:none}
+.toLatest.show{display:block}
+.toLatest:hover{background:var(--bg);color:var(--text)}
+/* ── 说明区 ── */
+.notes{position:fixed;right:16px;bottom:16px;width:290px;background:var(--panel);border:1px solid var(--border2);
+  border-radius:12px;padding:11px 13px;font-size:11.5px;line-height:1.6;color:var(--dim);box-shadow:0 8px 28px rgba(0,0,0,.10)}
+.notes h4{margin:0 0 6px;font-size:12px;color:var(--text);font-weight:650}
+.notes b{color:var(--text);font-weight:600}
+.notes .k{color:var(--amber)}
+.notes .close{position:absolute;top:7px;right:8px;color:var(--dim2);font-size:13px}
+.foot{position:fixed;left:16px;bottom:16px;font-size:11px;color:var(--dim2);max-width:520px}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 标题栏 -->
+  <div class="tb">
+    <div class="lg">G</div><div class="tt">Gitter · 设计稿</div>
+    <div class="sp"></div>
+    <span class="demo">任务页 · 命令可观测性 · v2（跳「后台」tab）</span>
+    <button class="th" id="themeBtn">深色</button>
+  </div>
+  <div class="main">
+    <!-- 任务列表 -->
+    <div class="side">
+      <div class="h">今天</div>
+      <div class="task" id="t1"><div class="n">参考 vscode 的语法加载…</div>
+        <div class="s"><span class="dot stop"></span>已停止 · 3 分钟前</div></div>
+      <div class="task" id="t2"><div class="n">任务页会话流 v4.7 落地</div>
+        <div class="s"><span class="dot run"></span>运行中 · turn #3</div></div>
+      <div class="h">昨天</div>
+      <div class="task" id="t3"><div class="n">stash 冲突解决</div>
+        <div class="s"><span class="dot stop"></span>已停止 · 已完成</div></div>
+      <div class="task" id="t4"><div class="n">变更页 amend 勾选</div>
+        <div class="s"><span class="dot stop"></span>已停止</div></div>
+    </div>
+
+    <!-- 会话流（已停止任务：展示中断归约） -->
+    <div class="chat">
+      <div class="tabs">
+        <div class="tk-tab on">对话</div>
+        <div class="tk-tab">改动<span class="n">4</span></div>
+        <div class="tk-tab">检查点<span class="n">2</span></div>
+        <div class="tk-tab">后台</div>
+        <!-- 已停止 → 药丸不出现，这是设计要点 -->
+      </div>
+      <div class="stream" id="stream">
+        <div class="turn-h">你 · 14:31<span class="sep"></span></div>
+        <div class="user-bub">参考 vscode 的语法加载机制，分析当前 grammar 加载的卡顿原因</div>
+        <div class="assistant">The Windows libuv crash is a pre-existing teardown quirk with user-grammar loading — it reproduces with plain <code class="mono">GrammarService</code> + user-grammar fixture. Let me drain cleanly.</div>
+
+        <!-- ⭐ 归约示例 1：已停止任务里的孤儿 running 块 → 已中断 -->
+        <div class="al" id="c1">
+          <span class="ic">▸</span>
+          <span class="nm">执行命令</span>
+          <span class="arg mono">cd D:\Code\Gitter\app &amp;&amp; node -e "const {Registry} = require('vscode-textmate'); ..."</span>
+          <span class="du aborted">已中断 · 47s</span>
+          <button class="termbtn" title="在「后台」页签查看执行详情" data-t="cmd1">⤴ 后台</button>
+        </div>
+        <div class="readout" id="r1" style="display:none">
+          <div class="hd"><span>退出码 — 1</span><span>已捕获输出</span></div>
+          <div class="bd mono">npm notice run gitter-app@0.1.0 build
+npm notice run tsc -p tsconfig.json
+src/main.ts(206,26): error TS2769: No overload matches this call.
+<span class="abort-line"><span class="l"></span>输出中断 · 会话停止</span></div>
+        </div>
+
+        <div class="assistant">I'm wondering if the delay is what matters here, or if something in the grammar loading and caching is the real issue. Wait, setImmediate worked this time? Let me re-check.</div>
+
+        <!-- ⭐ 归约示例 2：另一条孤儿 running 块 -->
+        <div class="al" id="c2">
+          <span class="ic">▸</span>
+          <span class="nm">执行命令</span>
+          <span class="arg mono">cd D:\Code\Gitter\app &amp;&amp; node -e "const {Registry} = require('vscode-te..."</span>
+          <span class="du aborted">已中断 · 12s</span>
+          <button class="termbtn" title="在「后台」页签查看执行详情" data-t="cmd2">⤴ 后台</button>
+        </div>
+
+        <!-- 正常的已完成命令（可点终端看完整输出） -->
+        <div class="al" id="c3">
+          <span class="ic">▸</span>
+          <span class="nm">编辑文件</span>
+          <span class="arg mono">app/src/smoke-gitter-exts.ts</span>
+          <span class="du">1 处修改，+4 −1</span>
+        </div>
+
+        <div class="al" id="c4">
+          <span class="ic">▸</span>
+          <span class="nm">执行命令</span>
+          <span class="arg mono">cd D:\Code\Gitter\app &amp;&amp; node -e "const {Registry} = require('vscode-te..."</span>
+          <span class="du">· 0.3s</span>
+          <button class="termbtn" title="在「后台」页签查看执行详情" data-t="cmd4">⤴ 后台</button>
+        </div>
+        <div class="readout" id="r4" style="display:none">
+          <div class="hd"><span>exit 0</span><span>完整输出</span></div>
+          <div class="bd mono">npm notice run gitter-app@0.1.0 build
+npm notice run tsc -p tsconfig.json
+BUILD OK</div>
+        </div>
+
+        <div class="turn-h">你 · 14:34<span class="sep"></span></div>
+        <div class="user-bub">追加输入：命令和后面的字体调整成一样大小</div>
+
+        <!-- 已停止 → 中断结果行（v4.7 追加七） -->
+        <div class="readout" style="margin-left:0">
+          <div class="bd mono" style="color:var(--dim2)">✕ 已停止 — 已手动停止本轮
+          <span style="color:var(--dim2)">会话已中断 · 发送消息可继续</span></div>
+        </div>
+      </div>
+      <div class="statbar">
+        <!-- 已停止任务：状态行不显示运行计时（设计要点） -->
+        <span class="dim">✕ 已停止 · 3 分钟前</span>
+        <span style="flex:1"></span>
+        <span>↑ 26.4k · ↓ 28.0k</span>
+      </div>
+    </div>
+
+    <!-- 改动面板（v2：后台 tab 列表 + 详情两级；不新增 tab） -->
+    <div class="panel">
+      <div class="ptabs" id="ptabs">
+        <div class="ptab on" data-p="shells"><span class="ic">▸</span><span class="nm">后台</span></div>
+        <div class="ptab new" title="收起面板" style="margin-left:auto">⇥</div>
+      </div>
+      <div class="pbody" id="pbody">
+        <!-- 后台 tab 内容：列表 + 内嵌详情（两级） -->
+        <div id="shellView">
+          <!-- 详情页：从命令卡 ⤴ 跳转后选中并展开 -->
+          <div id="shellDetail" style="display:none">
+            <div class="term-h">
+              <button class="back" id="backToList" style="font-size:11px;color:var(--dim);padding:2px 8px;border:1px solid var(--border);border-radius:5px">← 列表</button>
+              <span class="dot" style="background:var(--dim2)"></span>
+              <span class="tt mono" style="font-size:11.5px">cd D:\Code\Gitter\app &amp;&amp; node -e "const {Registry} = ..."</span>
+              <div class="sp"></div>
+              <span class="st" style="color:var(--dim2)">exit — 1</span>
+            </div>
+            <div class="term-body" id="termBody1" style="padding:8px 12px 12px">
+              <div class="l dim">npm notice run gitter-app@0.1.0 build</div>
+              <div class="l dim">npm notice run tsc -p tsconfig.json</div>
+              <div class="l dim">npm notice run electron-rebuild -f -w node-pty</div>
+              <div class="l dim">Searching dependency tree</div>
+              <div class="l dim">Building modules: node-pty</div>
+              <div class="l">src/main.ts(<span class="rd">206,26</span>): error TS2769: No overload matches this call.</div>
+              <div class="l dim">The last overload gave the following error:</div>
+              <div class="l dim">  Argument of type '"gitter:dom-ready"' is not assignable to parameter</div>
+              <div class="l dim">  of type '"zoom-changed"'.</div>
+              <div class="l">src/pages/FilesEditorPane.tsx(<span class="rd">124,10</span>): error TS2552: Cannot find name 'monaco'.</div>
+              <div class="l dim">Did you mean 'MonacoNs'?</div>
+              <div class="l">src/pages/filesEditorSession.ts(<span class="rd">11,15</span>): error TS2305: Module '"monaco-editor"'</div>
+              <div class="l dim">has no exported member 'MonacoEditorViewState'.</div>
+              <div class="l" style="color:var(--amber)"><span style="display:inline-block;width:1px;height:14px;background:var(--amber);vertical-align:-2px"></span> 输出中断 · 会话停止（47s 时手动停止）</div>
+            </div>
+          </div>
+          <!-- 列表页：所有 shell 条目 -->
+          <div id="shellList">
+            <div style="padding:10px 12px;font-size:12px;color:var(--dim)">agent 命令执行记录（terminal_run 前/后台）</div>
+            <!-- 前台命令示例（前台标签） -->
+            <div class="tk-shell-item on" data-s="s1" style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span class="dot" style="background:var(--dim2);width:7px;height:7px;border-radius:50%;flex:none"></span>
+                <span class="mono" style="font-size:11.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">cd D:\Code\Gitter\app &amp;&amp; node -e "const {Registry} = ..."</span>
+                <span style="font-size:10px;color:var(--dim2);border:1px solid var(--border);border-radius:4px;padding:0 4px;flex:none">前台</span>
+                <span style="font-size:10.5px;color:var(--amber);flex:none">exit — 1</span>
+              </div>
+              <div style="font-size:10.5px;color:var(--dim2);margin-top:3px;padding-left:15px">已中断 · 47s</div>
+            </div>
+            <!-- 另一个前台命令 -->
+            <div class="tk-shell-item" data-s="s2" style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span class="dot" style="background:var(--dim2);width:7px;height:7px;border-radius:50%;flex:none"></span>
+                <span class="mono" style="font-size:11.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">cd D:\Code\Gitter\app &amp;&amp; node -e "const {Registry} = ..."</span>
+                <span style="font-size:10px;color:var(--dim2);border:1px solid var(--border);border-radius:4px;padding:0 4px;flex:none">前台</span>
+                <span style="font-size:10.5px;color:var(--amber);flex:none">exit — 1</span>
+              </div>
+              <div style="font-size:10.5px;color:var(--dim2);margin-top:3px;padding-left:15px">已中断 · 12s</div>
+            </div>
+            <!-- 后台 shell 示例（运行中） -->
+            <div class="tk-shell-item" data-s="s3" style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span class="dot" style="background:var(--amber);width:7px;height:7px;border-radius:50%;flex:none;box-shadow:0 0 0 3px rgba(180,83,9,.10);animation:pulse 1.2s infinite"></span>
+                <span class="mono" style="font-size:11.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">npm run watch -- --only changed</span>
+                <span style="font-size:10.5px;color:var(--amber);flex:none">运行中</span>
+              </div>
+              <div style="font-size:10.5px;color:var(--dim2);margin-top:3px;padding-left:15px">started 2m ago · tail: ▸ rebuild app/src/services/…</div>
+            </div>
+            <div style="padding:14px 12px;font-size:11px;color:var(--dim2)">← 上方 3 条对应左侧会话的 ⤴ 按钮；点击列表条目展开详情</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes" id="notes">
+  <button class="close" id="noteClose">×</button>
+  <h4>设计要点（v2）</h4>
+  <p><b class="k">1 中断归约</b> — 已停止任务的命令不再记时：左侧药丸消失、动作行显「已中断 · 47s」并冻结，图标不闪。真值来自任务存活性（渲染层归约），非块状态。</p>
+  <p><b class="k">2 卡片可点</b> — 动作行整行仍是折叠/展开（不变），行尾新增 <b>⤴ 后台</b> 独立入口，<code class="mono">stopPropagation</code> 不折叠卡片。</p>
+  <p><b class="k">3 跳「后台」tab</b> — 点 ⤴ 后切到会话顶部已有的「后台」tab（<b>不新建 tab</b>），并展开对应 shellId 详情：命令 + 完整输出 + 元信息。前台命令也登记进 shell 列表（标 <b>前台</b> 小字），与后台 shell 可区分。</p>
+  <p style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+  <b>交互提示</b>：切任务列表 t1/t2 看「已停止 vs 运行中」对比；点卡片试展开；点 <b>⤴ 后台</b> 试跳转；右侧「后台」面板点条目看详情。</p>
+</div>
+<div class="foot">v2 设计稿 · 详版：docs/task-page-command-terminal-design.md</div>
+
+<script>
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+// 主题
+$('#themeBtn').onclick = () => {
+  const h = document.documentElement;
+  const dark = h.getAttribute('data-theme') === 'dark';
+  h.setAttribute('data-theme', dark ? 'light' : 'dark');
+  $('#themeBtn').textContent = dark ? '深色' : '浅色';
+};
+$('#noteClose').onclick = () => $('#notes').style.display = 'none';
+
+// 任务切换（展示已停止 vs 运行中）
+const tasks = {
+  t1: { stop:true,  title:'参考 vscode 的语法加载…', live:false, pill:null },
+  t2: { stop:false, title:'任务页会话流 v4.7 落地', live:true, pill:'执行命令 12.3s' },
+  t3: { stop:true,  title:'stash 冲突解决', live:false, pill:null },
+  t4: { stop:true,  title:'变更页 amend 勾选', live:false, pill:null },
+};
+let cur = 't1';
+function renderTask() {
+  const t = tasks[cur];
+  // 药丸
+  const tabs = $('.tabs');
+  let pill = tabs.querySelector('.tk-pill');
+  if (t.pill) {
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.className = 'tk-pill amber';
+      tabs.appendChild(pill);
+    }
+    pill.innerHTML = '<span class="d"></span>' + t.pill;
+  } else if (pill) pill.remove();
+  // 状态行
+  const sb = $('.statbar');
+  sb.innerHTML = t.live
+    ? '<span class="live">✻ ' + t.pill + '</span><span style="flex:1"></span><span>↑ 33.0k · ↓ 28.4k</span>'
+    : '<span class="dim">✕ 已停止</span><span style="flex:1"></span><span>↑ 26.4k · ↓ 28.0k</span>';
+}
+$$('.task').forEach(el => el.onclick = () => {
+  cur = el.id;
+  $$('.task').forEach(x => x.classList.toggle('on', x.id === cur));
+  renderTask();
+});
+renderTask();
+
+// 卡片折叠/展开
+const cards = { c1:'r1', c2:null, c3:null, c4:'r4' };
+Object.keys(cards).forEach(id => {
+  const al = document.getElementById(id), ro = cards[id] ? document.getElementById(cards[id]) : null;
+  if (!al) return;
+  al.onclick = e => {
+    if (e.target.closest('.termbtn')) return;
+    if (ro) ro.style.display = ro.style.display === 'none' ? '' : 'none';
+  };
+});
+
+// v2：卡片 ⤴ 按钮 → 切到「后台」tab 并展开对应 shell 详情
+const shellList = $('#shellList');
+const shellDetail = $('#shellDetail');
+function openShellDetail(sId) {
+  shellList.style.display = 'none';
+  shellDetail.style.display = 'flex';
+  shellDetail.style.flexDirection = 'column';
+  shellDetail.style.flex = '1';
+  shellDetail.style.minHeight = '0';
+  shellDetail.style.overflow = 'hidden';
+  // 高亮对应列表条目
+  $$('.tk-shell-item').forEach(x => x.classList.toggle('on', x.dataset.s === sId));
+  // 底部锚点滚到最新（v2 详情页自动追平）
+  const body = $('#termBody1');
+  if (body) requestAnimationFrame(() => body.scrollTop = body.scrollHeight);
+}
+function backToList() {
+  shellDetail.style.display = 'none';
+  shellList.style.display = '';
+}
+$('#backToList').onclick = backToList;
+
+// 卡片 ⤴ → 打开后台 tab 详情页
+$$('.termbtn').forEach(b => b.onclick = e => {
+  e.stopPropagation();
+  const key = b.dataset.t;
+  // 演示：cmd1 → s1，cmd2 → s2，cmd4 → s3
+  const map = { cmd1: 's1', cmd2: 's2', cmd4: 's3' };
+  openShellDetail(map[key] || 's1');
+  b.classList.add('open');
+});
+
+// 列表条目点击 → 详情
+$$('.tk-shell-item').forEach(it => it.onclick = () => openShellDetail(it.dataset.s));
+</script>
+</body>
+</html>

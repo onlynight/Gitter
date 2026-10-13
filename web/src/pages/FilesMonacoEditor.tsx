@@ -12,7 +12,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as MonacoNs from "monaco-editor";
 import { useAppState } from "../pageSdk";
-import { applyMonacoTheme, createEditor, markerCounts, saveViewState, viewStateOf } from "./filesMonaco";
+import { applyMonacoTheme, createEditor, markerCounts, positionOf, savePosition, saveViewState, viewStateOf } from "./filesMonaco";
 import { updateGitGutter } from "./filesGitGutter";
 
 type MonacoEditor = MonacoNs.editor.IStandaloneCodeEditor;
@@ -39,6 +39,8 @@ export interface FilesMonacoEditorProps {
   onDiffProgress?: (index: number, total: number) => void;
   /** 外部定位请求（全局搜索结果点击；ts 防同值去重） */
   revealLine?: { line: number; ts: number } | null;
+  /** 初始定位请求（会话恢复：ts 防同值去重，仅模型切换时生效一次） */
+  initialReveal?: { line: number; col: number; ts: number } | null;
   /** 是否持有全局字号快捷键（分屏双实例时仅主实例持有，避免一次按键缩两档） */
   ownsKeys?: boolean;
 }
@@ -109,6 +111,8 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
         if (m) {
           const vs = ed.saveViewState();
           if (vs) saveViewState(m, vs);
+          const p = ed.getPosition();
+          if (p) savePosition(m, p.lineNumber, p.column);
         }
         ed.dispose();
         edRef.current = null;
@@ -167,6 +171,26 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.revealLine?.ts, props.model]);
 
+    // 会话恢复定位：视图态恢复后的落位（含未存视图态时的行/列落位）
+    useEffect(() => {
+      const ed = edRef.current;
+      const r = props.initialReveal;
+      if (!ed || !r || !props.model) return;
+      const model = props.model as MonacoModel;
+      const line = Math.max(1, Math.min(r.line, model.getLineCount() || r.line));
+      const col = Math.max(1, Math.min(r.col, model.getLineMaxColumn(line) || r.col));
+      ed.revealLineInCenter(line);
+      ed.setPosition({ lineNumber: line, column: col });
+      // 同步回报落位后的位置（不经光标事件）：本 effect 早于 onDidChangeCursorPosition 的
+      // 订阅 effect 执行，此刻 cbRef 仍是旧 props，若让事件回传会把位置写到上一个标签名下
+      const pos = ed.getPosition();
+      if (pos) {
+        cbRef.current.onPosition?.({ line: pos.lineNumber, col: pos.column });
+        savePosition(model, pos.lineNumber, pos.column);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [props.initialReveal?.ts, props.model]);
+
     useImperativeHandle(ref, () => ({
       runAction: (actionId: string) => {
         const ed = edRef.current;
@@ -204,19 +228,34 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       if (prev) {
         const vs = ed.saveViewState();
         if (vs) saveViewState(prev, vs);
+        const p = ed.getPosition();
+        if (p) savePosition(prev, p.lineNumber, p.column);
       }
 
       const model = props.model as MonacoModel | null;
       ed.setModel(model);
       if (model) {
         const vs = viewStateOf(model);
-        if (vs) ed.restoreViewState(vs);
+        if (vs) {
+          // 恢复后回写缓存：restoreViewState 会变换视图态内容（按行度量重建），
+          // 回写使会话持久化能取到「当前生效」的视图态而非恢复前的旧值
+          ed.restoreViewState(vs);
+          try {
+            const after = ed.saveViewState();
+            if (after) saveViewState(model, after);
+          } catch {
+            // 保存失败不影响恢复结果
+          }
+        }
         ed.focus();
       }
 
       // 切换后立即回报一次光标/诊断（页脚随标签切换刷新）
       const pos = ed.getPosition();
-      if (pos) cbRef.current.onPosition?.({ line: pos.lineNumber, col: pos.column });
+      if (pos) {
+        cbRef.current.onPosition?.({ line: pos.lineNumber, col: pos.column });
+        if (model) savePosition(model, pos.lineNumber, pos.column);
+      }
       cbRef.current.onMarkers?.(markerCounts(model));
 
       const sub = ed.onDidChangeModelContent((e) => {
@@ -253,6 +292,8 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       if (!ed) return;
       const reportMarkers = () => cbRef.current.onMarkers?.(markerCounts(ed.getModel()));
       const d1 = ed.onDidChangeCursorPosition((e) => {
+        const m = ed.getModel() as MonacoModel | null;
+        if (m) savePosition(m, e.position.lineNumber, e.position.column); // 位置缓存（会话持久化读）
         cbRef.current.onPosition?.({ line: e.position.lineNumber, col: e.position.column });
         reportDiff(); // 光标在块间移动时刷新 N/M 进度（锚点走缓存，零 diff 开销）
       });
