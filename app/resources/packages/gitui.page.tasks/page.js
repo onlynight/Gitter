@@ -2724,6 +2724,9 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     const [selectedId, setSelectedId] = react.useState(null);
     const [detailBlocks, setDetailBlocks] = react.useState([]);
     const [loading, setLoading] = react.useState(false);
+    const detailScrollRef = react.useRef(null);
+    const stickBottomRef = react.useRef(true);
+    const [awayFromBottom, setAwayFromBottom] = react.useState(false);
     const reload = react.useCallback(() => {
       void call$1("agent.subtask.list", { taskId }).then((x) => {
         setSubs(x.subtasks);
@@ -2765,6 +2768,32 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         props.setError(`子代理详情加载失败：${String(e)}`);
       }).finally(() => setLoading(false));
     }, [selectedId, taskId]);
+    const onDetailScroll = react.useCallback(() => {
+      const el = detailScrollRef.current;
+      if (!el) return;
+      const away = el.scrollHeight - el.scrollTop - el.clientHeight > 80;
+      stickBottomRef.current = !away;
+      setAwayFromBottom((v) => v === away ? v : away);
+    }, []);
+    const scrollDetailToBottom = react.useCallback((smooth) => {
+      const doScroll = () => {
+        const el = detailScrollRef.current;
+        if (!el) return;
+        if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        else el.scrollTop = el.scrollHeight;
+        stickBottomRef.current = true;
+        setAwayFromBottom(false);
+      };
+      doScroll();
+      requestAnimationFrame(doScroll);
+    }, []);
+    react.useEffect(() => {
+      stickBottomRef.current = true;
+    }, [selectedId]);
+    react.useEffect(() => {
+      if (!stickBottomRef.current) return;
+      scrollDetailToBottom();
+    }, [detailBlocks, scrollDetailToBottom]);
     react.useEffect(() => {
       if (!selectedId) {
         setDetailBlocks([]);
@@ -2868,27 +2897,57 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
             sel.state
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 20px 26px", maxWidth: 880, margin: "0 auto" }, children: [
-          loading && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11, textAlign: "center" }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-pulse", children: "加载中…" }) }),
-          !loading && detailBlocks.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty", children: "· 子代理对话为空" }),
-          !loading && detailBlocks.length > 0 && (() => {
-            const groups = groupTurns(detailBlocks);
-            return groups.map((g, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
-              g.human && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "msg-row human", style: { display: "flex", justifyContent: "flex-end", padding: "8px 0" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { className: "bubble", style: { maxWidth: "78%", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: "14px 14px 4px 14px", padding: "10px 14px", fontSize: 14.5, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: g.human.text }) }),
-              g.process.map((b, j) => renderSubDetailBlock(b, j, { onJumpToChat: () => {
-                var _a3;
-                return (_a3 = props.onJumpToChat) == null ? void 0 : _a3.call(props);
-              } })),
-              g.conclusion && /* @__PURE__ */ jsxRuntime.jsx(
-                "div",
-                {
-                  className: "assistant",
-                  style: { fontSize: 14.5, lineHeight: 1.7, color: "var(--c-text)" },
-                  dangerouslySetInnerHTML: { __html: renderMarkdown(g.conclusion.text) }
-                }
-              )
-            ] }, i));
-          })()
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, position: "relative" }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tl-scroll", ref: detailScrollRef, onScroll: onDetailScroll, style: { height: "100%", overflowY: "auto", padding: "14px 20px 26px" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto" }, children: [
+            loading && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11, textAlign: "center" }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-pulse", children: "加载中…" }) }),
+            !loading && detailBlocks.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty", children: "· 子代理对话为空" }),
+            !loading && detailBlocks.length > 0 && (() => {
+              const groups = groupTurns(detailBlocks);
+              return groups.map((g, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
+                g.human && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "msg-row human", style: { display: "flex", justifyContent: "flex-end", padding: "8px 0" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { className: "bubble", style: { maxWidth: "78%", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: "14px 14px 4px 14px", padding: "10px 14px", fontSize: 14.5, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: g.human.text }) }),
+                g.process.map((b, j) => renderSubDetailBlock(b, j, { onJumpToChat: () => {
+                  var _a3;
+                  return (_a3 = props.onJumpToChat) == null ? void 0 : _a3.call(props);
+                } })),
+                g.conclusion && /* @__PURE__ */ jsxRuntime.jsx(
+                  "div",
+                  {
+                    className: "assistant",
+                    style: { fontSize: 14.5, lineHeight: 1.7, color: "var(--c-text)" },
+                    dangerouslySetInnerHTML: { __html: renderMarkdown(g.conclusion.text) }
+                  }
+                )
+              ] }, i));
+            })()
+          ] }) }),
+          awayFromBottom && /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "tool-btn icon",
+              "data-tip": "返回底部",
+              "aria-label": "返回底部",
+              style: {
+                position: "absolute",
+                left: "50%",
+                bottom: 8,
+                transform: "translateX(-50%)",
+                width: 28,
+                height: 28,
+                padding: 0,
+                borderRadius: 999,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "var(--c-panel2)",
+                border: "1px solid var(--c-border-strong)",
+                color: "var(--c-text2)",
+                boxShadow: "0 2px 8px rgba(0,0,0,.22)",
+                zIndex: 10
+              },
+              onClick: () => scrollDetailToBottom(false),
+              children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 14 })
+            }
+          )
         ] }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "sub-detail-footer", style: { padding: "8px 14px", fontSize: 11.5, color: "var(--c-text3)", borderTop: "1px solid var(--c-border)", display: "flex", justifyContent: "center", gap: 14, fontFamily: "var(--c-mono)" }, children: [
           /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [

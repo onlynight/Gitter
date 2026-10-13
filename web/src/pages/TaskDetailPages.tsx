@@ -406,6 +406,10 @@ export function SubagentsTab(props: {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailBlocks, setDetailBlocks] = useState<Block[]>([]);
   const [loading, setLoading] = useState(false);
+  // 滚动容器 ref + 贴底跟随状态（参照主对话页 TasksPage.tsx）
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+  const stickBottomRef = useRef(true);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
 
   const reload = useCallback(() => {
     void call<AgentSubtaskListDTO>("agent.subtask.list", { taskId })
@@ -458,6 +462,37 @@ export function SubagentsTab(props: {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, taskId]);
+
+  // 滚动处理 + 滚底（参照主对话页 TasksPage.tsx 同套逻辑）
+  const onDetailScroll = useCallback(() => {
+    const el = detailScrollRef.current;
+    if (!el) return;
+    const away = el.scrollHeight - el.scrollTop - el.clientHeight > 80;
+    stickBottomRef.current = !away;
+    setAwayFromBottom((v) => (v === away ? v : away));
+  }, []);
+
+  const scrollDetailToBottom = useCallback((smooth?: boolean) => {
+    const doScroll = () => {
+      const el = detailScrollRef.current;
+      if (!el) return;
+      if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      else el.scrollTop = el.scrollHeight;
+      stickBottomRef.current = true;
+      setAwayFromBottom(false);
+    };
+    doScroll();
+    requestAnimationFrame(doScroll);
+  }, []);
+
+  // 切子代理详情时恢复贴底跟随
+  useEffect(() => { stickBottomRef.current = true; }, [selectedId]);
+
+  // 新消息进来时自动滚底（用户上滚阅读时不强制拽回）
+  useEffect(() => {
+    if (!stickBottomRef.current) return;
+    scrollDetailToBottom();
+  }, [detailBlocks, scrollDetailToBottom]);
 
   // 切换 selectedId：清空 → 拉底
   useEffect(() => {
@@ -542,7 +577,8 @@ export function SubagentsTab(props: {
             <span style={{ flex: 1 }} />
             <span className="meta">{sel.durationMs != null ? (Math.round(sel.durationMs / 100) / 10) + "s" : ""} · {sel.state}</span>
           </div>
-          <div className="tl-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 20px 26px" }}>
+          <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+          <div className="tl-scroll" ref={detailScrollRef} onScroll={onDetailScroll} style={{ height: "100%", overflowY: "auto", padding: "14px 20px 26px" }}>
             <div style={{ maxWidth: 880, margin: "0 auto" }}>
             {loading && <div style={{ color: "var(--c-text3)", fontSize: 11, textAlign: "center" }}><span className="tl-pulse">加载中…</span></div>}
             {!loading && detailBlocks.length === 0 && (
@@ -568,6 +604,24 @@ export function SubagentsTab(props: {
               ));
             })()}
             </div>
+          </div>
+          {awayFromBottom && (
+            <button
+              className="tool-btn icon"
+              data-tip="返回底部"
+              aria-label="返回底部"
+              style={{
+                position: "absolute", left: "50%", bottom: 8, transform: "translateX(-50%)",
+                width: 28, height: 28, padding: 0, borderRadius: 999,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "var(--c-panel2)", border: "1px solid var(--c-border-strong)",
+                color: "var(--c-text2)", boxShadow: "0 2px 8px rgba(0,0,0,.22)", zIndex: 10,
+              }}
+              onClick={() => scrollDetailToBottom(false)}
+            >
+              <TlIcon name="chevron-down" size={14} />
+            </button>
+          )}
           </div>
           <div className="sub-detail-footer" style={{ padding: "8px 14px", fontSize: 11.5, color: "var(--c-text3)", borderTop: "1px solid var(--c-border)", display: "flex", justifyContent: "center", gap: 14, fontFamily: "var(--c-mono)" }}>
             <span>{sel.toolCount} 个工具</span>
