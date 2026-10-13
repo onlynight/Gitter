@@ -3899,7 +3899,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       }
       return null;
     })();
-    const runningSubs = selectedTask && selected && LIVE_STATES.has(selected.state) ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length : 0;
+    const runningSubs = selectedTask && selected && taskCategory(selected) === "run" ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length : 0;
     react.useEffect(() => {
       setStats(null);
     }, [selectedTask]);

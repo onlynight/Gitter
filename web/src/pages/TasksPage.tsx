@@ -744,7 +744,10 @@ export function TasksPage() {
     }
     return null;
   })();
-  const runningSubs = selectedTask && selected && LIVE_STATES.has(selected.state)
+  // 子代理运行数：仅任务正在运行（starting/working）时统计——awaiting-input/awaiting-permission
+  // 是 LIVE 状态但任务列表显示"已完成"，此时子代理不应显示运行中。
+  // 参照 taskCategory：只有 "run" 分类才统计 running 子代理。
+  const runningSubs = selectedTask && selected && taskCategory(selected) === "run"
     ? (evMap[selectedTask] ?? []).filter((b) => b.kind === "subtask" && b.state === "running").length
     : 0;
 
