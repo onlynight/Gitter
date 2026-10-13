@@ -1,0 +1,4 @@
+# .gpk 构建产物（node build-gitter-packages.mjs 生成；上游 AuraLang 也有 .vsix，这里同类）
+dist/
+*.gpk
+*.vsix

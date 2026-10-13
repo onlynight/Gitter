@@ -15,12 +15,13 @@
  *   node build-gitter-packages.mjs                    # 构建 + 校验，产出 dist/*.gpk
  *   node build-gitter-packages.mjs --no-verify        # 跳过 zod 校验（app 未编译时）
  *   node build-gitter-packages.mjs --check-sync       # 只比对语法与上游是否字节一致，不产出
+ *   AURALANG_ROOT=/path/to/AuraLang/tools/ide-extension node build-gitter-packages.mjs
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { crypto } from "node:crypto";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(here, "..", "..", "app");
@@ -28,11 +29,13 @@ const requireFromApp = createRequire(path.join(APP_ROOT, "package.json"));
 const { zipSync } = requireFromApp("fflate");
 
 /** 上游 VS Code 扩展根（字节对齐基准；本机 AuraLang 检出）。 */
-const UPSTREAM_ROOT = path.resolve(process.env.AURALANG_ROOT ?? path.join(here, "..", "..", "..", "AuraLang", "tools", "ide-extension"));
+const UPSTREAM_ROOT = path.resolve(
+  process.env.AURALANG_ROOT ?? path.join(here, "..", "..", "..", "AuraLang", "tools", "ide-extension"),
+);
 
 const PACKAGES = [
-  { dir: "aura-vscode-extension", gitterId: "aura-lang.language", upstreamGrammar: "aura-vscode-extension/syntaxes/aura.tmLanguage.json" },
-  { dir: "hat-vscode-extension", gitterId: "aura-lang.hat-language", upstreamGrammar: "hat-vscode-extension/syntaxes/hat.tmLanguage.json" },
+  { dir: "aura-vscode-extension", upstreamGrammar: "syntaxes/aura.tmLanguage.json" },
+  { dir: "hat-vscode-extension", upstreamGrammar: "syntaxes/hat.tmLanguage.json" },
 ];
 
 const args = new Set(process.argv.slice(2));
@@ -55,35 +58,45 @@ for (const pkg of PACKAGES) {
     continue;
   }
 
-  // 构建产物文件名必须等于包 id（.gpk 导入后的安装目录名 = manifest.id；
-  // 源目录名是 VS Code 扩展的沿用名，与包 id 无关，不强制相等）
-  const manifest = JSON.stringify(raw, null, 2) + "\n";
+  // 校验：manifest 声明的每个 grammar path 必须真存在于包目录
+  // （PackageStore/GrammarService 会因文件缺失把该条静默降级到声明式引擎）
+  for (const g of raw.contributes?.grammars ?? []) {
+    if (!fs.existsSync(path.join(root, g.path))) {
+      console.error(`[FAIL] ${pkg.dir}: manifest 声明的语法文件不存在 ${g.path}`);
+      exitCode = 1;
+    }
+  }
 
-  // 语法资产字节对齐检查（上游缺失只告警，不阻塞——CI 上可能没有 AuraLang 检出）
+  // 语法资产字节对齐检查（上游检出缺失只告警，不阻塞——CI 可能没有 AuraLang 检出）
+  // 本仓与上游目录名相同，用 <upstreamRoot>/<dir>/<语法相对路径> 定位上游文件
   const localGrammar = path.join(root, pkg.upstreamGrammar);
-  const upstreamGrammar = path.join(UPSTREAM_ROOT, pkg.upstreamGrammar);
+  const upstreamGrammar = path.join(UPSTREAM_ROOT, pkg.dir, pkg.upstreamGrammar);
   if (!fs.existsSync(localGrammar)) {
     console.error(`[FAIL] ${pkg.dir}: 语法文件缺失 ${pkg.upstreamGrammar}`);
     exitCode = 1;
   } else if (fs.existsSync(upstreamGrammar)) {
-    const a = fs.readFileSync(localGrammar);
-    const b = fs.readFileSync(upstreamGrammar);
-    const same = a.equals(b);
-    console.log(`[SYNC] ${pkg.dir}: 语法与上游 ${same ? "字节一致" : "已漂移（请人工同步）"}`);
-    if (!same) exitCode = 1;
+    // 文本归一化比较（LF/CRLF 差异是各仓 core.autocrlf 造成的，对 TextMate 无语义）
+    const norm = (buf) => buf.toString("utf8").replace(/\r\n/g, "\n");
+    const a = norm(fs.readFileSync(localGrammar));
+    const b = norm(fs.readFileSync(upstreamGrammar));
+    const same = a === b;
+    console.log(`[SYNC] ${pkg.dir}: 语法与上游 ${same ? "字节一致" : "已漂移"}`);
+    // 只有 --check-sync 模式下漂移才阻塞；常规构建时上游检出可能已过期，仅告警
+    if (!same && args.has("--check-sync")) exitCode = 1;
   } else {
     console.warn(`[WARN] ${pkg.dir}: 未找到上游检出 ${UPSTREAM_ROOT}，跳过字节对齐检查`);
   }
 
   if (args.has("--check-sync")) continue;
 
-  // 打包：只收入 Gitter 装载需要的最小集合（manifest + grammar）。
+  // 打包：只收入 Gitter 装载需要的最小集合（manifest + 语法文件，路径与 manifest 声明一致）。
   // snippets/colors/language-configuration 是 VS Code 生态资产，Gitter 暂无对位宿主能力，
   // 保留在仓库供上游同步与文档，不打进 .gpk——避免包体虚胖且语义上给作者造成"已生效"误解。
-  const entries = {};
-  entries["manifest.json"] = new TextEncoder().encode(manifest);
-  entries[pkg.upstreamGrammar] = new Uint8Array(fs.readFileSync(localGrammar));
-  entries["README.md"] = new TextEncoder().encode(`# ${raw.id}
+  const manifestText = JSON.stringify(raw, null, 2) + "\n";
+  const entries = {
+    "manifest.json": new TextEncoder().encode(manifestText),
+    [pkg.upstreamGrammar]: new Uint8Array(fs.readFileSync(localGrammar)),
+    "README.md": new TextEncoder().encode(`# ${raw.id}
 
 ${raw.description ?? ""}
 
@@ -94,11 +107,12 @@ ${raw.description ?? ""}
 ## 安装
 
 Gitter → 设置 → 扩展 → 导入扩展包，选择本 .gpk；或把解压后的目录拷进
-\`<userData>/packages/\${id}/\`（Windows 通常是 \`%APPDATA%/gitter/packages/\`)。
+\`<userData>/packages/<id>/\`（Windows 通常是 \`%APPDATA%/gitter/packages/\`).
 
 安装后打开 \`${raw.contributes.grammars[0].extensions[0]}\` 文件，diff 与预览即按 TextMate 语法着色
 （颜色由当前主题 tokenColors 提供，主题不含对应 scope 时回退正文色）。
-`);
+`),
+  };
 
   const buf = zipSync(entries);
   const outName = `${raw.id}-${raw.version}.gpk`;
