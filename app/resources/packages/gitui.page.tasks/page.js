@@ -669,11 +669,29 @@ li { margin: .25em 0; }
         ] }) : /* @__PURE__ */ jsxRuntime.jsx("span", { className: "lc-review-chip", style: { color: "var(--c-fg3)" }, children: "● 审查：未评审" }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
         reviewEditing === false ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "通过本轮改动（结论注入 agent 下一轮）", onClick: () => submitReview("approve", ""), children: "通过" }),
-          /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "退回并附审查意见（自动直投修复轮）", onClick: () => {
-            setReviewEditing("reject");
-            setReviewComment("");
-          }, children: "退回…" })
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "tool-btn icon",
+              title: "通过本轮改动（结论注入 agent 下一轮）",
+              "aria-label": "通过",
+              onClick: () => submitReview("approve", ""),
+              children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check", size: 13, color: "var(--c-green)" })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "tool-btn icon",
+              title: "退回并附审查意见（自动直投修复轮）",
+              "aria-label": "退回",
+              onClick: () => {
+                setReviewEditing("reject");
+                setReviewComment("");
+              },
+              children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "x", size: 13, color: "var(--c-red)" })
+            }
+          )
         ] }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           /* @__PURE__ */ jsxRuntime.jsx(
             "input",
@@ -708,7 +726,7 @@ li { margin: .25em 0; }
           }, children: "✕" })
         ] }, t2.path)),
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", title: "收起面板，回到纯对话", onClick: props.onCollapse, children: "收起" })
+        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn icon", title: "收起面板，回到纯对话", "aria-label": "收起面板", onClick: props.onCollapse, children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "splitpane", size: 13 }) })
       ] }),
       activePlugin ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-body", style: { display: "flex" }, children: activePlugin.def.render({ taskId: props.taskId }) }) : active === TURNS_TAB ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-turnspage", children: [
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "lc-turns", children: [
@@ -951,8 +969,10 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         return pushCap(blocks, { kind: "subtask", subtaskId: ev.subtaskId ?? "", name: ev.name ?? "", mode: ev.mode ?? "", state: ev.state ?? "running", final: ev.finalMessage, durationMs: ev.durationMs, children: [] });
       case "turn-completed":
         return pushCap(blocks, { kind: "turn", text: `turn #${blocks.filter((b) => b.kind === "turn").length + 1}`, usage: ev.usage });
-      case "completed":
-        return pushCap(blocks, { kind: "status", text: `${ev.outcome ?? ""}${ev.summary ? ` — ${ev.summary}` : ""}` });
+      case "completed": {
+        const outcomeLabel = ev.outcome === "failed" ? "失败" : ev.outcome === "stopped" ? "已停止" : ev.outcome === "interrupted" ? "已中断" : ev.outcome === "cancelled" ? "已中断" : ev.outcome ?? "";
+        return pushCap(blocks, { kind: "status", text: `${outcomeLabel}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.outcome === "failed" ? "failed" : void 0 });
+      }
       case "log":
         return pushCap(blocks, { kind: "log", level: ev.level ?? "info", text: ev.text ?? "" });
       default:
@@ -997,8 +1017,35 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     ] });
     return /* @__PURE__ */ jsxRuntime.jsx("img", { src, alt: props.path, style: { maxWidth: 320, maxHeight: 220, borderRadius: 6, border: "1px solid var(--c-border)" } });
   }
+  const READOUT_MAX = 400;
+  function buildReadout(tool, text) {
+    const all = text.replace(/\u0000/g, "").split("\n");
+    while (all.length > 0 && all[all.length - 1].trim() === "") all.pop();
+    const total = all.length;
+    const shown = all.slice(0, READOUT_MAX);
+    if (tool === "repo_read_file") {
+      return {
+        lines: shown.map((tx, i) => ({ kind: "num", no: String(i + 1), tx })),
+        total
+      };
+    }
+    const diffish = shown.filter((l) => /^[+-]/.test(l)).length >= 2;
+    if (diffish) {
+      return {
+        lines: shown.map((l) => {
+          const mk = l[0] === "+" || l[0] === "-" ? l[0] : " ";
+          const tone = mk === "+" ? "add" : mk === "-" ? "del" : "ctx";
+          return { kind: "diff", mk, tone, tx: l.slice(1) };
+        }),
+        total
+      };
+    }
+    return { lines: shown.map((tx) => ({ kind: "plain", tx })), total };
+  }
   function ToolCard({ b, ctx }) {
-    const [open, setOpen] = react.useState(false);
+    const [userOpen, setUserOpen] = react.useState(false);
+    const open = !!(ctx == null ? void 0 : ctx.verbose) || userOpen;
+    const live = b.state === "running";
     const label = TOOL_LABELS[b.name] ?? b.name;
     const filePath = (() => {
       if (b.name !== "file_write" && b.name !== "file_patch") return null;
@@ -1023,84 +1070,153 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         return "";
       }
     })();
-    const firstLine = (b.result ?? "").split("\n")[0] ?? "";
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-tool", children: [
+    const readout = react.useMemo(
+      () => buildReadout(b.name, live ? b.tail ?? "" : b.result ?? ""),
+      [b.name, b.result, b.tail, live]
+    );
+    const hasBody = live ? !!b.tail : readout.lines.length > 0;
+    if (b.name === "file_patch" || b.name === "file_write") {
+      const paren = (b.result ?? "").match(/[（(]([^）)]+)[）)]/);
+      const stats = paren ? ((paren[1] ?? "").split(/[;；]/).pop() ?? "").trim() : "";
+      return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "v47-al", children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-hd", children: [
+        /* @__PURE__ */ jsxRuntime.jsx(
+          TlIcon,
+          {
+            name: toolIconName(b.name),
+            size: 13,
+            color: b.state === "error" ? "var(--c-red)" : live ? "var(--c-amber)" : void 0,
+            className: live ? "v47-blink" : void 0
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-nm", children: label }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "span",
+          {
+            className: "v47-ar v47-fpath",
+            title: "打开右侧预览修改",
+            onClick: (e) => {
+              var _a2;
+              e.stopPropagation();
+              if (filePath) (_a2 = ctx == null ? void 0 : ctx.previewFile) == null ? void 0 : _a2.call(ctx, filePath);
+            },
+            children: argSummary
+          }
+        ),
+        stats ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-fsi", children: stats }) : null,
+        (ctx == null ? void 0 : ctx.viewFile) && filePath ? /* @__PURE__ */ jsxRuntime.jsx(
+          "button",
+          {
+            className: "tool-btn v47-preview",
+            title: "打开右侧差异面板",
+            onClick: (e) => {
+              var _a2;
+              e.stopPropagation();
+              (_a2 = ctx.viewFile) == null ? void 0 : _a2.call(ctx, filePath);
+            },
+            children: "差异"
+          }
+        ) : null,
+        b.state === "error" ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-fail", children: "失败" }) : null,
+        b.durationMs !== void 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "v47-du", children: [
+          "· ",
+          (b.durationMs / 1e3).toFixed(1),
+          "s"
+        ] }) : null
+      ] }) });
+    }
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-al" + (open ? " open" : "") + (live ? " live" : "") + (b.state === "error" ? " err" : ""), children: [
       /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
-          className: "tl-tool-head",
-          onClick: () => setOpen(!open),
+          className: "v47-hd",
+          onClick: () => setUserOpen((v) => !v),
           role: "button",
           tabIndex: 0,
           "aria-expanded": open,
           onKeyDown: (e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              setOpen(!open);
+              setUserOpen((v) => !v);
             }
           },
           children: [
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-glyph " + (b.state === "running" ? "run" : b.state === "error" ? "err" : "ok"), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: toolIconName(b.name), size: 13, className: b.state === "running" ? "tl-pulse" : void 0 }) }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-tool-name", children: label }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-tool-args", children: argSummary }),
-            filePath && (ctx == null ? void 0 : ctx.previewFile) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn tl-tool-btn", onClick: (e) => {
+            /* @__PURE__ */ jsxRuntime.jsx(
+              TlIcon,
+              {
+                name: toolIconName(b.name),
+                size: 13,
+                color: b.state === "error" ? "var(--c-red)" : live ? "var(--c-amber)" : void 0,
+                className: "v47-hic" + (live ? " v47-blink" : void 0)
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-nm" + (live ? " shimmer-text" : ""), children: label }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-ar" + (live ? " shimmer-text" : ""), children: argSummary }),
+            filePath && (ctx == null ? void 0 : ctx.previewFile) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn v47-preview", onClick: (e) => {
               var _a2;
               e.stopPropagation();
               (_a2 = ctx.previewFile) == null ? void 0 : _a2.call(ctx, filePath);
             }, children: "预览" }) : null,
-            b.source ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-tool-src", children: b.source }) : null,
-            b.durationMs !== void 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tl-tool-ms", children: [
+            b.state === "error" ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-fail", children: "失败" }) : null,
+            b.durationMs !== void 0 ? /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "v47-du", children: [
+              "· ",
               (b.durationMs / 1e3).toFixed(1),
               "s"
-            ] }) : null,
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 11, className: "tl-chev" + (open ? " open" : "") })
+            ] }) : null
           ]
         }
       ),
-      b.state === "running" && b.tail || b.result ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tl-tool-result", children: b.state === "running" && b.tail ? /* @__PURE__ */ jsxRuntime.jsx("pre", { style: { whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0, fontFamily: "inherit", color: "var(--c-text)" }, children: b.tail.split("\n").slice(-4).join("\n") }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: open ? 420 : 22, overflow: "hidden", cursor: "pointer" }, onClick: () => setOpen(!open), children: open ? (b.result ?? "").slice(0, 16e3) : firstLine.slice(0, 200) || "（无输出）" }),
-        open && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", style: { fontSize: 10.5, margin: "4px 0" }, onClick: () => {
-          var _a2;
-          return void ((_a2 = navigator.clipboard) == null ? void 0 : _a2.writeText(b.result ?? ""));
-        }, children: "复制结果" })
-      ] }) }) : null
+      hasBody ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-res", children: [
+        readout.lines.map(
+          (r, i) => r.kind === "num" ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-rl", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "no", children: r.no }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ar", children: "→" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tx", children: r.tx })
+          ] }, i) : r.kind === "diff" ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-rl", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mk " + r.tone, children: r.mk }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tx " + r.tone, children: r.tx })
+          ] }, i) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "v47-rl", children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tx", children: r.tx || " " }) }, i)
+        ),
+        readout.total > readout.lines.length ? /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-rl", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "no", children: "…" }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "ar", children: "→" }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tx", style: { color: "var(--c-text3)" }, children: [
+            "共 ",
+            readout.total,
+            " 行"
+          ] })
+        ] }) : null
+      ] }) : null
     ] });
   }
-  function ThinkingCard({ b }) {
-    const [open, setOpen] = react.useState(() => !b.closed);
-    const userTouched = react.useRef(false);
-    react.useEffect(() => {
-      if (b.closed && !userTouched.current) setOpen(false);
-    }, [b.closed]);
-    const streaming = open && !b.closed;
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-think", style: { borderLeft: open ? "2px solid var(--c-border)" : void 0, paddingLeft: open ? 10 : void 0 }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs(
-        "div",
-        {
-          style: { display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: "var(--c-text3)", padding: "2px 0", userSelect: "none" },
-          onClick: () => {
-            userTouched.current = true;
-            setOpen((v) => !v);
-          },
-          role: "button",
-          tabIndex: 0,
-          "aria-expanded": open,
-          onKeyDown: (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              userTouched.current = true;
-              setOpen((v) => !v);
-            }
-          },
-          children: [
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 12, color: streaming ? "var(--c-amber)" : "var(--c-text3)", className: streaming ? "tl-pulse" : void 0 }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontStyle: "italic", fontWeight: streaming ? 600 : 400 }, children: streaming ? "思考中…" : "思考过程" }),
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 10, className: "tl-chev" + (open ? " open" : "") })
-          ]
-        }
-      ),
-      open && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--c-text3)", fontStyle: "italic", fontSize: 12.5, lineHeight: 1.6, padding: "2px 0 4px", userSelect: "text" }, children: b.text.trim() || "…" })
-    ] });
+  function ThinkingCard({ b, ctx }) {
+    const [userOpen, setUserOpen] = react.useState(false);
+    const open = !!(ctx == null ? void 0 : ctx.verbose) || userOpen;
+    const streaming = !b.closed;
+    const text = b.text.trim() || "…";
+    return /* @__PURE__ */ jsxRuntime.jsxs(
+      "div",
+      {
+        className: "v47-think" + (open ? " open" : "") + (streaming ? " live" : ""),
+        onClick: () => setUserOpen((v) => !v),
+        role: "button",
+        tabIndex: 0,
+        "aria-expanded": open,
+        onKeyDown: (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setUserOpen((v) => !v);
+          }
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-th", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-spk", children: "✻" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-tlabel", children: streaming ? "思考中…" : "思考过程" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "v47-mq", children: /* @__PURE__ */ jsxRuntime.jsx("span", { children: text }) })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "v47-tbody", children: text })
+        ]
+      }
+    );
   }
   function TodoList({ todos }) {
     const done = todos.filter((x) => x.status === "completed").length;
@@ -1190,20 +1306,17 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     };
     const kind = ((_a2 = b.payload) == null ? void 0 : _a2.kind) ?? "command";
     const options = permOptions(b, props.showFullAccess);
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { border: `1px solid ${decided ? "var(--c-border)" : "var(--c-amber)"}`, borderRadius: 12, padding: "10px 14px", maxWidth: 700, opacity: decided ? 0.65 : 1 }, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: decided ? "var(--c-text3)" : "var(--c-amber)", fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }, children: [
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { minWidth: 0, opacity: decided ? 0.65 : 1 }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontWeight: 650, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }, children: [
         /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 13 }),
         /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
           "授权请求 · ",
           kindLabel[kind] ?? kind
         ] }),
-        ((_b2 = b.payload) == null ? void 0 : _b2.source) ? /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 10, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px" }, children: b.payload.source }) : null,
-        ((_c = b.payload) == null ? void 0 : _c.risk) && /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { color: b.payload.risk === "high" ? "var(--c-red)" : "var(--c-amber)", marginLeft: "auto", fontWeight: 700 }, children: [
-          "■ ",
-          b.payload.risk === "high" ? "高危" : "注意"
-        ] })
+        ((_b2 = b.payload) == null ? void 0 : _b2.source) ? /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 10, border: "1px solid var(--c-border)", borderRadius: 4, padding: "0 4px", color: "var(--c-text3)" }, children: b.payload.source }) : null,
+        ((_c = b.payload) == null ? void 0 : _c.risk) && /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: b.payload.risk === "high" ? "var(--c-red)" : "var(--c-text3)", marginLeft: "auto", fontWeight: 650 }, children: b.payload.risk === "high" ? "高危" : "注意" })
       ] }),
-      b.command && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontFamily: "var(--mono, monospace)", fontSize: 12, background: "var(--c-panel)", border: "1px solid var(--c-border)", borderRadius: 8, padding: "6px 10px", margin: "4px 0", whiteSpace: "pre-wrap", wordBreak: "break-all" }, children: b.command }),
+      b.command && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontFamily: "var(--mono, monospace)", fontSize: 12, color: "var(--c-text2)", margin: "4px 0 8px", whiteSpace: "pre-wrap", wordBreak: "break-all" }, children: b.command }),
       ((_d = b.payload) == null ? void 0 : _d.paths) && b.payload.paths.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 11.5, color: "var(--c-text3)", margin: "4px 0", maxHeight: 64, overflowY: "auto" }, children: [
         b.payload.paths.slice(0, 20).map((p) => /* @__PURE__ */ jsxRuntime.jsx("div", { children: p }, p)),
         b.payload.paths.length > 20 ? /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
@@ -1212,26 +1325,23 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           " 个文件"
         ] }) : null
       ] }),
-      decided ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 11.5, color: "var(--c-text3)" }, children: decided === "ok" ? "✓ 已批准" : decided === "rule" ? "✓ 已批准并记住前缀" : "✕ 已拒绝" }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }, children: options.map((o, i) => /* @__PURE__ */ jsxRuntime.jsxs(
-          "div",
-          {
-            onClick: () => {
-              props.onSel(b.requestId, i);
-              if (o.reply.fullAccess) props.onFullAccess(b.requestId);
-              else if (o.reply.rulePrefix !== void 0 && o.reply.rulePrefix !== null && o.reply.ok) props.onReply(b.requestId, true, true, o.reply.rulePrefix);
-              else props.onReply(b.requestId, o.reply.ok, o.reply.remember);
-            },
-            style: { display: "flex", gap: 8, padding: "4px 10px", borderRadius: 8, cursor: "pointer", border: `1px solid ${sel === i ? "var(--c-border)" : "transparent"}`, background: sel === i ? "var(--c-panel)" : "transparent" },
-            children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: sel === i ? "var(--c-text)" : "transparent", width: 12 }, children: sel === i ? "❯" : "" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: o.label })
-            ]
+      decided ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 11.5, color: "var(--c-text3)" }, children: decided === "ok" ? "✓ 已批准" : decided === "rule" ? "✓ 已批准并记住前缀" : "✕ 已拒绝" }) : /* @__PURE__ */ jsxRuntime.jsx(jsxRuntime.Fragment, { children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }, children: options.map((o, i) => /* @__PURE__ */ jsxRuntime.jsxs(
+        "div",
+        {
+          onClick: () => {
+            props.onSel(b.requestId, i);
+            if (o.reply.fullAccess) props.onFullAccess(b.requestId);
+            else if (o.reply.rulePrefix !== void 0 && o.reply.rulePrefix !== null && o.reply.ok) props.onReply(b.requestId, true, true, o.reply.rulePrefix);
+            else props.onReply(b.requestId, o.reply.ok, o.reply.remember);
           },
-          o.label
-        )) }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 10.5, marginTop: 6 }, children: "↑↓ 选择 · Enter 确认 · 数字直选 · 选择结果会回给 agent 继续工作" })
-      ] })
+          style: { display: "flex", gap: 8, padding: "3px 8px", borderRadius: 6, cursor: "pointer", color: sel === i ? "var(--c-text)" : "var(--c-text2)", background: sel === i ? "var(--c-panel)" : "transparent" },
+          children: [
+            /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: sel === i ? "var(--c-text)" : "transparent", width: 12, flex: "none" }, children: sel === i ? "❯" : "" }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { children: o.label })
+          ]
+        },
+        o.label
+      )) }) })
     ] });
   }
   function QuestionCard(props) {
@@ -1314,29 +1424,10 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       ] })
     ] });
   }
-  function groupLogs(blocks) {
-    const out = [];
-    let run = [];
-    const flush = () => {
-      if (run.length === 0) return;
-      if (run.length >= 3) out.push({ kind: "logs", items: run });
-      else for (const b of run) out.push({ kind: "block", block: b });
-      run = [];
-    };
-    for (const b of blocks) {
-      if (b.kind === "log") run.push(b);
-      else {
-        flush();
-        out.push({ kind: "block", block: b });
-      }
-    }
-    flush();
-    return out;
-  }
   function groupTurns(blocks) {
     const groups = [];
     let cur = null;
-    const newGroup = (human) => ({ anchor: null, human, process: [], conclusion: null, turn: null, active: false });
+    const newGroup = (human) => ({ anchor: null, human, process: [], conclusion: null, outcome: [], turn: null, active: false });
     const flush = () => {
       if (cur) groups.push(cur);
       cur = null;
@@ -1371,6 +1462,12 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           break;
         }
       }
+      while (g.process.length > 0) {
+        const last = g.process[g.process.length - 1];
+        if (last.kind !== "status") break;
+        g.outcome.unshift(last);
+        g.process.pop();
+      }
     }
     return groups;
   }
@@ -1399,19 +1496,42 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       }
     ) });
   }
+  function FileGroup({ items, ctx }) {
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-ln", children: [
+      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "v47-g", children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "diff", size: 13, color: "var(--c-text2)" }) }),
+      /* @__PURE__ */ jsxRuntime.jsx("div", { className: "v47-c", children: /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-fgrp", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-fh", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "fn", children: "本轮变更" }),
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "fc", children: [
+            items.length,
+            " 个文件"
+          ] })
+        ] }),
+        items.map((b, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-frow", title: "打开右侧预览修改", onClick: () => {
+          var _a2;
+          return (_a2 = ctx == null ? void 0 : ctx.previewFile) == null ? void 0 : _a2.call(ctx, b.path);
+        }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "st", children: b.changeKind === "deleted" ? "D" : b.changeKind === "added" ? "A" : "M" }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "p", children: b.path }),
+          b.summary ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "stats", children: b.summary }) : null
+        ] }, i))
+      ] }) })
+    ] });
+  }
   const BUILTIN_TIMELINE_RENDERERS = [
     {
       blockKind: "human",
       render: ({ block }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "msg-row", style: { display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }, children: b.text }) });
+        return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "msg-row", style: { display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 15, lineHeight: 1.65 }, children: b.text }) });
       }
     },
     {
       blockKind: "assistant",
       render: ({ block, ctx }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "msg-row", style: { padding: "0 4px" }, children: [
+        if (!b.text.trim()) return null;
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "msg-row", style: { padding: "2px 0" }, children: [
           /* @__PURE__ */ jsxRuntime.jsx("div", { className: "md-body", dangerouslySetInnerHTML: { __html: renderMarkdown(b.text) } }),
           (ctx == null ? void 0 : ctx.showCopy) ? /* @__PURE__ */ jsxRuntime.jsx(CopyMessageButton, { text: b.text, align: "left" }) : null
         ] });
@@ -1419,12 +1539,20 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     },
     {
       blockKind: "thinking",
-      render: ({ block }) => /* @__PURE__ */ jsxRuntime.jsx(ThinkingCard, { b: block })
+      render: ({ block, ctx }) => /* @__PURE__ */ jsxRuntime.jsx(ThinkingCard, { b: block, ctx })
     },
     {
       blockKind: "status",
       render: ({ block }) => {
         const b = block;
+        const isOutcome = !b.phase || b.phase === "failed";
+        if (isOutcome) {
+          const failed = b.phase === "failed";
+          return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-outcome", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: failed ? "dot" : "check-circle", size: 14, color: failed ? "var(--c-red)" : "var(--c-green)", style: { flex: "none", marginTop: 3 } }),
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tx", children: b.text || (failed ? "任务失败" : "本轮已完成") })
+          ] });
+        }
         const icon = b.phase === "thinking" ? "sparkle" : b.phase === "editing" ? "pencil" : "dot";
         return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { fontSize: 11.5, color: "var(--c-text3)", display: "flex", alignItems: "center", gap: 6 }, children: [
           /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: icon, size: 12, className: b.phase === "thinking" ? "tl-pulse" : void 0 }),
@@ -1440,14 +1568,13 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       blockKind: "checkpoint",
       render: ({ block }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", color: "var(--c-text3)", fontSize: 12, fontFamily: "var(--mono, monospace)" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "check-circle", size: 13, color: "var(--c-text)" }),
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-meta", children: [
           /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-            "cp ",
+            "· 检查点 ",
             b.sha.slice(0, 8)
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text)", fontFamily: "inherit", overflowWrap: "anywhere" }, children: b.summary }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontSize: 10.5 }, children: "· Esc×2 可回滚" })
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--c-text2)", overflowWrap: "anywhere" }, children: b.summary }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { opacity: 0.8 }, children: "Esc×2 可回滚" })
         ] });
       }
     },
@@ -1457,19 +1584,23 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         const b = block;
         if (b.changeKind === "read-image") return /* @__PURE__ */ jsxRuntime.jsx("div", { children: /* @__PURE__ */ jsxRuntime.jsx(AgentImage, { taskId: (ctx == null ? void 0 : ctx.taskId) ?? "", path: b.path }) });
         const letter = b.changeKind === "deleted" ? "D" : b.changeKind === "added" ? "A" : "M";
-        const color = b.changeKind === "deleted" ? "var(--c-red)" : b.changeKind === "added" ? "var(--c-green)" : "var(--c-amber)";
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-file", title: b.path, children: [
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono", style: { fontWeight: 700, fontSize: 11.5, color, flex: "none" }, children: letter }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-file-path", children: b.path }),
-          b.summary ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "mono tl-file-stats", children: b.summary }) : null,
-          (ctx == null ? void 0 : ctx.viewFile) && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn tl-file-btn", onClick: () => {
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-frow", title: "打开右侧预览修改", onClick: () => {
+          var _a2;
+          return (_a2 = ctx == null ? void 0 : ctx.previewFile) == null ? void 0 : _a2.call(ctx, b.path);
+        }, children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "st", children: letter }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "p", children: b.path }),
+          b.summary ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "stats", children: b.summary }) : null,
+          (ctx == null ? void 0 : ctx.viewFile) ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn v47-preview", onClick: (e) => {
             var _a2;
-            return (_a2 = ctx.viewFile) == null ? void 0 : _a2.call(ctx, b.path);
-          }, children: "查看" }),
-          (ctx == null ? void 0 : ctx.previewFile) && b.changeKind !== "deleted" && /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn tl-file-btn", onClick: () => {
+            e.stopPropagation();
+            (_a2 = ctx.viewFile) == null ? void 0 : _a2.call(ctx, b.path);
+          }, children: "查看" }) : null,
+          (ctx == null ? void 0 : ctx.previewFile) && b.changeKind !== "deleted" ? /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn v47-preview", onClick: (e) => {
             var _a2;
-            return (_a2 = ctx.previewFile) == null ? void 0 : _a2.call(ctx, b.path);
-          }, children: "预览" })
+            e.stopPropagation();
+            (_a2 = ctx.previewFile) == null ? void 0 : _a2.call(ctx, b.path);
+          }, children: "预览" }) : null
         ] });
       }
     },
@@ -1484,24 +1615,13 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     {
       blockKind: "turn",
       render: ({ block, ctx }) => {
+        var _a2, _b2;
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, fontFamily: "var(--mono, monospace)", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }, children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 }, children: [
-            /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "usage", size: 12 }),
-            b.text
-          ] }),
-          b.usage ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-            (((b.usage.input ?? 0) + (b.usage.output ?? 0)) / 1e3).toFixed(1),
-            "k tokens（",
-            b.usage.input ?? "?",
-            " in / ",
-            b.usage.output ?? "?",
-            " out）"
-          ] }) : null,
-          (ctx == null ? void 0 : ctx.contextPct) ? /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-            "context ",
-            ctx.contextPct
-          ] }) : null
+        const total = ((((_a2 = b.usage) == null ? void 0 : _a2.input) ?? 0) + (((_b2 = b.usage) == null ? void 0 : _b2.output) ?? 0)) / 1e3;
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-usage", children: [
+          "· ",
+          b.usage ? `${total.toFixed(1)}k tokens（${b.usage.input ?? "?"} in / ${b.usage.output ?? "?"} out）` : b.text,
+          (ctx == null ? void 0 : ctx.contextPct) ? ` · context ${ctx.contextPct}` : ""
         ] });
       }
     },
@@ -1606,7 +1726,8 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     react.useEffect(() => {
       if (!props.open) return;
       const h = (e) => {
-        if (ref.current && !ref.current.contains(e.target)) props.onClose();
+        const t2 = e.target;
+        if (ref.current && !ref.current.contains(t2) && !(t2 == null ? void 0 : t2.closest(".comp-item, .comp-stats"))) props.onClose();
       };
       const k = (e) => {
         if (e.key === "Escape") {
@@ -1920,7 +2041,10 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           ] })
         ] }),
         /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { className: "comp-send", title: props.sendTitle, disabled: !props.canSend && !props.busy, onClick: () => props.busy ? props.onStop() : props.onSend(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: props.busy ? "stop" : "send", size: 13 }) })
+        (() => {
+          const isStop = props.busy && !props.canSend;
+          return /* @__PURE__ */ jsxRuntime.jsx("button", { className: "comp-send", title: props.sendTitle, disabled: !props.canSend && !props.busy, onClick: () => isStop ? props.onStop() : props.onSend(), children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: isStop ? "stop" : "send", size: 13 }) });
+        })()
       ] }),
       s && (s.estTokens > 0 || s.totalInput != null) && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "comp-stats-row", children: /* @__PURE__ */ jsxRuntime.jsxs("span", { style: { position: "relative", display: "inline-flex" }, children: [
         /* @__PURE__ */ jsxRuntime.jsxs("button", { type: "button", className: "comp-stats", title: "用量明细", "aria-haspopup": "menu", "aria-expanded": open === "stats", onClick: () => toggle("stats"), children: [
@@ -2569,19 +2693,19 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     }
     switch (s) {
       case "starting":
-        return { label: "Starting", color: "var(--c-text3)" };
+        return { label: "启动中", color: "var(--c-text3)" };
       case "working":
-        return { label: "● Working", color: "var(--c-green)" };
+        return { label: "● 执行中", color: "var(--c-green)" };
       case "awaiting-permission":
         return { label: "● 待确认", color: "var(--c-amber)" };
       case "completed":
-        return { label: "Completed", color: "var(--c-accent)" };
+        return { label: "已完成", color: "var(--c-accent)" };
       case "failed":
-        return { label: "Failed", color: "var(--c-red)" };
+        return { label: "失败", color: "var(--c-red)" };
       case "interrupted":
-        return { label: "Interrupted", color: "var(--c-amber)" };
+        return { label: "已中断", color: "var(--c-amber)" };
       case "stopped":
-        return { label: "Stopped", color: "var(--c-text3)" };
+        return { label: "已停止", color: "var(--c-text3)" };
     }
   }
   function taskCategory(t2) {
@@ -2678,6 +2802,10 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     const [modelId, setModelId] = react.useState("");
     const [mode, setMode] = react.useState("default");
     const [tab, setTab] = react.useState("chat");
+    const [verboseTimeline, setVerboseTimeline] = react.useState(false);
+    const [branchHintOpen, setBranchHintOpen] = react.useState(false);
+    const composerDockRef = react.useRef(null);
+    const streamInnerRef = react.useRef(null);
     react.useEffect(() => {
       if (tab !== "chat") return;
       requestAnimationFrame(() => {
@@ -2743,6 +2871,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       if (!selectedTask) setThinking(resolveRefThinking(modelId || ((_a3 = app.settings) == null ? void 0 : _a3.defaultModelId) || (defaultProfile == null ? void 0 : defaultProfile.id)));
     }, [modelId, modelProfiles]);
     const [sending, setSending] = react.useState(false);
+    const sendingRef = react.useRef(false);
     const [decided, setDecided] = react.useState({});
     const [stats, setStats] = react.useState(null);
     const [changesTick, setChangesTick] = react.useState(0);
@@ -2813,17 +2942,27 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       }, 100);
       return () => window.clearInterval(timer);
     }, []);
-    const [listRatio, setListRatio] = react.useState(() => {
-      localStorage.removeItem("gitter.taskListWidth");
-      const v = Number(localStorage.getItem("gitter.taskListRatio"));
-      return Number.isFinite(v) && v >= 0.12 && v <= 0.5 ? v : 0.23;
+    const TASK_LIST_MIN_W = 210;
+    const TASK_LIST_MAX_W = 520;
+    const [listWidth, setListWidth] = react.useState(() => {
+      const v = Number(localStorage.getItem("gitter.taskListWidth"));
+      if (Number.isFinite(v) && v >= TASK_LIST_MIN_W && v <= TASK_LIST_MAX_W) return Math.round(v);
+      const legacy = Number(localStorage.getItem("gitter.taskListRatio"));
+      localStorage.removeItem("gitter.taskListRatio");
+      if (Number.isFinite(legacy) && legacy >= 0.12 && legacy <= 0.5) {
+        return Math.max(TASK_LIST_MIN_W, Math.min(TASK_LIST_MAX_W, Math.round(legacy * window.innerWidth)));
+      }
+      return 300;
     });
     const [splitRatio, setSplitRatio] = react.useState(() => {
       localStorage.removeItem("gitter.taskSplitChatW");
       const v = Number(localStorage.getItem("gitter.taskSplitRatio"));
       return Number.isFinite(v) && v >= 0.2 && v <= 0.85 ? v : 4 / 7;
     });
-    const panelTemplate = (r) => `minmax(280px, ${r.toFixed(4)}fr) 6px minmax(280px, ${(1 - r).toFixed(4)}fr)`;
+    const panelTemplate = (r) => {
+      const rr = Number.isFinite(r) ? Math.min(0.85, Math.max(0.2, r)) : 4 / 7;
+      return `minmax(280px, ${rr.toFixed(4)}fr) 6px minmax(280px, ${(1 - rr).toFixed(4)}fr)`;
+    };
     const PANEL_TRANSFORM_TRANSITION = "transform 400ms var(--ease-std)";
     const panelWrapRef = react.useRef(null);
     const panelTimerRef = react.useRef(null);
@@ -2920,21 +3059,18 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       const main = grip.parentElement;
       if (!main) return;
       grip.classList.add("drag");
+      let px = listWidth;
       const move = (ev) => {
         const rect = main.getBoundingClientRect();
-        const r = Math.max(0.14, Math.min(0.45, (ev.clientX - rect.left - 3) / rect.width));
-        main.style.gridTemplateColumns = `minmax(210px, ${r.toFixed(4)}fr) 6px minmax(0, ${(1 - r).toFixed(4)}fr)`;
+        px = Math.round(Math.max(TASK_LIST_MIN_W, Math.min(TASK_LIST_MAX_W, ev.clientX - rect.left, rect.width - 346)));
+        main.style.gridTemplateColumns = `${px}px 6px minmax(0, 1fr)`;
       };
       const up = () => {
         grip.classList.remove("drag");
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
-        const m = main.style.gridTemplateColumns.match(/([0-9.]+)fr/);
-        if (m) {
-          const r = Number(m[1]);
-          setListRatio(r);
-          localStorage.setItem("gitter.taskListRatio", String(r));
-        }
+        setListWidth(px);
+        localStorage.setItem("gitter.taskListWidth", String(px));
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
@@ -2973,6 +3109,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     const [cpCount, setCpCount] = react.useState(0);
     const [diffCount, setDiffCount] = react.useState(0);
     const [awayFromBottom, setAwayFromBottom] = react.useState(false);
+    const stickBottomRef = react.useRef(true);
     const timelineRef = react.useRef(null);
     const lastChatScrollRef = react.useRef(null);
     const loadOlderRef = react.useRef(null);
@@ -2981,6 +3118,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       const el = timelineRef.current;
       if (!el) return;
       const away = el.scrollHeight - el.scrollTop - el.clientHeight > 80;
+      stickBottomRef.current = !away;
       setAwayFromBottom((v) => v === away ? v : away);
       lastChatScrollRef.current = el.scrollTop;
       if (el.scrollTop < 160) void ((_a3 = loadOlderRef.current) == null ? void 0 : _a3.call(loadOlderRef));
@@ -3002,6 +3140,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         if (!el) return;
         if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
         else el.scrollTop = el.scrollHeight;
+        stickBottomRef.current = true;
         setAwayFromBottom(false);
       };
       doScroll();
@@ -3060,9 +3199,11 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     react.useEffect(() => {
       void call("settings.get").then((s) => {
         if (s == null ? void 0 : s.agentsMaxSubagents) setMaxSubagents(s.agentsMaxSubagents);
+        if (s == null ? void 0 : s.agentsBusySend) setBusySend(s.agentsBusySend);
       }).catch(() => {
       });
     }, []);
+    const [busySend, setBusySend] = react.useState("queue");
     react.useEffect(
       () => onEvent("agent.event", (p) => {
         const { taskId, event } = p;
@@ -3285,10 +3426,14 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     loadOlderRef.current = loadOlder;
     const skippingAutoScroll = react.useRef(false);
     react.useEffect(() => {
+      stickBottomRef.current = true;
+    }, [selectedTask]);
+    react.useEffect(() => {
       if (skippingAutoScroll.current) {
         skippingAutoScroll.current = false;
         return;
       }
+      if (!stickBottomRef.current) return;
       scrollTimelineToBottom();
     }, [evMap, selectedTask, scrollTimelineToBottom]);
     react.useEffect(() => {
@@ -3305,6 +3450,27 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       window.addEventListener("keydown", h);
       return () => window.removeEventListener("keydown", h);
     }, [selectedTask]);
+    react.useEffect(() => {
+      const h = (e) => {
+        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "o" || e.key === "O")) {
+          e.preventDefault();
+          setVerboseTimeline((v) => !v);
+        }
+      };
+      window.addEventListener("keydown", h);
+      return () => window.removeEventListener("keydown", h);
+    }, []);
+    react.useEffect(() => {
+      const dock = composerDockRef.current, inner = streamInnerRef.current;
+      if (!dock || !inner || typeof ResizeObserver === "undefined") return;
+      const fit = () => {
+        inner.style.paddingBottom = `${dock.offsetHeight + 56}px`;
+      };
+      const ro = new ResizeObserver(fit);
+      ro.observe(dock);
+      fit();
+      return () => ro.disconnect();
+    }, [selected]);
     const pendingPerm = (() => {
       if (!selectedTask) return null;
       const blocks = evMap[selectedTask] ?? [];
@@ -3423,8 +3589,17 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       }
     };
     const sendInput = async () => {
+      if (!selected || !inputText.trim() || sendingRef.current) return;
+      sendingRef.current = true;
+      try {
+        await sendInputInner();
+      } finally {
+        sendingRef.current = false;
+      }
+    };
+    const sendInputInner = async () => {
       var _a3;
-      if (!selected || !inputText.trim() || sending) return;
+      if (!selected || !inputText.trim()) return;
       const text = inputText.trim();
       if (text.startsWith("/")) {
         const [cmdRaw, ...rest] = text.split(/\s+/);
@@ -3509,6 +3684,11 @@ ${target.instructions}
         setInputText("");
         return;
       }
+      const busy2 = BUSY_STATES.has(selected.state);
+      if (busy2 && busySend === "block") {
+        setError("agent 正在运行，发送已被禁止——可在 设置 → Agent 运行时 →「运行中发送」改为排队/插话，或先停止本轮");
+        return;
+      }
       if (pendingImages.length > 0 && !visionOk) {
         setConfigError("当前模型档案未声明视觉（vision）能力，无法发送图片——请在 设置 → 模型档案 勾选「视觉」", "去设置", "models");
         return;
@@ -3520,13 +3700,19 @@ ${target.instructions}
       setSending(true);
       const attachments = attachmentsPayload;
       setPendingImages([]);
-      const busy2 = BUSY_STATES.has(selected.state);
       try {
         if (busy2) {
           if (attachments.length > 0) setError("任务运行中：图片将不随排队消息注入，请等本轮结束再发送");
-          await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
+          await call("agent.task.queue", { taskId: selected.taskId, prompt: text, ...busySend === "interrupt" ? { interrupt: true } : {} });
         } else {
-          await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode, ...attachments.length > 0 ? { attachments } : {} });
+          try {
+            await call("agent.task.resume", { taskId: selected.taskId, prompt: text, thinking, mode, ...attachments.length > 0 ? { attachments } : {} });
+          } catch (e) {
+            const msg = e.message ?? "";
+            if (!/排队/.test(msg)) throw e;
+            setError("agent 正在等待你对上方卡片的回答：输入已排队，回合结束后自动注入");
+            await call("agent.task.queue", { taskId: selected.taskId, prompt: text });
+          }
         }
         await reloadAgents();
       } catch (e) {
@@ -3537,15 +3723,18 @@ ${target.instructions}
     };
     const createFromCompose = async () => {
       var _a3, _b3;
-      if (!composeText.trim() || sending) return;
+      if (!composeText.trim() || sendingRef.current) return;
+      sendingRef.current = true;
       if (composeText.trim().startsWith("/")) {
         const cmd = composeText.trim().split(/\s+/)[0].slice(1);
         if (cmd === "attach") {
           (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
           setComposeText("");
+          sendingRef.current = false;
           return;
         }
         setError(`命令 /${cmd} 需在具体任务的对话中使用（新任务页仅支持 /attach）`);
+        sendingRef.current = false;
         return;
       }
       setSending(true);
@@ -3573,6 +3762,7 @@ ${target.instructions}
       } catch (e) {
         setError(e.message);
       } finally {
+        sendingRef.current = false;
         setSending(false);
       }
     };
@@ -3737,8 +3927,9 @@ ${target.instructions}
       return false;
     };
     const chatKeyDown = (e) => {
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       if (navKeyDown(e, inputText, setInputText)) return;
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.repeat && !e.shiftKey) {
         e.preventDefault();
         void sendInput();
         return;
@@ -3750,8 +3941,9 @@ ${target.instructions}
       }
     };
     const composeKeyDown = (e) => {
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       if (navKeyDown(e, composeText, setComposeText)) return;
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.repeat && !e.shiftKey) {
         e.preventDefault();
         void createFromCompose();
         return;
@@ -3800,7 +3992,7 @@ ${target.instructions}
     const renderBlock = (b, key, process = false) => {
       switch (b.kind) {
         case "permission":
-          return /* @__PURE__ */ jsxRuntime.jsx(PermissionCard, { b, decided: decided[b.requestId], sel: permSel[b.requestId] ?? 0, showFullAccess, onSel: (id, i) => setPermSel((m) => ({ ...m, [id]: i })), onReply: replyPerm, onFullAccess: (id) => void replyFullAccess(id) }, key);
+          return null;
         case "question":
           return /* @__PURE__ */ jsxRuntime.jsx(QuestionCard, { b, decided: decided[b.requestId], onAnswer: replyAnswer }, key);
         case "plan":
@@ -3821,20 +4013,82 @@ ${target.instructions}
         previewFile,
         contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : void 0,
         showCopy: !process && copyBlocks.has(b),
+        verbose: verboseTimeline,
         renderChildren: (children) => /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: children.map((c, i) => renderBlock(c, `${key}-${i}`, true)) })
       };
       return /* @__PURE__ */ jsxRuntime.jsx(react.Fragment, { children: renderer.render({ block: b, taskId: ctx.taskId ?? "", ctx }) }, key);
     };
-    const renderProcess = (prefix, list) => groupLogs(list).map(
-      (lg, li) => lg.kind === "logs" ? /* @__PURE__ */ jsxRuntime.jsxs("details", { style: { fontSize: 11 }, children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("summary", { style: { cursor: "pointer", color: "var(--c-text3)" }, children: [
-          "▸ 显示 ",
-          lg.items.length,
-          " 条日志"
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }, children: lg.items.map((b, j) => renderBlock(b, `${prefix}${li}-${j}`)) })
-      ] }, `${prefix}${li}`) : renderBlock(lg.block, `${prefix}${li}`)
-    );
+    const renderProcess = (prefix, list) => {
+      const entries = [];
+      let fileRun = [];
+      const flushFiles = () => {
+        if (fileRun.length === 0) return;
+        if (fileRun.length > 1) entries.push({ k: "files", items: fileRun });
+        else entries.push({ k: "one", b: fileRun[0] });
+        fileRun = [];
+      };
+      const editedPaths = /* @__PURE__ */ new Set();
+      for (const b of list) {
+        if (b.kind === "tool" && (b.name === "file_patch" || b.name === "file_write")) {
+          try {
+            const a = b.args;
+            if (typeof (a == null ? void 0 : a.path) === "string") editedPaths.add(a.path);
+          } catch {
+          }
+        }
+      }
+      const list2 = list.filter((b) => !(b.kind === "assistant" && !b.text.trim()));
+      for (const b of list2) {
+        if (b.kind === "file" && b.changeKind !== "read-image") {
+          if (editedPaths.has(b.path)) continue;
+          fileRun.push(b);
+          continue;
+        }
+        flushFiles();
+        entries.push({ k: "one", b });
+      }
+      flushFiles();
+      const fgCtx = { taskId: selectedTask ?? "", viewFile: (path) => {
+        setPendingFile(path);
+        setPanelReq({ path, mode: "diff", ts: Date.now() });
+        setTab("chat");
+        animatePanel(true);
+      }, previewFile };
+      const TIGHT = /* @__PURE__ */ new Set(["tool", "thinking", "checkpoint"]);
+      const groups = [];
+      let runBuf = null;
+      const flushRun = () => {
+        if (runBuf && runBuf.length) groups.push({ k: "run", items: runBuf });
+        runBuf = null;
+      };
+      for (const en of entries) {
+        if (en.k === "one" && TIGHT.has(en.b.kind)) {
+          (runBuf ?? (runBuf = [])).push(en.b);
+          continue;
+        }
+        flushRun();
+        groups.push(en);
+      }
+      flushRun();
+      return groups.map((en, li) => {
+        const key = `${prefix}${li}`;
+        if (en.k === "run") {
+          return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "v47-run", children: en.items.map((b, j) => renderBlock(b, `${key}-${j}`, true)) }, key);
+        }
+        if (en.k === "files") return /* @__PURE__ */ jsxRuntime.jsx(FileGroup, { items: en.items, ctx: fgCtx }, key);
+        if (en.k === "logs") {
+          return /* @__PURE__ */ jsxRuntime.jsxs("details", { style: { fontSize: 11 }, children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("summary", { style: { cursor: "pointer", color: "var(--c-text3)" }, children: [
+              "▸ 显示 ",
+              en.items.length,
+              " 条日志"
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }, children: en.items.map((b, j) => renderBlock(b, `${key}-${j}`)) })
+          ] }, key);
+        }
+        return renderBlock(en.b, key);
+      });
+    };
     const agentCard = (task) => {
       const live = LIVE_STATES.has(task.state);
       const selectedNow = selectedTask === task.taskId;
@@ -3990,10 +4244,69 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
       if (runningSubs > 0) return `子代理执行中 ${runningSubs}/${maxSubagents}…`;
       return "正在思考与执行…";
     })();
+    function OutcomeFold(props) {
+      const [open, setOpen] = react.useState(false);
+      return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "v47-outcome", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs(
+          "div",
+          {
+            className: "v47-oline",
+            onClick: () => setOpen((v) => !v),
+            role: "button",
+            tabIndex: 0,
+            "aria-expanded": open,
+            onKeyDown: (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setOpen((v) => !v);
+              }
+            },
+            children: [
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: props.icon, size: 13, color: props.color, style: { flex: "none" } }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: "none" }, children: props.summary }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-right", size: 10, className: "tl-chev" + (open ? " open" : "") })
+            ]
+          }
+        ),
+        open && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "v47-obody", children: props.children })
+      ] });
+    }
+    const failBar = (() => {
+      if (!selected) return null;
+      if (selected.state === "failed") {
+        return {
+          kind: "failed",
+          color: "var(--c-red)",
+          icon: "dot",
+          summary: "任务失败 · 点击查看原因",
+          reason: selected.lastMessage ?? "原因未知（可查看时间线错误日志）"
+        };
+      }
+      if (selected.state === "interrupted") {
+        return {
+          kind: "interrupted",
+          color: "var(--c-amber)",
+          icon: "dot",
+          summary: "会话已中断 · 发送消息可继续",
+          reason: selected.lastMessage ?? ""
+        };
+      }
+      if (selected.state === "stopped") {
+        return {
+          kind: "stopped",
+          color: "var(--c-text3)",
+          icon: "dot",
+          summary: "已手动停止本轮",
+          reason: ""
+        };
+      }
+      return null;
+    })();
     const activeProfile = resolveRefProfile(selected == null ? void 0 : selected.modelRef) ?? modelProfiles.find((m) => m.isDefault) ?? modelProfiles[0];
     const visionOk = resolveRefVision((selected == null ? void 0 : selected.modelRef) ?? (activeProfile == null ? void 0 : activeProfile.id));
     const attachmentsPayload = pendingImages.map((img) => ({ name: img.name, dataBase64: img.dataUrl }));
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "grid", gridTemplateColumns: `minmax(210px, ${listRatio.toFixed(4)}fr) 6px minmax(0, ${(1 - listRatio).toFixed(4)}fr)`, flex: 1, minHeight: 0, height: "100%" }, children: [
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-root", style: { display: "grid", gridTemplateColumns: `${Math.max(TASK_LIST_MIN_W, Math.min(TASK_LIST_MAX_W, listWidth))}px 6px minmax(0, 1fr)`, flex: 1, minHeight: 0, height: "100%" }, children: [
       /* @__PURE__ */ jsxRuntime.jsx(
         "input",
         {
@@ -4125,13 +4438,58 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-vdiv", title: "拖拽调整任务列表宽度", onPointerDown: startListDrag, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-vdiv-grip" }) }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: detailRef, style: { display: "grid", position: "relative", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen && !panelClosing ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }, children: [
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "tk-tabs", style: { gridColumn: "1", gridRow: "1" }, children: [["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount], ["shells", "后台", shellRunning]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tab" + (tab === id ? " on" : ""), onClick: () => setTab(id), children: [
-          label,
-          n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-tab-n", children: n }) : null
-        ] }, id)) }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: detailRef, className: "tk-detail", style: { display: "grid", position: "relative", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen && !panelClosing ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tabs", style: { gridColumn: "1", gridRow: "1" }, children: [
+          [["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount], ["shells", "后台", shellRunning]].map(([id, label, n]) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-tab" + (tab === id ? " on" : ""), onClick: () => setTab(id), children: [
+            label,
+            n > 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-tab-n", children: n }) : null
+          ] }, id)),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { flex: 1 } }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              className: "tool-btn icon" + (verboseTimeline ? " on" : ""),
+              title: "详细模式（Ctrl+O）：结果/思考默认全展开",
+              "aria-label": "详细模式",
+              style: verboseTimeline ? { background: "var(--c-selected)", color: "var(--c-text)" } : void 0,
+              onClick: () => setVerboseTimeline((v) => !v),
+              children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "list", size: 13 })
+            }
+          ),
+          showCommitHint && /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "comp-anchor", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                className: "tool-btn icon" + (branchHintOpen ? " on" : ""),
+                title: "分支模式与提交提示",
+                "aria-label": "分支模式与提交提示",
+                onClick: (e) => {
+                  e.stopPropagation();
+                  setBranchHintOpen((v) => !v);
+                },
+                children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 13 })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "hint-pop" + (branchHintOpen ? " on" : ""), onClick: (e) => e.stopPropagation(), children: [
+              /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "hint-pop-row", children: [
+                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "branch", size: 13, color: "var(--c-text3)", style: { flex: "none", marginTop: 3 } }),
+                /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                  "当前分支模式：",
+                  /* @__PURE__ */ jsxRuntime.jsx("b", { children: "改动已直接在工作区" }),
+                  "（",
+                  diffCount,
+                  " 个文件），无独立分支可合并"
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "hint-pop-row", children: /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => {
+                pageSdk.navigate("changes");
+                setBranchHintOpen(false);
+              }, children: "去变更页提交" }) })
+            ] })
+          ] })
+        ] }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { gridColumn: "1", gridRow: "2", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }, children: [
-          selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto auto minmax(0, 1fr) auto", overflow: "hidden" }, children: [
+          selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto auto minmax(0, 1fr)", overflow: "hidden" }, children: [
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-pagehead", style: { gridColumn: "1", gridRow: "1" }, children: [
               /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "tk-pill", style: { color: stateChip(selected.state, selected.awaitKind).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 9%, transparent)` }, children: [
                 /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tk-pill-dot" }),
@@ -4198,17 +4556,7 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
               /* @__PURE__ */ jsxRuntime.jsx("span", { className: "sp" }),
               /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => pageSdk.navigate("log"), children: "查看 Log" })
             ] }),
-            showCommitHint && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tk-wrapbar", style: { gridColumn: "1", gridRow: "2" }, children: [
-              /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "diff", size: 13, color: "var(--c-text3)" }),
-              /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "meta", children: [
-                "当前分支模式：改动已直接在工作区（",
-                diffCount,
-                " 个文件），无独立分支可合并"
-              ] }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "sp" }),
-              /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", onClick: () => pageSdk.navigate("changes"), children: "去变更页提交" })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "3" }, children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "3 / 5" }, children: [
               error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "calc(100% - 292px)", go: errorGo, onGo: (s) => {
                 openSettings(s);
                 setError(null);
@@ -4225,7 +4573,7 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
                     const pre = e.target.closest("pre");
                     if (pre) void ((_a3 = navigator.clipboard) == null ? void 0 : _a3.writeText(pre.textContent ?? ""));
                   },
-                  children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", padding: "18px 20px 26px", display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }, children: [
+                  children: /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: streamInnerRef, style: { maxWidth: 880, margin: "0 auto", padding: "14px 20px 26px", display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }, children: [
                     loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11 }, children: /* @__PURE__ */ jsxRuntime.jsx("span", { className: "tl-pulse", children: "加载中…" }) }),
                     hasMoreHistory && !loadingOlder && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { textAlign: "center", color: "var(--c-text3)", fontSize: 11, opacity: 0.6 }, children: "↑ 上滚加载更早" }),
                     timeline.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 12 }, children: t("Agents_TimelineEmpty") }),
@@ -4272,7 +4620,9 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
                           expanded && renderProcess(`g${gi}-p`, g.process)
                         ] }) : renderProcess(`g${gi}-p`, g.process),
                         g.conclusion ? renderBlock(g.conclusion, `g${gi}-c`) : null,
-                        g.turn ? renderBlock(g.turn, `g${gi}-t`) : null
+                        g.outcome.length > 0 ? g.outcome.some((b) => b.kind === "status" && b.text.includes("中断")) ? /* @__PURE__ */ jsxRuntime.jsx(OutcomeFold, { icon: "dot", color: "var(--c-amber)", summary: "会话已中断 · 发送消息可继续", children: g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`, true)) }) : g.outcome.map((b, oi) => renderBlock(b, `g${gi}-o${oi}`)) : null,
+                        g.turn ? renderBlock(g.turn, `g${gi}-t`) : null,
+                        gi === groupTurns(timeline).length - 1 && failBar && !(timeline.length > 0 && timeline[timeline.length - 1].kind === "status") && /* @__PURE__ */ jsxRuntime.jsx(OutcomeFold, { icon: failBar.icon, color: failBar.color, summary: failBar.summary, children: /* @__PURE__ */ jsxRuntime.jsx("span", { style: { overflowWrap: "anywhere", userSelect: "text" }, children: failBar.reason || failBar.summary }) })
                       ] }, gi);
                     })
                   ] })
@@ -4310,7 +4660,7 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
                   style: {
                     position: "absolute",
                     left: "50%",
-                    bottom: 10,
+                    bottom: 132,
                     transform: "translateX(-50%)",
                     width: 28,
                     height: 28,
@@ -4327,94 +4677,105 @@ ${chip.label} · ${task.branch}${task.wrapup ? ` · 已合并 ${task.wrapup.merg
                   onClick: () => scrollTimelineToBottom(false),
                   children: /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "chevron-down", size: 14 })
                 }
-              )
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("div", { style: { borderTop: "1px solid var(--c-border)", padding: "8px 20px 8px", gridColumn: "1", gridRow: "4" }, children: /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
-              busy && !pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 7, padding: "0 2px 7px", fontSize: 12 }, children: [
-                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 12, color: "var(--c-amber)", className: "tl-pulse" }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "shimmer-text", children: busyHint })
-              ] }),
-              pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8, fontSize: 11.5, color: "var(--c-amber)", display: "flex", alignItems: "center", gap: 6 }, children: [
-                /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "shield", size: 12, className: "tl-pulse" }),
-                /* @__PURE__ */ jsxRuntime.jsx("span", { children: "等待授权（↑↓+Enter 或数字直选上方卡片选项）" })
-              ] }),
-              pendingImages.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
-                pendingImages.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
-                  /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx("div", { className: "chat-dock", children: /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: composerDockRef, style: { maxWidth: 880, margin: "0 auto", position: "relative" }, children: [
+                pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "perm-dock", children: [
                   /* @__PURE__ */ jsxRuntime.jsx(
-                    "button",
+                    PermissionCard,
                     {
-                      className: "tool-btn",
-                      title: "移除",
-                      style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 },
-                      onClick: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)),
-                      children: "✕"
+                      b: pendingPerm,
+                      decided: void 0,
+                      sel: permSel[pendingPerm.requestId] ?? 0,
+                      showFullAccess,
+                      onSel: (id, i) => setPermSel((m) => ({ ...m, [id]: i })),
+                      onReply: replyPerm,
+                      onFullAccess: (id) => void replyFullAccess(id)
                     }
-                  )
-                ] }, `${img.name}:${i}`)),
-                /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", style: { alignSelf: "center" }, children: [
-                  "图片 ",
-                  pendingImages.length,
-                  "/4",
-                  !visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""
-                ] })
-              ] }),
-              /* @__PURE__ */ jsxRuntime.jsx(
-                Composer,
-                {
-                  ref: inputRef,
-                  value: inputText,
-                  onChange: (v) => onComposeChange(v, setInputText),
-                  maxH: 240,
-                  placeholder: busy ? "agent 正在工作——输入将排队，本轮结束后自动注入（Esc 中断 / Esc×2 回滚）" : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式",
-                  busy,
-                  sending,
-                  canSend: !!inputText.trim(),
-                  sendTitle: busy ? "停止（Esc 同效）" : "发送（Enter）",
-                  onStop: () => void stopTask(selected.taskId),
-                  onSend: () => void sendInput(),
-                  mode: selected.permissionMode ?? "default",
-                  modeLabel: MODE_META[selected.permissionMode ?? "default"].label.replace(/^[●◆◇⚡]\s*/, ""),
-                  onMode: (m) => void setTaskMode(selected.taskId, m).then(() => setMode(m)),
-                  groups: modelGroups,
-                  model: selected.modelRef ?? "",
-                  modelDisabled: busy && selected.state !== "awaiting-input",
-                  onModel: (id) => void (async () => {
-                    try {
-                      await call("agent.task.setModel", { taskId: selected.taskId, model: id });
-                      await reloadAgents();
-                      setThinking(resolveRefThinking(id));
-                    } catch (err) {
-                      setError(err.message);
-                    }
-                  })(),
-                  thinking,
-                  onThinking: (v) => {
-                    setThinking(v);
-                  },
-                  stats,
-                  attachments: pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) })),
-                  attachmentHint: `图片 ${pendingImages.length}/4${!visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""}`,
-                  onAttachImage: () => {
-                    var _a3;
-                    return (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
-                  },
-                  slash: slashItems,
-                  onPickSlash: (insert) => {
-                    setInputText((cur) => cur ? `${cur} ${insert}` : insert);
-                    setTimeout(() => {
-                      var _a3;
-                      return (_a3 = inputRef.current) == null ? void 0 : _a3.focus();
-                    }, 0);
-                  },
-                  onKeyDown: chatKeyDown,
-                  children: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-                    mention ? /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, selectedIndex: mentionSel, onSelect: setMentionSel, onPick: (x) => insertMention(x, setInputText, inputText) }) : null,
-                    slashQuery !== null && /* @__PURE__ */ jsxRuntime.jsx(SlashPopover, { open: true, items: slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8), selectedIndex: slashSel, onSelect: setSlashSel, onPick: (insert) => pickSlash(insert, setInputText, inputText) })
+                  ),
+                  /* @__PURE__ */ jsxRuntime.jsx("div", { className: "perm-dock-foot", children: "↑↓ 选择 · Enter 确认 · 数字直选 · 选择结果会回给 agent 继续工作" })
+                ] }),
+                busy && !pendingPerm && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 7, padding: "0 2px 7px", fontSize: 12 }, children: [
+                  /* @__PURE__ */ jsxRuntime.jsx(TlIcon, { name: "sparkle", size: 12, color: "var(--c-amber)", className: "tl-pulse" }),
+                  /* @__PURE__ */ jsxRuntime.jsx("span", { className: "shimmer-text", children: busyHint })
+                ] }),
+                pendingImages.length > 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }, children: [
+                  pendingImages.map((img, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { position: "relative" }, children: [
+                    /* @__PURE__ */ jsxRuntime.jsx("img", { src: img.dataUrl, alt: img.name, style: { width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid var(--c-border)" } }),
+                    /* @__PURE__ */ jsxRuntime.jsx(
+                      "button",
+                      {
+                        className: "tool-btn",
+                        title: "移除",
+                        style: { position: "absolute", top: -6, right: -6, padding: "0 5px", fontSize: 10 },
+                        onClick: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)),
+                        children: "✕"
+                      }
+                    )
+                  ] }, `${img.name}:${i}`)),
+                  /* @__PURE__ */ jsxRuntime.jsxs("span", { className: "hint", style: { alignSelf: "center" }, children: [
+                    "图片 ",
+                    pendingImages.length,
+                    "/4",
+                    !visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""
                   ] })
-                }
-              )
-            ] }) })
+                ] }),
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  Composer,
+                  {
+                    ref: inputRef,
+                    value: inputText,
+                    onChange: (v) => onComposeChange(v, setInputText),
+                    maxH: 240,
+                    placeholder: busy ? busySend === "block" ? "agent 正在工作——运行中发送已禁用（设置 → Agent 运行时 可改），可先停止本轮" : busySend === "interrupt" ? "agent 正在工作——Enter 插话发送：中断当前轮，你的输入立即生效" : "agent 正在工作——Enter 排队发送，本轮结束后自动注入（双击 Esc 打开检查点）" : "继续对话…输入 / 唤起命令、@ 唤起文件、Shift+Tab 切模式",
+                    busy,
+                    sending,
+                    canSend: !!inputText.trim(),
+                    sendTitle: busy ? inputText.trim() ? busySend === "interrupt" ? "插话发送（中断当前轮，立即生效）" : "排队发送（本轮结束后自动注入）" : "停止本轮" : "发送（Enter）",
+                    onStop: () => void stopTask(selected.taskId),
+                    onSend: () => void sendInput(),
+                    mode: selected.permissionMode ?? "default",
+                    modeLabel: MODE_META[selected.permissionMode ?? "default"].label.replace(/^[●◆◇⚡]\s*/, ""),
+                    onMode: (m) => void setTaskMode(selected.taskId, m).then(() => setMode(m)),
+                    groups: modelGroups,
+                    model: selected.modelRef ?? "",
+                    modelDisabled: busy && selected.state !== "awaiting-input",
+                    onModel: (id) => void (async () => {
+                      try {
+                        await call("agent.task.setModel", { taskId: selected.taskId, model: id });
+                        await reloadAgents();
+                        setThinking(resolveRefThinking(id));
+                      } catch (err) {
+                        setError(err.message);
+                      }
+                    })(),
+                    thinking,
+                    onThinking: (v) => {
+                      setThinking(v);
+                    },
+                    stats,
+                    attachments: pendingImages.map((img, i) => ({ name: img.name, dataUrl: img.dataUrl, onRemove: () => setPendingImages((cur) => cur.filter((_, j) => j !== i)) })),
+                    attachmentHint: `图片 ${pendingImages.length}/4${!visionOk ? " · ⚠ 当前模型未声明视觉能力" : ""}`,
+                    onAttachImage: () => {
+                      var _a3;
+                      return (_a3 = imageInputRef.current) == null ? void 0 : _a3.click();
+                    },
+                    slash: slashItems,
+                    onPickSlash: (insert) => {
+                      setInputText((cur) => cur ? `${cur} ${insert}` : insert);
+                      setTimeout(() => {
+                        var _a3;
+                        return (_a3 = inputRef.current) == null ? void 0 : _a3.focus();
+                      }, 0);
+                    },
+                    onKeyDown: chatKeyDown,
+                    children: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                      mention ? /* @__PURE__ */ jsxRuntime.jsx(MentionPopover, { mention, items: mentionItems, selectedIndex: mentionSel, onSelect: setMentionSel, onPick: (x) => insertMention(x, setInputText, inputText) }) : null,
+                      slashQuery !== null && /* @__PURE__ */ jsxRuntime.jsx(SlashPopover, { open: true, items: slashItems.filter((s) => s.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8), selectedIndex: slashSel, onSelect: setSlashSel, onPick: (insert) => pickSlash(insert, setInputText, inputText) })
+                    ] })
+                  }
+                )
+              ] }) })
+            ] })
           ] }),
           tab === "chat" && !selected && /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }, children: [
             error && /* @__PURE__ */ jsxRuntime.jsx(ErrorFloat, { text: error, maxWidth: "min(680px, 92%)", go: errorGo, onGo: (s) => {

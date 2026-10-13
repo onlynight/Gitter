@@ -1592,6 +1592,22 @@
               )
             ] }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
+              /* @__PURE__ */ jsxRuntime.jsx("label", { children: "运行中发送" }),
+              /* @__PURE__ */ jsxRuntime.jsx(
+                Radio,
+                {
+                  value: s.agentsBusySend ?? "queue",
+                  options: [
+                    { value: "queue", label: "排队" },
+                    { value: "interrupt", label: "插话" },
+                    { value: "block", label: "禁止" }
+                  ],
+                  onChange: (v) => void patch({ agentsBusySend: v })
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "agent 执行中从输入框发送消息的行为：排队=本轮结束后自动注入；插话=中断当前轮立即发送；禁止=需先停止" })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: "上下文压缩" }),
               /* @__PURE__ */ jsxRuntime.jsx(
                 Radio,
