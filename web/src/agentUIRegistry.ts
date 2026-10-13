@@ -24,6 +24,8 @@ export interface TimelineCardCtx {
   previewFile?: (path: string) => void;
   /** 命令卡「⤴ 后台」→ 跳「后台」页签并选中该 shellId 展开详情（design §5） */
   openShell?: (shellId: string) => void;
+  /** 子代理单行卡「← 查看详情」→ 跳「子代理」页签并打开该 subtaskId 详情（v4.9 设计稿 §3） */
+  openSubagent?: (subtaskId: string) => void;
   /** turn 块上下文用量文案（宿主轮询 stats） */
   contextPct?: string;
   /** 本块是否本轮结论性回复（仅结论挂复制钮；中间过程片段/子代理子块为 false） */

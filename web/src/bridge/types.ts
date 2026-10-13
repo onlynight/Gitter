@@ -413,10 +413,12 @@ export interface RiskReport {
 
 export interface UsageReport {
   repoPaths: string[];
-  totals: { turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null };
+  totals: { turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheBreaks: number; cost: number | null };
   byDay: { day: string; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null }[];
   byModel: { modelRef: string; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null }[];
   byTask: { taskId: string; title: string; state: string; modelRef: string | null; turns: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cost: number | null; lastActiveAt: string | null }[];
+  /** 缓存断点轮数（usageHistory 带 note 注记：压缩/换模型/重启续跑/模式切换）——跨任务聚合，命中率归因用 */
+  cacheBreaks: number;
   emptyRepos: string[];
 }
 
@@ -692,4 +694,35 @@ export type AgentCheckpointDTO = {
   sha: string;
   summary: string;
   date: string;
+};
+
+/** 子代理元数据（task-page-subagent-design.md §5.2）：
+ *  agent.subtask.list 单条 / agent.subtask.transcript 详情元数据共用同一结构。 */
+export type AgentSubtaskDTO = {
+  subtaskId: string;
+  name: string;
+  mode: string;
+  state: "running" | "completed" | "failed" | "timeout" | "cancelled";
+  startedAt: number;
+  durationMs?: number;
+  toolCount: number;
+  fileCount: number;
+  permissionBubbles: number;
+  finalMessage?: string;
+  failureReason?: string;
+};
+
+/** agent.subtask.list 返回：合并磁盘 + live 派生的子代理列表。 */
+export type AgentSubtaskListDTO = {
+  subtasks: AgentSubtaskDTO[];
+  running: number;
+  maxSubagents: number;
+  queued: number;
+};
+
+/** agent.subtask.transcript 返回：单条子代理的完整事件流。
+ *  events 是 SessionJournalEntry 的镜像——前端 reduceBlocks 可直接消费。 */
+export type AgentSubtaskTranscriptDTO = {
+  subtask: AgentSubtaskDTO | null;
+  events: { ts: string; actor: "human" | "agent" | "host"; kind: "text" | "event"; text?: string; event?: AgentEventDTO }[];
 };

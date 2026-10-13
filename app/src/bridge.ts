@@ -695,6 +695,11 @@ export class Bridge {
     R("agent.seams.audit", () => auditSeams());
     // 后台 shell 面板（F4 逃生舱联动）+ 图片预览（F2.1）
     R("agent.task.shells", (args: { taskId: string }) => this.agents.taskShells(args));
+    // 「后台」tab 详情页完整输出（agent.shell.output 事件通道丢失时的兜底重建源）
+    R("agent.shell.output", (args: { taskId: string; shellId: string }) => this.agents.shellOutput(args));
+    // 子代理列表 + 详情对话（task-page-subagent-design.md §5.2/§5.3）
+    R("agent.subtask.list", (args: { taskId: string }) => this.agents.subtaskList(args));
+    R("agent.subtask.transcript", (args: { taskId: string; subtaskId: string }) => this.agents.subtaskTranscript(args));
     R("agent.previewImage", (args: { taskId: string; path: string }) => this.agents.previewImage(args));
     R("agent.task.setModel", (args: { taskId: string; model: string }) => this.agents.setModel(args) ?? {});
     R("agent.task.fork", (args: { taskId: string; model?: string }) => this.agents.fork(args));

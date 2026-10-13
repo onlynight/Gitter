@@ -578,23 +578,19 @@ export function PlanCard(props: {
 }
 
 export function SubtaskBlock({ b, ctx }: { b: Extract<Block, { kind: "subtask" }>; ctx?: TimelineCardCtx }) {
-  const [open, setOpen] = useState(b.state === "running");
-  const stateColor = b.state === "running" ? "var(--c-amber)" : b.state === "completed" ? "var(--c-green)" : "var(--c-red)";
+  // v4.9 设计稿 §3：子代理在会话流内单行化，不再内嵌展开（原实现默认 running 展开、展开体是子代理整条会话流，
+  // 并发 3 个子代理时视觉上是「卡片里塞了另一个任务页」）。点击行 → ctx.openSubagent 跳转「子代理」页签详情。
+  const dotCls = "dot" + (b.state === "completed" ? " done" : "") + (b.state === "failed" || b.state === "timeout" ? " fail" : "");
   return (
-    <div style={{ border: "1px solid var(--c-border)", borderRadius: 10, padding: "6px 10px", minWidth: 0 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", flexWrap: "wrap" }} onClick={() => setOpen(!open)}>
-        <TlIcon name="bot" size={14} color={stateColor} className={b.state === "running" ? "tl-pulse" : undefined} />
-        <b style={{ fontSize: 12.5 }}>{b.name || "子代理"}</b>
-        <span style={{ fontSize: 10.5, color: stateColor, border: `1px solid ${stateColor}`, borderRadius: 4, padding: "0 4px" }}>{b.mode} · {b.state}</span>
-        {b.durationMs !== undefined ? <span style={{ color: "var(--c-text3)", fontSize: 11 }}>{Math.round(b.durationMs / 100) / 10}s</span> : null}
-        <span style={{ color: "var(--c-text3)", fontSize: 10.5, marginLeft: "auto" }}>{open ? "收起" : "展开"}</span>
-      </div>
-      {open && (
-        <div style={{ marginTop: 6, borderLeft: "1px solid var(--c-border)", paddingLeft: 10, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-          {ctx?.renderChildren ? ctx.renderChildren(b.children) : null}
-          {b.final && <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(b.final) }} />}
-        </div>
-      )}
+    <div className={"sub-row" + (b.state === "running" ? " running" : "")}
+      onClick={() => ctx?.openSubagent?.(b.subtaskId)}
+      role="button" tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ctx?.openSubagent?.(b.subtaskId); } }}>
+      <span className="rail"><span className={dotCls}>{b.state === "running" ? "◐" : "·"}</span></span>
+      <span className="lbl">子代理</span>
+      <span className="desc">{b.name || "子代理"}</span>
+      <span className="du">{b.durationMs != null ? (Math.round(b.durationMs / 100) / 10) + "s" : ""}</span>
+      <span className="cta">← 查看详情</span>
     </div>
   );
 }

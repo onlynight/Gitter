@@ -1306,6 +1306,185 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     };
   }
 
+  /** 子代理列表（v4.9 设计稿 §5.2）：合并磁盘（subtasks/*.json）与 live.journal 派生。
+   *  磁盘 = 已完成子代理的持久化 transcript；live = 当前运行中子代理（事件在 journal 里）。
+   *  同一 subtaskId 以 live 态优先（磁盘记录终态，live 事件可能携带更新中的 running 态）。 */
+  async subtaskList(args: { taskId: string }): Promise<{
+    subtasks: {
+      subtaskId: string; name: string; mode: string;
+      state: "running" | "completed" | "failed" | "timeout" | "cancelled";
+      startedAt: number; durationMs?: number;
+      toolCount: number; fileCount: number; permissionBubbles: number;
+      finalMessage?: string; failureReason?: string;
+    }[];
+    running: number; maxSubagents: number; queued: number;
+  }> {
+    const repo = this.repoOrNull();
+    const live = this.live.get(args.taskId);
+    const max = Math.max(1, this.deps.settings.current.agentsMaxSubagents ?? 3);
+    const out = new Map<string, {
+      subtaskId: string; name: string; mode: string;
+      state: "running" | "completed" | "failed" | "timeout" | "cancelled";
+      startedAt: number; durationMs?: number;
+      toolCount: number; fileCount: number; permissionBubbles: number;
+      finalMessage?: string; failureReason?: string;
+    }>();
+    const files = repo ? await fsp.readdir(path.join(repo, ".git", "gitter", "agent-sessions", args.taskId, "subtasks")).catch(() => [] as string[]) : [];
+    for (const f of files) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const j = JSON.parse(await fsp.readFile(path.join(repo!, ".git", "gitter", "agent-sessions", args.taskId, "subtasks", f), "utf8"));
+        const dur = typeof j.durationMs === "number" ? j.durationMs : 0;
+        const end = typeof j.ts === "string" ? Date.parse(j.ts) : Date.now();
+        out.set(j.subtaskId, {
+          subtaskId: j.subtaskId, name: j.name ?? "", mode: j.mode ?? "",
+          state: (["running","completed","failed","timeout","cancelled"].includes(j.state) ? j.state : "completed") as any,
+          startedAt: end - dur, durationMs: dur || undefined,
+          toolCount: 0, fileCount: 0, permissionBubbles: 0,
+          finalMessage: j.finalMessage ?? undefined,
+          failureReason: j.state === "failed" || j.state === "timeout" ? "模型超时" : undefined,
+        });
+      } catch { /* 单文件损坏不阻塞列表 */ }
+    }
+    if (live) {
+      for (const e of live.journal) {
+        if (e.kind !== "event" || !e.event) continue;
+        const ev = e.event as AgentSessionEvent;
+        const sid = (ev as { subtaskId?: string }).subtaskId;
+        if (!sid) continue;
+        if (ev.type === "subtask") {
+          const dur = typeof (ev as { durationMs?: number }).durationMs === "number" ? (ev as { durationMs?: number }).durationMs! : undefined;
+          const end = Date.parse(e.ts) || Date.now();
+          const started = dur != null ? end - dur : end;
+          const prev = out.get(sid);
+          out.set(sid, {
+            subtaskId: sid,
+            name: (ev as { name?: string }).name ?? prev?.name ?? "",
+            mode: (ev as { mode?: string }).mode ?? prev?.mode ?? "",
+            state: (ev as { state?: any }).state ?? prev?.state ?? "running",
+            startedAt: started,
+            durationMs: dur ?? prev?.durationMs,
+            toolCount: prev?.toolCount ?? 0,
+            fileCount: prev?.fileCount ?? 0,
+            permissionBubbles: prev?.permissionBubbles ?? 0,
+            finalMessage: (ev as { finalMessage?: string }).finalMessage ?? prev?.finalMessage,
+            failureReason: prev?.failureReason,
+          });
+        } else {
+          const cur = out.get(sid) ?? (() => {
+            const def = { subtaskId: sid, name: "", mode: "", state: "running" as const, startedAt: Date.parse(e.ts) || Date.now(), toolCount: 0, fileCount: 0, permissionBubbles: 0 };
+            out.set(sid, def);
+            return def;
+          })();
+          if (ev.type === "tool") cur.toolCount += 1;
+          else if (ev.type === "file-change") {
+            cur.fileCount = cur.fileCount + 1;
+          } else if (ev.type === "permission" || ev.type === "question") cur.permissionBubbles += 1;
+        }
+      }
+    }
+    const list = [...out.values()];
+    const rank = (s: string) => s === "running" ? 0 : s === "failed" || s === "timeout" ? 1 : s === "cancelled" ? 2 : 3;
+    list.sort((a, b) => rank(a.state) - rank(b.state) || (a.startedAt > b.startedAt ? 1 : -1));
+    return {
+      subtasks: list,
+      running: live?.subtaskRunning ?? 0,
+      maxSubagents: max,
+      queued: 0, // 设计稿 §8：LiveSession 无 queue 数据结构，先返回 0；后续如需真排队再加 subtaskQueue 字段
+    };
+  }
+
+  /** 子代理详情对话（v4.9 设计稿 §5.3）：返回该 subtaskId 的完整事件流。
+   *  磁盘已落盘 → 从 messages 展开为 output/tool 事件；未落盘 → 从 live.journal 过滤。
+   *  返回 SessionJournalEntry[]，前端 reduceBlocks 可直接消费。 */
+  async subtaskTranscript(args: { taskId: string; subtaskId: string }): Promise<{
+    subtask: { subtaskId: string; name: string; mode: string; state: string; startedAt: number; durationMs?: number; toolCount: number; fileCount: number; permissionBubbles: number; finalMessage?: string } | null;
+    events: SessionJournalEntry[];
+  }> {
+    const repo = this.repoOrNull();
+    const live = this.live.get(args.taskId);
+    const events: SessionJournalEntry[] = [];
+    const dir = repo ? path.join(repo, ".git", "gitter", "agent-sessions", args.taskId, "subtasks") : null;
+    if (dir) {
+      const p = path.join(dir, `${args.subtaskId}.json`);
+      try {
+        const j = JSON.parse(await fsp.readFile(p, "utf8"));
+        const messages = Array.isArray(j.messages) ? j.messages : [];
+        // messages → journal：user → text/human，assistant → output/text，tool → tool 事件
+        // content.parts 结构来自 Vercel AI v5：{role:"assistant"|"tool"|"user"|"system", content:string | Part[]}
+        // Part: {type:"text", text} | {type:"tool-calls", value:ToolCall[]} | {type:"tool-result", toolCallId, toolName, result} | {type:"reasoning", text}
+        const baseTs = Date.parse(j.ts ?? Date.now()) - (typeof j.durationMs === "number" ? j.durationMs : 0);
+        let seq = 0;
+        for (const m of messages) {
+          const ts = new Date(baseTs + seq++).toISOString();
+          if (m.role === "user") {
+            const text = typeof m.content === "string" ? m.content
+              : Array.isArray(m.content) ? m.content.filter((p: any) => p?.type === "text").map((p: any) => String(p?.text ?? "")).join(" ") : "";
+            if (text) events.push({ ts, actor: "human", kind: "text", text });
+          } else if (m.role === "assistant") {
+            if (typeof m.content === "string") {
+              if (m.content) events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: m.content, stream: "assistant" } });
+            } else if (Array.isArray(m.content)) {
+              for (const part of m.content as any[]) {
+                if (!part) continue;
+                if (part.type === "text" && part.text) events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: part.text, stream: "assistant" } });
+                else if (part.type === "reasoning" && part.text) events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: part.text, stream: "thinking" } });
+                else if (part.type === "tool-calls") {
+                  for (const tc of part.value ?? []) {
+                    events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: tc.toolCallId ?? "", name: tc.toolName ?? "", args: tc.args, state: "running", startTs: Date.parse(ts) } });
+                  }
+                }
+              }
+            }
+          } else if (m.role === "tool") {
+            for (const r of m.content ?? []) {
+              const txt = typeof r?.result === "string" ? r.result : JSON.stringify(r?.result ?? "");
+              events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: r?.toolCallId ?? "", name: r?.toolName ?? "", state: "ok", result: txt } });
+            }
+          }
+        }
+      } catch { /* 磁盘无此文件，走 live */ }
+    }
+    if (live) {
+      for (const e of live.journal) {
+        if (e.kind !== "event" || !e.event) continue;
+        if ((e.event as { subtaskId?: string }).subtaskId === args.subtaskId) events.push(e);
+      }
+    }
+    events.sort((a, b) => a.ts.localeCompare(b.ts));
+    // 元数据：从 events 派生
+    let subtask: { subtaskId: string; name: string; mode: string; state: string; startedAt: number; durationMs?: number; toolCount: number; fileCount: number; permissionBubbles: number; finalMessage?: string } | null = null;
+    if (events.length > 0) {
+      let toolCount = 0, fileCount = 0, permissionBubbles = 0, startedAt = Date.parse(events[0].ts) || Date.now();
+      for (const e of events) {
+        const ev = e.event as AgentSessionEvent | undefined;
+        if (!ev) continue;
+        if (ev.type === "tool") toolCount += 1;
+        else if (ev.type === "file-change") fileCount += 1;
+        else if (ev.type === "permission" || ev.type === "question") permissionBubbles += 1;
+      }
+      const endEv = events[events.length - 1];
+      const dur = endEv && events[0] ? Math.max(0, Date.parse(endEv.ts) - Date.parse(events[0].ts)) : undefined;
+      subtask = {
+        subtaskId: args.subtaskId,
+        name: "",
+        mode: "",
+        state: "running",
+        startedAt,
+        durationMs: dur,
+        toolCount, fileCount, permissionBubbles,
+      };
+      const firstSubtask = events.find((e) => e.kind === "event" && (e.event as AgentSessionEvent)?.type === "subtask");
+      if (firstSubtask) {
+        const ev = firstSubtask.event as AgentSessionEvent;
+        subtask.name = (ev as { name?: string }).name ?? "";
+        subtask.mode = (ev as { mode?: string }).mode ?? "";
+        subtask.state = (ev as { state?: string }).state ?? "running";
+      }
+    }
+    return { subtask, events };
+  }
+
   /** 图片预览（F2.1：read-image 附件数据源；base64 data URL，cap 2MB）。 */
   async previewImage(args: { taskId: string; path: string }): Promise<{ dataUrl: string } | { error: string }> {
     const record = this.recordOf(args.taskId);

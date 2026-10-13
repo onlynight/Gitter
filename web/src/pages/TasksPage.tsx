@@ -18,7 +18,7 @@ import {
   TodoList, PermissionCard, QuestionCard, PlanCard, SubtaskBlock, FileGroup,
 } from "./TaskTimeline";
 import { Composer, MentionPopover, SlashPopover, BUILTIN_COMPOSER_PROVIDERS, MODE_ORDER, MODE_META, THINKING_META, type ModelGroupVM } from "./TaskComposer";
-import { ChangesTab, CheckpointsTab, ShellsTab } from "./TaskDetailPages";
+import { ChangesTab, CheckpointsTab, ShellsTab, SubagentsTab } from "./TaskDetailPages";
 import { TaskWrapupDialog, TaskFeedbackDialog } from "./TaskWrapupDialog";
 // 任务页 v3（docs/task-page-v2-design.md）：Codex 信息架构（任务卡列表 + 对话/改动/检查点三独立页）
 // × ZCode 交互（⏺ 工具卡折叠/⎿ 结果、编号授权选项、todo 清单、Esc/Esc×2、Shift+Tab 模式循环、
@@ -168,8 +168,19 @@ export function TasksPage() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [delPopId, setDelPopId] = useState<string | null>(null);
   const [shellRunning, setShellRunning] = useState(0);
+  const [subagentCount, setSubagentCount] = useState(0);
   // 「后台」页签跳转锚（design v2 §5）：卡片点 ⤴ 后台 → 切 tab 并自动展开对应 shellId 详情
   const [shellFocus, setShellFocus] = useState<{ shellId: string; ts: number } | null>(null);
+  // 「子代理」页签跳转锚（v4.9 设计稿 §3）：会话内单行化子代理卡点「← 查看详情」→ 切 tab 并打开该 subtaskId 详情
+  const [subagentFocus, setSubagentFocus] = useState<{ subtaskId: string; ts: number } | null>(null);
+  // 子代理运行条耗时兜底：subtask block 首次出现时记录挂载时间（后端 durationMs 只在结束时才回填，
+  // 运行中用当前时间减首见时间即可显示实时秒数；subtask block 一旦出现在 evMap 就不再变化）
+  const subtaskStartRef = useRef<Map<string, number>>(new Map());
+  const subtaskStartAt = (b: { subtaskId: string }): number => {
+    const m = subtaskStartRef.current;
+    if (!m.has(b.subtaskId)) m.set(b.subtaskId, Date.now());
+    return m.get(b.subtaskId)!;
+  };
   const [wrapupOpen, setWrapupOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [taskTypes, setTaskTypes] = useState<TaskTypeDTO[]>([]);
@@ -177,7 +188,7 @@ export function TasksPage() {
   const [taskTypeId, setTaskTypeId] = useState("");
   const [modelId, setModelId] = useState("");
   const [mode, setMode] = useState<"plan" | "default" | "yolo">("default");
-  const [tab, setTab] = useState<"chat" | "diff" | "cp" | "shells">("chat");
+  const [tab, setTab] = useState<"chat" | "diff" | "cp" | "subagents" | "shells">("chat");
   // 详细模式（v4.7 §4.3，照抄 ZCode ctrl+o）：工具结果/思考默认全展开
   const [verboseTimeline, setVerboseTimeline] = useState(false);
   // 分支模式提示浮层（收进图标按钮，不再占用会话流版面）
@@ -1349,6 +1360,10 @@ export function TasksPage() {
         setShellFocus({ shellId, ts: Date.now() });
         setTab("shells");
       },
+      openSubagent: (subtaskId) => {
+        setSubagentFocus({ subtaskId, ts: Date.now() });
+        setTab("subagents");
+      },
       contextPct: stats ? `${Math.round(stats.ratio * 100)}%` : undefined,
       showCopy: !process && copyBlocks.has(block),
       verbose: verboseTimeline,
@@ -1663,7 +1678,7 @@ function OutcomeFold(props: { icon: "dot"; color: string; summary: string; child
           对话内容的 min-content 宽度不再把 1fr 轨道撑破窗口 */}
       <div ref={detailRef} className="tk-detail" style={{ display: "grid", position: "relative", flex: 1, minHeight: 0, minWidth: 0, gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateColumns: selected && changesPanelOpen && !panelClosing ? panelTemplate(splitRatio) : "minmax(0, 1fr)" }}>
         <div className="tk-tabs" style={{ gridColumn: "1", gridRow: "1" }}>
-          {([["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount], ["shells", "后台", shellRunning]] as const).map(([id, label, n]) => (
+          {([["chat", "对话", 0], ["diff", "改动", diffCount], ["cp", "检查点", cpCount], ["subagents", "子代理", runningSubs], ["shells", "后台", shellRunning]] as const).map(([id, label, n]) => (
             <div key={id} className={"tk-tab" + (tab === id ? " on" : "")} onClick={() => setTab(id)}>
               {label}{n > 0 ? <span className="tk-tab-n">{n}</span> : null}
             </div>
@@ -1697,7 +1712,7 @@ function OutcomeFold(props: { icon: "dot"; color: string; summary: string; child
         <div style={{ gridColumn: "1", gridRow: "2", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
         {/* ═══ 对话页（保持挂载：切改动/检查点不重新加载历史、不丢滚动位置） ═══ */}
         {selected && (
-          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto auto minmax(0, 1fr)", overflow: "hidden" }}>
+          <div style={{ flex: 1, minHeight: 0, display: tab === "chat" ? "grid" : "none", flexDirection: "column", gridTemplateRows: "auto auto auto minmax(0, 1fr)", overflow: "hidden" }}>
             <div className="tk-pagehead" style={{ gridColumn: "1", gridRow: "1" }}>
               <span className="tk-pill" style={{ color: stateChip(selected.state, selected.awaitKind).color, borderColor: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 32%, transparent)`, background: `color-mix(in srgb, ${stateChip(selected.state, selected.awaitKind).color} 9%, transparent)` }}>
                 <span className="tk-pill-dot" />
@@ -1741,7 +1756,25 @@ function OutcomeFold(props: { icon: "dot"; color: string; summary: string; child
                 <button className="tool-btn" onClick={() => pageSdk.navigate("log")}>查看 Log</button>
               </div>
             )}
-            <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "3 / 5" }}>
+            {/* 子代理运行条（v4.9 设计稿 §2）：仅 runningSubs>0 时显示，纯文本无框、圆点闪烁、行内可点击跳详情 */}
+            {runningSubs > 0 && (
+              <div className="tk-subrun" style={{ gridColumn: "1", gridRow: "3" }}>
+                <span className="lead"><span className="icon">◐</span>子代理 {runningSubs}/{maxSubagents}</span>
+                <span className="sep" />
+                {(selectedTask ? (evMap[selectedTask] ?? []) : []).filter(
+                  (b): b is Extract<Block, { kind: "subtask" }> => b.kind === "subtask" && b.state === "running"
+                ).map((b) => (
+                  <span key={b.subtaskId} className="item" onClick={() => { setSubagentFocus({ subtaskId: b.subtaskId, ts: Date.now() }); setTab("subagents"); }}>
+                    <span className="dt" />
+                    <span className="nm">{b.name || "子代理"}</span>
+                    <span className="du">{((Date.now() - subtaskStartAt(b)) / 1000).toFixed(1)}s</span>
+                    <span className="arrow">←</span>
+                  </span>
+                ))}
+                {runningSubs < maxSubagents && selected?.queued?.length ? <span className="queue-badge">+{selected.queued.length} 排队</span> : null}
+              </div>
+            )}
+            <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative", gridColumn: "1", gridRow: "4" }}>
               {/* 错误浮层：悬于时间线之上、顶部状态条正下方；不打断版面流 */}
               {error && <ErrorFloat text={error} maxWidth="calc(100% - 292px)" go={errorGo} onGo={(s) => { openSettings(s); setError(null); }} onClose={() => setError(null)} />}
               <div ref={timelineRef} className="tl-scroll" style={{ height: "100%", overflowY: "auto", overflowX: "hidden" }}
@@ -2017,6 +2050,12 @@ function OutcomeFold(props: { icon: "dot"; color: string; summary: string; child
         {/* ═══ 检查点页（完全独立页 · ZCode rewind）═══ */}
         {tab === "cp" && selected && (
           <CheckpointsTab taskId={selected.taskId} branch={selected.branch} tick={changesTick} setError={setError} onCount={setCpCount} onViewDiff={() => setTab("diff")} onMutate={() => setChangesTick((n) => n + 1)} />
+        )}
+
+        {/* ═══ 子代理页（v4.9 设计稿 §5）：列表 + 详情（复用会话页对话样式）═══ */}
+        {tab === "subagents" && selected && (
+          <SubagentsTab taskId={selected.taskId} live={LIVE_STATES.has(selected.state)} tick={changesTick} setError={setError} onCount={setSubagentCount}
+            focus={subagentFocus} onFocused={() => setSubagentFocus(null)} />
         )}
 
         {/* ═══ 后台 shell 页（v3.3 工作流 C：terminal_run 后台模式的面板化）═══ */}

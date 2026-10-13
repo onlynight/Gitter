@@ -54,6 +54,8 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   // D6/D9：导出（弹系统保存框）与文件只读预览——均为会话级读取面
   "agent.task.export": "agent.config", "agent.task.previewFile": "git.read",
   "agent.previewImage": "git.read",
+  // 子代理列表 + 详情对话（task-page-subagent-design.md §5.2/§5.3）：会话级读取面
+  "agent.subtask.list": "git.read", "agent.subtask.transcript": "git.read",
   "agent.task.checkpoint": "git.write",
   // 项目文件树 + 编辑器读写面（editor-design.md）
   "repo.tree": "git.read", "file.content": "git.read", "file.write": "git.write",
