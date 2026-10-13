@@ -41,7 +41,15 @@ function monacoUriFor(path: string): string {
 /** 会话锚点 → 当前内容中的实际行（抗文件改动错位）。
  *  锚点文本 = 上次光标所在行；在当前内容中就近搜索命中即按命中行定位，
  *  未命中（行已改写/删除）回退原行号并夹紧到文件内。
- *  读失败/文件不在时直接返回原行号。 */
+ *  读失败/文件不在时直接返回原行号。
+ *  重要：仅当锚点文本在「原行」附近命中才采信——距离过远说明文件已被大幅改动
+ *  或锚点文本极常见（如 `}`、import、空行），此时采信会把光标定位到完全无关的
+ *  行；而该误定位会被持久化回去，下次重启原样重放，形成永久错位。 */
+const ANCHOR_WINDOW = 40;
+// 漂移容差：抗常见的 1–3 行插入/删除，但不接受大漂移——超过说明锚点文本是常见
+// 短行（`}`、return、import）且原行已消失，命中的是无关行，采信即错位
+const ANCHOR_MAX_DRIFT = 3;
+
 async function resolveAnchor(repo: string, rel: string, line: number, col: number, text: string): Promise<number> {
   const clamp = (max: number) => Math.max(1, Math.min(line, max || 1));
   try {
@@ -52,9 +60,10 @@ async function resolveAnchor(repo: string, rel: string, line: number, col: numbe
     if (lines.length === 0) return 1;
     const target = (text || "").trimEnd();
     // 空锚点（光标停在空行）不匹配——空串与任意空行都相等，会把恢复位误判到第 1 行
-    if (target && target.length <= 200) {
-      // 就近搜索：原行 ±40 行窗口，命中最近的一处
-      const win = Math.min(40, Math.floor(lines.length / 2));
+    // 锚点过短（< 3 字符）同样歧义过大，不足以唯一定位，直接回退行号
+    if (target && target.length >= 3 && target.length <= 200) {
+      // 就近搜索：原行 ±ANCHOR_WINDOW 行窗口，命中最近的一处
+      const win = Math.min(ANCHOR_WINDOW, Math.floor(lines.length / 2));
       const from = Math.max(0, line - 1 - win);
       const to = Math.min(lines.length, line + win);
       let best = -1;
@@ -65,7 +74,8 @@ async function resolveAnchor(repo: string, rel: string, line: number, col: numbe
           if (d < bestDist) { bestDist = d; best = i + 1; }
         }
       }
-      if (best > 0) return best;
+      // 只有漂移在容差内才采信：超过说明锚点已不可靠，回退原行号（由调用方夹紧）
+      if (best > 0 && bestDist <= ANCHOR_MAX_DRIFT) return best;
     }
     return clamp(lines.length);
   } catch {
@@ -151,9 +161,13 @@ export function FilesPage() {
     saveSession(repoKey, s);
   }, [repoKey, tabs, activeTab]);
 
-  // 光标位置回报：写行/列（锚点文本异步补记）并落盘
+  // 光标位置回报：写行/列（锚点文本异步补记）并落盘。
+  // 用 ref 读当前仓库键——回调在文件加载期被快速连续调用，闭包捕获的 repoKey 可能滞后一个提交
+  const repoKeyRef = useRef(repoKey);
+  repoKeyRef.current = repoKey;
   const positionReport = useCallback((path: string, line: number, col: number) => {
-    const s = sessionsRef.current[repoKey];
+    const rk = repoKeyRef.current;
+    const s = sessionsRef.current[rk];
     if (!s) return;
     const uri = monacoUriFor(path);
     const v = (s.views[uri] ??= {});
@@ -162,8 +176,8 @@ export function FilesPage() {
       pendingAnchorRef.current.set(uri, { path, line, col });
       void fillAnchorText(uri);
     }
-    saveSession(repoKey, s);
-  }, [repoKey, fillAnchorText]);
+    saveSession(rk, s);
+  }, [fillAnchorText]);
 
   // 查看模式回报（md/html 等查看器文件在编辑/预览间切换）：落盘下次重开时恢复。
   // 仅当文件有查看器时该 mode 才有意义，普通代码文件不需要（但也不会上报，安全）

@@ -58,6 +58,14 @@ const FONT_KEY = "gitter.files.fontSize";
 const FONT_MIN = 9;
 const FONT_MAX = 32;
 
+// 已应用过首开定位的 (model.id, ts) 集合（模块级）：本组件是全标签共用单实例，
+// initialReveal 的依赖 [ts, model] 每次切标签都变化——若只按「上一个 ts」去重，
+// 切回任何有锚点的标签都会把光标重新拉到启动时解析的行（历史脏锚点常为第 1 行），
+// 并覆盖刚恢复的视图态、把错位写回会话（「切 tab 重置到第一行」的根因）。
+// key 含 model.id：关闭标签后重开是新 model（新 id），允许再次首开定位；
+// 模块级：文件加载期组件会卸载重挂，实例级 ref 撑不过一次重挂。
+const revealedKeys = new Set<string>();
+
 function loadFontSize(): number {
   const n = Number(window.localStorage.getItem(FONT_KEY));
   return Number.isFinite(n) && n >= FONT_MIN && n <= FONT_MAX ? n : 13;
@@ -172,17 +180,25 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
     }, [props.revealLine?.ts, props.model]);
 
     // 会话恢复定位：视图态恢复后的落位（含未存视图态时的行/列落位）
+    // initialReveal 与 model 是两个异步来源（前者经 resolveAnchor 异步解析，后者经
+    // file.content 加载），谁先到都可能出现「先到时另一个还没就绪」——依赖同时含两者，
+    // 后到的一方触发本 effect 补一次定位，避免定位请求永久丢失（表现为位置回不去）
     useEffect(() => {
       const ed = edRef.current;
       const r = props.initialReveal;
       if (!ed || !r || !props.model) return;
       const model = props.model as MonacoModel;
+      // 每个 (model, ts) 只落位一次：切标签会反复触发本 effect（依赖 [ts, model]），
+      // 重入时不覆盖视图态恢复的光标
+      const key = `${model.id}:${r.ts}`;
+      if (revealedKeys.has(key)) return;
+      revealedKeys.add(key);
       const line = Math.max(1, Math.min(r.line, model.getLineCount() || r.line));
       const col = Math.max(1, Math.min(r.col, model.getLineMaxColumn(line) || r.col));
       ed.revealLineInCenter(line);
       ed.setPosition({ lineNumber: line, column: col });
-      // 同步回报落位后的位置（不经光标事件）：本 effect 早于 onDidChangeCursorPosition 的
-      // 订阅 effect 执行，此刻 cbRef 仍是旧 props，若让事件回传会把位置写到上一个标签名下
+      // 同步回报落位后的位置（不经光标事件）：本 effect 可能早于 onDidChangeCursorPosition
+      // 的订阅 effect 执行，此刻 cbRef 仍是旧 props，若让事件回传会把位置写到上一个标签名下
       const pos = ed.getPosition();
       if (pos) {
         cbRef.current.onPosition?.({ line: pos.lineNumber, col: pos.column });
@@ -228,34 +244,30 @@ export const FilesMonacoEditor = forwardRef<FilesMonacoEditorHandle, FilesMonaco
       if (prev) {
         const vs = ed.saveViewState();
         if (vs) saveViewState(prev, vs);
+        // 位置回写同理：这里的位置属于旧模型，但 ed.getModel() 在下一次调用时
+        // 可能已被换掉；直接用上面的 prev 判定，避免把新模型的位置记到旧模型名下。
         const p = ed.getPosition();
         if (p) savePosition(prev, p.lineNumber, p.column);
       }
 
       const model = props.model as MonacoModel | null;
+      const incoming = model ? viewStateOf(model) : undefined;
+      // 关键：先取出新模型的视图态再 setModel，且事后不得回写缓存。
+      // setModel 会同步触发 onDidBlurEditorWidget → restoreViewStates，把上一个模型
+      // 遗留的 scrollTop 应用进新模型；若此时再 saveViewState 回写，等于把上一个文件
+      // 的滚动位置写进当前模型的缓存——之后切回来必然复原成同一个位置
+      // （「不同文件切换光标重置到同一位置」的根因）。
       ed.setModel(model);
       if (model) {
-        const vs = viewStateOf(model);
-        if (vs) {
-          // 恢复后回写缓存：restoreViewState 会变换视图态内容（按行度量重建），
-          // 回写使会话持久化能取到「当前生效」的视图态而非恢复前的旧值
-          ed.restoreViewState(vs);
-          try {
-            const after = ed.saveViewState();
-            if (after) saveViewState(model, after);
-          } catch {
-            // 保存失败不影响恢复结果
-          }
-        }
+        if (incoming) ed.restoreViewState(incoming);
         ed.focus();
       }
 
       // 切换后立即回报一次光标/诊断（页脚随标签切换刷新）
+      // 注意：这里只回报不写模块级缓存——restoreViewState 未必把光标放到
+      // 有记录的行上，写回可能用错值覆盖 onDidChangeCursorPosition 的正确记录
       const pos = ed.getPosition();
-      if (pos) {
-        cbRef.current.onPosition?.({ line: pos.lineNumber, col: pos.column });
-        if (model) savePosition(model, pos.lineNumber, pos.column);
-      }
+      if (pos) cbRef.current.onPosition?.({ line: pos.lineNumber, col: pos.column });
       cbRef.current.onMarkers?.(markerCounts(model));
 
       const sub = ed.onDidChangeModelContent((e) => {

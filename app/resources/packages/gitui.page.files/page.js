@@ -2919,6 +2919,7 @@
   const FONT_KEY = "gitter.files.fontSize";
   const FONT_MIN = 9;
   const FONT_MAX = 32;
+  const revealedKeys = /* @__PURE__ */ new Set();
   function loadFontSize() {
     const n = Number(window.localStorage.getItem(FONT_KEY));
     return Number.isFinite(n) && n >= FONT_MIN && n <= FONT_MAX ? n : 13;
@@ -3026,6 +3027,9 @@
         const r = props.initialReveal;
         if (!ed || !r || !props.model) return;
         const model = props.model;
+        const key = `${model.id}:${r.ts}`;
+        if (revealedKeys.has(key)) return;
+        revealedKeys.add(key);
         const line = Math.max(1, Math.min(r.line, model.getLineCount() || r.line));
         const col = Math.max(1, Math.min(r.col, model.getLineMaxColumn(line) || r.col));
         ed.revealLineInCenter(line);
@@ -3072,24 +3076,14 @@
           if (p) savePosition(prev, p.lineNumber, p.column);
         }
         const model = props.model;
+        const incoming = model ? viewStateOf(model) : void 0;
         ed.setModel(model);
         if (model) {
-          const vs = viewStateOf(model);
-          if (vs) {
-            ed.restoreViewState(vs);
-            try {
-              const after = ed.saveViewState();
-              if (after) saveViewState(model, after);
-            } catch {
-            }
-          }
+          if (incoming) ed.restoreViewState(incoming);
           ed.focus();
         }
         const pos = ed.getPosition();
-        if (pos) {
-          (_b3 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b3.call(_a3, { line: pos.lineNumber, col: pos.column });
-          if (model) savePosition(model, pos.lineNumber, pos.column);
-        }
+        if (pos) (_b3 = (_a3 = cbRef.current).onPosition) == null ? void 0 : _b3.call(_a3, { line: pos.lineNumber, col: pos.column });
         (_d = (_c2 = cbRef.current).onMarkers) == null ? void 0 : _d.call(_c2, markerCounts(model));
         const sub = ed.onDidChangeModelContent((e) => {
           var _a4, _b4;
@@ -4149,7 +4143,6 @@ li { margin: .25em 0; }
     const autoSave = ((_a2 = useAppState().settings) == null ? void 0 : _a2.editorAutoSave) !== false;
     const autoSaveRef = React$1.useRef(autoSave);
     autoSaveRef.current = autoSave;
-    const lastReady = React$1.useRef(null);
     const [textMode, setTextMode] = React$1.useState(/* @__PURE__ */ new Set());
     const textModeRef = React$1.useRef(textMode);
     textModeRef.current = textMode;
@@ -4484,11 +4477,6 @@ li { margin: .25em 0; }
       setTextMode(nextTextMode);
     }, []);
     React$1.useImperativeHandle(ref, () => ({ handleFsRenamed, handleFsDeleted }), [handleFsRenamed, handleFsDeleted]);
-    React$1.useEffect(() => {
-      if (!props.activeTab) return;
-      const m = models.current.get(props.activeTab);
-      if (m) lastReady.current = { path: props.activeTab, model: m };
-    }, [props.activeTab, editors]);
     const batchClose = React$1.useCallback((targets) => {
       var _a3;
       const closable = targets.filter((p) => {
@@ -4895,28 +4883,21 @@ li { margin: .25em 0; }
             ) : activeEditor && activeEditor.binary ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 20, textAlign: "center", opacity: 0.7 }, children: t("Editor_ErrorBinary") }) : activeEditor && activeEditor.error && !activeEditor.content ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ed-note", children: activeEditor.error }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
               (() => {
                 var _a3;
-                const stale = !activeModel && !!(lastReady.current && models.current.get(lastReady.current.path) === lastReady.current.model);
-                const shown = activeModel ?? (stale ? lastReady.current.model : null);
-                const ownReveal = shown && !stale ? ((_a3 = props.initialReveals) == null ? void 0 : _a3[props.activeTab ?? ""]) ?? null : null;
-                return shown ? /* @__PURE__ */ jsxRuntime.jsx(
+                return activeModel ? /* @__PURE__ */ jsxRuntime.jsx(
                   FilesMonacoEditor,
                   {
                     ref: mainEditorRef,
-                    model: shown,
-                    readOnly: stale,
-                    ownsKeys: !stale,
-                    gitBase: stale ? null : (activeEditor == null ? void 0 : activeEditor.gitBase) ?? null,
+                    model: activeModel,
+                    gitBase: (activeEditor == null ? void 0 : activeEditor.gitBase) ?? null,
                     showDiff: props.showDiff,
                     onDiffProgress: (index, total) => setDiffInfo({ path: props.activeTab ?? "", index, total }),
                     revealLine,
-                    initialReveal: ownReveal,
-                    onChange: (value) => {
-                      if (!stale) handleContentChange(activeEditor.path, value);
-                    },
+                    initialReveal: props.activeTab ? ((_a3 = props.initialReveals) == null ? void 0 : _a3[props.activeTab]) ?? null : null,
+                    onChange: (value) => handleContentChange(props.activeTab ?? "", value),
                     onPosition: (p) => {
                       var _a4;
                       setPosition(p);
-                      if (!stale && props.activeTab) (_a4 = props.onPositionReport) == null ? void 0 : _a4.call(props, props.activeTab, p.line, p.col);
+                      if (props.activeTab) (_a4 = props.onPositionReport) == null ? void 0 : _a4.call(props, props.activeTab, p.line, p.col);
                     },
                     onMarkers: setMarkers
                   }
@@ -5717,6 +5698,8 @@ li { margin: .25em 0; }
   function monacoUriFor(path) {
     return "file://" + path.replace(/\\/g, "/");
   }
+  const ANCHOR_WINDOW = 40;
+  const ANCHOR_MAX_DRIFT = 3;
   async function resolveAnchor(repo, rel, line, col, text) {
     const clamp = (max) => Math.max(1, Math.min(line, max || 1));
     try {
@@ -5725,8 +5708,8 @@ li { margin: .25em 0; }
       const lines = r.content.split("\n");
       if (lines.length === 0) return 1;
       const target = (text || "").trimEnd();
-      if (target && target.length <= 200) {
-        const win = Math.min(40, Math.floor(lines.length / 2));
+      if (target && target.length >= 3 && target.length <= 200) {
+        const win = Math.min(ANCHOR_WINDOW, Math.floor(lines.length / 2));
         const from = Math.max(0, line - 1 - win);
         const to = Math.min(lines.length, line + win);
         let best = -1;
@@ -5740,7 +5723,7 @@ li { margin: .25em 0; }
             }
           }
         }
-        if (best > 0) return best;
+        if (best > 0 && bestDist <= ANCHOR_MAX_DRIFT) return best;
       }
       return clamp(lines.length);
     } catch {
@@ -5812,9 +5795,12 @@ li { margin: .25em 0; }
       s.active = tabs.some((t) => t.path === activeTab) ? activeTab : null;
       saveSession(repoKey, s);
     }, [repoKey, tabs, activeTab]);
+    const repoKeyRef = React$1.useRef(repoKey);
+    repoKeyRef.current = repoKey;
     const positionReport = React$1.useCallback((path, line, col) => {
       var _a3, _b2;
-      const s = sessionsRef.current[repoKey];
+      const rk = repoKeyRef.current;
+      const s = sessionsRef.current[rk];
       if (!s) return;
       const uri = monacoUriFor(path);
       const v = (_a3 = s.views)[uri] ?? (_a3[uri] = {});
@@ -5823,8 +5809,8 @@ li { margin: .25em 0; }
         pendingAnchorRef.current.set(uri, { path, line, col });
         void fillAnchorText(uri);
       }
-      saveSession(repoKey, s);
-    }, [repoKey, fillAnchorText]);
+      saveSession(rk, s);
+    }, [fillAnchorText]);
     const modeReport = React$1.useCallback((path, mode) => {
       const s = sessionsRef.current[repoKey];
       if (!s) return;

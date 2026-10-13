@@ -155,9 +155,6 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
   const autoSaveRef = useRef(autoSave);
   autoSaveRef.current = autoSave;
 
-  // 最后一个就绪的 model：新文件加载期间保留其画面，避免 Monaco 卸载重挂造成的闪烁
-  const lastReady = useRef<{ path: string; model: MonacoModel } | null>(null);
-
   // 文本模式覆盖：查看器接管的路径（md 预览等）被用户要求回 Monaco 编辑——
   // 覆盖登记后画布走文本流，预览 HUD 可切回。ref 镜像供 loadFile 守卫同步读。
   const [textMode, setTextMode] = useState<Set<string>>(new Set());
@@ -526,14 +523,6 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
   }, []);
 
   useImperativeHandle(ref, () => ({ handleFsRenamed, handleFsDeleted }), [handleFsRenamed, handleFsDeleted]);
-
-  // 记录最后一个就绪的 model：新文件加载期保留其画面（Monaco 不卸载，防闪黑）；
-  // 已关闭标签的 model 被 dispose，不再作为保底
-  useEffect(() => {
-    if (!props.activeTab) return;
-    const m = models.current.get(props.activeTab);
-    if (m) lastReady.current = { path: props.activeTab, model: m };
-  }, [props.activeTab, editors]);
 
   // 批量关闭（关闭其他/右侧/全部）：固定标签跳过；未保存的标签保留并提示，不静默丢改动
   const batchClose = useCallback((targets: string[]) => {
@@ -920,8 +909,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
         </div>
       </div>
 
-      {/* 编辑区：Monaco 实例常驻（新文件加载期保留上一个画面 + Loading 覆盖层，
-          不卸载重建——实例重挂是选中文件时「闪黑」的根因）。
+      {/* 编辑区：Monaco 实例常驻——切标签只换 model 不重建编辑器（大文件不重复 tokenize，
+          视图状态随 model.id 存取）；新文件加载期显示 Loading 覆盖层。
           画布查看器（office 预览）命中时接管整个画布；分屏开启时左右双栏。 */}
       <div
         style={{ flex: 1, overflow: "hidden", position: "relative", minHeight: 0, display: "flex" }}
@@ -951,32 +940,27 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(function
           ) : (
             <>
               {(() => {
-                // 新文件加载中（尚无 model）：继续显示上一个已就绪的 model（只读），避免卸载闪烁
-                const stale = !activeModel && !!(lastReady.current
-                  && models.current.get(lastReady.current.path) === lastReady.current.model);
-        const shown = activeModel ?? (stale ? lastReady.current!.model : null);
-        // 只向 Monaco 下发激活标签自己的定位请求：stale 显示的是上一个文件的 model，
-        // 误下发会把上一个文件的光标行写进当前文件的会话
-        const ownReveal = shown && !stale ? props.initialReveals?.[props.activeTab ?? ""] ?? null : null;
-        return shown ? (
-          <FilesMonacoEditor
-            ref={mainEditorRef}
-            model={shown}
-            readOnly={stale}
-            ownsKeys={!stale}
-            gitBase={stale ? null : activeEditor?.gitBase ?? null}
-            showDiff={props.showDiff}
-            onDiffProgress={(index, total) => setDiffInfo({ path: props.activeTab ?? "", index, total })}
-            revealLine={revealLine}
-            initialReveal={ownReveal}
-            onChange={(value) => { if (!stale) handleContentChange(activeEditor!.path, value); }}
-            onPosition={(p) => {
-              setPosition(p);
-              // stale 显示期（文件加载中的保底画面）不回报——那行属于上一个文件
-              if (!stale && props.activeTab) props.onPositionReport?.(props.activeTab, p.line, p.col);
-            }}
-            onMarkers={setMarkers}
-          />
+                // 新文件加载中（尚无 model）显示 Loading：不显示上一个文件的画面。
+                // 旧实现用 lastReady 做「stale 保底」防闪黑，但它会在文件加载期把
+                // 上一个文件的 model 继续挂在 Monaco 上——切文件期间光标/滚动事件
+                // 被宿主写成当前激活标签，且视图态按 model.id 存取后跨文件串位，
+                // 是「不同文件切换光标重置到同一位置」的根因。文件很小，Loading 只闪一帧。
+                return activeModel ? (
+                  <FilesMonacoEditor
+                    ref={mainEditorRef}
+                    model={activeModel}
+                    gitBase={activeEditor?.gitBase ?? null}
+                    showDiff={props.showDiff}
+                    onDiffProgress={(index, total) => setDiffInfo({ path: props.activeTab ?? "", index, total })}
+                    revealLine={revealLine}
+                    initialReveal={props.activeTab ? props.initialReveals?.[props.activeTab] ?? null : null}
+                    onChange={(value) => handleContentChange(props.activeTab ?? "", value)}
+                    onPosition={(p) => {
+                      setPosition(p);
+                      if (props.activeTab) props.onPositionReport?.(props.activeTab, p.line, p.col);
+                    }}
+                    onMarkers={setMarkers}
+                  />
                 ) : activeEditor ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.7 }}>Loading…</div>
                 ) : null;
