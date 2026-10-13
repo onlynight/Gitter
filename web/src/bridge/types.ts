@@ -297,6 +297,8 @@ export interface SettingsDTO {
   agentsExternalMcpTools: boolean;
   /** 任务执行位置：false（默认）=直接在当前分支修改；true=每任务独立 worktree + task/* 分支 */
   agentsTaskWorktree: boolean;
+  /** 任务运行中发送策略：queue=排队（轮末自动注入，默认）/ interrupt=插话（中断当前轮立即注入）/ block=禁止发送 */
+  agentsBusySend?: "queue" | "interrupt" | "block";
   /** 模型档案（task-model-modules.md §二） */
   models: UserModelProfileDTO[];
   defaultModelId: string | null;
@@ -642,7 +644,7 @@ export type AgentEventDTO = {
   todos?: { content: string; status: "pending" | "in_progress" | "completed" }[];
   payload?: AgentPermissionPayloadDTO;
   rememberable?: boolean;
-  outcome?: "completed" | "failed" | "cancelled";
+  outcome?: "completed" | "failed" | "cancelled" | "stopped" | "interrupted";
   exitCode?: number | null;
   externalSessionId?: string;
   path?: string;

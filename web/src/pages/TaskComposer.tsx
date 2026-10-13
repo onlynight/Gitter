@@ -119,7 +119,10 @@ export function CompPopover(props: {
   useEffect(() => {
     if (!props.open) return;
     const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) props.onClose();
+      // 点在切换钮（comp-item/comp-stats）上时不在此处关闭：交给钮的 click toggle，
+      // 否则 mousedown 先关、click 再开 =「再点一下又展开了」
+      const t = e.target as HTMLElement | null;
+      if (ref.current && !ref.current.contains(t) && !t?.closest(".comp-item, .comp-stats")) props.onClose();
     };
     const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); props.onClose(); } };
     document.addEventListener("mousedown", h);
@@ -394,9 +397,15 @@ export const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function 
         </span>
 
         <span style={{ flex: 1 }} />
-        <button className="comp-send" title={props.sendTitle} disabled={!props.canSend && !props.busy} onClick={() => (props.busy ? props.onStop() : props.onSend())}>
-          <TlIcon name={props.busy ? "stop" : "send"} size={13} />
-        </button>
+        {/* busy 且输入框有内容 = 排队/插话发送（点击发送钮不再误触停止）；空输入时才是停止钮 */}
+        {(() => {
+          const isStop = props.busy && !props.canSend;
+          return (
+            <button className="comp-send" title={props.sendTitle} disabled={!props.canSend && !props.busy} onClick={() => (isStop ? props.onStop() : props.onSend())}>
+              <TlIcon name={isStop ? "stop" : "send"} size={13} />
+            </button>
+          );
+        })()}
       </div>
       {/* 统计栏（DeepSeek 式）：上下文容量 / token 用量 / 速度 / 缓存命中率，点击展开明细。
           新任务页与空会话（无消息、无用量记录）不显示整栏——避免一排「—」和多余分割线。 */}

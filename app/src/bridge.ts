@@ -659,7 +659,7 @@ export class Bridge {
       this.agents.createTask({ name: args?.name, prompt: args?.prompt ?? "", taskType: args?.taskType, model: args?.model, thinking: args?.thinking as never, mode: args?.mode as never }));
     R("agent.task.resume", (args: { taskId: string; prompt: string; thinking?: string; mode?: string }) =>
       this.agents.resumeTask({ ...args, thinking: args?.thinking as never, mode: args?.mode as never }));
-    R("agent.task.queue", (args: { taskId: string; prompt: string }) => this.agents.queueTask(args) ?? {});
+    R("agent.task.queue", (args: { taskId: string; prompt: string; interrupt?: boolean }) => this.agents.queueTask(args) ?? {});
     R("agent.task.setMode", (args: { taskId: string; mode: string }) => this.agents.setMode({ ...args, mode: args.mode as never }) ?? {});
     R("agent.task.stop", (args: { taskId: string }) => this.agents.stopTask(args) ?? {});
     R("agent.task.feedback", (args: { taskId: string; feedback: string }) => this.agents.sendFeedback(args));

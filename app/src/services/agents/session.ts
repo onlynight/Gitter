@@ -122,6 +122,8 @@ interface LiveSession {
   turnBreakNote?: string;
   /** M2.4 审查结论已注入的 review.at（一次性去重） */
   reviewInjectedAt?: string | null;
+  /** 插话（interrupt 发送）挂起标记：当前轮被中断后，取消分支据此把排队输入立即注入为新一轮 */
+  interjectPending?: boolean;
 }
 
 const BUILTIN_HARNESS_ID = "builtin/gitter-agent";
@@ -527,8 +529,12 @@ export class AgentSessionManager {
     return record;
   }
 
-  /** 排队投递（F10.4）：working/awaiting-permission 中补充输入，turn 边界自动注入。 */
-  queueTask(args: { taskId: string; prompt: string }): AgentTaskRecord | null {
+  /**
+   * 排队投递（F10.4）：working/awaiting-permission 中补充输入，turn 边界自动注入。
+   * interrupt=true（插话，设置 agentsBusySend=interrupt 时由 UI 传入）：中断当前轮并把输入
+   * 立即注入为新一轮（挂在取消分支的 interjectPending 通道上，不经正常的轮末注入）。
+   */
+  queueTask(args: { taskId: string; prompt: string; interrupt?: boolean }): AgentTaskRecord | null {
     const repo = this.needRepo();
     if (!args.prompt.trim()) throw new Error("输入不能为空");
     const live = this.live.get(args.taskId);
@@ -539,7 +545,25 @@ export class AgentSessionManager {
     record.queued.push(mention.reminder ? `${mention.prompt}
 
 ${wrapReminder(mention.reminder)}` : mention.prompt);
-    this.journalHuman(record, live, `排队：${args.prompt.trim().slice(0, 60)}`);
+    this.journalHuman(record, live, `${args.interrupt ? "插话" : "排队"}：${args.prompt.trim().slice(0, 60)}`);
+    if (args.interrupt && live?.abort) {
+      // 挂起的授权/提问/计划按拒绝结算（与手动停止同一裁决，避免悬挂），然后中断当前轮；
+      // 取消分支发现 interjectPending 即把 queued 立即注入为新一轮
+      live.interjectPending = true;
+      for (const [id, resolve] of [...live.perms]) {
+        live.perms.delete(id);
+        resolve(false, false);
+      }
+      for (const [id, q] of [...live.questions]) {
+        live.questions.delete(id);
+        q.resolve("（被插话中断）");
+      }
+      for (const [id, p] of [...live.plans]) {
+        live.plans.delete(id);
+        p({ ok: false, feedback: "（被插话中断）" });
+      }
+      live.abort.abort();
+    }
     this.putRecord(record);
     this.deps.send("agent.tasks.changed", {});
     return record;
@@ -662,6 +686,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     const live = this.live.get(args.taskId);
     if (!live?.abort) return null;
     this.manualStop.add(args.taskId);
+    live.interjectPending = false; // 手动停止优先于挂起的插话：清除标记，取消分支按停止落账
     // 挂起的授权/提问/计划全部按拒绝结算（F10.5：中断不悬挂）
     for (const [id, resolve] of [...live.perms]) {
       live.perms.delete(id);
@@ -1588,8 +1613,18 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       }
 
       if (result.outcome === "cancelled") {
-        record.state = this.manualStop.has(record.taskId) ? "stopped" : "interrupted";
+        const manual = this.manualStop.has(record.taskId);
         this.manualStop.delete(record.taskId);
+        record.state = manual ? "stopped" : "interrupted";
+        // 终态原因落时间线（失败/停止不再只是一颗状态点——原因以 completed 事件进会话流 + 状态条）；
+        // 插话引起的中断不发此事件：紧接着就有新轮，落一条「已中断」反而误导
+        if (!(live.interjectPending && record.queued.length > 0)) {
+          this.emit(record, {
+            type: "completed",
+            outcome: manual ? "stopped" : "interrupted",
+            summary: manual ? "已手动停止本轮" : "会话被中断（应用退出或连接中断），发送消息可继续",
+          });
+        }
       } else if (result.outcome === "completed") {
         record.state = "awaiting-input";
         if (result.lastMessage) record.lastMessage = result.lastMessage;
@@ -1626,6 +1661,8 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         }
         record.state = "failed";
         record.lastMessage = result.error ?? result.lastMessage ?? "循环失败";
+        // 失败原因以 completed 事件落时间线（时间线状态块 + 任务条原因横幅同源）
+        this.emit(record, { type: "completed", outcome: "failed", summary: record.lastMessage });
       }
 
       // §20.3.6 post-turn 钩子（编排面唯一钩子相）：产物以 system-reminder 注入下一轮（排队注入之前）
@@ -1658,12 +1695,15 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         usage: result.usage ?? null,
         durationMs: Date.now() - live.turnStartTs,
       });
-      this.deps.notifyTaskDone?.({
-        taskId: record.taskId,
-        title: record.title,
-        state: record.state,
-        summary: record.lastMessage,
-      });
+      // 插话通道即将接续新轮时不弹「已停止」系统通知（马上就有新一轮）
+      if (!(result.outcome === "cancelled" && live.interjectPending)) {
+        this.deps.notifyTaskDone?.({
+          taskId: record.taskId,
+          title: record.title,
+          state: record.state,
+          summary: record.lastMessage,
+        });
+      }
 
       // 计划获批 → 注入计划文本自动开执行轮（F8.2：新轮按 default 工具面重建）
       if (result.outcome === "completed" && live.planApproved && autoTurns < MAX_QUEUED_TURNS) {
@@ -1699,6 +1739,19 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         }
       }
       if ((record.permissionMode ?? "default") !== "plan") live.planNudge = 0;
+
+      // 插话注入（queueTask(interrupt) 发起）：被中断轮的收尾簿记已落定，排队输入立即作为新一轮继续
+      if (result.outcome === "cancelled" && live.interjectPending && record.queued.length > 0 && autoTurns < MAX_QUEUED_TURNS) {
+        live.interjectPending = false;
+        const drained = record.queued.splice(0, record.queued.length);
+        live.messages.push({
+          role: "user",
+          content: wrapReminder(`用户中断了当前轮并补充了以下输入，请立即按新输入继续（此前的进行中工作可能被截断）：\n${drained.map((q) => `- ${q}`).join("\n")}`),
+        });
+        humanNote = `插话注入：${drained.length} 条`;
+        autoTurns++;
+        continue;
+      }
 
       // 排队投递注入（F10.4）：正常完成的轮次若有人类排队消息 → 自动续轮
       if (result.outcome === "completed" && record.queued.length > 0 && autoTurns < MAX_QUEUED_TURNS) {

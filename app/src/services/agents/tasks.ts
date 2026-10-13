@@ -59,7 +59,10 @@ export interface FrozenContext {
 
 // ---- 任务账本（<repo>/.git/gitter/agent-tasks.json）----
 
-const NON_TERMINAL: AgentTaskRecord["state"][] = ["starting", "working", "awaiting-input", "awaiting-permission"];
+// markInterrupted 仅针对「轮次确实在途」的状态：awaiting-input 是正常静止态（已完成/等你回答，
+// 可 resume 续跑），不能标中断——否则每次列表刷新都会把账本里的完成任务改写成 interrupted
+// （UI 当次被 live 记录遮住看不出，重启后全部「已中断」）。
+const NON_TERMINAL: AgentTaskRecord["state"][] = ["starting", "working", "awaiting-permission"];
 
 export interface AgentTaskFile {
   version: 1;

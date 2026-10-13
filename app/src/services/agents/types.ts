@@ -43,7 +43,8 @@ export type AgentPhase =
   | "idle"
   | "finished";
 
-export type AgentOutcome = "completed" | "failed" | "cancelled";
+/** 任务终态（completed 事件 outcome；stopped/interrupted 由宿主会话层合成——循环自身只产出 completed/failed/cancelled） */
+export type AgentOutcome = "completed" | "failed" | "cancelled" | "stopped" | "interrupted";
 
 export type FileChangeKind = "added" | "modified" | "deleted" | "renamed" | "read-image";
 

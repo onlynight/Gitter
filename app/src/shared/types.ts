@@ -320,6 +320,8 @@ export interface SettingsDTO {
   agentsExternalMcpTools: boolean;
   /** 任务执行位置：false（默认）=直接在当前分支修改；true=每任务独立 worktree + task/* 分支 */
   agentsTaskWorktree: boolean;
+  /** 任务运行中发送策略：queue=排队（轮末自动注入，默认）/ interrupt=插话（中断当前轮立即注入）/ block=禁止发送 */
+  agentsBusySend: "queue" | "interrupt" | "block";
   /** M1.2 pre/post-tool 钩子总开关（默认开；空注册表 = 无操作） */
   agentsToolHooks: boolean;
   /** M3.1 更新检查 manifest URL（semver latest；null = 未配置，检查入口置灰） */
