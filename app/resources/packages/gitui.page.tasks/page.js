@@ -2776,6 +2776,21 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         }
       });
     }, [selectedId, taskId]);
+    react.useEffect(() => {
+      if (!selectedId) return;
+      const iv = setInterval(() => {
+        void call$1("agent.subtask.transcript", { taskId, subtaskId: selectedId }).then((r) => {
+          if (!r.events.length) return;
+          let blocks = [];
+          for (const e of r.events) {
+            if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, e.event);
+          }
+          if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
+        }).catch(() => {
+        });
+      }, 1500);
+      return () => clearInterval(iv);
+    }, [selectedId, taskId]);
     const sel = subs.find((x) => x.subtaskId === selectedId) ?? null;
     const sorted = [...subs].sort((a, b) => SUB_STATE_RANK(a.state) - SUB_STATE_RANK(b.state) || (a.startedAt > b.startedAt ? 1 : -1));
     const runningCount = subs.filter((x) => x.state === "running").length;

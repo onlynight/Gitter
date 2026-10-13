@@ -1427,19 +1427,33 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
             } else if (Array.isArray(m.content)) {
               for (const part of m.content as any[]) {
                 if (!part) continue;
-                if (part.type === "text" && part.text) events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: part.text, stream: "assistant" } });
-                else if (part.type === "reasoning" && part.text) events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: part.text, stream: "thinking" } });
-                else if (part.type === "tool-calls") {
-                  for (const tc of part.value ?? []) {
-                    events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: tc.toolCallId ?? "", name: tc.toolName ?? "", args: tc.args, state: "running", startTs: Date.parse(ts) } });
+                if (part.type === "text" && part.text) {
+                  events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: part.text, stream: "assistant" } });
+                } else if (part.type === "reasoning" && part.text) {
+                  events.push({ ts, actor: "agent", kind: "event", event: { type: "output", text: part.text, stream: "thinking" } });
+                } else if (part.type === "tool-call") {
+                  // ai@7 单数式：{ type:"tool-call", toolCallId, toolName, input }
+                  events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: part.toolCallId ?? "", name: part.toolName ?? "", args: part.input, state: "running", startTs: Date.parse(ts) } });
+                } else if (part.type === "tool-calls" && Array.isArray(part.value)) {
+                  // ai@5 复数式：{ type:"tool-calls", value:[{toolCallId, toolName, args}] }
+                  for (const tc of part.value as any[]) {
+                    events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: tc.toolCallId ?? "", name: tc.toolName ?? "", args: tc.args ?? tc.input, state: "running", startTs: Date.parse(ts) } });
                   }
                 }
               }
             }
           } else if (m.role === "tool") {
+            // ai@7：{ role:"tool", content:[{type:"tool-result", toolCallId, toolName, output:{type:"text"|"json", value}|string}] }
             for (const r of m.content ?? []) {
-              const txt = typeof r?.result === "string" ? r.result : JSON.stringify(r?.result ?? "");
-              events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: r?.toolCallId ?? "", name: r?.toolName ?? "", state: "ok", result: txt } });
+              const out = r?.output;
+              let txt: string;
+              if (typeof out === "string") txt = out;
+              else if (out && typeof out === "object" && "value" in out) txt = String(out.value ?? "");
+              else if (out && typeof out === "object" && "text" in out) txt = String(out.text ?? "");
+              else if (typeof r?.result === "string") txt = r.result;
+              else if (r?.result && typeof r.result === "object") txt = JSON.stringify(r.result);
+              else txt = JSON.stringify(out ?? "");
+              events.push({ ts, actor: "agent", kind: "event", event: { type: "tool", callId: r?.toolCallId ?? "", name: r?.toolName ?? "", state: r?.isError ? "error" : "ok", result: txt.slice(0, 16_000) } });
             }
           }
         }

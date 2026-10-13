@@ -465,6 +465,29 @@ export function SubagentsTab(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, taskId]);
 
+  // 详情拉底兜底：若初拉空（磁盘文件未及时落盘 / live.journal 尚未收到该 subtaskId 事件），
+  // 或拉底返回但 detailBlocks 仍为空且子代理仍在跑，定期重拉一次。
+  // 触发场景：点开会话页「← 查看详情」时该子代理刚 spawn、spawnSubtask 内部尚未 emit 任何事件；
+  // 此时 transcript RPC 返回空数组，用户看到「子代理对话为空」空白页，但主会话流里单行卡已开始闪烁——
+  // 视觉上像「运行中看不到过程、结束后一次性显示」，实际是首帧时序问题。
+  useEffect(() => {
+    if (!selectedId) return;
+    const iv = setInterval(() => {
+      void call<AgentSubtaskTranscriptDTO>("agent.subtask.transcript", { taskId, subtaskId: selectedId })
+        .then((r) => {
+          if (!r.events.length) return;
+          let blocks: Block[] = [];
+          for (const e of r.events) {
+            if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, e.event);
+          }
+          if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
+        })
+        .catch(() => {});
+    }, 1500);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, taskId]);
+
   const sel = subs.find((x) => x.subtaskId === selectedId) ?? null;
   const sorted = [...subs].sort((a, b) => SUB_STATE_RANK(a.state) - SUB_STATE_RANK(b.state) || (a.startedAt > b.startedAt ? 1 : -1));
   const runningCount = subs.filter((x) => x.state === "running").length;
