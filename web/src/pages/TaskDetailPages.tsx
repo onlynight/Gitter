@@ -542,7 +542,8 @@ export function SubagentsTab(props: {
             <span style={{ flex: 1 }} />
             <span className="meta">{sel.durationMs != null ? (Math.round(sel.durationMs / 100) / 10) + "s" : ""} · {sel.state}</span>
           </div>
-          <div className="tl-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 20px 26px", maxWidth: 880, margin: "0 auto" }}>
+          <div className="tl-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 20px 26px" }}>
+            <div style={{ maxWidth: 880, margin: "0 auto" }}>
             {loading && <div style={{ color: "var(--c-text3)", fontSize: 11, textAlign: "center" }}><span className="tl-pulse">加载中…</span></div>}
             {!loading && detailBlocks.length === 0 && (
               <div className="empty">· 子代理对话为空</div>
@@ -566,6 +567,7 @@ export function SubagentsTab(props: {
                 </div>
               ));
             })()}
+            </div>
           </div>
           <div className="sub-detail-footer" style={{ padding: "8px 14px", fontSize: 11.5, color: "var(--c-text3)", borderTop: "1px solid var(--c-border)", display: "flex", justifyContent: "center", gap: 14, fontFamily: "var(--c-mono)" }}>
             <span>{sel.toolCount} 个工具</span>
