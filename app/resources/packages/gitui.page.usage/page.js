@@ -125,7 +125,7 @@
     const cur = all.slice(-days);
     return { cur, prev: all.slice(-days * 2, -days) };
   }
-  const TREND_W = 760;
+  const TREND_W = 1e3;
   const TREND_H = 168;
   const MT_W = 1400, MT_H = 156;
   const PAD_L = 34, PAD_R = 38, PAD_T = 10, PAD_B = 20;
@@ -180,7 +180,17 @@
   function TrendChart(props) {
     const { rows } = props;
     const wrapRef = react.useRef(null);
-    const iw = TREND_W - PAD_L - PAD_R;
+    const [cw, setCw] = react.useState(TREND_W);
+    react.useLayoutEffect(() => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const ro = new ResizeObserver(() => setCw(Math.max(360, el.clientWidth)));
+      ro.observe(el);
+      setCw(Math.max(360, el.clientWidth));
+      return () => ro.disconnect();
+    }, []);
+    const W = Math.round(cw);
+    const iw = W - PAD_L - PAD_R;
     const ih = TREND_H - PAD_T - PAD_B;
     const n = Math.max(1, rows.length);
     const slot = iw / n;
@@ -192,11 +202,11 @@
     const parts = [];
     for (let g = 0; g <= 3; g++) {
       const y = PAD_T + ih - ih * g / 3;
-      parts.push(`<line class="gl" x1="${PAD_L}" y1="${y.toFixed(1)}" x2="${TREND_W - PAD_R}" y2="${y.toFixed(1)}"/>`);
+      parts.push(`<line class="gl" x1="${PAD_L}" y1="${y.toFixed(1)}" x2="${W - PAD_R}" y2="${y.toFixed(1)}"/>`);
       parts.push(`<text class="ax ax-y" x="${PAD_L - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end">${fmtTok(maxTok * g / 3)}</text>`);
-      parts.push(`<text class="ax ax-yr" x="${TREND_W - PAD_R + 5}" y="${(y + 3).toFixed(1)}" text-anchor="start">$${(maxCost * g / 3).toFixed(0)}</text>`);
+      parts.push(`<text class="ax ax-yr" x="${W - PAD_R + 5}" y="${(y + 3).toFixed(1)}" text-anchor="start">$${(maxCost * g / 3).toFixed(0)}</text>`);
     }
-    parts.push(`<line class="baseline" x1="${PAD_L}" y1="${PAD_T + ih}" x2="${TREND_W - PAD_R}" y2="${PAD_T + ih}"/>`);
+    parts.push(`<line class="baseline" x1="${PAD_L}" y1="${PAD_T + ih}" x2="${W - PAD_R}" y2="${PAD_T + ih}"/>`);
     const isKey = (arr) => {
       const mx = Math.max(...arr);
       const key = /* @__PURE__ */ new Set();
@@ -267,7 +277,7 @@
       "svg",
       {
         className: "trend",
-        viewBox: `0 0 ${TREND_W} ${TREND_H}`,
+        viewBox: `0 0 ${W} ${TREND_H}`,
         preserveAspectRatio: "none",
         dangerouslySetInnerHTML: { __html: parts.join("") },
         onMouseOver: (e) => {
@@ -286,7 +296,16 @@
   function ModelTrendChart(props) {
     const { rows } = props;
     const wrapRef = react.useRef(null);
-    const W = MT_W;
+    const [cw, setCw] = react.useState(MT_W);
+    react.useLayoutEffect(() => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const ro = new ResizeObserver(() => setCw(Math.max(360, el.clientWidth)));
+      ro.observe(el);
+      setCw(Math.max(360, el.clientWidth));
+      return () => ro.disconnect();
+    }, []);
+    const W = Math.round(cw);
     const iw = W - PAD_L - PAD_R;
     const ih = MT_H - MT_PAD_T - PAD_B;
     const n = Math.max(1, rows.length);
@@ -354,7 +373,7 @@
       {
         className: "trend mt",
         viewBox: `0 0 ${W} ${MT_H}`,
-        preserveAspectRatio: "xMidYMid meet",
+        preserveAspectRatio: "none",
         dangerouslySetInnerHTML: { __html: parts.join("") },
         onMouseOver: (e) => {
           console.debug("[usage-tip:mt]", e.type, e.target.tagName);

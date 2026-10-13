@@ -9,7 +9,7 @@
  *  - 成本 = 档案单价（$/Mtok）× token，缓存命中不计费。
  * 图表为手绘 SVG（echarts 仅存在于 iframe 预览运行时，页面侧零依赖）。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { pageSdk } from "../pageSdk";
 import { NavIcon } from "../kit";
 import type { UsageReport } from "../bridge/types";
@@ -191,7 +191,20 @@ function smooth(pts: [number, number][]): string {
 function TrendChart(props: { rows: DayRow[]; vis: Record<string, boolean>; models: UsageReport["byDayModel"]; onTip: (tip: TrendTip | null) => void }) {
   const { rows } = props;
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const iw = TREND_W - PAD_L - PAD_R;
+  // 实测容器宽当 viewBox 宽，1:1 对应 CSS 像素：窗口缩放只改变图占的宽度，
+  // 描边/圆点/文字都不会变形。preserveAspectRatio="none" 是必需的——
+  // viewBox 既然等于容器实际尺寸，就应当逐像素映射，不能被按像素比缩放。
+  const [cw, setCw] = useState(TREND_W);
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setCw(Math.max(360, el.clientWidth)));
+    ro.observe(el);
+    setCw(Math.max(360, el.clientWidth));
+    return () => ro.disconnect();
+  }, []);
+  const W = Math.round(cw);
+  const iw = W - PAD_L - PAD_R;
   const ih = TREND_H - PAD_T - PAD_B;
   const n = Math.max(1, rows.length);
   const slot = iw / n;
@@ -206,11 +219,11 @@ function TrendChart(props: { rows: DayRow[]; vis: Record<string, boolean>; model
   // y 网格 + 左轴 token / 右轴费用
   for (let g = 0; g <= 3; g++) {
     const y = PAD_T + ih - (ih * g) / 3;
-    parts.push(`<line class="gl" x1="${PAD_L}" y1="${y.toFixed(1)}" x2="${TREND_W - PAD_R}" y2="${y.toFixed(1)}"/>`);
+    parts.push(`<line class="gl" x1="${PAD_L}" y1="${y.toFixed(1)}" x2="${W - PAD_R}" y2="${y.toFixed(1)}"/>`);
     parts.push(`<text class="ax ax-y" x="${PAD_L - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end">${fmtTok((maxTok * g) / 3)}</text>`);
-    parts.push(`<text class="ax ax-yr" x="${TREND_W - PAD_R + 5}" y="${(y + 3).toFixed(1)}" text-anchor="start">$${((maxCost * g) / 3).toFixed(0)}</text>`);
+    parts.push(`<text class="ax ax-yr" x="${W - PAD_R + 5}" y="${(y + 3).toFixed(1)}" text-anchor="start">$${((maxCost * g) / 3).toFixed(0)}</text>`);
   }
-  parts.push(`<line class="baseline" x1="${PAD_L}" y1="${PAD_T + ih}" x2="${TREND_W - PAD_R}" y2="${PAD_T + ih}"/>`);
+  parts.push(`<line class="baseline" x1="${PAD_L}" y1="${PAD_T + ih}" x2="${W - PAD_R}" y2="${PAD_T + ih}"/>`);
 
   // 关键节点：各序列的峰值日 + 首末日
   const isKey = (arr: number[]) => {
@@ -290,7 +303,7 @@ function TrendChart(props: { rows: DayRow[]; vis: Record<string, boolean>; model
 
   return (
     <div className="trend-wrap" ref={wrapRef}>
-      <svg className="trend" viewBox={`0 0 ${TREND_W} ${TREND_H}`} preserveAspectRatio="xMidYMid meet"
+      <svg className="trend" viewBox={`0 0 ${W} ${TREND_H}`} preserveAspectRatio="none"
         dangerouslySetInnerHTML={{ __html: parts.join("") }}
         onMouseOver={(e) => { console.debug("[usage-tip]", e.type, (e.target as Element).tagName); show(e); }}
         onMouseEnter={(e) => show(e)}
@@ -320,7 +333,16 @@ function ModelTrendChart(props: {
 }) {
   const { rows } = props;
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const W = MT_W;
+  const [cw, setCw] = useState(MT_W);
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setCw(Math.max(360, el.clientWidth)));
+    ro.observe(el);
+    setCw(Math.max(360, el.clientWidth));
+    return () => ro.disconnect();
+  }, []);
+  const W = Math.round(cw);
   const iw = W - PAD_L - PAD_R;
   const ih = MT_H - MT_PAD_T - PAD_B;
   const n = Math.max(1, rows.length);
@@ -390,7 +412,7 @@ function ModelTrendChart(props: {
 
   return (
     <div className="trend-wrap" ref={wrapRef}>
-      <svg className="trend mt" viewBox={`0 0 ${W} ${MT_H}`} preserveAspectRatio="xMidYMid meet"
+      <svg className="trend mt" viewBox={`0 0 ${W} ${MT_H}`} preserveAspectRatio="none"
         dangerouslySetInnerHTML={{ __html: parts.join("") }}
         onMouseOver={(e) => { console.debug("[usage-tip:mt]", e.type, (e.target as Element).tagName); show(e); }}
         onMouseEnter={show}
