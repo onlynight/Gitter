@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<title>Gitter 任务页 v4.9 设计稿 —— 子代理：顶部运行条 × 会话内单行化 × 子代理页</title>
+<style>
+  /* ============ v4.7 排版公理（沿用）+ v4.9 子代理专属 ============
+     ① 密排节奏：连续动作行 gap=0；事件间 15px；盒子前后 14px。
+     ② 单一左轨：28px 图标轨，内容 x=28；子代理行/运行条同轨。
+     ③ 克制用色：全灰三阶；红=错误；琥珀=运行中/等待授权；子代理圆点唯一着色处。
+     ④ 默认单行：所有操作默认折叠为一行；子代理不再在会话内展开（改为跳转详情）。
+     ⑤ 操作图标：16px 线性图标（描边 2.25）；子代理 = ◐（半圆，语义：并行进程）。
+     ⑥ 正文无符号：助手结论不加段首标记；子代理行/运行条也不加。
+     ⑦ 顶部运行条：页签行下方、时间线上方；仅 running/queued>0 时显示；纯文本无框。
+     ⑧ 子代理页：列表 → 详情；详情页复用会话流样式；← 返回列表。
+     符号：◐(子代理) ✻(思考) ▸(折叠) ←(返回) + 每类操作一枚图标 */
+  :root{
+    --bg0:#0b0d11;
+    --bg:rgba(15,17,22,.66);
+    --panel:rgba(255,255,255,.035);
+    --panel2:rgba(255,255,255,.065);
+    --solid:rgba(23,26,33,.96);
+    --border:rgba(255,255,255,.075);
+    --border2:rgba(255,255,255,.15);
+    --text:#dfe5ec; --dim:#98a1ae; --dim2:#666f7c;
+    --red:#ff7b72; --amber:#d5a03c;
+    --add-t:#7ee787; --del-t:#ff7b72;
+    --sh1:0 1px 2px rgba(0,0,0,.24);
+    --sh2:0 12px 32px rgba(0,0,0,.38);
+    --mono:"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+    --sans:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+  }
+  body.light{
+    --bg0:#e8ebf0;
+    --bg:rgba(252,253,255,.70);
+    --panel:rgba(255,255,255,.58);
+    --panel2:rgba(255,255,255,.95);
+    --solid:rgba(255,255,255,.98);
+    --border:rgba(15,25,45,.10);
+    --border2:rgba(15,25,45,.18);
+    --text:#1a1e26; --dim:#57616d; --dim2:#8b95a1;
+    --red:#cf222e; --amber:#9a6700;
+    --add-t:#1a7f37; --del-t:#cf222e;
+    --sh1:0 1px 2px rgba(20,35,60,.10);
+    --sh2:0 12px 32px rgba(20,35,60,.16);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg0);color:var(--text);font:14px/1.6 var(--sans);overflow:hidden;letter-spacing:.005em}
+  .ambient{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(640px 420px at 16% -6%, rgba(96,165,250,.10), transparent 68%),
+               radial-gradient(720px 480px at 92% 110%, rgba(168,130,255,.08), transparent 68%);}
+  body.light .ambient{background:radial-gradient(640px 420px at 16% -6%, rgba(96,165,250,.14), transparent 68%),
+                      radial-gradient(720px 480px at 92% 110%, rgba(168,130,255,.10), transparent 68%);}
+
+  /* ============ 顶部工具条（视图切换 + 主题切换） ============ */
+  .toolbar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:20;
+    display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:10px;
+    background:var(--solid);backdrop-filter:blur(20px) saturate(1.2);
+    border:1px solid var(--border);box-shadow:var(--sh2);font-size:12.5px;color:var(--dim)}
+  .toolbar .tb-item{padding:4px 10px;border-radius:6px;cursor:pointer;transition:background .12s,color .12s}
+  .toolbar .tb-item:hover{background:var(--panel);color:var(--text)}
+  .toolbar .tb-item.on{background:var(--panel2);color:var(--text)}
+  .toolbar .tb-sep{width:1px;height:14px;background:var(--border)}
+
+  /* ============ 任务页整体（三栏布局骨架） ============ */
+  .app{position:fixed;inset:0;z-index:1;display:grid;grid-template-columns:220px minmax(0,1fr) 300px;gap:1px;background:var(--border)}
+  .side{background:var(--bg);backdrop-filter:blur(20px) saturate(1.2);padding:14px 10px;font-size:12.5px;color:var(--dim);overflow:auto}
+  .side h4{font-size:10.5px;font-weight:600;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em;margin:14px 8px 6px}
+  .side .item{padding:5px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:8px}
+  .side .item:hover{background:var(--panel)}
+  .side .item.on{background:var(--panel2);color:var(--text)}
+  .side .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .side .dot.green{background:#7ee787} .side .dot.amber{background:var(--amber)} .side .dot.red{background:var(--red)} .side .dot.gray{background:var(--dim2)}
+
+  /* ============ 中间详情区（页签 + 内容） ============ */
+  .detail{background:var(--bg);backdrop-filter:blur(20px) saturate(1.2);display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;min-width:0;min-height:0;overflow:hidden}
+
+  .tabs{display:flex;align-items:center;gap:2px;padding:6px 12px 0;border-bottom:1px solid var(--border);font-size:13px;color:var(--dim)}
+  .tabs .tab{padding:6px 12px;border-radius:6px 6px 0 0;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:background .12s}
+  .tabs .tab:hover{background:var(--panel)}
+  .tabs .tab.on{color:var(--text);background:var(--panel2)}
+  .tabs .tab-n{font-size:10.5px;color:var(--dim2);font-family:var(--mono);padding:0 4px;border-radius:3px;background:var(--panel);border:1px solid var(--border)}
+  .tabs .tab.on .tab-n{color:var(--text);background:var(--panel2);border-color:var(--border2)}
+
+  /* ============ 页头（状态条） ============ */
+  .pagehead{display:flex;align-items:center;gap:8px;padding:6px 14px;font-size:12px;color:var(--dim);border-bottom:1px solid var(--border)}
+  .pagehead .pill{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);background:var(--panel);font-size:11px}
+  .pagehead .pill-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .pagehead .mono{font-family:var(--mono);color:var(--dim2)}
+  .pagehead .grow{flex:1}
+
+  /* ============ 子代理运行条（v4.9 新增，页头下、时间线上） ============ */
+  .subrun{display:flex;align-items:center;gap:8px;padding:2px 12px;height:22px;
+    border-bottom:1px solid var(--border);background:var(--panel);
+    font-size:12px;color:var(--dim);overflow:hidden;white-space:nowrap}
+  .subrun .lead{display:inline-flex;align-items:center;gap:6px;color:var(--text2);font-size:12.5px;flex:none}
+  .subrun .lead .icon{font-size:14px;color:var(--amber);animation:blink 1s ease-in-out infinite;line-height:1}
+  .subrun .sep{width:1px;height:12px;background:var(--border);flex:none}
+  .subrun .item{display:inline-flex;align-items:center;gap:6px;padding:0 6px;border-radius:5px;cursor:pointer;transition:background .12s,color .12s;flex:none;max-width:340px}
+  .subrun .item:hover{background:var(--panel2);color:var(--text)}
+  .subrun .item .dt{width:5px;height:5px;border-radius:50%;background:var(--amber);animation:blink 1s ease-in-out infinite;flex:none}
+  .subrun .item.queued .dt{background:transparent;border:1px solid var(--dim2);animation:none}
+  .subrun .item.done .dt{background:var(--dim2);animation:none}
+  .subrun .item .nm{font-size:12px;color:var(--text);max-width:200px;overflow:hidden;text-overflow:ellipsis}
+  .subrun .item .du{font-size:11px;font-family:var(--mono);color:var(--dim2);flex:none}
+  .subrun .item .arrow{color:var(--dim2);font-size:10px;margin-left:2px}
+  .subrun .queue-badge{font-size:11px;color:var(--dim2);margin-left:4px}
+
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.28}}
+
+  /* ============ 会话时间线（复用 v4.7 样式） ============ */
+  .stream{padding:14px 20px 26px;max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:0;overflow-y:auto;min-height:0}
+  .stream::-webkit-scrollbar{width:8px;height:8px;overflow:hidden}
+  .stream::-webkit-scrollbar-track{background:transparent}
+  .stream::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--border2) 55%,transparent);border-radius:4px;border:2px solid transparent;background-clip:content-box;transition:background .12s}
+  .stream:hover::-webkit-scrollbar-thumb{background:var(--dim)}
+
+  /* 轮次分隔 */
+  .gap-conv{margin-top:18px}
+  .gap-conv::before{content:"";display:block;height:1px;margin:0 0 17px;background:linear-gradient(90deg,transparent,var(--border) 14%,var(--border) 86%,transparent)}
+  .gap-soft{margin-top:8px}
+
+  /* 用户消息气泡 */
+  .msg-row{padding:8px 0}
+  .msg-row.human{display:flex;justify-content:flex-end;padding:12px 0 4px}
+  .msg-row.human .bubble{max-width:78%;background:var(--panel2);border:1px solid var(--border);border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:14.5px;line-height:1.65;word-break:break-word;white-space:pre-wrap}
+
+  /* 助手正文 */
+  .assistant{font-size:14.5px;line-height:1.7;color:var(--text)}
+  .assistant code{font-family:var(--mono);font-size:13px;background:var(--panel);padding:1px 4px;border-radius:3px;color:var(--dim)}
+
+  /* 左轨动作行（工具/思考/子代理/回合摘要） */
+  .action{display:flex;align-items:center;gap:8px;padding:2px 8px;border-radius:8px;cursor:pointer;font-size:12.5px;color:var(--dim);transition:background .12s,color .12s;user-select:none}
+  .action:hover{background:var(--panel);color:var(--text)}
+  .action .rail{width:28px;flex:none;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1}
+  .action .rail-icon{display:inline-flex;align-items:center;justify-content:center;color:inherit}
+  .action .nm{color:var(--text);font-weight:600;font-size:12.5px}
+  .action .arg{font-family:var(--mono);font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .action .du{font-family:var(--mono);font-size:11px;color:var(--dim2);flex:none}
+  .action .state{font-size:10.5px;padding:0 5px;border-radius:3px;border:1px solid currentColor;flex:none}
+
+  /* 思考行 */
+  .think{display:flex;align-items:center;gap:6px;padding:0 6px;font-size:12.5px;color:var(--dim2);line-height:20px;border-radius:6px;cursor:pointer}
+  .think:hover{color:var(--dim)}
+  .think .spk{font-size:14px;line-height:1}
+  .think .lbl{color:var(--dim);flex:none}
+  .think .tail{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+
+  /* 回合折叠行 */
+  .turn{display:flex;align-items:center;gap:8px;padding:2px 8px;border-radius:8px;cursor:pointer;font-size:12.5px;color:var(--dim);user-select:none;transition:background .12s,color .12s}
+  .turn:hover{background:var(--panel);color:var(--text)}
+  .turn .chev{width:14px;text-align:center;font-size:10px;color:var(--dim2);transition:transform .12s;flex:none}
+  .turn.open .chev{transform:rotate(90deg)}
+  .turn b{font-weight:600}
+
+  /* 子代理行（v4.9 新增，会话流内单行化） */
+  .sub-row{display:flex;align-items:center;gap:8px;padding:2px 8px;border-radius:8px;cursor:pointer;font-size:12.5px;color:var(--dim);transition:background .12s,color .12s;user-select:none}
+  .sub-row:hover{background:var(--panel);color:var(--text)}
+  .sub-row .rail{width:28px;flex:none;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1}
+  .sub-row .dot{display:inline-block;width:12px;text-align:center;font-size:16px;line-height:1;color:var(--amber)}
+  .sub-row .dot.done{color:var(--dim2)}
+  .sub-row .dot.fail{color:var(--red)}
+  .sub-row.running .dot{animation:blink 1s ease-in-out infinite}
+  .sub-row .lbl{color:var(--text);font-weight:600;font-size:12.5px;flex:none}
+  .sub-row .desc{font-size:12.5px;color:var(--dim);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .sub-row .du{font-family:var(--mono);font-size:11px;color:var(--dim2);flex:none}
+  .sub-row .cta{font-size:11.5px;color:var(--dim2);opacity:0;transition:opacity .12s;flex:none;margin-left:4px}
+  .sub-row:hover .cta{opacity:1}
+
+  /* 展开态过程（回合内工具列表） */
+  .process{display:flex;flex-direction:column;gap:15px;padding:6px 0 0 32px}
+  .turn-row{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--dim)}
+  .turn-row .rail{width:28px;flex:none;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1}
+  .turn-row .name{color:var(--text);font-weight:600;font-size:12.5px;flex:none}
+  .turn-row .arg{font-family:var(--mono);font-size:12px;color:var(--dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .turn-row .du{font-family:var(--mono);font-size:11px;color:var(--dim2);flex:none}
+
+  /* 授权浮层 */
+  .auth{position:absolute;left:20px;right:20px;bottom:80px;border:1px solid var(--border2);border-radius:12px;background:var(--solid);padding:12px 14px;font-size:13px;color:var(--text);box-shadow:var(--sh2);z-index:15}
+  .auth .auth-title{font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .auth .auth-title .warn{color:var(--text);font-size:14px}
+  .auth .auth-desc{color:var(--dim);font-size:12.5px;margin-bottom:10px}
+  .auth .opt{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--dim)}
+  .auth .opt:hover{background:var(--panel);color:var(--text)}
+  .auth .opt.sel{background:var(--panel2);color:var(--text)}
+  .auth .opt .mark{color:var(--text);font-family:var(--mono);font-size:12px;flex:none;width:14px}
+  .auth .opt.sel .mark{color:var(--text)}
+  .auth .auth-sub{font-size:11.5px;color:var(--dim2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+  .auth .auth-sub b{color:var(--amber)}
+
+  /* Composer */
+  .composer-wrap{position:relative;padding:0 20px 16px;display:flex;justify-content:center;pointer-events:none}
+  .composer{pointer-events:auto;width:100%;max-width:840px;background:var(--solid);border:1px solid var(--border);border-radius:14px;padding:10px 14px 8px;box-shadow:var(--sh2)}
+  .composer .inp{display:block;width:100%;background:transparent;border:none;outline:none;resize:none;color:var(--text);font-family:inherit;font-size:13px;line-height:1.6;min-height:24px;max-height:240px}
+  .composer .bar{display:flex;align-items:center;gap:4px;margin-top:6px}
+  .composer .btn{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;background:transparent;border:none;border-radius:7px;color:var(--dim);font-family:inherit;font-size:11.5px;cursor:pointer;transition:background .12s,color .12s}
+  .composer .btn:hover{background:var(--panel);color:var(--text)}
+  .composer .send{margin-left:auto;height:30px;padding:0 12px;border-radius:8px;background:var(--text);color:var(--bg0);border:none;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .composer .send:hover{background:var(--text)}
+  .composer .send:disabled{opacity:.4;cursor:default}
+
+  /* ============ 子代理页（列表 + 详情） ============ */
+  .subagents{padding:14px 20px 26px;overflow-y:auto;min-height:0}
+  .sub-list-head{display:flex;align-items:center;gap:10px;padding:0 0 10px;font-size:12.5px;color:var(--dim)}
+  .sub-list-head .grow{flex:1}
+  .sub-list-head .count{font-family:var(--mono);color:var(--dim2)}
+  .sub-list{display:flex;flex-direction:column;gap:2px}
+  .sub-item{display:grid;grid-template-columns:28px 1fr auto auto;gap:10px;align-items:center;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background .12s}
+  .sub-item:hover{background:var(--panel)}
+  .sub-item .rail{width:28px;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1}
+  .sub-item .dot{display:inline-block;width:12px;text-align:center;font-size:16px;line-height:1;color:var(--amber)}
+  .sub-item .dot.done{color:var(--dim2)}
+  .sub-item .dot.fail{color:var(--red)}
+  .sub-item.running .dot{animation:blink 1s ease-in-out infinite}
+  .sub-item .body{min-width:0;display:flex;flex-direction:column;gap:2px}
+  .sub-item .body .title{font-size:14.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sub-item .body .meta{font-size:11.5px;color:var(--dim2);display:flex;gap:8px;flex-wrap:wrap}
+  .sub-item .body .meta .mode{padding:0 5px;border-radius:3px;border:1px solid var(--border);font-size:10.5px}
+  .sub-item .body .meta .fail{color:var(--red)}
+  .sub-item .du{font-family:var(--mono);font-size:11.5px;color:var(--dim2);flex:none}
+  .sub-item .state-badge{font-size:10.5px;padding:1px 6px;border-radius:3px;border:1px solid var(--border);color:var(--dim2);flex:none}
+  .sub-item.running .state-badge{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 32%,transparent);background:color-mix(in srgb,var(--amber) 9%,transparent)}
+  .sub-item.done .state-badge{color:var(--dim2)}
+  .sub-item.fail .state-badge{color:var(--red);border-color:color-mix(in srgb,var(--red) 32%,transparent);background:color-mix(in srgb,var(--red) 9%,transparent)}
+
+  /* 详情页 */
+  .sub-detail-head{display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--dim)}
+  .sub-detail-head .back{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--dim);transition:background .12s,color .12s}
+  .sub-detail-head .back:hover{background:var(--panel);color:var(--text)}
+  .sub-detail-head .grow{flex:1}
+  .sub-detail-head .meta{font-family:var(--mono);font-size:11.5px;color:var(--dim2)}
+
+  .sub-detail-footer{padding:8px 14px;font-size:11.5px;color:var(--dim2);border-top:1px solid var(--border);display:flex;justify-content:center;gap:14px;font-family:var(--mono)}
+
+  .empty{padding:40px 20px;text-align:center;color:var(--dim2);font-size:12.5px}
+
+  /* 排队提示 */
+  .queued-hint{display:flex;align-items:center;justify-content:flex-end;gap:7px;color:var(--amber);font-size:11.5px;margin-top:10px;padding:0 2px}
+  .queued-hint .ic{flex:none}
+</style>
+</head>
+<body>
+<div class="ambient"></div>
+
+<div class="toolbar">
+  <div class="tb-item on" data-view="chat">会话流</div>
+  <div class="tb-sep"></div>
+  <div class="tb-item" data-view="list">子代理 · 列表</div>
+  <div class="tb-item" data-view="detail">子代理 · 详情</div>
+  <div class="tb-sep"></div>
+  <div class="tb-item" data-action="theme">◐ 主题</div>
+</div>
+
+<div class="app">
+  <aside class="side">
+    <div style="font-size:11px;color:var(--dim2);padding:0 8px 6px">任务</div>
+    <div class="item on"><span class="dot green"></span>修复 shellCommand 与 dist</div>
+    <div class="item"><span class="dot amber"></span>整理 README</div>
+    <div class="item"><span class="dot gray"></span>设计 v4.9 子代理</div>
+    <div class="item"><span class="dot gray"></span>调研 monaco 中文</div>
+    <div style="margin-top:18px;padding:0 8px;font-size:10.5px;color:var(--dim2)">· 3 个子代理并行</div>
+  </aside>
+
+  <main class="detail" id="detail">
+
+    <!-- ============================ 视图 1：会话流（含顶部运行条 + 子代理单行化） ============================ -->
+    <section id="view-chat">
+      <div class="tabs">
+        <div class="tab on">对话</div>
+        <div class="tab">改动 <span class="tab-n">7</span></div>
+        <div class="tab">检查点 <span class="tab-n">3</span></div>
+        <div class="tab">子代理 <span class="tab-n">2/3</span></div>
+        <div class="tab">后台 <span class="tab-n">1</span></div>
+      </div>
+      <div class="pagehead">
+        <span class="pill"><span class="pill-dot" style="background:var(--amber);animation:blink 1.2s infinite"></span>运行中 · 24s</span>
+        <span class="mono">dev</span>
+        <span class="grow"></span>
+        <span style="font-size:11px;color:var(--dim2)">↑ 8.2k ↓ 1.1k</span>
+      </div>
+
+      <!-- v4.9 新增：子代理运行条 -->
+      <div class="subrun">
+        <span class="lead"><span class="icon">◐</span>子代理 2/3</span>
+        <span class="sep"></span>
+        <span class="item" data-sub="s1"><span class="dt"></span><span class="nm">检索安全网对 stash.apply</span><span class="du">8.2s</span><span class="arrow">←</span></span>
+        <span class="sep"></span>
+        <span class="item" data-sub="s2"><span class="dt"></span><span class="nm">实现 Shell 命令终端设计</span><span class="du">3.1s</span><span class="arrow">←</span></span>
+        <span class="queue-badge">+1 排队</span>
+      </div>
+
+      <div class="stream" style="flex:1;min-height:0">
+        <!-- 用户消息 -->
+        <div class="msg-row human"><div class="bubble">继续修复 shellCommand：5 个 PowerShell 进程并行跑，60s 内正常退出 code=0，输出持续增长。</div></div>
+
+        <!-- 回合折叠行 + 展开过程 -->
+        <div class="turn open">
+          <span class="chev">▸</span>
+          <b>执行过程</b>
+          <span>工具 5</span>
+          <span>子代理 3</span>
+        </div>
+        <div class="process">
+          <div class="turn-row"><span class="rail">⚡</span><span class="name">执行命令</span><span class="arg">cd app &amp;&amp; npx tsc -p tsconfig.json --noEmit</span><span class="du">· 3.3s</span></div>
+          <div class="think"><span class="spk">✻</span><span class="lbl">思考过程</span><span class="tail">TypeScript 保留了 'shell: false' 的字面量类型…</span></div>
+          <div class="turn-row"><span class="rail">✎</span><span class="name">编辑文件</span><span class="arg">app/src/services/agents/builtinTools.ts</span><span class="du">· +2 −2</span></div>
+          <div class="turn-row"><span class="rail">⚡</span><span class="name">执行命令</span><span class="arg">cd app &amp;&amp; npx tsc -p tsconfig.json --noEmit</span><span class="du">· 3.5s</span></div>
+          <div class="think"><span class="spk">✻</span><span class="lbl">思考过程</span><span class="tail">现在 tsc 编译通过了，需要在 harness 里…</span></div>
+          <div class="turn-row"><span class="rail">☰</span><span class="name">任务清单</span><span class="arg">{"todos":[{"content":"定位 harness 中 terminal 后端与 poll…","status":"completed"},{"content":"在 dist 里验证 shellCommand…","status":"in_progress"}]}</span></div>
+
+          <!-- v4.9 新增：子代理单行化（原来这里是一张可展开卡片，现在单行，点击跳详情） -->
+          <div class="sub-row" data-sub="s1"><span class="rail"><span class="dot">◐</span></span><span class="lbl">子代理</span><span class="desc">检索安全网对 stash.apply 的确认策略</span><span class="du">12.4s</span><span class="cta">← 查看详情</span></div>
+          <div class="sub-row" data-sub="s2"><span class="rail"><span class="dot">◐</span></span><span class="lbl">子代理</span><span class="desc">实现 Shell 命令终端设计</span><span class="du">8.2s</span><span class="cta">← 查看详情</span></div>
+          <div class="sub-row" data-sub="s3" style="opacity:.7"><span class="rail"><span class="dot" style="border:1px solid var(--dim2);color:transparent"></span></span><span class="lbl">子代理</span><span class="desc">审查本次改动（排队中）</span><span class="du">排队</span><span class="cta">← 查看详情</span></div>
+
+          <div class="turn-row"><span class="rail">⚡</span><span class="name">执行命令</span><span class="arg">cd app &amp;&amp; npx tsc -p tsconfig.json 2&gt;&amp;1 | more</span><span class="du">· 4.1s</span></div>
+          <div class="think"><span class="spk">✻</span><span class="lbl">思考过程</span><span class="tail">dist 已经构建完毕，但 harness 运行的是旧代码…</span></div>
+          <div class="turn-row"><span class="rail">⚡</span><span class="name">执行命令</span><span class="arg">cd app &amp;&amp; findstr /N "powershell.exe" dist\services\agents\builtinTools…</span><span class="du">· 0.1s</span></div>
+          <div class="turn-row"><span class="rail">⚡</span><span class="name">执行命令</span><span class="arg">powershell -NoProfile -NonInteractive -NoLogo -Command "echo S1; 1..30 | ForEach-Object { Write-Ho…"</span><span class="du">· 0.0s</span></div>
+        </div>
+
+        <div class="gap-conv"></div>
+
+        <!-- 结论 -->
+        <div class="assistant">
+          修复思路验证通过：5 个 PowerShell 进程并行跑，全部 60s 内正常退出 code=0，输出持续增长。
+          <br><br>
+          现在编译验证 + 提交：
+          <code>npx tsc -p tsconfig.json --noEmit</code> 通过。<br>
+          三个子代理已并行启动（检索 / 实现 / 审查），可点击顶部运行条或子代理行进入详情页查看各自进展。
+        </div>
+
+        <!-- 排队提示 -->
+        <div class="queued-hint"><span class="ic">◐</span>排队 · 本轮结束后自动注入 · 审查本次改动…</div>
+      </div>
+
+      <div class="composer-wrap">
+        <div class="composer">
+          <textarea class="inp" placeholder="发送消息，或 /命令 · @提及 · Enter 发送 · Shift+Enter 换行"></textarea>
+          <div class="bar">
+            <button class="btn">+ 附件</button>
+            <button class="btn">◇ 规划</button>
+            <button class="btn">senNova-6.8</button>
+            <button class="btn">· medium</button>
+            <button class="btn">↑ 8.2k ↓ 1.1k</button>
+            <button class="send">发送</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 视图 2：子代理列表 ============================ -->
+    <section id="view-list" style="display:none">
+      <div class="tabs">
+        <div class="tab">对话</div>
+        <div class="tab">改动 <span class="tab-n">7</span></div>
+        <div class="tab">检查点 <span class="tab-n">3</span></div>
+        <div class="tab on">子代理 <span class="tab-n">2/3</span></div>
+        <div class="tab">后台 <span class="tab-n">1</span></div>
+      </div>
+      <div class="pagehead">
+        <span class="pill"><span class="pill-dot" style="background:var(--amber);animation:blink 1.2s infinite"></span>运行中 · 24s</span>
+        <span class="mono">dev</span>
+        <span class="grow"></span>
+        <span style="font-size:11px;color:var(--dim2)">↑ 8.2k ↓ 1.1k</span>
+      </div>
+      <div class="subagents">
+        <div class="sub-list-head">
+          <span>子代理</span>
+          <span class="count">· 3 个 · 检索/实现/审查</span>
+          <span class="grow"></span>
+          <span class="count">运行 2/3</span>
+        </div>
+        <div class="sub-list">
+          <div class="sub-item running" data-sub="s1">
+            <span class="rail"><span class="dot">◐</span></span>
+            <span class="body">
+              <span class="title">检索安全网对 stash.apply 的确认策略</span>
+              <span class="meta"><span class="mode">review</span><span>explore 模式</span><span>· 4 个工具</span><span>· 只读</span></span>
+            </span>
+            <span class="du">8.2s</span>
+            <span class="state-badge">running</span>
+          </div>
+          <div class="sub-item running" data-sub="s2">
+            <span class="rail"><span class="dot">◐</span></span>
+            <span class="body">
+              <span class="title">实现 Shell 命令终端设计</span>
+              <span class="meta"><span class="mode">act</span><span>· 5 个工具</span><span>· 编辑 3 个文件</span><span>· 冒泡 2 次授权</span></span>
+            </span>
+            <span class="du">3.1s</span>
+            <span class="state-badge">running</span>
+          </div>
+          <div class="sub-item fail" data-sub="s3">
+            <span class="rail"><span class="dot fail">·</span></span>
+            <span class="body">
+              <span class="title">审查本次改动</span>
+              <span class="meta"><span class="mode">review</span><span>· 2 个工具</span><span class="fail">· 失败：模型超时</span></span>
+            </span>
+            <span class="du">6.1s</span>
+            <span class="state-badge">failed</span>
+          </div>
+          <div class="sub-item done" data-sub="s4">
+            <span class="rail"><span class="dot done">·</span></span>
+            <span class="body">
+              <span class="title">调研 monaco 中文包</span>
+              <span class="meta"><span class="mode">explore</span><span>· 3 个工具</span><span>· 只读</span></span>
+            </span>
+            <span class="du">14.0s</span>
+            <span class="state-badge">completed</span>
+          </div>
+        </div>
+        <div style="padding-top:12px;margin-top:12px;border-top:1px solid var(--border);font-size:11.5px;color:var(--dim2);text-align:center;cursor:pointer">
+          ▸ 已归档 · 20 个（超出展示上限）
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 视图 3：子代理详情 ============================ -->
+    <section id="view-detail" style="display:none">
+      <div class="tabs">
+        <div class="tab">对话</div>
+        <div class="tab">改动 <span class="tab-n">7</span></div>
+        <div class="tab">检查点 <span class="tab-n">3</span></div>
+        <div class="tab on">子代理 <span class="tab-n">2/3</span></div>
+        <div class="tab">后台 <span class="tab-n">1</span></div>
+      </div>
+      <div class="sub-detail-head">
+        <span class="back" id="back-to-list">← 返回列表</span>
+        <span style="font-size:16px;color:var(--amber);animation:blink 1s ease-in-out infinite">◐</span>
+        <span style="color:var(--text);font-weight:600;font-size:14px">检索安全网对 stash.apply 的确认策略</span>
+        <span class="grow"></span>
+        <span class="meta">8.2s · running</span>
+      </div>
+      <div class="stream" style="flex:1;min-height:0">
+        <div class="msg-row human"><div class="bubble">请检查 stash.apply 是否需要确认策略：现有代码在什么情况下会自动执行、什么情况下会挂起？</div></div>
+
+        <div class="think"><span class="spk">✻</span><span class="lbl">思考过程</span><span class="tail">需要先看 stash.apply 在 git 里的实现路径…</span></div>
+        <div class="turn-row"><span class="rail">⌕</span><span class="name">搜索</span><span class="arg">stash.apply --keep-all -r app/src/services/git</span><span class="du">· 0.3s</span></div>
+        <div class="turn-row"><span class="rail">☰</span><span class="name">读取</span><span class="arg">app/src/services/git/stash.ts:120-180</span><span class="du">· 0.2s</span></div>
+        <div class="turn-row"><span class="rail">☰</span><span class="name">读取</span><span class="arg">app/src/services/git/index.ts:88-140</span><span class="du">· 0.2s</span></div>
+
+        <!-- 子代理冒泡的授权：在详情页显示为动作行，但浮层仍在主会话页 -->
+        <div class="auth" style="bottom:14px;position:relative;margin:10px 0">
+          <div class="auth-title"><span class="warn">⚡</span>授权 · 允许 stash.apply?</div>
+          <div class="auth-desc">子代理「检索安全网对 stash.apply」请求执行：<code style="font-family:var(--mono);font-size:12px">git stash apply --keep-all stash@{0}</code></div>
+          <div class="opt sel"><span class="mark">❯</span><span>1. 批准本次</span></div>
+          <div class="opt"><span class="mark">·</span><span>2. 批准并记住</span></div>
+          <div class="opt"><span class="mark">·</span><span>3. 拒绝</span></div>
+          <div class="auth-sub">在主会话页回答 → <b>（子代理详情页不承接授权浮层）</b></div>
+        </div>
+
+        <div class="turn-row"><span class="rail">☰</span><span class="name">读取</span><span class="arg">app/src/services/git/confirm.ts</span><span class="du">· 0.2s</span></div>
+        <div class="think"><span class="spk">✻</span><span class="lbl">思考过程</span><span class="tail">确认策略：stash.apply 默认需要 --keep-all 参数…</span></div>
+        <div class="assistant">
+          确认结论：<code>stash.apply</code> 在两种情况下自动执行，其他情况挂起：
+          <ol style="margin:6px 0 0 20px;padding:0">
+            <li>带 <code>--keep-all</code> 且 stash 与 HEAD 无冲突</li>
+            <li>stash 为单文件修改 &amp;&amp; 目标文件未在本轮被编辑</li>
+          </ol>
+        </div>
+      </div>
+      <div class="sub-detail-footer">
+        <span>4 个工具</span>
+        <span>·</span>
+        <span>2 个思考回合</span>
+        <span>·</span>
+        <span>只读工具面</span>
+        <span>·</span>
+        <span>冒泡 1 次授权</span>
+      </div>
+    </section>
+
+  </main>
+
+  <aside class="side">
+    <h4>本轮改动</h4>
+    <div class="item" style="font-size:11.5px"><span style="color:var(--add-t);font-family:var(--mono);width:10px">+</span> app/src/services/agents/builtinTools.ts</div>
+    <div class="item" style="font-size:11.5px"><span style="color:var(--add-t);font-family:var(--mono);width:10px">+</span> web/src/styles.css</div>
+    <div class="item" style="font-size:11.5px"><span style="color:var(--add-t);font-family:var(--mono);width:10px">+</span> web/src/pages/TaskTimeline.tsx</div>
+    <div class="item" style="font-size:11.5px"><span style="color:var(--del-t);font-family:var(--mono);width:10px">−</span> web/src/pages/TasksPage.tsx</div>
+    <div style="margin-top:12px;padding:0 8px;font-size:11.5px;color:var(--dim2);cursor:pointer">▸ 共 7 个文件 +1965 −281</div>
+  </aside>
+</div>
+
+<script>
+(function(){
+  var views = { chat: document.getElementById('view-chat'),
+                list: document.getElementById('view-list'),
+                detail: document.getElementById('view-detail') };
+  var tbItems = document.querySelectorAll('.toolbar .tb-item[data-view]');
+  function show(v){
+    Object.keys(views).forEach(function(k){ views[k].style.display = (k===v ? 'grid' : 'none'); });
+    tbItems.forEach(function(el){ el.classList.toggle('on', el.dataset.view===v); });
+  }
+  tbItems.forEach(function(el){ el.addEventListener('click', function(){ show(el.dataset.view); }); });
+
+  // 顶部运行条 / 子代理行 / 列表项点击 → 详情
+  document.querySelectorAll('[data-sub]').forEach(function(el){
+    el.addEventListener('click', function(){ show('detail'); });
+  });
+  document.getElementById('back-to-list').addEventListener('click', function(){ show('list'); });
+
+  // 主题切换
+  var themeBtn = document.querySelector('.toolbar .tb-item[data-action="theme"]');
+  themeBtn.addEventListener('click', function(){
+    document.body.classList.toggle('light');
+    themeBtn.textContent = document.body.classList.contains('light') ? '◑ 深色' : '◐ 主题';
+  });
+})();
+</script>
+</body>
+</html>
