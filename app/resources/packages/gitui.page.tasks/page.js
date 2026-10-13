@@ -2747,13 +2747,18 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       setSelectedId(props.focus.subtaskId);
       (_a3 = props.onFocused) == null ? void 0 : _a3.call(props);
     }, [(_a2 = props.focus) == null ? void 0 : _a2.ts]);
+    const stripSubtaskId = (ev) => {
+      if (!ev.subtaskId) return ev;
+      const { subtaskId: _drop, ...rest } = ev;
+      return rest;
+    };
     const pullTranscript = react.useCallback(() => {
       if (!selectedId) return;
       setLoading(true);
       void call$1("agent.subtask.transcript", { taskId, subtaskId: selectedId }).then((r) => {
         let blocks = [];
         for (const e of r.events) {
-          if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, e.event);
+          if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, stripSubtaskId(e.event));
         }
         if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
       }).catch((e) => {
@@ -2774,7 +2779,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         const { taskId: tid, event } = p;
         if (tid !== taskId) return;
         if (event.subtaskId === selectedId) {
-          setDetailBlocks((bs) => reduceBlocks(bs, event));
+          setDetailBlocks((bs) => reduceBlocks(bs, stripSubtaskId(event)));
         } else if (event.type === "subtask") {
           reload();
         }

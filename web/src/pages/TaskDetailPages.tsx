@@ -433,6 +433,15 @@ export function SubagentsTab(props: {
 
   // 详情拉底（幂等）：把当前 selectedId 的完整事件流归约为 blocks，仅在归约结果非空时 setDetailBlocks。
   // 用 setDetailBlocks(prev) 判断，避免 stale closure 覆盖实时增量订阅写入的更新。
+  // 关键：stripSubtaskId——reduceBlocks 遇到带 subtaskId 的事件会去找匹配的 subtask block 挂到 children，
+  // 但详情页是"扁平"渲染（该 subtask 自己就是被展开的内容），没有 subtask block 可挂，事件会被静默丢弃。
+  // 所以前端必须剥掉 subtaskId，让 reduceBlocks 走普通 output/tool 分支。
+  const stripSubtaskId = (ev: AgentEventDTO): AgentEventDTO => {
+    if (!ev.subtaskId) return ev;
+    const { subtaskId: _drop, ...rest } = ev;
+    return rest;
+  };
+
   const pullTranscript = useCallback(() => {
     if (!selectedId) return;
     setLoading(true);
@@ -440,7 +449,7 @@ export function SubagentsTab(props: {
       .then((r) => {
         let blocks: Block[] = [];
         for (const e of r.events) {
-          if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, e.event);
+          if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, stripSubtaskId(e.event));
         }
         // 仅在归约出内容时写入；空结果不动当前 state（实时增量可能已经填充过）
         if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
@@ -464,7 +473,8 @@ export function SubagentsTab(props: {
       const { taskId: tid, event } = p as { taskId: string; event: AgentEventDTO };
       if (tid !== taskId) return;
       if (event.subtaskId === selectedId) {
-        setDetailBlocks((bs) => reduceBlocks(bs, event));
+        // 剥掉 subtaskId 再喂给 reduceBlocks（同 pullTranscript 注释）
+        setDetailBlocks((bs) => reduceBlocks(bs, stripSubtaskId(event)));
       } else if (event.type === "subtask") {
         // 其他子代理的状态更新（不影响当前详情，但触发列表刷新）
         reload();
