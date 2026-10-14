@@ -45,6 +45,9 @@ export interface LoopResult {
   outcome: "completed" | "failed" | "cancelled";
   lastMessage: string | null;
   usage: { input?: number; output?: number; cacheRead?: number; elapsedMs?: number } | null;
+  /** 最后一步请求的真实 prompt tokens（多步轮 usage.input 是各步累加，口径不同；
+   * 宿主校准 est→真实系数与超限判断应以单步请求为准）。插件循环未提供时回退 usage.input。 */
+  lastStepInput?: number;
   error?: string;
 }
 
@@ -104,6 +107,14 @@ function isRetryableError(message: string): boolean {
   );
 }
 
+/** 端点侧「上下文超长」类错误：各家文案不一（SenseNova 超长时只回含糊的 "inference request is invalid"，
+ * OpenAI context_length_exceeded、Anthropic prompt is too long）——宽特征匹配，宿主据此强制压缩后重试。 */
+export function isContextOverflowError(message: string): boolean {
+  return /inference request is invalid|context[_ ]?length|context.*(window|overflow|exceed)|(input|prompt).*(too long|too large|exceed)|too many (input )?tokens|tokens? (limit|exceed)|maximum.*(tokens?|length)|length limit/i.test(
+    message,
+  );
+}
+
 /**
  * 历史回写（P0 修复）：assistant/tool 消息追加回宿主数组。
  * ai@7 的 StreamTextResult.response 不含 messages，正确出口是 responseMessages（自动消费流）。
@@ -129,6 +140,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
   let thinkPending = "";
   let lastThinkFlush = 0;
   let usage: { input?: number; output?: number; cacheRead?: number; elapsedMs?: number } | null = null;
+  let lastStepInput: number | undefined;
   let errorText: string | undefined;
   // toolCallId → start 信息（工具卡配对）
   const openCalls = new Map<string, { name: string; args: unknown; start: number; source?: string | null }>();
@@ -176,6 +188,12 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
       });
       for await (const part of result.fullStream) {
         switch (part.type) {
+          case "finish-step": {
+            // 每步请求的真实 prompt 用量（多步轮 usage.input 是累加值，口径不同）
+            const stepUsage = normalizeUsage((part as { usage?: unknown }).usage);
+            if (stepUsage?.input != null) lastStepInput = stepUsage.input;
+            break;
+          }
           case "reasoning-start":
             // 新一段思考开始：冲掉上一段残余，让前端开新思考卡
             flushThinking(true);
@@ -290,7 +308,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
           openCalls.delete(cid);
         }
         o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
-        return { outcome: "cancelled", lastMessage: finalText.trim() || null, usage, error: "已中断" };
+        return { outcome: "cancelled", lastMessage: finalText.trim() || null, usage, lastStepInput, error: "已中断" };
       }
       if (errorText) {
         const retryable = isRetryableError(errorText);
@@ -305,13 +323,14 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
           continue;
         }
         o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
-        return { outcome: "failed", lastMessage: finalText.trim() || null, usage, error: errorText };
+        return { outcome: "failed", lastMessage: finalText.trim() || null, usage, lastStepInput, error: errorText };
       }
       o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
       return {
         outcome: "completed",
         lastMessage: finalText.trim() || null,
         usage,
+        lastStepInput,
       };
     } catch (e) {
       flush(true);
@@ -329,7 +348,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
           openCalls.delete(cid);
         }
         o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
-        return { outcome: "cancelled", lastMessage: finalText.trim() || null, usage, error: "已中断" };
+        return { outcome: "cancelled", lastMessage: finalText.trim() || null, usage, lastStepInput, error: "已中断" };
       }
       const retryable = isRetryableError(err.message);
       if (retryable && attempt < MAX_RETRY - 1 && !finalText) {
@@ -344,7 +363,7 @@ async function builtinLoop(o: LoopOptions): Promise<LoopResult> {
       }
       o.onEvent({ type: "log", level: "error", text: `循环异常：${err.message}` });
       o.onEvent({ type: "turn-completed", usage: usage ?? undefined, lastMessage: finalText.trim() || undefined });
-      return { outcome: "failed", lastMessage: finalText.trim() || null, usage, error: err.message };
+      return { outcome: "failed", lastMessage: finalText.trim() || null, usage, lastStepInput, error: err.message };
     }
   }
 }

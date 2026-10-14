@@ -452,6 +452,23 @@ registerAgentTool({
     const edits = (args.edits ?? []) as { oldString: string; newString: string }[];
     const replaceAll = !!args.replaceAll;
 
+    // 入参守卫（在任何定位之前）：工具传输会把过长的字面标识符压缩成带省略号的串，
+    // 两侧都被压缩时 old=new 仍「精确匹配」并返回成功，模型据此以为改好了而实则未改，
+    // 空转轮次。这两类病态输入直接拒绝并给出改写方向。
+    for (let i = 0; i < edits.length; i++) {
+      const { oldString, newString } = edits[i];
+      const suspect = [oldString, newString].filter((s) => SUSPICIOUS_ELLIPSIS_RE.test(s));
+      if (suspect.length > 0) {
+        return (
+          `错误：edits[${i}] 的入参含疑似被截断的长标识符（省略号出现在标识符内部，如 "SIMP…c"）。` +
+          `该串无法精确匹配文件内容——请把目标逻辑改写为短变量/短函数名后再编辑，不要原样重试。`
+        );
+      }
+      if (oldString === newString) {
+        return `错误：edits[${i}] 的 oldString 与 newString 完全相同，编辑无效——请确认实际想做的修改，或改用 file_write 整文件重写。`;
+      }
+    }
+
     // 原子性：先全量定位，任一失败整体不写
     const positions: { start: number; end: number; replacement: string }[] = [];
     for (let i = 0; i < edits.length; i++) {
@@ -582,6 +599,10 @@ registerAgentTool({
 });
 
 // ================ 命令面（F4） ================
+
+// U+2026 出现在标识符内部（前/后各至少一个标识符字符）= 工具传输压缩了过长字面量的指纹。
+// 注意排除正常的代码/中文叙述（如注释里的 "… 省略"），只匹配两侧都是标识符字符的情形。
+const SUSPICIOUS_ELLIPSIS_RE = /[A-Za-z_$][A-Za-z0-9_$]*…[A-Za-z0-9_$]/;
 
 // §22.9 F13.2：HEAD_TAIL 是进历史的返回体上限（8k×2 字符 ≈6.4k token/步，直接压缓存天花板），
 // 收到 3k×2；RING_CAP 只是内存环（terminal_poll 可见窗口），顺手减半

@@ -19,7 +19,7 @@ import "./builtinTools"; // 内置工具自举注册（§14.4：与插件同接�
 import "./webTools"; // Web 工具自举注册（§21.2.2：web_search / web_fetch）
 import "./builtinHooks"; // 内置 turn 钩子自举（§20.3.6：todo 防腐，与插件钩子同接缝）
 import "./cacheGuard"; // 前缀缓存卫兵自举（§二十二：轮末工作区采样走尾部 reminder 通道）
-import { runLoop } from "./loop";
+import { runLoop, isContextOverflowError } from "./loop";
 import { collectRepoContext, composeSystemPrompt, wrapReminder, type RepoContext } from "./prompts";
 import { budgetOf, compactNow, estimateMessagesTokens, validateMessageSequence } from "./compaction";
 import { activeCompactor, getCompactorById, runContextCollectors, runTurnHooks } from "./seams";
@@ -118,6 +118,8 @@ interface LiveSession {
   turnStartTs: number;
   /** §22.9 F13.3：est→真实 token 校准系数（EWMA，滑动自校准；1=未校准） */
   tokenCal: number;
+  /** 上下文超限兜底：本轮 startTurn 内已做过「强制压缩并重试」（一次为限，成功轮后复位） */
+  overflowRetried?: boolean;
   /** §22.9 F13.5：本轮 usage 记录携带的断点注记（压缩/换模型/重启续跑），入账后清空 */
   turnBreakNote?: string;
   /** M2.4 审查结论已注入的 review.at（一次性去重） */
@@ -126,6 +128,10 @@ interface LiveSession {
   interjectPending?: boolean;
   /** 本次续轮注入的排队条数（排空时写入，startTurn 发 queued-drained 事件后清零） */
   pendingDrainCount: number;
+  /** 本轮（自动续轮循环）已产生的 assistant 正文，用于失败/停止时归纳收尾说明 */
+  turnAssistantText: string[];
+  /** 本轮工具调用开始序列（tool:args 摘要），用于失败时说明停在哪一步 */
+  turnToolTrace: string[];
 }
 
 const BUILTIN_HARNESS_ID = "builtin/gitter-agent";
@@ -571,27 +577,38 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     return record;
   }
 
-  /** 手动压缩（/compact）。 */
+  /** 手动压缩（/compact）。任务未加载（应用重启后）也能压：从盘上会话文件加载 → 压缩 → 保存。 */
   async compactTask(args: { taskId: string }): Promise<{ ok: boolean; summary?: string }> {
-    const live = this.live.get(args.taskId);
-    if (!live) throw new Error("任务未在运行（重启后暂不支持手动压缩）");
+    const repo = this.needRepo();
     if (this.isRunning(args.taskId)) throw new Error("会话运行中，请在轮次结束后压缩");
-    const rr = await this.deps.resolveModel(live.record.modelRef, live.record.thinking);
+    const live = this.live.get(args.taskId);
+    const record = live?.record ?? findTask(loadAgentTasks(repo), args.taskId);
+    if (!record) throw new Error("任务不存在");
+    const rr = await this.deps.resolveModel(record.modelRef, record.thinking);
     if (!rr.ok) throw new Error(rr.error);
+    // live 缺席时 sessionFile.messages 即消息数组（压缩后直接落盘）；live 在场时 messages 与
+    // sessionFile.messages 是同一数组的别名（§22.4），原地回写保持别名关系
+    const sessionFile = live ? live.sessionFile : loadSessionFile(repo, args.taskId);
+    const messages = live ? live.messages : sessionFile.messages;
     const result = await compactNow({
-      messages: live.messages,
+      messages,
       contextWindow: 1_000_000, // 手动模式不限预算
-      systemEstTokens: live.systemEst,
+      systemEstTokens: live?.systemEst ?? 0,
       model: rr.model,
       keepTokens: this.deps.settings.current.agentsCompactionPolicy?.keepTokens ?? 16_000,
-      calibration: live.tokenCal,
+      calibration: live?.tokenCal ?? 1,
     });
     if (!result) return { ok: false };
-    live.messages.length = 0;
-    live.messages.push(...result.messages);
-    live.sessionFile.compactions.push(result.record);
-    this.emit(live.record, { type: "log", level: "info", text: `上下文已手动压缩（${result.record.removedCount} 条消息 → 摘要）` });
-    this.scheduleSave();
+    messages.length = 0;
+    messages.push(...result.messages);
+    sessionFile.compactions.push(result.record);
+    if (live) {
+      this.emit(live.record, { type: "log", level: "info", text: `上下文已手动压缩（${result.record.removedCount} 条消息 → 摘要）` });
+      this.scheduleSave();
+    } else {
+      saveSessionFile(repo, sessionFile);
+      this.deps.send("agent.tasks.changed", {});
+    }
     return { ok: true, summary: result.record.summary };
   }
 
@@ -1258,7 +1275,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     const live = this.live.get(args.taskId);
     if (live) {
       const window = live.contextStats?.contextWindow ?? 128_000;
-      return this.computeStats(live.messages, live.systemEst, live.sessionFile, window);
+      return this.computeStats(live.messages, live.systemEst, live.sessionFile, window, live.tokenCal);
     }
     const repo = this.repoOrNull();
     if (!repo) return null;
@@ -1611,6 +1628,8 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         tokenCal: 1,
         reviewInjectedAt: null,
         pendingDrainCount: 0,
+        turnAssistantText: [],
+        turnToolTrace: [],
       };
       this.live.set(record.taskId, live);
     }
@@ -1632,6 +1651,9 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     for (;;) {
       syncPackagePresets(this.deps.store); // §14.2 #6：包声明预设 → 预设注册表（幂等）
       live.planSubmittedThisTurn = false;
+      // 每轮重置追踪缓冲：终止分支据此归纳「停在哪一步」的收尾说明
+      live.turnAssistantText = [];
+      live.turnToolTrace = [];
       // M2.4 审查三态：人类结论以 system-reminder 注入（按 review.at 一次性去重）
       const rv = record.review;
       if (rv && (rv.status === "approved" || rv.status === "rejected") && live.reviewInjectedAt !== rv.at) {
@@ -1729,7 +1751,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           });
         }
       }
-      live.contextStats = this.computeStats(live.messages, live.systemEst, live.sessionFile, rr.contextWindow || 128_000);
+      live.contextStats = this.computeStats(live.messages, live.systemEst, live.sessionFile, rr.contextWindow || 128_000, live.tokenCal);
 
       const tt = live.taskType;
       const env: ToolEnv = {
@@ -1838,10 +1860,13 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         // §22.9 F13.5：断点轮注记（压缩/换模型/重启续跑/模式切换）随条目入账，命中率观测据此归因
         live.sessionFile.usageHistory.push({ ts: new Date().toISOString(), input: result.usage.input, output: result.usage.output, elapsedMs: result.usage.elapsedMs, cacheRead: result.usage.cacheRead, note: live.turnBreakNote });
         live.turnBreakNote = undefined;
-        // §22.9 F13.3：校准 EWMA——真实 input / 轮末 est 当量（多步轮分母含轮内增量，比值偏高由阻尼吸收）
+        // §22.9 F13.3：校准 EWMA——分子用「最后一步的真实 prompt」，与分母「轮末消息估算」同口径。
+        // 整轮 usage.input 是多步请求的累加值，直接做分子会被步数放大；旧实现为此 clamp 到 1.6，
+        // 恰好掩盖了对中文会话 ~2× 的低估（压缩永不触发 → 请求超限被端点含糊拒绝）
         const estEnd = estimateMessagesTokens(live.messages) + live.systemEst;
-        if (result.usage.input && result.usage.input >= 200 && estEnd > 0) {
-          const clamped = Math.min(1.6, Math.max(0.6, result.usage.input / estEnd));
+        const realPrompt = result.lastStepInput ?? result.usage.input;
+        if (realPrompt && realPrompt >= 200 && estEnd > 0) {
+          const clamped = Math.min(4, Math.max(0.6, realPrompt / estEnd));
           live.tokenCal = live.tokenCal * 0.75 + clamped * 0.25;
         }
       }
@@ -1850,16 +1875,20 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
         const manual = this.manualStop.has(record.taskId);
         this.manualStop.delete(record.taskId);
         record.state = manual ? "stopped" : "interrupted";
+        // 收尾说明：停止/中断也须说清停在哪一步（素材来自本轮追踪缓冲，不发起模型调用）
+        const exitNote = this.composeExitNote(live, "stopped");
+        record.lastMessage = exitNote;
         // 终态原因落时间线（失败/停止不再只是一颗状态点——原因以 completed 事件进会话流 + 状态条）；
         // 插话引起的中断不发此事件：紧接着就有新轮，落一条「已中断」反而误导
         if (!(live.interjectPending && record.queued.length > 0)) {
           this.emit(record, {
             type: "completed",
             outcome: manual ? "stopped" : "interrupted",
-            summary: manual ? "已手动停止本轮" : "会话被中断（应用退出或连接中断），发送消息可继续",
+            summary: exitNote,
           });
         }
       } else if (result.outcome === "completed") {
+        live.overflowRetried = false;
         record.state = "awaiting-input";
         if (result.lastMessage) record.lastMessage = result.lastMessage;
         if (this.deps.settings.current.agentsCheckpoint !== false) {
@@ -1883,6 +1912,32 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           }
         }
       } else {
+        // 上下文超限兜底：端点对超长请求的文案很含糊（SenseNova 只回 "inference request is invalid"），
+        // 估算没追上真实用量时自动压缩不会触发——命中特征先强制压缩一次再重试本轮（一次为限）
+        if (!live.overflowRetried && isContextOverflowError(result.error ?? "")) {
+          live.overflowRetried = true;
+          const compactor = (live.taskType.compactor && getCompactorById(live.taskType.compactor)) || activeCompactor();
+          const compacted = await compactor.compact({
+            messages: live.messages,
+            contextWindow: 1_000_000, // 超限兜底不看预算，能切就切
+            systemEstTokens: live.systemEst,
+            model: rr.model,
+            signal: live.abort?.signal,
+            threshold: 0,
+            keepTokens: this.deps.settings.current.agentsCompactionPolicy?.keepTokens ?? 16_000,
+            calibration: live.tokenCal,
+          });
+          if (compacted) {
+            live.messages.length = 0;
+            live.messages.push(...compacted.messages);
+            live.sessionFile.compactions.push(compacted.record);
+            live.turnBreakNote = live.turnBreakNote ?? "压缩后重建";
+            this.emit(record, { type: "log", level: "warn", text: `请求被端点拒绝（疑似上下文超长）：${(result.error ?? "").slice(0, 80)}，已强制压缩（${compacted.record.removedCount} 条消息 → 摘要）并重试本轮` });
+            humanNote = "上下文超限 → 压缩重试";
+            continue;
+          }
+          this.emit(record, { type: "log", level: "warn", text: "疑似上下文超长，但没有可压缩的切点（无 user 边界）" });
+        }
         // D8 降级链（§21.3.3）：硬失败且本轮未降级过 → 切备用模型续跑一次（再失败按原样 failed）
         const alt = !live.degradedOnce && this.deps.alternateModel ? await this.deps.alternateModel(rr.profileRef, record.thinking) : null;
         if (alt?.ok) {
@@ -1894,7 +1949,9 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
           continue;
         }
         record.state = "failed";
-        record.lastMessage = result.error ?? result.lastMessage ?? "循环失败";
+        // 失败收尾说明：不能只把端点那句含糊错误当摘要（"inference request is invalid" 毫无信息量），
+        // 要把「停在哪一步、有无重复失败、模型最后说到哪」一并归纳出来
+        record.lastMessage = this.composeExitNote(live, "failed", result.error);
         // 失败原因以 completed 事件落时间线（时间线状态块 + 任务条原因横幅同源）
         this.emit(record, { type: "completed", outcome: "failed", summary: record.lastMessage });
       }
@@ -2004,8 +2061,39 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     }
   }
 
+  /**
+   * 非正常结束（失败/停止）时归纳收尾说明：让任务条与时间线能说清「停在哪、为什么」，
+   * 而不是只剩状态点。素材来自本轮追踪缓冲（assistant 正文 + 工具调用序列）。
+   * 纯归纳不发起模型调用——失败轮可能正在预算耗尽/限流，不能再发请求。
+   */
+  private composeExitNote(live: LiveSession, kind: "failed" | "stopped", rawError?: string): string {
+    const head = kind === "failed" ? "任务失败" : "任务已停止";
+    const err = rawError ? `错误：${rawError.slice(0, 160)}` : "";
+    const lastTool = live.turnToolTrace[live.turnToolTrace.length - 1];
+    const tools = live.turnToolTrace.length > 0
+      ? `本轮共执行 ${live.turnToolTrace.length} 次工具调用，最后一步：${lastTool}`
+      : "本轮未执行任何工具调用";
+    const fails = [...live.toolFails.entries()].filter(([, n]) => n >= 2).slice(-3)
+      .map(([k, n]) => `${k}×${n}`);
+    const failNote = fails.length > 0 ? `；重复失败：${fails.join("，")}` : "";
+    const spoken = live.turnAssistantText.join(" ").replace(/\s+/g, " ").trim();
+    const tail = spoken ? `；模型最后输出：「${spoken.slice(-140)}」` : "";
+    return [head, err, tools + failNote, tail].filter(Boolean).join("。") + "。";
+  }
+
   private handleLoopEvent(record: AgentTaskRecord, ev: AgentSessionEvent): void {
-    if (ev.type === "output" && ev.text.trim() && ev.stream === "assistant") record.lastMessage = ev.text;
+    if (ev.type === "output" && ev.text.trim() && ev.stream === "assistant") {
+      record.lastMessage = ev.text;
+      const live = this.live.get(record.taskId);
+      if (live) live.turnAssistantText.push(ev.text);
+    }
+    if (ev.type === "tool" && ev.phase === "start") {
+      const live = this.live.get(record.taskId);
+      if (live) {
+        // 收尾说明用：停在哪一步（args 截短，避免把整段载荷写进任务条摘要）
+        live.turnToolTrace.push(`${ev.name}（${JSON.stringify(ev.args ?? {}).slice(0, 80)}）`);
+      }
+    }
     if (ev.type === "turn-completed" && ev.lastMessage) record.lastMessage = ev.lastMessage;
     if (record.state === "starting") {
       record.state = "working";
@@ -2025,8 +2113,10 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
     this.emit(record, ev);
   }
 
-  private computeStats(messages: SessionFile["messages"], systemEst: number, sessionFile: SessionFile, contextWindow: number): AgentContextStats {
-    const estTokens = estimateMessagesTokens(messages) + systemEst;
+  /** 上下文用量估算。calibration：est→真实 token 校准系数（活动任务传 live.tokenCal，展示与压缩判定同口径）。 */
+  private computeStats(messages: SessionFile["messages"], systemEst: number, sessionFile: SessionFile, contextWindow: number, calibration = 1): AgentContextStats {
+    const cal = calibration > 0 ? calibration : 1;
+    const estTokens = Math.round((estimateMessagesTokens(messages) + systemEst) * cal);
     const budget = budgetOf(contextWindow);
     const hist = sessionFile.usageHistory;
     const last = hist.length > 0 ? hist[hist.length - 1] : undefined;
@@ -2049,7 +2139,7 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
       contextWindow,
       budget,
       ratio: contextWindow > 0 ? Math.min(1, estTokens / budget) : 0,
-      breakdown: { system: systemEst, messages: estTokens - systemEst, reserved: contextWindow - budget },
+      breakdown: { system: Math.round(systemEst * cal), messages: estTokens - Math.round(systemEst * cal), reserved: contextWindow - budget },
       compactions: sessionFile.compactions.length,
       totalInput: totalInput > 0 ? totalInput : undefined,
       totalOutput: totalOutput > 0 ? totalOutput : undefined,

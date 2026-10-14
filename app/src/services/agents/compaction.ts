@@ -4,29 +4,40 @@ import type { CompactionRecord } from "./tasks";
 
 /**
  * 上下文预算与自动压缩（agent-harness-v4.md F7）：
- * - 估算：字符数/2.5（中英混合经验值）+ 每消息 8 token 开销；
- * - 触发：turn 开始 est > 0.8 × budget（budget = contextWindow − reservedOutput）；
+ * - 估算：CJK 字符 /1.6、其余 /3.5（实测校准；原 chars/2.5 对中文会话低估可达 2×，叠加校准
+ *   封顶曾导致压缩永不触发，请求超限被端点以含糊的 "inference request is invalid" 拒绝）；
+ * - 触发：turn 开始 (est × calibration) > 0.8 × budget（budget = contextWindow − reservedOutput）；
  * - 切割：保留最近 keepLast 条；切点必须落在 user 消息边界（保持 tool-call/result 配对完整）；
  * - 摘要：专用五段式提示词（目标/已完成/未完成/约束反馈/注意点），失败降级不压缩。
  */
 
-const CHARS_PER_TOKEN = 2.5;
+const CHARS_PER_TOKEN_CJK = 1.6;
+const CHARS_PER_TOKEN_PLAIN = 3.5;
 const PER_MESSAGE_OVERHEAD = 8;
+// CJK 统一笔画部首/汉字/兼容汉字/日文假名/韩文谚文/全角符号与 CJK 标点
+const CJK_CHAR_RE = /[\u2E80-\u9FFF\uF900-\uFAFF\u3000-\u303F\u3040-\u30FF\uAC00-\uD7AF\uFF01-\uFF5F]/g;
+
+/** 单段文本 → token 估算（CJK 与其余字符分别按经验密度折算）。 */
+export function estimateTextTokens(text: string): number {
+  if (!text) return 0;
+  const cjk = (text.match(CJK_CHAR_RE) || []).length;
+  return cjk / CHARS_PER_TOKEN_CJK + (text.length - cjk) / CHARS_PER_TOKEN_PLAIN;
+}
 
 export function estimateMessagesTokens(messages: ModelMessage[]): number {
-  let chars = 0;
+  let tokens = 0;
   for (const m of messages) {
     const c = m.content;
-    if (typeof c === "string") chars += c.length;
+    if (typeof c === "string") tokens += estimateTextTokens(c);
     else if (Array.isArray(c)) {
       for (const p of c) {
-        if (typeof p === "object" && p && "text" in p) chars += String((p as { text?: string }).text ?? "").length;
-        else chars += 64; // tool-call/image 等部件估个常数
+        if (typeof p === "object" && p && "text" in p) tokens += estimateTextTokens(String((p as { text?: string }).text ?? ""));
+        else tokens += 64; // tool-call/image 等部件估个常数
       }
     }
-    chars += PER_MESSAGE_OVERHEAD;
+    tokens += PER_MESSAGE_OVERHEAD;
   }
-  return Math.ceil(chars / CHARS_PER_TOKEN);
+  return Math.ceil(tokens);
 }
 
 /** 预算（F7.1）。 */
