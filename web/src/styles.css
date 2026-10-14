@@ -1814,12 +1814,12 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .settings-section { background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: 12px 16px; }
 
 /* Agent markdown 输出（.md-body，时间线内嵌渲染） */
-.md-body { font-size: 15px; color: var(--c-text); line-height: 1.7; word-break: break-word; user-select: text; }
+.md-body { font-size: 13px; color: var(--c-text); line-height: 1.7; word-break: break-word; user-select: text; }
 .md-body > :first-child { margin-top: 0; }
 .md-body > :last-child { margin-bottom: 0; }
 .md-body p { margin: 4px 0; }
 .md-body h1, .md-body h2, .md-body h3, .md-body h4 { margin: 10px 0 4px; line-height: 1.4; color: var(--c-text); }
-.md-body h1 { font-size: 16px; } .md-body h2 { font-size: 14.5px; } .md-body h3 { font-size: 13.5px; } .md-body h4 { font-size: 12.5px; }
+.md-body h1 { font-size: 14px; } .md-body h2 { font-size: 12.5px; } .md-body h3 { font-size: 11.5px; } .md-body h4 { font-size: 10.5px; }
 .md-body ul, .md-body ol { margin: 4px 0; padding-left: 20px; }
 .md-body li { margin: 2px 0; }
 .md-body code { font-family: var(--mono); font-size: 11.5px; background: var(--c-hover); border: 1px solid var(--c-border); border-radius: 4px; padding: 0 4px; }
@@ -1994,6 +1994,7 @@ select.input {
 .git-doc-body {
   flex: 1; min-height: 0; overflow-y: auto; position: relative; scroll-behavior: smooth;
   padding: 10px 16px 24px;
+  font-size: 15px; /* 文档面板不随时间线消息缩小（.md-body 基准已降到 13px） */
   scrollbar-width: thin; scrollbar-color: var(--c-border-strong) transparent;
 }
 .git-doc-body::-webkit-scrollbar { width: 8px; }

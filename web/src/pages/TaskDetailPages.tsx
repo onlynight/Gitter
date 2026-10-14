@@ -453,7 +453,7 @@ export function SubagentsTab(props: {
       .then((r) => {
         let blocks: Block[] = [];
         for (const e of r.events) {
-          if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, stripSubtaskId(e.event));
+          if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, stripSubtaskId(e.event), e.ts);
         }
         // 仅在归约出内容时写入；空结果不动当前 state（实时增量可能已经填充过）
         if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
@@ -590,14 +590,14 @@ export function SubagentsTab(props: {
                 <div key={i} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {g.human && (
                     <div className="msg-row human" style={{ display: "flex", justifyContent: "flex-end", padding: "8px 0" }}>
-                      <div className="bubble" style={{ maxWidth: "78%", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: "14px 14px 4px 14px", padding: "10px 14px", fontSize: 14.5, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      <div className="bubble" style={{ maxWidth: "78%", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: "14px 14px 4px 14px", padding: "10px 14px", fontSize: 12.5, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                         {(g.human as Extract<Block, { kind: "human" }>).text}
                       </div>
                     </div>
                   )}
                   {g.process.map((b, j) => renderSubDetailBlock(b, j, { onJumpToChat: () => props.onJumpToChat?.() }))}
                   {g.conclusion && (
-                    <div className="assistant" style={{ fontSize: 14.5, lineHeight: 1.7, color: "var(--c-text)" }}
+                    <div className="assistant" style={{ fontSize: 12.5, lineHeight: 1.7, color: "var(--c-text)" }}
                       dangerouslySetInnerHTML={{ __html: renderMarkdown((g.conclusion as Extract<Block, { kind: "assistant" }>).text) }} />
                   )}
                 </div>

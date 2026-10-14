@@ -13,7 +13,7 @@ import {
 import { TlIcon, toolIconName, type TlIconName } from "./taskIcons";
 import { TaskChangesPanel } from "./TaskChangesPanel";
 import {
-  TOOL_LABELS, BUILTIN_TIMELINE_RENDERERS, pushCap, reduceBlocks, groupLogs, groupTurns, permOptions,
+  TOOL_LABELS, BUILTIN_TIMELINE_RENDERERS, pushCap, reduceBlocks, closeRunningTools, groupLogs, groupTurns, permOptions,
   type Block, type Todo, type TurnGroup, type PermOption,
   TodoList, PermissionCard, QuestionCard, PlanCard, SubtaskBlock, FileGroup,
 } from "./TaskTimeline";
@@ -734,13 +734,16 @@ export function TasksPage() {
 
   // 运行中工具 + 子代理计数 + 上下文用量
   // design v2 §3.1：任务非 live 时，仍在 running 的工具不再计时（渲染层同步归约为 aborted）
+  // lastActiveAt = 本轮运行起点（创建/续跑时写入）：更早开始的 running 工具是上一轮残留
+  // （end 事件已丢失），不计入 chip——否则命令时长从旧起点累计，会超过任务总时长。
   const runningTool = (() => {
     if (!selectedTask) return null;
     if (!selected || !LIVE_STATES.has(selected.state)) return null;
     const blocks = evMap[selectedTask] ?? [];
+    const runStartMs = selected.lastActiveAt ? new Date(selected.lastActiveAt).getTime() : 0;
     for (let i = blocks.length - 1; i >= 0; i--) {
       const b = blocks[i];
-      if (b.kind === "tool" && b.state === "running") return b;
+      if (b.kind === "tool" && b.state === "running") return b.startTs >= runStartMs ? b : null;
     }
     return null;
   })();
@@ -793,8 +796,12 @@ export function TasksPage() {
   const eventsToBlocks = (events: { ts: string; actor: "human" | "agent" | "host"; kind: "text" | "event"; text?: string; event?: AgentEventDTO }[]): Block[] => {
     let blocks: Block[] = [];
     for (const je of events) {
-      if (je.kind === "text") blocks = pushCap(blocks, { kind: "human", text: je.text ?? "" });
-      else blocks = reduceBlocks(blocks, je.event as AgentEventDTO);
+      if (je.kind === "text") {
+        // 新的用户消息说明上一轮已结束：仍在 running 的工具卡是丢失了 end 事件的残留，归约为 aborted
+        blocks = closeRunningTools(blocks);
+        blocks = pushCap(blocks, { kind: "human", text: je.text ?? "" });
+      }
+      else blocks = reduceBlocks(blocks, je.event as AgentEventDTO, je.ts);
     }
     return blocks;
   };

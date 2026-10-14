@@ -9,9 +9,6 @@ import type { AgentEventDTO, AgentTaskDTO, DiffDTO } from "../bridge/types";
 import { DiffView, renderMarkdown } from "../kit";
 import { TlIcon, toolIconName, type TlIconName } from "./taskIcons";
 import type { TimelineCardCtx, TimelineRendererDef } from "../external/agentUIShim";
-import { pageSdk } from "../pageSdk";
-
-const { t } = pageSdk;
 
 export const TOOL_LABELS: Record<string, string> = {
   web_search: "网络搜索", web_fetch: "读取网页",
@@ -62,8 +59,20 @@ export function pushCap(arr: Block[], b: Block): Block[] {
   return next.length > MAX_BLOCKS ? next.slice(next.length - MAX_BLOCKS) : next;
 }
 
-/** 事件 → 块序列（纯归约；子代理事件按 subtaskId 归组嵌套）。 */
-export function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
+/** 轮/任务终态（或新用户消息）时仍在 running 的工具卡 = tool/end 已丢失（中断、崩溃等），归约为
+ * aborted：残留的 running 块会让头部「运行中命令」chip 从旧起点一直计时，出现比任务总时长还久。 */
+export function closeRunningTools(blocks: Block[]): Block[] {
+  let dirty = false;
+  const next = blocks.map((b) => {
+    if (b.kind === "tool" && b.state === "running") { dirty = true; return { ...b, state: "aborted" as const }; }
+    return b;
+  });
+  return dirty ? next : blocks;
+}
+
+/** 事件 → 块序列（纯归约；子代理事件按 subtaskId 归组嵌套）。
+ * ts：日志重放时的条目时间戳（ISO），用于 tool/start 的 startTs——否则重放会把计时起点错设为当下。 */
+export function reduceBlocks(blocks: Block[], ev: AgentEventDTO, ts?: string): Block[] {
   if (ev.subtaskId) {
     if (ev.type === "subtask") {
       const idx = [...blocks].reverse().findIndex((b) => b.kind === "subtask" && b.subtaskId === ev.subtaskId);
@@ -80,7 +89,7 @@ export function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
     if (idx >= 0) {
       const at = blocks.length - 1 - idx;
       const sub = blocks[at] as Extract<Block, { kind: "subtask" }>;
-      const inner = reduceBlocks([], { ...ev, subtaskId: undefined });
+      const inner = reduceBlocks([], { ...ev, subtaskId: undefined }, ts);
       let children = sub.children;
       for (const c of inner) children = pushCap(children, c);
       const next = [...blocks];
@@ -129,7 +138,7 @@ export function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
       return blocks;
     case "tool": {
       if (ev.phase === "start") {
-        return pushCap(blocks, { kind: "tool", callId: ev.callId ?? "", name: ev.name ?? "", args: ev.args, state: "running", source: ev.source, startTs: Date.now() });
+        return pushCap(blocks, { kind: "tool", callId: ev.callId ?? "", name: ev.name ?? "", args: ev.args, state: "running", source: ev.source, startTs: ts ? new Date(ts).getTime() : Date.now() });
       }
       if (ev.phase === "args") {
         // 工具执行中回填 args（terminal_run 由 tool/args 事件带 shellId，卡片与 shell 条目由此关联）
@@ -170,7 +179,7 @@ export function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
     case "subtask":
       return pushCap(blocks, { kind: "subtask", subtaskId: ev.subtaskId ?? "", name: ev.name ?? "", mode: ev.mode ?? "", state: ev.state ?? "running", final: ev.finalMessage, durationMs: ev.durationMs, children: [] });
     case "turn-completed":
-      return pushCap(blocks, { kind: "turn", text: `turn #${blocks.filter((b) => b.kind === "turn").length + 1}`, usage: ev.usage });
+      return pushCap(closeRunningTools(blocks), { kind: "turn", text: `turn #${blocks.filter((b) => b.kind === "turn").length + 1}`, usage: ev.usage });
     case "completed": {
       // 终态落时间线（失败/停止原因由此进入会话流）：outcome 翻译为中文标签；失败标红
       const outcomeLabel = ev.outcome === "failed" ? "失败"
@@ -178,7 +187,7 @@ export function reduceBlocks(blocks: Block[], ev: AgentEventDTO): Block[] {
         : ev.outcome === "interrupted" ? "已中断"
         : ev.outcome === "cancelled" ? "已中断"
         : (ev.outcome ?? "");
-      return pushCap(blocks, { kind: "status", text: `${outcomeLabel}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.outcome === "failed" ? "failed" : undefined });
+      return pushCap(closeRunningTools(blocks), { kind: "status", text: `${outcomeLabel}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.outcome === "failed" ? "failed" : undefined });
     }
     case "log":
       return pushCap(blocks, { kind: "log", level: ev.level ?? "info", text: ev.text ?? "" });
@@ -714,7 +723,7 @@ export const BUILTIN_TIMELINE_RENDERERS: TimelineRendererDef[] = [
       // 对话形式：用户消息靠右圆角气泡（ZCode 形态），上下留宽间距（文本可选中，无复制钮）
       return (
         <div className="msg-row" style={{ display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }}>
-          <div style={{ maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 15, lineHeight: 1.65 }}>
+          <div style={{ maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }}>
             {b.text}
           </div>
         </div>

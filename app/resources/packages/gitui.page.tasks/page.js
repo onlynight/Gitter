@@ -1023,7 +1023,18 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     }
     return next.length > MAX_BLOCKS ? next.slice(next.length - MAX_BLOCKS) : next;
   }
-  function reduceBlocks(blocks, ev) {
+  function closeRunningTools(blocks) {
+    let dirty = false;
+    const next = blocks.map((b) => {
+      if (b.kind === "tool" && b.state === "running") {
+        dirty = true;
+        return { ...b, state: "aborted" };
+      }
+      return b;
+    });
+    return dirty ? next : blocks;
+  }
+  function reduceBlocks(blocks, ev, ts) {
     if (ev.subtaskId) {
       if (ev.type === "subtask") {
         const idx2 = [...blocks].reverse().findIndex((b) => b.kind === "subtask" && b.subtaskId === ev.subtaskId);
@@ -1040,7 +1051,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       if (idx >= 0) {
         const at = blocks.length - 1 - idx;
         const sub = blocks[at];
-        const inner = reduceBlocks([], { ...ev, subtaskId: void 0 });
+        const inner = reduceBlocks([], { ...ev, subtaskId: void 0 }, ts);
         let children = sub.children;
         for (const c of inner) children = pushCap(children, c);
         const next = [...blocks];
@@ -1085,7 +1096,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         return blocks;
       case "tool": {
         if (ev.phase === "start") {
-          return pushCap(blocks, { kind: "tool", callId: ev.callId ?? "", name: ev.name ?? "", args: ev.args, state: "running", source: ev.source, startTs: Date.now() });
+          return pushCap(blocks, { kind: "tool", callId: ev.callId ?? "", name: ev.name ?? "", args: ev.args, state: "running", source: ev.source, startTs: ts ? new Date(ts).getTime() : Date.now() });
         }
         if (ev.phase === "args") {
           for (let i = blocks.length - 1; i >= 0; i--) {
@@ -1125,10 +1136,10 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       case "subtask":
         return pushCap(blocks, { kind: "subtask", subtaskId: ev.subtaskId ?? "", name: ev.name ?? "", mode: ev.mode ?? "", state: ev.state ?? "running", final: ev.finalMessage, durationMs: ev.durationMs, children: [] });
       case "turn-completed":
-        return pushCap(blocks, { kind: "turn", text: `turn #${blocks.filter((b) => b.kind === "turn").length + 1}`, usage: ev.usage });
+        return pushCap(closeRunningTools(blocks), { kind: "turn", text: `turn #${blocks.filter((b) => b.kind === "turn").length + 1}`, usage: ev.usage });
       case "completed": {
         const outcomeLabel = ev.outcome === "failed" ? "失败" : ev.outcome === "stopped" ? "已停止" : ev.outcome === "interrupted" ? "已中断" : ev.outcome === "cancelled" ? "已中断" : ev.outcome ?? "";
-        return pushCap(blocks, { kind: "status", text: `${outcomeLabel}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.outcome === "failed" ? "failed" : void 0 });
+        return pushCap(closeRunningTools(blocks), { kind: "status", text: `${outcomeLabel}${ev.summary ? ` — ${ev.summary}` : ""}`, phase: ev.outcome === "failed" ? "failed" : void 0 });
       }
       case "log":
         return pushCap(blocks, { kind: "log", level: ev.level ?? "info", text: ev.text ?? "" });
@@ -1709,7 +1720,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       blockKind: "human",
       render: ({ block }) => {
         const b = block;
-        return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "msg-row", style: { display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 15, lineHeight: 1.65 }, children: b.text }) });
+        return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "msg-row", style: { display: "flex", justifyContent: "flex-end", padding: "12px 0 4px" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { style: { maxWidth: "78%", background: "var(--c-panel2, var(--c-panel))", border: "1px solid var(--c-border)", borderRadius: 14, padding: "10px 14px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.65 }, children: b.text }) });
       }
     },
     {
@@ -2761,7 +2772,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       void call$1("agent.subtask.transcript", { taskId, subtaskId: selectedId }).then((r) => {
         let blocks = [];
         for (const e of r.events) {
-          if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, stripSubtaskId(e.event));
+          if (e.kind === "event" && e.event) blocks = reduceBlocks(blocks, stripSubtaskId(e.event), e.ts);
         }
         if (blocks.length > 0) setDetailBlocks((cur) => cur.length ? cur : blocks);
       }).catch((e) => {
@@ -2904,7 +2915,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
             !loading && detailBlocks.length > 0 && (() => {
               const groups = groupTurns(detailBlocks);
               return groups.map((g, i) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
-                g.human && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "msg-row human", style: { display: "flex", justifyContent: "flex-end", padding: "8px 0" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { className: "bubble", style: { maxWidth: "78%", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: "14px 14px 4px 14px", padding: "10px 14px", fontSize: 14.5, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: g.human.text }) }),
+                g.human && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "msg-row human", style: { display: "flex", justifyContent: "flex-end", padding: "8px 0" }, children: /* @__PURE__ */ jsxRuntime.jsx("div", { className: "bubble", style: { maxWidth: "78%", background: "var(--c-panel2)", border: "1px solid var(--c-border)", borderRadius: "14px 14px 4px 14px", padding: "10px 14px", fontSize: 12.5, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: g.human.text }) }),
                 g.process.map((b, j) => renderSubDetailBlock(b, j, { onJumpToChat: () => {
                   var _a3;
                   return (_a3 = props.onJumpToChat) == null ? void 0 : _a3.call(props);
@@ -2913,7 +2924,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
                   "div",
                   {
                     className: "assistant",
-                    style: { fontSize: 14.5, lineHeight: 1.7, color: "var(--c-text)" },
+                    style: { fontSize: 12.5, lineHeight: 1.7, color: "var(--c-text)" },
                     dangerouslySetInnerHTML: { __html: renderMarkdown(g.conclusion.text) }
                   }
                 )
@@ -3893,9 +3904,10 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
       if (!selectedTask) return null;
       if (!selected || !LIVE_STATES.has(selected.state)) return null;
       const blocks = evMap[selectedTask] ?? [];
+      const runStartMs = selected.lastActiveAt ? new Date(selected.lastActiveAt).getTime() : 0;
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
-        if (b.kind === "tool" && b.state === "running") return b;
+        if (b.kind === "tool" && b.state === "running") return b.startTs >= runStartMs ? b : null;
       }
       return null;
     })();
@@ -3954,8 +3966,10 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     const eventsToBlocks = (events) => {
       let blocks = [];
       for (const je of events) {
-        if (je.kind === "text") blocks = pushCap(blocks, { kind: "human", text: je.text ?? "" });
-        else blocks = reduceBlocks(blocks, je.event);
+        if (je.kind === "text") {
+          blocks = closeRunningTools(blocks);
+          blocks = pushCap(blocks, { kind: "human", text: je.text ?? "" });
+        } else blocks = reduceBlocks(blocks, je.event, je.ts);
       }
       return blocks;
     };
