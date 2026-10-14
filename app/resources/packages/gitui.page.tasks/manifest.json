@@ -21,6 +21,13 @@
           "git.write",
           "settings.write",
           "window"
+        ],
+        "dependencies": [
+          {
+            "lib": "monaco",
+            "package": "gitui.lib.monaco",
+            "semver": "^0.52.0"
+          }
         ]
       }
     ]

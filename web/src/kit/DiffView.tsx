@@ -2,8 +2,78 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
 import type { DiffDTO, HunkDTO } from "../bridge/types";
 import { t, useApp } from "../state/store";
+import { languageForPath } from "../libs/langId";
+import { monacoSyntax, toSyntaxRuns, type SyntaxRun } from "./syntaxMonarch";
 import { renderSegments, wordDiff } from "./wordDiff";
 
+// ---------- 内联模式：hunk 内 del 段 / add 段配对（用于字级 diff） ----------
+//
+// unified diff 中一个 hunk 内，连续 - 行段紧跟连续 + 行段——按索引一一配对，短侧不配对
+// （对应并排模式的 del/add 单侧空位）。ctx 行两侧都填同一文本（wordDiff 自然返回全空 span，
+// 只是保持数据形状一致）。输出 pairs[i] 标注归属：
+//   side='old'（当前是 del 行）：text=自己，pairText=对应 add 行；wordDiff 取 oldSpans
+//   side='new'（当前是 add 行）：text=自己，pairText=对应 del 行；wordDiff 取 newSpans
+//   side='none'（ctx 或短侧空位）：不计算 wordDiff
+// pairId 用作 memo key：两条配对行共享同一 pairId，虚拟化窗口重算时稳定。
+interface InlinePair {
+  text: string;
+  pairText: string;
+  /** 行类型：决定 cls 与行号计数器（"old"=del 行，"new"=add 行，"ctx"=两侧都计） */
+  kind: "old" | "new" | "ctx";
+  /** 配对归属：决定 emph 取 wd.oldSpans 还是 wd.newSpans；"none" = 不 emph（ctx 行或短侧未配对） */
+  side: "old" | "new" | "none";
+  /** 配对标识：两条配对的行共享同一 pairId，用作 memo key（虚拟化窗口重算时稳定） */
+  pairId: number;
+}
+
+// 双指针同步遍历 h.oldLines（含 del/ctx）与 h.newLines（含 add/ctx），按 unified diff 期望顺序
+// （del 段在前、add 段紧随）输出 InlinePair 数组。同时维护 oldCount/newCount 计数，供调用方
+// 按 side 回填 runIdx（对应 HighlightRun 的 line 索引——内联模式下 hlTextsInline 里两侧分别
+// 按 side 累积，这里产出的 side 顺序必须与之严格一致）。
+//
+// 配对规则：
+//   - 单条 ctx：pairs 一条 side='none'，两侧文本相同（wordDiff 自然返回全空 span）
+//   - 连续 del 段 + 紧随 add 段：按索引一一配对，短侧超出对应用 side='none'（无 emph）
+//   - 一对配对共享同一 pairId，用作内联 row 的 memo key
+function buildInlinePairs(h: HunkDTO): InlinePair[] {
+  const pairs: InlinePair[] = [];
+  const oldLines = h.oldLines;
+  const newLines = h.newLines;
+  let oldI = 0;
+  let newI = 0;
+  let pid = 0;
+  while (oldI < oldLines.length && newI < newLines.length) {
+    const oc = oldLines[oldI][0];
+    const nc = newLines[newI][0];
+    if (oc === " " && nc === " ") {
+      pairs.push({ text: oldLines[oldI].slice(1), pairText: newLines[newI].slice(1), kind: "ctx", side: "none", pairId: pid++ });
+      oldI++; newI++;
+      continue;
+    }
+    // 收集连续 del 段（oldLines 中）
+    const dels: string[] = [];
+    while (oldI < oldLines.length && oldLines[oldI][0] === "-") { dels.push(oldLines[oldI].slice(1)); oldI++; }
+    // 收集紧随的连续 add 段（newLines 中）
+    const adds: string[] = [];
+    while (newI < newLines.length && newLines[newI][0] === "+") { adds.push(newLines[newI].slice(1)); newI++; }
+    // 短侧不配对：未匹配侧的 del/add 行 kind 保留为 "old"/"new"，但 side="none"（不 emph）
+    const n = Math.max(dels.length, adds.length);
+    for (let k = 0; k < n; k++) {
+      const d = dels[k];
+      const a = adds[k];
+      if (d !== undefined && a !== undefined) {
+        const shared = pid++;
+        pairs.push({ text: d, pairText: a, kind: "old", side: "old", pairId: shared });
+        pairs.push({ text: a, pairText: d, kind: "new", side: "new", pairId: shared });
+      } else if (d !== undefined) {
+        pairs.push({ text: d, pairText: d, kind: "old", side: "none", pairId: pid++ });
+      } else {
+        pairs.push({ text: a!, pairText: a!, kind: "new", side: "none", pairId: pid++ });
+      }
+    }
+  }
+  return pairs;
+}
 // 并排行对：上下文 1:1 配对，删除/新增块按索引配对、短侧补空。
 interface SideRow {
   kind: "ctx" | "add" | "del";
@@ -49,11 +119,11 @@ function buildSideRows(h: HunkDTO): SideRow[] {
   return rows;
 }
 
-/** 语法 run：TextMate 路径带解析后的 color；声明式路径缺省按 style 查主题 syntax 表。 */
-type SyntaxRun = { start: number; end: number; style: string; color?: string };
+// 语法 run 类型与 Monarch→SyntaxRun 转换在 kit/syntaxMonarch.ts（TextMate 链保留未调用，
+// 类型注释见彼处）。
 
-// 高亮输入防线：超大文本（压缩产物单行可达数百 KB）逐行分词代价高，主进程声明式
-// 回退更是 O(行长²)——超限的 diff 直接纯文本，不发桥调用
+// 高亮输入防线：超大文本（压缩产物单行可达数百 KB）Monarch 逐行分词代价高（同步占
+// 渲染进程主线程），超限的 diff 直接纯文本，不进 tokenizeLines
 const MAX_HL_CHARS = 100_000;
 const MAX_HL_LINE = 20_000;
 
@@ -80,6 +150,10 @@ interface RowItem {
   text?: string;
   runIdx?: number;
   runSide?: "left" | "right";
+  // 内联模式字级 diff 配对（仅 side !== 'none' 的行有；两条配对行共享 pairId）
+  pairText?: string;
+  pairSide?: "old" | "new";
+  pairId?: number;
   // 并排双列
   leftCls?: string;
   rightCls?: string;
@@ -181,14 +255,28 @@ const SideRowView = memo(function SideRowView(props: {
   );
 });
 
+/** 内联行：add/del 行若配对了相邻行（pairText/pairSide），则做字级 diff 高亮。 */
 const InlineRowView = memo(function InlineRowView(props: {
   row: RowItem;
   runs?: SyntaxRun[];
   colors: Record<string, string>;
+  /** 字级 diff 开关（与并排模式共用 rich） */
+  rich: boolean;
 }) {
+  const { row } = props;
+  const text = row.text ?? "";
+  const paired = row.pairText !== undefined && row.pairSide !== undefined;
+  const emph = useMemo(() => {
+    if (!props.rich || !paired) return null;
+    const wd = wordDiff(row.pairSide === "old" ? text : row.pairText!, row.pairSide === "old" ? row.pairText! : text);
+    // row.pairSide='old'（del 行）：row.text=del, row.pairText=add → wd.oldSpans 是 del 的删除片段
+    // row.pairSide='new'（add 行）：row.text=add, row.pairText=del → wd.newSpans 是 add 的新增片段
+    const spans = row.pairSide === "old" ? wd.oldSpans : wd.newSpans;
+    return renderSegments(text, spans);
+  }, [props.rich, paired, text, row.pairText, row.pairSide]);
   return (
     <div className="diff-row">
-      <Cell num={props.row.num} newLn={props.row.focusLn} content={renderCode(props.row.text ?? "", props.runs, props.colors)} cls={props.row.cls ?? "d-ctx"} />
+      <Cell num={row.num} newLn={row.focusLn} content={renderCode(text, props.runs, props.colors, emph ?? undefined)} cls={row.cls ?? "d-ctx"} />
     </div>
   );
 });
@@ -249,35 +337,46 @@ const DiffViewImpl = function DiffView(props: {
     if (inline) {
       diff.hunks.forEach((h, hi) => {
         if (showHunkHeaders) out.push({ kind: "hdr", key: `h${hi}`, hunk: hi });
+        // 行号计数器：oldNum/newNum 仅在同侧（del / ctx / add）消费时自增
         let oldNum = h.oldCount > 0 ? h.oldStart : h.oldStart + 1;
         let newNum = h.newCount > 0 ? h.newStart : h.newStart + 1;
-        let oi = 0;
-        for (const l of h.oldLines) {
-          const c = l[0];
-          const cls = c === "+" ? "d-add" : c === "-" ? "d-del" : "d-ctx";
+        // runIdx 追踪（必须与 hlTextsInline 的累积顺序严格一致——否则 highlight.file 的
+        // runs[] 会错位）：
+        //   oldRunIdx：h.oldLines 内每行按序，ctx 消费 old 侧计数器
+        //   newRunIdx：h.newLines 内每行按序，ctx 消费 new 侧计数器
+        //   outIdx：out.push 的总序号（用作 key 稳定前缀）
+        let oldRunIdx = 0;
+        let newRunIdx = 0;
+        let outIdx = 0;
+        // 内联模式字级 diff 配对：buildInlinePairs 双指针遍历 h.oldLines/h.newLines，相邻 del
+        // 段与 add 段按索引一一配对。kind 决定行类型与计数器，side 决定是否 emph。
+        for (const pair of buildInlinePairs(h)) {
+          const cls = pair.kind === "new" ? "d-add" : pair.kind === "old" ? "d-del" : "d-ctx";
           let num: number;
-          if (c === "+") num = newNum++;
-          else if (c === "-") num = oldNum++;
-          else { num = newNum; oldNum++; newNum++; }
+          let runSide: "left" | "right";
+          let runIdx: number;
+          if (pair.kind === "new") {
+            num = newNum++;
+            runSide = "right"; runIdx = newRunIdx++;
+          } else if (pair.kind === "old") {
+            num = oldNum++;
+            runSide = "left"; runIdx = oldRunIdx++;
+          } else {
+            // ctx 行：两侧计数器都推进（hlTextsInline 里两侧都计一行）
+            num = newNum++;
+            oldRunIdx++; newRunIdx++;
+            runSide = "right"; runIdx = newRunIdx - 1;
+          }
+          const paired = pair.side !== "none";
           out.push({
-            kind: "row", key: `h${hi}o${oi}`, cells: 1, cls, num, text: l.slice(1),
-            runIdx: oi, runSide: "left", focusLn: cls !== "d-del" ? num : undefined,
+            kind: "row", key: `h${hi}r${outIdx++}`, cells: 1,
+            cls, num, text: pair.text, runSide, runIdx,
+            // 仅配对的 add/del 行有字级 emph 信息；ctx 与短侧未配对不传（renderCode 走纯文本）
+            pairText: pair.side === "none" ? undefined : pair.pairText,
+            pairSide: pair.side === "none" ? undefined : pair.side,
+            pairId: pair.side === "none" ? undefined : pair.pairId,
+            focusLn: cls !== "d-del" ? num : undefined,
           });
-          oi++;
-        }
-        let ni = 0;
-        for (const l of h.newLines) {
-          const c = l[0];
-          const cls = c === "+" ? "d-add" : c === "-" ? "d-del" : "d-ctx";
-          let num: number;
-          if (c === "+") num = newNum++;
-          else if (c === "-") num = oldNum++;
-          else { num = newNum; oldNum++; newNum++; }
-          out.push({
-            kind: "row", key: `h${hi}n${ni}`, cells: 1, cls, num, text: l.slice(1),
-            runIdx: ni, runSide: "right", focusLn: cls !== "d-del" ? num : undefined,
-          });
-          ni++;
         }
         if (!diff.oldEndsWithNewline || !diff.newEndsWithNewline) {
           out.push({ kind: "eof", key: `h${hi}eof`, oldMissing: !diff.oldEndsWithNewline, newMissing: !diff.newEndsWithNewline });
@@ -411,8 +510,16 @@ const DiffViewImpl = function DiffView(props: {
     };
   }, [virtualize, layout]);
 
+  // 语法高亮：渲染层 Monarch 分词（gitui.lib.monaco 库包 monacoSyntax 面，与文件页编辑器
+  // 同一 monaco 实例/词法器），token type 按 theme.syntax 键前缀匹配出 style，颜色由
+  // renderCode 渲染时查表。库未注入（页面 manifest 未声明依赖）或 plaintext：不着色纯文本。
+  // TextMate 链（highlight.file）保留未调用。syntaxColors 入依赖只为键集精确（主题可自定义
+  // syntax 键集），runs 存键不存色，常规换色场景 renderCode 查表即生效。
   useEffect(() => {
     if (!rich || diff.hunks.length === 0) return;
+    const syntax = monacoSyntax();
+    const languageId = languageForPath(diff.path);
+    if (!syntax || languageId === "plaintext") return;
     const oldText = inline ? (hlTextsInline?.oldLines.join("\n") ?? "") : hlTexts.left.join("\n");
     const newText = inline ? (hlTextsInline?.newLines.join("\n") ?? "") : hlTexts.right.join("\n");
     if (
@@ -424,35 +531,24 @@ const DiffViewImpl = function DiffView(props: {
       return;
     }
     let cancelled = false;
+    const keys = Object.keys(syntaxColors);
     (async () => {
       try {
-        const [r, r2] = await Promise.all([
-          call<{ lines: SyntaxRun[][] }>("highlight.file", {
-            path: diff.path,
-            text: oldText,
-          }),
-          call<{ lines: SyntaxRun[][] }>("highlight.file", {
-            path: diff.path,
-            text: newText,
-          }),
+        const [l, r] = await Promise.all([
+          syntax.tokenizeLines(oldText, languageId),
+          syntax.tokenizeLines(newText, languageId),
         ]);
         if (cancelled) return;
-        // 空响应不覆盖已有配色：主进程降级链瞬态失败（如 registry 重建窗口）时保持上次着色
-        const hasRuns = (s?: SyntaxRun[][]) => !!s && s.some((l) => l.length > 0);
-        setSyntaxLines((prev) =>
-          hasRuns(r.lines) || hasRuns(r2.lines) || (!hasRuns(prev.left) && !hasRuns(prev.right))
-            ? { left: r.lines, right: r2.lines }
-            : prev,
-        );
+        setSyntaxLines({ left: l.map((t) => toSyntaxRuns(t, keys)), right: r.map((t) => toSyntaxRuns(t, keys)) });
       } catch {
-        // 高亮失败静默降级为纯文本
+        // 分词异常：清空回纯文本（不保留上次 runs——文本可能已变，旧索引会对错行）
+        if (!cancelled) setSyntaxLines({ left: [], right: [] });
       }
     })();
     return () => {
       cancelled = true;
     };
-    // app.theme 进依赖：TextMate 颜色在主进程按活动主题解析，切主题需重拉
-  }, [rich, hlTexts, hlTextsInline, inline, diff.path, app.theme]);
+  }, [rich, hlTexts, hlTextsInline, inline, diff.path, syntaxColors]);
 
   // diff 侧栏注记接缝（E 阶段收尾：L2 按路径只读注记）
   const [notes, setNotes] = useState<{ packageId: string; text: string }[]>([]);
@@ -592,6 +688,7 @@ const DiffViewImpl = function DiffView(props: {
         row={it}
         runs={(it.runSide === "left" ? syntaxLines.left : syntaxLines.right)?.[it.runIdx ?? -1]}
         colors={syntaxColors}
+        rich={rich}
       />
     );
   });

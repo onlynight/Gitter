@@ -10,6 +10,10 @@ import { createRoot } from "react-dom/client";
 import "../src/styles.css";
 import { ChangesPage } from "../src/pages/ChangesPage";
 import { setState } from "../src/state/store";
+// DiffView 语法高亮已迁 Monarch（页 manifest dependencies 声明 gitui.lib.monaco，
+// loader 先注入）——harness 同构：动态 import 产物（vite 重写 /@fs/，与 files-main.tsx
+// 同款；首次 dev 转换较慢，之后走缓存）。IIFE 执行即挂 GITTER_LIBS.monaco / monacoSyntax
+await import("../../app/resources/packages/gitui.lib.monaco/monaco.js");
 
 // ---------- theme（tokens 抄自 themes.ts BUILTIN） ----------
 const TOKEN_VARS: Record<string, string> = {
@@ -168,8 +172,21 @@ const I18N: Record<string, string> = {
   context: () => ({}), setContext: () => {}, focusTask: () => {}, clearTaskFocus: () => {},
   runCommand: () => {}, extTree: () => ({ pages: [], agentUIReg: [] }),
 };
-// 源码直载：宿主 store 播种（repo 非 null 页面才拉 changes.state；i18n.strings 供 store 内 t() 查词典）
-setState({ booted: true, repo: { workDir: "D:\\Code\\Gitter", name: "Gitter" }, i18n: { lang: "zh-Hans", strings: I18N } });
+// 源码直载：宿主 store 播种（repo 非 null 页面才拉 changes.state；i18n.strings 供 store 内 t() 查词典）。
+// theme.syntax 与主进程 BUILTIN_SYNTAX 同源——DiffView Monarch 高亮查这张表取色。
+setState({
+  booted: true,
+  repo: { workDir: "D:\\Code\\Gitter", name: "Gitter" },
+  i18n: { lang: "zh-Hans", strings: I18N },
+  theme: {
+    base: "light", activeId: "harness-builtin", material: "none", themeId: "light",
+    tokens: {}, diff: {}, terminal: {},
+    syntax: {
+      keyword: "#569CD6", string: "#6A9955", comment: "#6A9955", number: "#B5CEA8",
+      type: "#4EC9B0", function: "#DCDCAA", variable: "#9CDCFE", operator: "#D4D4D4", punctuation: "#D4D4D4",
+    },
+  },
+});
 (window as any).gitter = {
   invoke: async (method: string, params?: unknown) => ({ ok: true, data: mockRpc(method, params as Record<string, unknown>) }),
   onEvent: () => () => {},
