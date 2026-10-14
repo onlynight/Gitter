@@ -2513,46 +2513,6 @@
   lib.KeyMod;
   const MarkerSeverity = lib.MarkerSeverity;
   lib.MarkerTag;
-  const TS_COMPILER_OPTIONS = {
-    target: 99,
-    // Latest
-    module: 99,
-    // ESNext
-    // NodeJs 解析（追加 .ts 后缀找相对导入）；monaco 独立宿主下 Bundler 档无效
-    moduleResolution: 2,
-    allowNonTsExtensions: true,
-    allowJs: true,
-    strict: false,
-    noEmit: true,
-    jsx: 1
-    // Preserve
-  };
-  languages.typescript.typescriptDefaults.setCompilerOptions(TS_COMPILER_OPTIONS);
-  languages.typescript.javascriptDefaults.setCompilerOptions(TS_COMPILER_OPTIONS);
-  languages.typescript.typescriptDefaults.setEagerModelSync(true);
-  languages.typescript.javascriptDefaults.setEagerModelSync(true);
-  languages.typescript.typescriptDefaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [6133] });
-  languages.typescript.javascriptDefaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [6133] });
-  const EDITOR_OPTIONS = {
-    fontSize: 13,
-    lineHeight: 1.5 * 13,
-    fontFamily: "'Cascadia Code', 'Fira Code', 'Cascadia Mono', Consolas, monospace",
-    tabSize: 4,
-    insertSpaces: true,
-    minimap: { enabled: true },
-    wordWrap: "off",
-    scrollBeyondLastLine: false,
-    automaticLayout: true,
-    bracketPairColorization: { enabled: true },
-    renderWhitespace: "selection",
-    padding: { top: 8, bottom: 8 },
-    // P4.2 多光标编辑体验：Alt+点击加光标 / Ctrl+Alt+↑↓ 加上下光标（Monaco 原生能力，
-    // 这里只显式固定修饰键与动效——平滑光标/滚动、关闭无障碍层的高频 aria 重排）
-    multiCursorModifier: "alt",
-    cursorSmoothCaretAnimation: "on",
-    smoothScrolling: true,
-    accessibilitySupport: "off"
-  };
   const EXT_TO_LANG = {
     // JavaScript 生态（TS 语言服务：补全 + 诊断）
     ".ts": "typescript",
@@ -2603,6 +2563,9 @@
     ".php": "php",
     ".swift": "swift",
     ".scala": "scala",
+    // AuraLang 生态（Monarch 定义在 web/src/libs/monarch/；Monarch 注册在 monacoLib.ts）
+    ".aura": "aura",
+    ".hat": "hat",
     // 标记与配置
     ".md": "markdown",
     ".markdown": "markdown",
@@ -2626,6 +2589,46 @@
     const ext = base.slice(dot).toLowerCase();
     return EXT_TO_LANG[ext] ?? "plaintext";
   }
+  const TS_COMPILER_OPTIONS = {
+    target: 99,
+    // Latest
+    module: 99,
+    // ESNext
+    // NodeJs 解析（追加 .ts 后缀找相对导入）；monaco 独立宿主下 Bundler 档无效
+    moduleResolution: 2,
+    allowNonTsExtensions: true,
+    allowJs: true,
+    strict: false,
+    noEmit: true,
+    jsx: 1
+    // Preserve
+  };
+  languages.typescript.typescriptDefaults.setCompilerOptions(TS_COMPILER_OPTIONS);
+  languages.typescript.javascriptDefaults.setCompilerOptions(TS_COMPILER_OPTIONS);
+  languages.typescript.typescriptDefaults.setEagerModelSync(true);
+  languages.typescript.javascriptDefaults.setEagerModelSync(true);
+  languages.typescript.typescriptDefaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [6133] });
+  languages.typescript.javascriptDefaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [6133] });
+  const EDITOR_OPTIONS = {
+    fontSize: 13,
+    lineHeight: 1.5 * 13,
+    fontFamily: "'Cascadia Code', 'Fira Code', 'Cascadia Mono', Consolas, monospace",
+    tabSize: 4,
+    insertSpaces: true,
+    minimap: { enabled: true },
+    wordWrap: "off",
+    scrollBeyondLastLine: false,
+    automaticLayout: true,
+    bracketPairColorization: { enabled: true },
+    renderWhitespace: "selection",
+    padding: { top: 8, bottom: 8 },
+    // P4.2 多光标编辑体验：Alt+点击加光标 / Ctrl+Alt+↑↓ 加上下光标（Monaco 原生能力，
+    // 这里只显式固定修饰键与动效——平滑光标/滚动、关闭无障碍层的高频 aria 重排）
+    multiCursorModifier: "alt",
+    cursorSmoothCaretAnimation: "on",
+    smoothScrolling: true,
+    accessibilitySupport: "off"
+  };
   const THEME_DARK = "gitter-dark";
   const THEME_LIGHT = "gitter-light";
   function buildTheme(theme) {

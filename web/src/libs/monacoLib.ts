@@ -24,6 +24,11 @@ import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker&in
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker&inline";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker&inline";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker&inline";
+// TokenizationRegistry 模块单例：与 editor.main 的注册面同实例，basic-languages /
+// aura / hat 的 Monarch 分词器经它惰性解析（类型面见 monacoInternal.d.ts）
+import { TokenizationRegistry, type ITokenizationSupportLike } from "monaco-editor/esm/vs/editor/common/languages.js";
+import { auraConf, auraLanguage } from "./monarch/aura";
+import { hatConf, hatLanguage } from "./monarch/hat";
 
 self.MonacoEnvironment = {
   getWorker(_workerId: string, label: string): Worker {
@@ -38,8 +43,74 @@ self.MonacoEnvironment = {
   },
 };
 
+// 本地 Monarch 语言注册（AuraLang 生态）。与 Monaco 内置 basic-languages 一同打入库包，
+// 页面侧经 languageForPath（filesMonaco.ts）以 languageId 取用，无需动态 register。
+// 参考：web/src/libs/monarch/aura.ts 与 hat.ts。Token 命名遵循 Monaco 惯例，
+// 主题 tokenColors 由 filesMonaco.ts buildTheme 统一映射（EditorTheme.syntax）。
+monaco.languages.register({ id: "aura", extensions: [".aura"], aliases: ["Aura", "aura"] });
+monaco.languages.setMonarchTokensProvider("aura", auraLanguage);
+monaco.languages.setLanguageConfiguration("aura", auraConf);
+
+monaco.languages.register({ id: "hat", extensions: [".hat"], aliases: ["HAT", "hat"] });
+monaco.languages.setMonarchTokensProvider("hat", hatLanguage);
+monaco.languages.setLanguageConfiguration("hat", hatConf);
+
 const w = window as unknown as { GITTER_LIBS?: Record<string, unknown> };
 w.GITTER_LIBS = w.GITTER_LIBS ?? {};
 w.GITTER_LIBS.monaco = monaco;
 
+// ---------- Monarch 语法分词面（monacoSyntax，供 DiffView 等 HTML 渲染场景离线分词） ----------
+//
+// 与编辑器完全同源：同一 TokenizationRegistry 单例、同一 Monarch 词法器，跨行状态
+// （模板串/块注释）经 endState 逐行传递。返回字符串 token type（如 "type.identifier"），
+// 颜色由调用方按主题 syntax 表前缀匹配（kit/syntaxMonarch.ts）——分词与取色解耦，
+// 切主题无需重分词。非 Monarch 实现（未来 TextMate/tree-sitter 支持）没有字符串面，
+// 返回空结果调用方自然纯文本降级。plaintext/未知语言 getOrCreate 返回 null，同样降级。
+
+/** Monarch 行分词单行产出（行内偏移 [start,end)；type = monarch token type 字符串）。 */
+export interface MonarchTokenRun {
+  start: number;
+  end: number;
+  type: string;
+}
+
+/** 每 512 行让出主线程一次——大 diff 分词不长时间阻塞 UI（Monarch 同步逐行跑）。 */
+const TOKENIZE_YIELD_MASK = 511;
+
+async function tokenizeLines(text: string, languageId: string): Promise<MonarchTokenRun[][]> {
+  const support = await TokenizationRegistry.getOrCreate(languageId);
+  if (!support || typeof support.tokenize !== "function") return [];
+  const tokenize = support.tokenize.bind(support);
+  let state = support.getInitialState();
+  const lines = text.split("\n");
+  const out: MonarchTokenRun[][] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const runs: MonarchTokenRun[] = [];
+    try {
+      const r = tokenize(line, true, state);
+      if (r) {
+        state = r.endState;
+        const toks = r.tokens;
+        for (let j = 0; j < toks.length; j++) {
+          const start = toks[j].offset;
+          const end = j + 1 < toks.length ? toks[j + 1].offset : line.length;
+          if (end <= start) continue;
+          runs.push({ start, end, type: toks[j].type });
+        }
+      }
+    } catch {
+      state = support.getInitialState(); // 单行异常：状态重置继续，该行降级纯文本
+    }
+    out.push(runs);
+    if ((i & TOKENIZE_YIELD_MASK) === TOKENIZE_YIELD_MASK) {
+      await new Promise<void>((r) => setTimeout(r));
+    }
+  }
+  return out;
+}
+
+w.GITTER_LIBS.monacoSyntax = { tokenizeLines };
+
+export type { ITokenizationSupportLike };
 export default monaco;

@@ -13,6 +13,9 @@
  */
 import * as monaco from "monaco-editor";
 import { pageSdk } from "../pageSdk";
+import { languageForPath } from "../libs/langId";
+
+export { languageForPath };
 
 /** 宿主主题的页面侧结构投影（避免页面打包宿主 store 模块；字段语义同 ThemeStateDTO）。 */
 interface EditorTheme {
@@ -69,45 +72,7 @@ const EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
   accessibilitySupport: "off",
 };
 
-/**
- * 扩展名 → Monaco 语言 id。ts/js/json/css/html 走语言服务（补全/校验），
- * 其余走 basic-languages 的 Monarch 语法。未命中回退 "plaintext"（无语法着色）。
- */
-const EXT_TO_LANG: Record<string, string> = {
-  // JavaScript 生态（TS 语言服务：补全 + 诊断）
-  ".ts": "typescript", ".tsx": "typescript",
-  ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript", ".jsx": "javascript",
-  ".json": "json", ".jsonc": "json",
-  // 样式与标记
-  ".css": "css", ".scss": "css", ".less": "css",
-  ".html": "html", ".htm": "html", ".vue": "html", ".svelte": "html",
-  // C# 生态（app 侧 highlighters 覆盖面）
-  ".cs": "csharp", ".csx": "csharp",
-  ".xml": "xml", ".xaml": "xml", ".csproj": "xml", ".props": "xml", ".targets": "xml", ".config": "xml",
-  // 脚本与系统
-  ".ps1": "powershell", ".psm1": "powershell", ".psd1": "powershell",
-  ".sh": "shell", ".bash": "shell", ".zsh": "shell",
-  ".bat": "bat", ".cmd": "bat",
-  ".py": "python",
-  ".go": "go", ".rs": "rust", ".java": "java", ".kt": "kotlin",
-  ".c": "c", ".h": "c", ".cpp": "cpp", ".hpp": "cpp", ".cc": "cpp",
-  ".rb": "ruby", ".php": "php", ".swift": "swift", ".scala": "scala",
-  // 标记与配置
-  ".md": "markdown", ".markdown": "markdown",
-  ".yml": "yaml", ".yaml": "yaml", ".toml": "ini", ".ini": "ini", ".cfg": "ini",
-  ".properties": "ini", ".editorconfig": "ini",
-  ".svg": "xml", ".sln": "ini",
-  ".txt": "plaintext", ".log": "plaintext", ".gitignore": "plaintext",
-};
-
-/** 扩展名 → 语言 id（按最后一个点的后缀匹配；无后缀回退 plaintext）。 */
-export function languageForPath(path: string): string {
-  const base = path.split("/").pop() ?? path;
-  const dot = base.lastIndexOf(".");
-  if (dot <= 0) return "plaintext";
-  const ext = base.slice(dot).toLowerCase();
-  return EXT_TO_LANG[ext] ?? "plaintext";
-}
+// 扩展名 → 语言 id 表已下沉 web/src/libs/langId.ts（kit/DiffView 共用），此处 re-export 维持原导入面。
 
 const THEME_DARK = "gitter-dark";
 const THEME_LIGHT = "gitter-light";
