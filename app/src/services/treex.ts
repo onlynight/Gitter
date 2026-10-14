@@ -8,6 +8,8 @@ import type { FileStatusDTO } from "../shared/types";
  * 项目文件树聚合（editor-design.md §2.1）：
  * 以 `git ls-files -co --exclude-standard` 为骨架（已过滤 .gitignore），
  * 叠加 git 状态分类与 agent 回合改动索引，一次返回全量供前端虚拟化渲染。
+ * 骨架对磁盘校正：ls-files -c 只看索引不看工作区，「索引里有、磁盘上已删」
+ * 的文件（AD / D）会被剔除——否则树上留下打不开、刷不掉的幽灵条目。
  *
  * 不做分层懒拉：中型仓库单次 <50ms，全量返回让前端可自由展开折叠，
  * 避免懒拉时的目录占位与重排抖动。大型仓库用 prefix 参数分片。
@@ -29,15 +31,12 @@ export interface TreeResult {
   hasMore: boolean;
 }
 
-/** 状态码映射：四层分类 → 单字符。与 ChangesPage 的 statusLetter 语义对齐。 */
+/** 状态码映射：porcelain 真实字母（staged 取 index 位——暂存的修改是 M 不是 A）；
+ * 冲突归 U、未跟踪归 ?。与 ChangesPage 的 statusLetter 语义对齐。 */
 function statusLetter(f: FileStatusDTO): string {
   if (f.isConflict) return "U";
-  switch (f.category) {
-    case "unversioned": return "?";
-    case "staged": return "A";
-    case "changes": return "M";
-    default: return "M";
-  }
+  if (f.category === "unversioned") return "?";
+  return f.code?.[0] ?? "M";
 }
 
 /** 从 git ls-files 输出构建目录聚合节点集合。 */
@@ -67,7 +66,6 @@ export async function listTree(
 ): Promise<TreeResult> {
   const r = await tryGit(workDir, ["ls-files", "-co", "--exclude-standard"]);
   const all = r.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-  const filtered = prefix ? all.filter((p) => p.startsWith(prefix)) : all;
 
   // git 状态索引（含 unversioned，因为 ls-files -co 已包含未跟踪文件）
   const st = await status.getStatus(workDir);
@@ -75,6 +73,23 @@ export async function listTree(
   for (const f of [...st.changes, ...st.staged, ...st.unversioned, ...st.conflicts]) {
     statusMap.set(f.path, statusLetter(f));
   }
+
+  // 磁盘校正：worktree 位为 D（" D" 删除未暂存 / "AD" 暂存后删除）或冲突含 D 的条目
+  // 是「索引里有、磁盘上已删」的幽灵，逐一 stat 确认后剔除——status 可能瞬时陈旧，以磁盘为准
+  const missing = new Set<string>();
+  for (const f of st.changes) {
+    if (f.code === "D") missing.add(f.path);
+  }
+  for (const f of st.conflicts) {
+    if (f.code?.includes("D")) missing.add(f.path);
+  }
+  const gone = new Set<string>();
+  await Promise.all([...missing].map(async (p) => {
+    if (!(await fsp.lstat(path.resolve(workDir, p)).catch(() => null))) gone.add(p);
+  }));
+
+  const base = prefix ? all.filter((p) => p.startsWith(prefix)) : all;
+  const filtered = base.filter((p) => !gone.has(p));
 
   const dirs = buildDirSet(filtered);
 
