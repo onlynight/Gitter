@@ -56,6 +56,12 @@ function buildInlinePairs(h: HunkDTO): InlinePair[] {
     // 收集紧随的连续 add 段（newLines 中）
     const adds: string[] = [];
     while (newI < newLines.length && newLines[newI][0] === "+") { adds.push(newLines[newI].slice(1)); newI++; }
+    // 进度兜底：两侧行首都不是差异标记（异常/扩展数据）时本轮零消费会死循环——按未配对旧行强制消费
+    if (dels.length === 0 && adds.length === 0) {
+      pairs.push({ text: oldLines[oldI].slice(1), pairText: oldLines[oldI].slice(1), kind: "old", side: "none", pairId: pid++ });
+      oldI++;
+      continue;
+    }
     // 短侧不配对：未匹配侧的 del/add 行 kind 保留为 "old"/"new"，但 side="none"（不 emph）
     const n = Math.max(dels.length, adds.length);
     for (let k = 0; k < n; k++) {
@@ -71,6 +77,16 @@ function buildInlinePairs(h: HunkDTO): InlinePair[] {
         pairs.push({ text: a!, pairText: a!, kind: "new", side: "none", pairId: pid++ });
       }
     }
+  }
+  // 一侧耗尽后另一侧的剩余行（hunk 末尾的纯新增 / 纯上下文）原样补发——主循环条件要求
+  // 两侧都有剩余，否则剩余行直接丢失（如 oldLines=[ctx,del]、newLines=[ctx] 时 del 不可见）
+  while (oldI < oldLines.length) {
+    pairs.push({ text: oldLines[oldI].slice(1), pairText: oldLines[oldI].slice(1), kind: "old", side: "none", pairId: pid++ });
+    oldI++;
+  }
+  while (newI < newLines.length) {
+    pairs.push({ text: newLines[newI].slice(1), pairText: newLines[newI].slice(1), kind: "new", side: "none", pairId: pid++ });
+    newI++;
   }
   return pairs;
 }
@@ -430,7 +446,12 @@ const DiffViewImpl = function DiffView(props: {
     const oldLines: string[] = [];
     const newLines: string[] = [];
     for (const it of items) {
-      if (it.kind === "row" && it.cells === 1) (it.runSide === "left" ? oldLines : newLines).push(it.text ?? "");
+      if (it.kind !== "row" || it.cells !== 1) continue;
+      // ctx 行两侧都计一行——必须与 items 循环 ctx 分支的 oldRunIdx/newRunIdx 双自增严格
+      // 对齐：这里只进 newLines 的话，oldRunIdx 会按 ctx 数超前 oldLines，del 行的 runIdx
+      // 套到别的行的 runs 上（语法着色错行、注释行里出现别行的 token 色）
+      if (it.cls === "d-ctx") oldLines.push(it.text ?? "");
+      (it.runSide === "left" ? oldLines : newLines).push(it.text ?? "");
     }
     return { oldLines, newLines };
   }, [items, inline]);
