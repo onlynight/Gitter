@@ -16,9 +16,10 @@ import type { FileStatusDTO } from "../shared/types";
  * untracked 目录是折叠形式 `dir/`，对树内文件按前缀展开命中），被 .gitignore
  * 忽略的文件标注 !——前端据此置灰。
  *
- * 护栏（全量返回、不做懒拉）：node_modules 按名快速折叠（几乎恒为最大的
- * 忽略目录，不进去数文件）；子树文件数超阈值的目录折叠为单个不可下钻条目
- * （heavy）；全树条目超上限后剩余目录一律折叠。大仓库仍可用 prefix 分片。
+ * 护栏（全量返回、不做懒拉——仅对首屏）：node_modules 按名快速折叠（几乎恒为
+ * 最大的忽略目录，不进去数文件）；子树文件数超阈值的目录折叠为单个条目（heavy）；
+ * 全树条目超上限后剩余目录一律折叠。heavy 条目前端点击时按 prefix 懒加载下钻
+ * （listTree 本身支持 prefix 只扫子树），初始树轻、大目录随取随有。
  */
 
 /** 单条树条目。isDir=true 表示目录节点（含空目录；前端展开用）。 */
@@ -29,7 +30,7 @@ export interface TreeEntry {
   status: string | null;
   /** 是否被 agent 本回合碰过（agent.task.files 命中） */
   touchedByAgent: boolean;
-  /** 目录条目：子树过大（或为链接/触发总量护栏）未枚举进树，不可下钻 */
+  /** 目录条目：子树过大（或为链接/触发总量护栏）未随首屏枚举，前端点击按 prefix 懒加载 */
   heavy?: boolean;
 }
 
@@ -59,6 +60,14 @@ const HEAVY_DIR_FILES = 1000;
 /** 全树条目上限（防御文件数畸多的仓库；超出后目录一律折叠、文件不再下发） */
 const MAX_TREE_ENTRIES = 200_000;
 
+/**
+ * 会话内「已展开」的 heavy 目录（workDir → 目录前缀集）：前端点击懒加载时登记。
+ * 全量扫描时这些目录不再折叠而是直接枚举——外部变更触发的整树刷新
+ * 不会把已展开的大目录重新折叠回 heavy（否则一点开就被 fs.changed 刷掉）。
+ * 每次全量扫描后惰性清除磁盘上已不存在的登记。
+ */
+const expandedHeavyDirs = new Map<string, Set<string>>();
+
 /** 单个目录的扫描产物；fileCount 为子树（含自身直挂文件）文件总数，供折叠判定。 */
 interface DirScan {
   files: string[];
@@ -66,7 +75,11 @@ interface DirScan {
   fileCount: number;
 }
 
-async function scanDir(absDir: string, relDir: string, budget: { left: number }): Promise<DirScan> {
+async function scanDir(
+  absDir: string,
+  relDir: string,
+  ctx: { budget: { left: number }; expanded: Set<string> | null },
+): Promise<DirScan> {
   let items: import("fs").Dirent[];
   try {
     items = await fsp.readdir(absDir, { withFileTypes: true });
@@ -79,34 +92,35 @@ async function scanDir(absDir: string, relDir: string, budget: { left: number })
     if (it.name === ".git") continue; // 目录或 .git 文件（worktree/submodule）形态都不进树
     const rel = relDir ? `${relDir}/${it.name}` : it.name;
     if (it.isDirectory()) {
-      if (FAST_COLLAPSE_DIR.has(it.name) || budget.left <= 0) {
+      if ((FAST_COLLAPSE_DIR.has(it.name) && !ctx.expanded?.has(rel)) || ctx.budget.left <= 0) {
         out.dirs.push({ path: rel, heavy: true });
-        budget.left--;
+        ctx.budget.left--;
       } else {
         open.push({ abs: path.join(absDir, it.name), rel });
       }
     } else if (it.isSymbolicLink()) {
-      if (budget.left <= 0) continue;
+      if (ctx.budget.left <= 0) continue;
       // 链接：stat 跟随判型——目录链接/junction 可见但不下钻（防环），其余按文件下发
       const st = await fsp.stat(path.join(absDir, it.name)).catch(() => null);
-      budget.left--;
+      ctx.budget.left--;
       if (st?.isDirectory()) out.dirs.push({ path: rel, heavy: true });
       else { out.files.push(rel); out.fileCount++; }
     } else if (it.isFile()) {
-      if (budget.left <= 0) continue;
+      if (ctx.budget.left <= 0) continue;
       out.files.push(rel);
       out.fileCount++;
-      budget.left--;
+      ctx.budget.left--;
     }
     // socket/fifo/设备等非常规条目不下发
   }
   for (const d of open) {
-    if (budget.left <= 0) {
+    if (ctx.budget.left <= 0) {
       out.dirs.push({ path: d.rel, heavy: true });
       continue;
     }
-    const sub = await scanDir(d.abs, d.rel, budget);
-    if (sub.fileCount > HEAVY_DIR_FILES) {
+    const sub = await scanDir(d.abs, d.rel, ctx);
+    // 超阈值折叠，除非该目录被登记为「已展开」（懒加载过的目录整树刷新时保持枚举）
+    if (sub.fileCount > HEAVY_DIR_FILES && !ctx.expanded?.has(d.rel)) {
       out.dirs.push({ path: d.rel, heavy: true }); // 丢弃 sub：条目不入树，磁盘不受影响
     } else {
       out.files.push(...sub.files);
@@ -137,18 +151,42 @@ async function listIgnored(workDir: string): Promise<Set<string>> {
  * @param workDir  仓库根（也可以是非 git 目录：只扫磁盘，无状态标注）
  * @param prefix   可选前缀（如 "src"，只扫描/返回该子树，用于大型仓库分片）
  * @param touched  agent 本回合改动文件集合（来自 agent.task.files）
+ * @param opts.rememberExpanded  懒加载取子树时置 true：把该 prefix 登记为「已展开」，
+ *                               此后的全量扫描不再折叠它（刷新不破坏展开状态）
  */
 export async function listTree(
   workDir: string,
   prefix: string,
   touched: Set<string>,
+  opts?: { rememberExpanded?: boolean },
 ): Promise<TreeResult> {
   const base = normalizePrefix(prefix);
+  const fullScan = base === "";
+  let expanded: Set<string> | null = null;
+  if (fullScan) {
+    expanded = expandedHeavyDirs.get(workDir) ?? null;
+  } else if (opts?.rememberExpanded) {
+    expanded = expandedHeavyDirs.get(workDir) ?? null;
+    if (!expanded) {
+      expanded = new Set();
+      expandedHeavyDirs.set(workDir, expanded);
+    }
+    expanded.add(base);
+  }
+
   const [scan, st, ignored] = await Promise.all([
-    scanDir(base ? path.resolve(workDir, base) : workDir, base, { left: MAX_TREE_ENTRIES }),
+    scanDir(base ? path.resolve(workDir, base) : workDir, base, { budget: { left: MAX_TREE_ENTRIES }, expanded }),
     status.getStatus(workDir).catch(() => null),
     listIgnored(workDir),
   ]);
+
+  // 登记的目录若已从磁盘消失（删除/改名），从登记里惰性清除
+  if (fullScan && expanded && expanded.size > 0) {
+    const onDisk = new Set(scan.dirs.map((d) => d.path));
+    for (const p of [...expanded]) {
+      if (!onDisk.has(p)) expanded.delete(p);
+    }
+  }
 
   // git 状态索引。untracked 目录在 porcelain 里是折叠形式（"dir/"）：剥掉尾斜杠
   // 让目录条目直接命中，同时保留前缀键供树内文件命中
@@ -178,7 +216,7 @@ export async function listTree(
       ...(d.heavy ? { heavy: true } : {}),
     });
   }
-  for (const p of scan.files.sort((a, b) => a.path.localeCompare(b.path))) {
+  for (const p of scan.files.sort((a, b) => a.localeCompare(b))) {
     let s = statusMap.get(p) ?? null;
     if (s === null) {
       for (const cd of collapsedDirs) {

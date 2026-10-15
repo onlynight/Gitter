@@ -573,7 +573,7 @@ export class Bridge {
     // ---- 项目文件树 + 编辑器读写面 ----
     // 文件树骨架：工作区磁盘扫描（.git 除外，gitignored 文件与空目录可见）
     // + git 状态/ignored(!) 叠加 + agent 回合改动索引
-    R("repo.tree", async (args: { prefix?: string; taskId?: string }) => {
+    R("repo.tree", async (args: { prefix?: string; taskId?: string; rememberExpanded?: boolean }) => {
       const wd = this.needRepo();
       // agent 回合改动集合（若指定 taskId）
       const touched = new Set<string>();
@@ -585,7 +585,7 @@ export class Bridge {
           // 任务不存在或已清理：忽略，树仍可用
         }
       }
-      return treex.listTree(wd, args?.prefix ?? "", touched);
+      return treex.listTree(wd, args?.prefix ?? "", touched, { rememberExpanded: !!args?.rememberExpanded });
     });
     // 文件内容读取（编辑器打开）：8MB 上限，返回 mtime/eol/encoding 供冲突检测、行尾保留与编码切换
     R("file.content", async (args: { path: string; revision?: "worktree" | "index" | string; maxBytes?: number; encoding?: "utf8" | "gbk" }) =>
@@ -1385,6 +1385,17 @@ export class Bridge {
 
     // ---- 扩展包（extension-system-v2.md §五/§六）----
     R("extensions.list", () => this.shared.pkgStore.list());
+    // 渲染进程 Monarch 语法贡献（MonacoDiffView/文件编辑器着色；grammar kind 门态）
+    R("extensions.monarch", () => this.shared.pkgStore.monarchContributions());
+    R("extensions.monarchFile", (args: { pkgId: string; file: string }) => {
+      const rec = this.shared.pkgStore.find(args.pkgId);
+      if (!rec) throw new BridgeError("包不存在或未启用", args.pkgId);
+      const target = path.resolve(rec.dir, args.file);
+      if (!target.startsWith(path.resolve(rec.dir) + path.sep)) throw new BridgeError("语法文件路径越界", args.file);
+      const st = fs.statSync(target);
+      if (!st.isFile() || st.size > 256 * 1024) throw new BridgeError("语法文件缺失或超过 256KB", args.file);
+      return fs.readFileSync(target, "utf8");
+    });
     // 打开用户插件根（userData/packages，外部 L2 插件的安装位）：不存在则先建，再交系统文件管理器
     R("extensions.openFolder", async () => {
       fs.mkdirSync(this.shared.userPackagesRoot, { recursive: true });

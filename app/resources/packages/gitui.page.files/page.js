@@ -1850,9 +1850,9 @@
     /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M8 6.8v3.6M6.2 8.6h3.6", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" })
   ] });
   const ROW_H$1 = 24;
-  const STATUS_CLS$1 = { M: "gs-M", A: "gs-A", D: "gs-D", R: "gs-R", U: "gs-U", "?": "gs-Q" };
-  const STATUS_LETTER$1 = { M: "M", A: "A", D: "D", R: "R", U: "U", "?": "?" };
-  const DIR_PRIO = ["U", "D", "M", "A", "R", "?"];
+  const STATUS_CLS$1 = { M: "gs-M", A: "gs-A", D: "gs-D", R: "gs-R", U: "gs-U", "?": "gs-Q", "!": "gs-IG" };
+  const STATUS_LETTER$1 = { M: "M", A: "A", D: "D", R: "R", U: "U", "?": "?", "!": "!" };
+  const DIR_PRIO = ["U", "D", "M", "A", "R", "?", "!"];
   const DRAFT_PATH = "\0draft";
   function nameValidationError(name) {
     return !name || name.length > 255 || name.toLowerCase() === ".git" || /[\\/:*?"<>|\u0000-\u001f]/.test(name) || /[.\s]$/.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(name);
@@ -1871,6 +1871,7 @@
     const [dragItem, setDragItem] = React$1.useState(null);
     const [dropTarget, setDropTarget] = React$1.useState(null);
     const [selectedPath, setSelectedPath] = React$1.useState(null);
+    const [expanding, setExpanding] = React$1.useState(null);
     const [kbFocus, setKbFocus] = React$1.useState(null);
     const [kbKey, setKbKey] = React$1.useState(false);
     const parentRef = React$1.useRef(null);
@@ -1879,28 +1880,46 @@
     const q = query.trim().toLowerCase();
     const files = React$1.useMemo(() => {
       let fs = props.entries.filter((e) => !e.isDir);
-      if (mode === "git") fs = fs.filter((f) => f.status !== null);
+      if (mode === "git") fs = fs.filter((f) => f.status !== null && f.status !== "!");
       if (q) fs = fs.filter((f) => f.path.toLowerCase().includes(q));
       return fs;
     }, [props.entries, mode, q]);
     const forceOpen = mode !== "all" || q !== "";
+    const dirEntries = React$1.useMemo(() => props.entries.filter((e) => e.isDir), [props.entries]);
     const counts = React$1.useMemo(() => ({
-      git: props.entries.filter((e) => !e.isDir && e.status !== null).length
+      git: props.entries.filter((e) => !e.isDir && e.status !== null && e.status !== "!").length
     }), [props.entries]);
     const visibleNodes = React$1.useMemo(() => {
       const nodes = [];
       const dirStatus = /* @__PURE__ */ new Map();
       const filesByDir = /* @__PURE__ */ new Map();
+      const realDir = /* @__PURE__ */ new Map();
+      const inherit = (dir, status) => {
+        if (!status) return;
+        const cur = dirStatus.get(dir) ?? null;
+        if (cur === null || DIR_PRIO.indexOf(status) < DIR_PRIO.indexOf(cur)) dirStatus.set(dir, status);
+      };
+      if (!forceOpen) {
+        for (const d of dirEntries) {
+          const parts = d.path.split("/");
+          let acc = "";
+          for (let i = 0; i < parts.length - 1; i++) {
+            acc = acc ? `${acc}/${parts[i]}` : parts[i];
+            if (!filesByDir.has(acc)) filesByDir.set(acc, []);
+            inherit(acc, d.status);
+          }
+          if (!filesByDir.has(d.path)) filesByDir.set(d.path, []);
+          inherit(d.path, d.status);
+          realDir.set(d.path, d);
+        }
+      }
       for (const f of files) {
         const parts = f.path.split("/");
         let acc = "";
         for (let i = 0; i < parts.length - 1; i++) {
           acc = acc ? `${acc}/${parts[i]}` : parts[i];
           if (!filesByDir.has(acc)) filesByDir.set(acc, []);
-          if (f.status) {
-            const cur = dirStatus.get(acc) ?? null;
-            if (cur === null || DIR_PRIO.indexOf(f.status) < DIR_PRIO.indexOf(cur)) dirStatus.set(acc, f.status);
-          }
+          if (f.status) inherit(acc, f.status);
         }
         const parent = parts.length > 1 ? acc : "";
         if (!filesByDir.has(parent)) filesByDir.set(parent, []);
@@ -1909,7 +1928,13 @@
       const walk = (dir, depth) => {
         const s = dirStatus.get(dir) ?? null;
         const open = forceOpen || !collapsed.has(dir);
-        nodes.push({ entry: { path: dir, isDir: true, status: s, touchedByAgent: false }, depth, dirStatus: s, open });
+        const real = realDir.get(dir);
+        nodes.push({
+          entry: real ? { ...real, status: s } : { path: dir, isDir: true, status: s, touchedByAgent: false },
+          depth,
+          dirStatus: s,
+          open
+        });
         if (!open) return;
         const subdirs = [...filesByDir.keys()].filter((d) => d.startsWith(dir + "/") && !d.slice(dir.length + 1).includes("/")).sort();
         for (const sub of subdirs) walk(sub, depth + 1);
@@ -1942,7 +1967,7 @@
         else nodes.unshift(node);
       }
       return nodes;
-    }, [files, forceOpen, collapsed, draft]);
+    }, [files, dirEntries, forceOpen, collapsed, draft]);
     const nodesRef = React$1.useRef(visibleNodes);
     nodesRef.current = visibleNodes;
     const virtualizer = useVirtualizer({
@@ -1983,12 +2008,27 @@
         return next;
       });
     }, []);
+    const expandHeavyRow = React$1.useCallback(async (path) => {
+      if (!props.onExpandHeavy || expanding) return;
+      setExpanding(path);
+      const ok = await props.onExpandHeavy(path).catch(() => false);
+      setExpanding(null);
+      if (ok) {
+        setCollapsed((prev) => {
+          if (!prev.has(path)) return prev;
+          const next = new Set(prev);
+          next.delete(path);
+          return next;
+        });
+      }
+    }, [props.onExpandHeavy, expanding]);
     const collapseInitRef = React$1.useRef(false);
     React$1.useEffect(() => {
       if (collapseInitRef.current || props.entries.length === 0) return;
       collapseInitRef.current = true;
       const dirs = /* @__PURE__ */ new Set();
       for (const e of props.entries) {
+        if (e.isDir) dirs.add(e.path);
         const parts = e.path.split("/");
         let acc2 = "";
         for (let i = 0; i < parts.length - 1; i++) {
@@ -2213,11 +2253,15 @@
           (_a2 = draftInputRef.current) == null ? void 0 : _a2.focus();
           return;
         }
-        if (n.entry.isDir) toggleDir(n.entry.path);
-        else props.onOpenFile(n.entry.path, { preview: true });
+        if (n.entry.isDir) {
+          if (n.entry.heavy) void expandHeavyRow(n.entry.path);
+          else toggleDir(n.entry.path);
+        } else {
+          props.onOpenFile(n.entry.path, { preview: true });
+        }
       } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && idx >= 0) {
         const n = nodes[idx];
-        if (!n.entry.isDir) return;
+        if (!n.entry.isDir || n.entry.heavy) return;
         const isOpen = forceOpen || !collapsed.has(n.entry.path);
         if (e.key === "ArrowRight" && !isOpen) toggleDir(n.entry.path);
         else if (e.key === "ArrowLeft" && isOpen && !forceOpen) toggleDir(n.entry.path);
@@ -2235,7 +2279,7 @@
         const toDir = focused ? focused.entry.isDir ? focused.entry.path : focused.entry.path.includes("/") ? focused.entry.path.slice(0, focused.entry.path.lastIndexOf("/")) : "" : "";
         if (canPasteInto(clip, toDir)) doPaste(clip, toDir);
       }
-    }, [kbFocus, virtualizer, toggleDir, props.onOpenFile, forceOpen, collapsed, startRename, clip, canPasteInto, doPaste]);
+    }, [kbFocus, virtualizer, toggleDir, expandHeavyRow, props.onOpenFile, forceOpen, collapsed, startRename, clip, canPasteInto, doPaste]);
     const highlight = React$1.useCallback((name) => {
       if (!q) return name;
       const i = name.toLowerCase().indexOf(q);
@@ -2292,9 +2336,9 @@
       return /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
-          className: "files-row" + (entry.isDir && node.open ? " open" : "") + (isActive ? " active" : "") + (isAgent ? " agent" : "") + (kbKey && entry.path === kbFocus ? " kb-focus" : "") + (isDropDir ? " drop-target" : "") + ((dragItem == null ? void 0 : dragItem.path) === entry.path ? " dragging" : ""),
+          className: "files-row" + (entry.isDir && node.open ? " open" : "") + (entry.heavy ? " heavy" : "") + (isActive ? " active" : "") + (isAgent ? " agent" : "") + (kbKey && entry.path === kbFocus ? " kb-focus" : "") + (isDropDir ? " drop-target" : "") + ((dragItem == null ? void 0 : dragItem.path) === entry.path ? " dragging" : ""),
           style: rowStyle,
-          title: entry.path,
+          title: entry.heavy ? t("Files_HeavyDir") : entry.path,
           draggable: true,
           onDragStart: (e) => {
             e.dataTransfer.setData("text/gitter-tree", entry.path);
@@ -2325,7 +2369,8 @@
             setKbFocus(entry.path);
             setSelectedPath(entry.path);
             if (entry.isDir) {
-              if (mode === "all" && !q) toggleDir(entry.path);
+              if (entry.heavy) void expandHeavyRow(entry.path);
+              else if (mode === "all" && !q) toggleDir(entry.path);
             } else {
               props.onOpenFile(entry.path, { preview: true });
             }
@@ -2339,6 +2384,7 @@
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: "files-chev", children: entry.isDir ? /* @__PURE__ */ jsxRuntime.jsx(ChevronIcon, {}) : null }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: "files-fico", children: entry.isDir ? /* @__PURE__ */ jsxRuntime.jsx(FolderIcon, {}) : /* @__PURE__ */ jsxRuntime.jsx(FileIcon, { path: entry.path }) }),
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: nameCls, children: highlight(entry.path.split("/").pop() ?? entry.path) }),
+            expanding === entry.path && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "files-st", children: "…" }),
             isAgent && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "files-spark", title: t("Files_AgentTouched"), children: /* @__PURE__ */ jsxRuntime.jsx(SparkIcon, {}) }),
             !entry.isDir && entry.status && /* @__PURE__ */ jsxRuntime.jsx("span", { className: `files-st ${statusCls}`, children: STATUS_LETTER$1[entry.status] ?? entry.status })
           ]
@@ -3539,7 +3585,16 @@ body.dark .gpv-sheet-tabs button.active { background: #3a3a3a; border-color: #4a
         className: "office-preview-frame",
         sandbox: "allow-scripts",
         title: props.name,
-        srcDoc: srcdoc
+        srcDoc: srcdoc,
+        onLoad: () => {
+          const f = iframeRef.current;
+          if (f) {
+            f.style.display = "none";
+            void f.offsetHeight;
+            f.style.display = "";
+            f.style.transform = "translateZ(0)";
+          }
+        }
       }
     );
   }
@@ -4076,6 +4131,12 @@ li { margin: .25em 0; }
             w.addEventListener("scroll", () => {
               reportScroll(w.scrollY ?? 0);
             });
+          }
+          if (htmlRaw && f) {
+            f.style.display = "none";
+            void f.offsetHeight;
+            f.style.display = "";
+            f.style.transform = "translateZ(0)";
           }
         }
       }
@@ -5891,6 +5952,29 @@ li { margin: .25em 0; }
         setLoading(false);
       }
     }, [repo]);
+    const expandHeavy = React$1.useCallback(async (dir) => {
+      if (!repo) return false;
+      try {
+        const r = await pageSdk.call("repo.tree", {
+          prefix: dir,
+          taskId: null,
+          rememberExpanded: true
+        });
+        const loaded = r.entries ?? [];
+        setTreeData((prev) => {
+          const map = /* @__PURE__ */ new Map();
+          for (const e of prev.entries) map.set(e.path, e);
+          for (const e of loaded) map.set(e.path, e);
+          const d = map.get(dir);
+          if (d) map.set(dir, { ...d, heavy: false });
+          return { entries: [...map.values()], hasMore: prev.hasMore };
+        });
+        return true;
+      } catch (e) {
+        pageSdk.toast(pageSdk.t("Files_Title"), e.message);
+        return false;
+      }
+    }, [repo]);
     React$1.useEffect(() => {
       void loadTree();
     }, [loadTree]);
@@ -6144,6 +6228,7 @@ li { margin: .25em 0; }
           onRename: renameEntry,
           onDelete: deleteEntry,
           onPaste: pasteEntry,
+          onExpandHeavy: expandHeavy,
           loading,
           onRefresh: () => void loadTree(),
           onModeChange: setTreeMode,

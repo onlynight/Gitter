@@ -269,6 +269,33 @@ export function FilesPage() {
     }
   }, [repo]);
 
+  // heavy 目录（node_modules 类/子树过大）点击展开：按目录懒加载子树并并入树。
+  // rememberExpanded 让主进程登记该目录，此后 fs.changed 触发的整树刷新
+  // 会保持它展开（否则一点开就被下一次刷新折叠回 heavy，内容闪现即消失）。
+  const expandHeavy = useCallback(async (dir: string): Promise<boolean> => {
+    if (!repo) return false;
+    try {
+      const r = await pageSdk.call<{ entries: TreeEntry[]; hasMore: boolean }>("repo.tree", {
+        prefix: dir,
+        taskId: null,
+        rememberExpanded: true,
+      });
+      const loaded = r.entries ?? [];
+      setTreeData((prev) => {
+        const map = new Map<string, TreeEntry>();
+        for (const e of prev.entries) map.set(e.path, e);
+        for (const e of loaded) map.set(e.path, e);
+        const d = map.get(dir);
+        if (d) map.set(dir, { ...d, heavy: false });
+        return { entries: [...map.values()], hasMore: prev.hasMore };
+      });
+      return true;
+    } catch (e) {
+      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
+      return false;
+    }
+  }, [repo]);
+
   useEffect(() => {
     void loadTree();
   }, [loadTree]);
@@ -574,6 +601,7 @@ export function FilesPage() {
             onRename={renameEntry}
             onDelete={deleteEntry}
             onPaste={pasteEntry}
+            onExpandHeavy={expandHeavy}
             loading={loading}
             onRefresh={() => void loadTree()}
             onModeChange={setTreeMode}

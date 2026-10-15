@@ -26,6 +26,17 @@ export interface GrammarContribution {
   scopeName: string | null;
 }
 
+/** 渲染进程 Monarch 语法贡献（monaco diff 编辑器 / 文件编辑器着色；与 contributes.grammars
+ * 的 TextMate 主进程链互补，插件启停同受 grammar kind 门态）。 */
+export interface MonarchContribution {
+  id: string;
+  extensions: string[];
+  /** Monarch 定义 JSON（相对包根） */
+  monarch: string;
+  /** 语言配置 JSON（wordPattern/括号/注释，相对包根；可选） */
+  languageConfiguration: string | null;
+}
+
 export interface CommandContribution {
   id: string;
   title: string;
@@ -298,6 +309,7 @@ export interface Manifest {
   contributes: {
     themes: ThemeContribution[];
     grammars: GrammarContribution[];
+    monarchLanguages: MonarchContribution[];
     commands: CommandContribution[];
     configuration: ConfigItem[];
     menus: MenuContribution[];
@@ -363,6 +375,16 @@ const manifestV2 = z.object({
             extensions: z.array(z.string().min(1)).min(1),
             path: z.string().min(1),
             scopeName: z.string().min(1).nullish(),
+          }),
+        )
+        .optional(),
+      monarchLanguages: z
+        .array(
+          z.object({
+            id: z.string().min(1),
+            extensions: z.array(z.string().min(1)).min(1),
+            monarch: z.string().min(1),
+            languageConfiguration: z.string().min(1).nullish(),
           }),
         )
         .optional(),
@@ -737,6 +759,12 @@ export function normalizeManifest(raw: unknown): ManifestResult {
             path: g.path,
             scopeName: g.scopeName ?? null,
           })),
+          monarchLanguages: (c.monarchLanguages ?? []).map((m) => ({
+            id: m.id,
+            extensions: m.extensions.map(normExt),
+            monarch: m.monarch,
+            languageConfiguration: m.languageConfiguration ?? null,
+          })),
           commands: (c.commands ?? []).map((cmd) => ({
             id: cmd.id,
             title: cmd.title,
@@ -923,6 +951,7 @@ export function normalizeManifest(raw: unknown): ManifestResult {
           : [],
         // v1 syntax kind 随声明式引擎降级为回退层，不再作为扩展点装载
         grammars: [],
+        monarchLanguages: [],
         commands: [],
         configuration: [],
         menus: [],

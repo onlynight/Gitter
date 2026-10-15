@@ -138,7 +138,7 @@ export class PackageStore {
     const c = e.manifest.contributes;
     const kinds: string[] = [];
     if (c.themes.length) kinds.push("theme");
-    if (c.grammars.length) kinds.push("grammar");
+    if (c.grammars.length || c.monarchLanguages.length) kinds.push("grammar");
     if (c.commands.length) kinds.push("commands");
     if (c.configuration.length) kinds.push("configuration");
     if (c.harnesses.length) kinds.push("harness");
@@ -185,6 +185,22 @@ export class PackageStore {
           key: c.key, type: c.type, default: c.default, title: c.title,
         })) ?? [],
       };
+    });
+  }
+
+  /** 活跃包的渲染进程 Monarch 语法贡献（grammar kind 门态与 kindStates 一致）。 */
+  monarchContributions(): { pkgId: string; dir: string; langs: { id: string; extensions: string[]; monarch: string; languageConfiguration: string | null }[] }[] {
+    return this.scanAll().flatMap((e) => {
+      if (e.state !== "active" || !e.manifest) return [];
+      const langs = e.manifest.contributes.monarchLanguages;
+      if (!langs?.length) return [];
+      const ledger = this.ledgerEntry(e.manifest.id);
+      if (ledger?.kinds?.grammar === false) return [];
+      return [{
+        pkgId: e.manifest.id,
+        dir: e.dir,
+        langs: langs.map((m) => ({ id: m.id, extensions: [...m.extensions], monarch: m.monarch, languageConfiguration: m.languageConfiguration })),
+      }];
     });
   }
 

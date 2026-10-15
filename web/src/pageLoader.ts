@@ -93,6 +93,8 @@ async function ensureLibraryLoaded(dep: PageDependency): Promise<void> {
       await new Promise((r) => setTimeout(r, 50));
     }
     loadedLibs.set(key, entryAbs);
+    // 渲染进程 Monarch 注册器等消费者挂钩：库（重）注入后需重放语言注册
+    window.dispatchEvent(new CustomEvent("gitter-lib-injected", { detail: { packageId: packageId, lib: lib } }));
   })();
   injectingLibs.set(key, job);
   try {

@@ -19,20 +19,22 @@ import { ChevronIcon, CloseIcon, CollapseAllIcon, CopyIcon, CutIcon, DiffIcon, E
 export interface TreeEntry {
   path: string;
   isDir: boolean;
-  /** git 状态码 (M/A/D/R/U/?)；null = 未改动 */
+  /** git 状态码 (M/A/D/R/U/?/!)；null = 未改动；! = 被 .gitignore 忽略（置灰显示） */
   status: string | null;
   /** 是否被 agent 本回合碰过 */
   touchedByAgent: boolean;
+  /** 目录条目：子树过大（或为链接）未随首屏枚举，点击懒加载（onExpandHeavy）后可下钻 */
+  heavy?: boolean;
 }
 
 /** 行高（虚拟化定高） */
 const ROW_H = 24;
 
-/** git 状态码 → 着色类（styles.css .gs-*）与字母徽标 */
-const STATUS_CLS: Record<string, string> = { M: "gs-M", A: "gs-A", D: "gs-D", R: "gs-R", U: "gs-U", "?": "gs-Q" };
-const STATUS_LETTER: Record<string, string> = { M: "M", A: "A", D: "D", R: "R", U: "U", "?": "?" };
-/** 目录继承后代状态时的严重度优先序（U/D > M/A > R > ?） */
-const DIR_PRIO = ["U", "D", "M", "A", "R", "?"];
+/** git 状态码 → 着色类（styles.css .gs-*）与字母徽标（! = gitignore 忽略，置灰） */
+const STATUS_CLS: Record<string, string> = { M: "gs-M", A: "gs-A", D: "gs-D", R: "gs-R", U: "gs-U", "?": "gs-Q", "!": "gs-IG" };
+const STATUS_LETTER: Record<string, string> = { M: "M", A: "A", D: "D", R: "R", U: "U", "?": "?", "!": "!" };
+/** 目录继承后代状态时的严重度优先序（U/D > M/A > R > ? > !） */
+const DIR_PRIO = ["U", "D", "M", "A", "R", "?", "!"];
 
 type FilterMode = "all" | "git";
 
@@ -88,6 +90,8 @@ export function TreePane(props: {
   onDelete?: (path: string, isDir: boolean) => Promise<boolean>;
   /** 粘贴（from 复制/剪切到 toDir 下）：成功返回落定相对路径或 true；失败已 toast */
   onPaste?: (from: string, toDir: string, cut: boolean, fromIsDir: boolean) => Promise<string | boolean>;
+  /** heavy 目录（子树过大/链接）展开：按 prefix 懒加载子树并入树；成功返回 true */
+  onExpandHeavy?: (path: string) => Promise<boolean>;
   loading: boolean;
   onRefresh: () => void;
   /** 树模式切换上报（FilesPage 据此开关编辑器 git 行级 diff 高亮） */
@@ -113,6 +117,8 @@ export function TreePane(props: {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   // 目录选中态（点击行记忆，供树头新建按钮定位目标目录；文件行的选中 = 激活标签）
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // heavy 目录懒加载中（行上显示 … 徽标；期间防重复触发）
+  const [expanding, setExpanding] = useState<string | null>(null);
   // 键盘导航锚点（kbFocus）+ 描边可见性（kbKey：仅键盘操作时显示描边，鼠标点击不闪边框）
   const [kbFocus, setKbFocus] = useState<string | null>(null);
   const [kbKey, setKbKey] = useState(false);
@@ -121,24 +127,50 @@ export function TreePane(props: {
 
   const { showMenu, menuElement } = useContextMenu();
 
-  // 过滤：模式 + 名称筛选（筛选在 path 上匹配，命中子串在 basename 上高亮）
+  // 过滤：模式 + 名称筛选（筛选在 path 上匹配，命中子串在 basename 上高亮）。
+  // 「变更」模式只看 git 改动（?/! 都不算——未跟踪/被忽略不是变更）
   const q = query.trim().toLowerCase();
   const files = useMemo(() => {
     let fs = props.entries.filter((e) => !e.isDir);
-    if (mode === "git") fs = fs.filter((f) => f.status !== null);
+    if (mode === "git") fs = fs.filter((f) => f.status !== null && f.status !== "!");
     if (q) fs = fs.filter((f) => f.path.toLowerCase().includes(q));
     return fs;
   }, [props.entries, mode, q]);
   const forceOpen = mode !== "all" || q !== "";
+  // 真实目录条目（后端下发，含空目录与 heavy 折叠目录）——仅「全部」视图并入树
+  const dirEntries = useMemo(() => props.entries.filter((e) => e.isDir), [props.entries]);
   const counts = useMemo(() => ({
-    git: props.entries.filter((e) => !e.isDir && e.status !== null).length,
+    git: props.entries.filter((e) => !e.isDir && e.status !== null && e.status !== "!").length,
   }), [props.entries]);
 
-  // 扁平化可见节点（目录 = 文件路径全部祖先合成；目录状态色按严重度继承）
+  // 扁平化可见节点（目录 = 文件路径全部祖先合成；目录状态色按严重度继承）。
+  // 「全部」视图额外并入后端下发的真实目录条目——空目录不在任何文件路径的
+  // 祖先链上，只能由此显示；过滤视图（git/query）仍由可见文件反推目录。
   const visibleNodes = useMemo<VisibleNode[]>(() => {
     const nodes: VisibleNode[] = [];
     const dirStatus = new Map<string, string | null>();
     const filesByDir = new Map<string, TreeEntry[]>();
+    const realDir = new Map<string, TreeEntry>();
+    /** 按严重度继承写入目录状态色（后者的优先序见 DIR_PRIO） */
+    const inherit = (dir: string, status: string | null) => {
+      if (!status) return;
+      const cur = dirStatus.get(dir) ?? null;
+      if (cur === null || DIR_PRIO.indexOf(status) < DIR_PRIO.indexOf(cur)) dirStatus.set(dir, status);
+    };
+    if (!forceOpen) {
+      for (const d of dirEntries) {
+        const parts = d.path.split("/");
+        let acc = "";
+        for (let i = 0; i < parts.length - 1; i++) {
+          acc = acc ? `${acc}/${parts[i]}` : parts[i];
+          if (!filesByDir.has(acc)) filesByDir.set(acc, []);
+          inherit(acc, d.status);
+        }
+        if (!filesByDir.has(d.path)) filesByDir.set(d.path, []);
+        inherit(d.path, d.status);
+        realDir.set(d.path, d);
+      }
+    }
     for (const f of files) {
       const parts = f.path.split("/");
       // 逐层登记全部祖先目录（只登记直接父目录会让「中间层级不含文件」的
@@ -147,10 +179,7 @@ export function TreePane(props: {
       for (let i = 0; i < parts.length - 1; i++) {
         acc = acc ? `${acc}/${parts[i]}` : parts[i];
         if (!filesByDir.has(acc)) filesByDir.set(acc, []);
-        if (f.status) {
-          const cur = dirStatus.get(acc) ?? null;
-          if (cur === null || DIR_PRIO.indexOf(f.status) < DIR_PRIO.indexOf(cur)) dirStatus.set(acc, f.status);
-        }
+        if (f.status) inherit(acc, f.status);
       }
       const parent = parts.length > 1 ? acc : "";
       if (!filesByDir.has(parent)) filesByDir.set(parent, []);
@@ -160,7 +189,11 @@ export function TreePane(props: {
     const walk = (dir: string, depth: number) => {
       const s = dirStatus.get(dir) ?? null;
       const open = forceOpen || !collapsed.has(dir);
-      nodes.push({ entry: { path: dir, isDir: true, status: s, touchedByAgent: false }, depth, dirStatus: s, open });
+      const real = realDir.get(dir);
+      nodes.push({
+        entry: real ? { ...real, status: s } : { path: dir, isDir: true, status: s, touchedByAgent: false },
+        depth, dirStatus: s, open,
+      });
       if (!open) return;
       // 目录在前、文件在后（VSCode explorer 默认序）
       const subdirs = [...filesByDir.keys()]
@@ -195,7 +228,7 @@ export function TreePane(props: {
       else nodes.unshift(node);
     }
     return nodes;
-  }, [files, forceOpen, collapsed, draft]);
+  }, [files, dirEntries, forceOpen, collapsed, draft]);
   const nodesRef = useRef<VisibleNode[]>(visibleNodes);
   nodesRef.current = visibleNodes;
 
@@ -244,6 +277,22 @@ export function TreePane(props: {
     });
   }, []);
 
+  // heavy 目录展开 = 按目录懒加载子树（onExpandHeavy 并树），成功后即展开
+  const expandHeavyRow = useCallback(async (path: string) => {
+    if (!props.onExpandHeavy || expanding) return;
+    setExpanding(path);
+    const ok = await props.onExpandHeavy(path).catch(() => false);
+    setExpanding(null);
+    if (ok) {
+      setCollapsed((prev) => {
+        if (!prev.has(path)) return prev;
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
+    }
+  }, [props.onExpandHeavy, expanding]);
+
   // 默认折叠：首次装载收起全部目录（顶层级可见，点开即展开）；活动文件的祖先保持
   // 展开——任务页跳转/会话恢复时不被折叠遮住。仅每次挂载生效一次（手动展开后
   // 保存触发的 loadTree 不会重新折叠）；仓库切换经 FilesPage 的 key 重挂重置。
@@ -253,6 +302,8 @@ export function TreePane(props: {
     collapseInitRef.current = true;
     const dirs = new Set<string>();
     for (const e of props.entries) {
+      // 目录条目自身也要折叠（空目录不在任何文件路径的祖先链上）
+      if (e.isDir) dirs.add(e.path);
       const parts = e.path.split("/");
       let acc = "";
       for (let i = 0; i < parts.length - 1; i++) {
@@ -482,11 +533,15 @@ export function TreePane(props: {
       e.preventDefault();
       const n = nodes[idx];
       if (n.draft) { draftInputRef.current?.focus(); return; }
-      if (n.entry.isDir) toggleDir(n.entry.path);
-      else props.onOpenFile(n.entry.path, { preview: true });
+      if (n.entry.isDir) {
+        if (n.entry.heavy) void expandHeavyRow(n.entry.path);
+        else toggleDir(n.entry.path);
+      } else {
+        props.onOpenFile(n.entry.path, { preview: true });
+      }
     } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && idx >= 0) {
       const n = nodes[idx];
-      if (!n.entry.isDir) return;
+      if (!n.entry.isDir || n.entry.heavy) return;
       const isOpen = forceOpen || !collapsed.has(n.entry.path);
       if (e.key === "ArrowRight" && !isOpen) toggleDir(n.entry.path);
       else if (e.key === "ArrowLeft" && isOpen && !forceOpen) toggleDir(n.entry.path);
@@ -511,7 +566,7 @@ export function TreePane(props: {
         : "";
       if (canPasteInto(clip, toDir)) doPaste(clip, toDir);
     }
-  }, [kbFocus, virtualizer, toggleDir, props.onOpenFile, forceOpen, collapsed, startRename, clip, canPasteInto, doPaste]);
+  }, [kbFocus, virtualizer, toggleDir, expandHeavyRow, props.onOpenFile, forceOpen, collapsed, startRename, clip, canPasteInto, doPaste]);
 
   // 高亮命中的 basename 子串
   const highlight = useCallback((name: string) => {
@@ -585,6 +640,7 @@ export function TreePane(props: {
         className={
           "files-row" +
           (entry.isDir && node.open ? " open" : "") +
+          (entry.heavy ? " heavy" : "") +
           (isActive ? " active" : "") +
           (isAgent ? " agent" : "") +
           (kbKey && entry.path === kbFocus ? " kb-focus" : "") +
@@ -592,7 +648,7 @@ export function TreePane(props: {
           (dragItem?.path === entry.path ? " dragging" : "")
         }
         style={rowStyle}
-        title={entry.path}
+        title={entry.heavy ? t("Files_HeavyDir") : entry.path}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData("text/gitter-tree", entry.path);
@@ -621,7 +677,9 @@ export function TreePane(props: {
           setKbFocus(entry.path);
           setSelectedPath(entry.path);
           if (entry.isDir) {
-            if (mode === "all" && !q) toggleDir(entry.path);
+            // heavy 目录点击 = 懒加载子树（加载完自动展开）
+            if (entry.heavy) void expandHeavyRow(entry.path);
+            else if (mode === "all" && !q) toggleDir(entry.path);
           } else {
             props.onOpenFile(entry.path, { preview: true });
           }
@@ -633,6 +691,7 @@ export function TreePane(props: {
         <span className="files-chev">{entry.isDir ? <ChevronIcon /> : null}</span>
         <span className="files-fico">{entry.isDir ? <FolderIcon /> : <FileIcon path={entry.path} />}</span>
         <span className={nameCls}>{highlight(entry.path.split("/").pop() ?? entry.path)}</span>
+        {expanding === entry.path && <span className="files-st">…</span>}
         {isAgent && (
           <span className="files-spark" title={t("Files_AgentTouched")}><SparkIcon /></span>
         )}

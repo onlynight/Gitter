@@ -1,0 +1,378 @@
+{
+  "defaultToken": "",
+  "tokenPostfix": ".hat",
+  "declKeywords": [
+    "fn",
+    "extern",
+    "struct",
+    "enum"
+  ],
+  "terminators": [
+    "br",
+    "br_if",
+    "ret",
+    "return",
+    "unreachable",
+    "select"
+  ],
+  "callInstrs": [
+    "call",
+    "phi",
+    "invoke"
+  ],
+  "constInstrs": [
+    "i32_const",
+    "i64_const",
+    "f64_const",
+    "f32_const",
+    "const_str",
+    "bool_const",
+    "null",
+    "true",
+    "false"
+  ],
+  "arithInstrs": [
+    "add",
+    "sub",
+    "mul",
+    "div",
+    "rem",
+    "neg"
+  ],
+  "bitwiseInstrs": [
+    "and",
+    "or",
+    "xor",
+    "shl",
+    "shr",
+    "not"
+  ],
+  "cmpInstrs": [
+    "icmp",
+    "fcmp",
+    "cmp",
+    "eq",
+    "ne",
+    "lt",
+    "le",
+    "gt",
+    "ge"
+  ],
+  "convInstrs": [
+    "sext",
+    "zext",
+    "trunc",
+    "fptosi",
+    "sitofp",
+    "uitofp",
+    "fptrunc",
+    "fpext",
+    "bitcast",
+    "ptrtoint",
+    "inttoptr",
+    "freeze"
+  ],
+  "memInstrs": [
+    "load",
+    "store",
+    "alloc",
+    "alloca",
+    "free",
+    "getelementptr",
+    "gep"
+  ],
+  "collInstrs": [
+    "list",
+    "cons",
+    "head",
+    "tail",
+    "concat",
+    "append",
+    "slice",
+    "len",
+    "getfield",
+    "setfield"
+  ],
+  "basicTypes": [
+    "Int",
+    "Float",
+    "Bool",
+    "Unit",
+    "String",
+    "Any",
+    "Char",
+    "Void"
+  ],
+  "tokenizer": {
+    "root": [
+      [
+        "[ \\t]+",
+        ""
+      ],
+      [
+        ";[ \\t]*module\\b",
+        "keyword.meta",
+        "@moduleHeader"
+      ],
+      [
+        ";[ \\t]*[@]fn\\b",
+        "keyword.declaration",
+        "@declLine"
+      ],
+      [
+        ";[ \\t]*[@]extern\\b",
+        "keyword.declaration",
+        "@declLine"
+      ],
+      [
+        ";[ \\t]*[@]struct\\b",
+        "keyword.declaration",
+        "@declLine"
+      ],
+      [
+        ";[ \\t]*[@]enum\\b",
+        "keyword.declaration",
+        "@declLine"
+      ],
+      [
+        ";[ \\t]*bb\\b",
+        "keyword.declaration.bb"
+      ],
+      [
+        ";.*$",
+        "comment"
+      ],
+      [
+        "module\\s+[A-Za-z_][\\w.]*",
+        "keyword.meta",
+        "@moduleHeader"
+      ],
+      [
+        "@[A-Z][A-Za-z0-9_]*",
+        "storage.type.user",
+        "@userType"
+      ],
+      [
+        "\\$[A-Za-z_][\\w]*",
+        "type.builtin"
+      ],
+      [
+        "!list\\b",
+        "type.special"
+      ],
+      [
+        "!map\\b",
+        "type.special"
+      ],
+      [
+        "!ptr\\b",
+        "type.special"
+      ],
+      [
+        "!fn\\b",
+        "type.special"
+      ],
+      [
+        "!stackslot\\b",
+        "type.special"
+      ],
+      [
+        "\"[^\"\\\\]*(?:\\\\.[^\"\\\\]*)*\"",
+        "string.quoted.double"
+      ],
+      [
+        "0x[0-9a-fA-F]+",
+        "constant.numeric.hex"
+      ],
+      [
+        "0o[0-7]+",
+        "constant.numeric.octal"
+      ],
+      [
+        "0b[01]+",
+        "constant.numeric.binary"
+      ],
+      [
+        "-?\\d+\\.\\d+(?:[eE][+-]?\\d+)?",
+        "constant.numeric.float"
+      ],
+      [
+        "-?\\d+",
+        "constant.numeric.integer"
+      ],
+      [
+        "true\\b",
+        "constant.language"
+      ],
+      [
+        "false\\b",
+        "constant.language"
+      ],
+      [
+        "null\\b",
+        "constant.language"
+      ],
+      [
+        "%[A-Za-z_][\\w.]*",
+        "variable.other.def"
+      ],
+      [
+        "@[A-Za-z_][\\w.]*",
+        {
+          "cases": {
+            "@declKeywords": "keyword.declaration",
+            "@terminators": "keyword.instruction.terminator",
+            "@callInstrs": "keyword.instruction.call",
+            "@constInstrs": "keyword.instruction.constant",
+            "@arithInstrs": "keyword.instruction.arith",
+            "@bitwiseInstrs": "keyword.instruction.bitwise",
+            "@cmpInstrs": "keyword.instruction.cmp",
+            "@convInstrs": "keyword.instruction.conv",
+            "@memInstrs": "keyword.instruction.mem",
+            "@collInstrs": "keyword.instruction.coll",
+            "@basicTypes": "storage.type.user",
+            "@default": "variable.other.at"
+          }
+        }
+      ],
+      [
+        "\\b(Int|Float|Bool|Unit|String|Any|Char|Void)\\b",
+        "type.builtin"
+      ],
+      [
+        "[A-Z][A-Za-z0-9_]*",
+        "type.identifier"
+      ],
+      [
+        "[{}()\\[\\]]",
+        "@brackets"
+      ],
+      [
+        "->",
+        "keyword.other.arrow"
+      ],
+      [
+        "[=,;:.|&!+*/%<>^\\\\-]+",
+        "delimiter"
+      ]
+    ],
+    "moduleHeader": [
+      [
+        "[A-Za-z_][\\w.]*",
+        {
+          "cases": {
+            "@default": "entity.name.type.module"
+          }
+        }
+      ],
+      [
+        "target\\b",
+        "keyword.other.target"
+      ],
+      [
+        "[\\w.-]+",
+        "string.unquoted"
+      ],
+      [
+        ";.*$",
+        "",
+        "@pop"
+      ],
+      [
+        ".*$",
+        "",
+        "@pop"
+      ]
+    ],
+    "declLine": [
+      [
+        "@?[A-Za-z_][\\w.]*(?=\\s*\\()",
+        "entity.name.function"
+      ],
+      [
+        "@[\\w]+(?=\\s*:)",
+        "variable.parameter"
+      ],
+      [
+        "->",
+        "keyword.other.arrow"
+      ],
+      [
+        "\\$[A-Za-z_][\\w]*",
+        "type.builtin"
+      ],
+      [
+        "!list\\b|!map\\b|!ptr\\b|!fn\\b|!stackslot\\b",
+        "type.special"
+      ],
+      [
+        "@[A-Z][A-Za-z0-9_]*",
+        "storage.type.user"
+      ],
+      [
+        "\\b(Int|Float|Bool|Unit|String|Any|Char|Void)\\b",
+        "type.builtin"
+      ],
+      [
+        "[A-Z][A-Z0-9_]*",
+        "variable.other.enummember"
+      ],
+      [
+        "\\w+",
+        "identifier"
+      ],
+      [
+        "[{}()\\[\\]:,;=<>|&\\-]+",
+        "delimiter"
+      ],
+      [
+        "[ \\t]+",
+        ""
+      ],
+      [
+        ".*$",
+        "",
+        "@pop"
+      ]
+    ],
+    "userType": [
+      [
+        "\\}",
+        "delimiter",
+        "@pop"
+      ],
+      [
+        "[{}()\\[\\]:,;=<>|&\\-]+",
+        "delimiter"
+      ],
+      [
+        "\\$[A-Za-z_][\\w]*",
+        "type.builtin"
+      ],
+      [
+        "!list\\b|!map\\b|!ptr\\b|!fn\\b|!stackslot\\b",
+        "type.special"
+      ],
+      [
+        "@[A-Z][A-Za-z0-9_]*",
+        "storage.type.user"
+      ],
+      [
+        "@[a-z][\\w]*",
+        "variable.other.field"
+      ],
+      [
+        "%[A-Za-z_][\\w.]*",
+        "variable.other"
+      ],
+      [
+        "\\w+",
+        "identifier"
+      ],
+      [
+        "[ \\t]+",
+        ""
+      ]
+    ]
+  }
+}

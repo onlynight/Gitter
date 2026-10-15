@@ -36,6 +36,7 @@ export function importGpkFile(gpkPath: string, userRoot: string): { id: string; 
   const kinds = [
     manifest.contributes.themes.length && "theme",
     manifest.contributes.grammars.length && "grammar",
+    manifest.contributes.monarchLanguages.length && "grammar",
     manifest.contributes.commands.length && "commands",
     manifest.contributes.configuration.length && "configuration",
     manifest.contributes.skills.length && "skills",

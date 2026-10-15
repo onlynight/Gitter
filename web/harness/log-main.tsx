@@ -13,6 +13,11 @@ import { setState } from "../src/state/store";
 // harness 同构装载：?raw 取产物原文 → Blob URL 经典脚本执行（import 产物本体会让 vite
 // 对 11.9MB 做 transform，既慢又会踩 babel 解析边缘）
 const monacoSrc: string = (await import("../../app/resources/packages/gitui.lib.monaco/monaco.js?raw")).default;
+// 插件 monarch JSON（MonacoDiffView / 编辑器的 HAT/Aura 语法验收样本）
+import hatMonarchJson from "../../tools/plugins/aura-lang.hat-language/syntaxes/hat.monarch.json";
+import hatConfJson from "../../tools/plugins/aura-lang.hat-language/syntaxes/hat.language-configuration.json";
+import auraMonarchJson from "../../tools/plugins/aura-lang.language/syntaxes/aura.monarch.json";
+import auraConfJson from "../../tools/plugins/aura-lang.language/syntaxes/aura.language-configuration.json";
 {
   const url = URL.createObjectURL(new Blob([monacoSrc], { type: "text/javascript" }));
   await new Promise<void>((ok, bad) => {
@@ -101,6 +106,33 @@ function mockRpc(method: string, params?: Record<string, unknown>) {
     case "log.fileDiffFull": return FULL_DIFF;
     case "log.fileDiff": return { path: FULL_DIFF.path, oldPath: FULL_DIFF.path, isBinary: false, isNew: false, isDeleted: false, isRenamed: false, hunks: [], addedLines: 3, deletedLines: 1, oldEndsWithNewline: true, newEndsWithNewline: true };
     case "changes.headInfo": return null;
+    case "extensions.monarch": {
+      // 档位：__monarchMock = "real" | "variant" | "off"；monarch 值用哨兵文件名，
+      // extensions.monarchFile 按哨兵回传 JSON 文本（生产语义：文件名 → 文本）
+      if ((window as any).__monarchMock === "off") return [];
+      const variant = (window as any).__monarchMock === "variant";
+      const hatDef = variant
+        ? JSON.stringify((() => { const d = JSON.parse(JSON.stringify(hatMonarchJson)); d.tokenizer.root = d.tokenizer.root.map((r: any[]) => (Array.isArray(r) && typeof r[1] === "string" && r[1].startsWith("keyword") ? [r[0], "keyword.variant" + r[1].slice("keyword".length)] : r)); return d; })())
+        : JSON.stringify(hatMonarchJson);
+      (window as any).__hatMonarchText = hatDef;
+      (window as any).__hatConfText = JSON.stringify(hatConfJson);
+      (window as any).__auraMonarchText = JSON.stringify(auraMonarchJson);
+      (window as any).__auraConfText = JSON.stringify(auraConfJson);
+      return [
+        { pkgId: "aura-lang.hat-language", dir: "x", langs: [{ id: "hat", extensions: [".hat"], monarch: "__hat_monarch__", languageConfiguration: "__hat_conf__" }] },
+        { pkgId: "aura-lang.language", dir: "x", langs: [{ id: "aura", extensions: [".aura"], monarch: "__aura_monarch__", languageConfiguration: "__aura_conf__" }] },
+      ];
+    }
+    case "extensions.monarchFile": {
+      const file = String(params?.file ?? "");
+      const texts: Record<string, string> = {
+        __hat_monarch__: (window as any).__hatMonarchText,
+        __hat_conf__: (window as any).__hatConfText,
+        __aura_monarch__: (window as any).__auraMonarchText,
+        __aura_conf__: (window as any).__auraConfText,
+      };
+      return texts[file] ?? "";
+    }
     case "changes.state": return { workDir: "D:\\Code\\Gitter", changes: [], staged: [], unversioned: [], conflicts: [], branch: "dev", ahead: 0, behind: 0 };
     default: return {};
   }
@@ -156,6 +188,10 @@ applyTheme("light");
 (window as any).__errs = [] as string[];
 window.addEventListener("error", (e) => { (window as any).__errs.push(String(e.error?.stack ?? e.message)); });
 window.addEventListener("unhandledrejection", (e) => { (window as any).__errs.push(String((e.reason as Error)?.stack ?? e.reason)); });
+
+// 渲染进程 Monarch 注册器（插件 monarch mock：__monarchMock = "real" | "variant" | "off"）
+import { initMonarchRegistry } from "../src/monarchRegistry";
+initMonarchRegistry();
 
 createRoot(document.getElementById("root")!).render(React.createElement(LogPage));
 

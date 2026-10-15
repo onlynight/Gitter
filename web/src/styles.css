@@ -2092,6 +2092,8 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
 .gs-R { color: var(--c-link); }
 .gs-U { color: var(--c-red); }
 .gs-Q { color: var(--c-green); opacity: .85; }
+/* ! = gitignore 忽略（磁盘存在、git 不管）：中性降档置灰 */
+.gs-IG { color: var(--c-text3); }
 
 /* ---- px 分栏（定宽持久化 localStorage，非比例） ---- */
 .files-split { display: flex; flex: 1; min-height: 0; }
@@ -2170,6 +2172,9 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
   background: color-mix(in srgb, var(--c-amber) 32%, transparent); color: inherit; border-radius: 2px; padding: 0 1px;
 }
 .files-nm.gs-D { text-decoration: line-through; }
+/* heavy 目录（node_modules 类/链接）：内容未枚举进树，不可下钻——整体置灰 + 无 chevron */
+.files-row.heavy .files-nm, .files-row.heavy .files-fico { opacity: .55; }
+.files-row.heavy .files-chev { visibility: hidden; }
 .files-agent-nm { color: var(--c-chip-purple-fg) !important; font-weight: 600; }
 .files-spark { flex: none; display: inline-flex; color: var(--c-chip-purple-fg); }
 .files-st {

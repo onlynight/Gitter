@@ -276,7 +276,16 @@ body.dark .gpv-sheet-tabs button.active { background: #3a3a3a; border-color: #4a
         className: "office-preview-frame",
         sandbox: "allow-scripts",
         title: props.name,
-        srcDoc: srcdoc
+        srcDoc: srcdoc,
+        onLoad: () => {
+          const f = iframeRef.current;
+          if (f) {
+            f.style.display = "none";
+            void f.offsetHeight;
+            f.style.display = "";
+            f.style.transform = "translateZ(0)";
+          }
+        }
       }
     );
   }

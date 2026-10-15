@@ -547,6 +547,12 @@ li { margin: .25em 0; }
               reportScroll(w.scrollY ?? 0);
             });
           }
+          if (htmlRaw && f) {
+            f.style.display = "none";
+            void f.offsetHeight;
+            f.style.display = "";
+            f.style.transform = "translateZ(0)";
+          }
         }
       }
     ) : phase.kind === "text" ? /* @__PURE__ */ jsxRuntime.jsx("pre", { ref: preRef, className: "extpreview-text", onScroll: onPreScroll, children: phase.content }) : /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "office-welcome", children: [

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 2,
+  "id": "aura-lang.hat-language",
+  "name": "HAT Language (HIR-Advanced Text)",
+  "version": "3.1.3",
+  "description": "HAT（AuraLang SSA IR，v3.0）语法高亮。Gitter 侧 L1 数据包（纯 contributes.grammars），语法资产与上游 AuraLang VS Code 扩展字节对齐；仅做分词着色，不含 IR 校验/LSP。 含渲染进程 Monarch 语法（contributes.monarchLanguages，由内置版迁移）。",
+  "engines": {
+    "gitter": ">=0.1.0"
+  },
+  "apiVersion": 3,
+  "contributes": {
+    "grammars": [
+      {
+        "language": "hat",
+        "scopeName": "source.hat",
+        "extensions": [
+          ".hat"
+        ],
+        "path": "syntaxes/hat.tmLanguage.json"
+      }
+    ],
+    "monarchLanguages": [
+      {
+        "id": "hat",
+        "extensions": [
+          ".hat"
+        ],
+        "monarch": "syntaxes/hat.monarch.json",
+        "languageConfiguration": "syntaxes/hat.language-configuration.json"
+      }
+    ]
+  }
+}

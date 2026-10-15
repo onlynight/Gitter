@@ -38,7 +38,7 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "settings.get": "open", "settings.schema": "open",
   "skills.list": "open", "tools.list": "open", "commands.list": "open", "menus.list": "open",
   "agent.loops": "open", "agent.taskTypes.list": "open", "agents.list": "open",
-  "extensions.list": "open", "host.status": "open",
+  "extensions.list": "open", "extensions.monarch": "open", "extensions.monarchFile": "open", "host.status": "open",
   "repo.state": "open", "mcp.state": "open", "mcp.setPipeName": "open",
   "ai.state": "open", "models.list": "open",
   "terminal.profiles": "open", "terminal.list": "open",

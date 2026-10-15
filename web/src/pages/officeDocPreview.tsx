@@ -166,6 +166,17 @@ export function PreviewFrame(props: {
       sandbox="allow-scripts"
       title={props.name}
       srcDoc={srcdoc}
+      onLoad={() => {
+        // 与 externalPreview 同款保险：Electron 44.x 下 opaque origin srcdoc frame 加载后
+        // 可能永不首帧（白屏）——display 切换 + 层提升强制合成器呈现；已呈现时仅多一次重排。
+        const f = iframeRef.current;
+        if (f) {
+          f.style.display = "none";
+          void f.offsetHeight;
+          f.style.display = "";
+          f.style.transform = "translateZ(0)";
+        }
+      }}
     />
   );
 }

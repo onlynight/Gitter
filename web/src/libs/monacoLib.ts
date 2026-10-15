@@ -27,8 +27,6 @@ import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker&
 // TokenizationRegistry 模块单例：与 editor.main 的注册面同实例，basic-languages /
 // aura / hat 的 Monarch 分词器经它惰性解析（类型面见 monacoInternal.d.ts）
 import { TokenizationRegistry, type ITokenizationSupportLike } from "monaco-editor/esm/vs/editor/common/languages.js";
-import { auraConf, auraLanguage } from "./monarch/aura";
-import { hatConf, hatLanguage } from "./monarch/hat";
 
 self.MonacoEnvironment = {
   getWorker(_workerId: string, label: string): Worker {
@@ -43,17 +41,9 @@ self.MonacoEnvironment = {
   },
 };
 
-// 本地 Monarch 语言注册（AuraLang 生态）。与 Monaco 内置 basic-languages 一同打入库包，
-// 页面侧经 languageForPath（filesMonaco.ts）以 languageId 取用，无需动态 register。
-// 参考：web/src/libs/monarch/aura.ts 与 hat.ts。Token 命名遵循 Monaco 惯例，
-// 主题 tokenColors 由 filesMonaco.ts buildTheme 统一映射（EditorTheme.syntax）。
-monaco.languages.register({ id: "aura", extensions: [".aura"], aliases: ["Aura", "aura"] });
-monaco.languages.setMonarchTokensProvider("aura", auraLanguage);
-monaco.languages.setLanguageConfiguration("aura", auraConf);
-
-monaco.languages.register({ id: "hat", extensions: [".hat"], aliases: ["HAT", "hat"] });
-monaco.languages.setMonarchTokensProvider("hat", hatLanguage);
-monaco.languages.setLanguageConfiguration("hat", hatConf);
+// AuraLang/HAT（.aura/.hat）的 Monarch 语法已迁出内置——由 L1 插件包
+// contributes.monarchLanguages 供给，宿主 monarchRegistry.ts 运行时注册
+// （diff-view-monarch-plugin 裁决：插件禁用 = 语言回退纯文本）。
 
 const w = window as unknown as { GITTER_LIBS?: Record<string, unknown> };
 w.GITTER_LIBS = w.GITTER_LIBS ?? {};

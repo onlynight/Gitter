@@ -9,6 +9,7 @@ import { appendAgentStream, applyDiffModeToDom, applyThemeToDom, getState, navig
 import { onUiPagesChanged, resolveUiPage, uiPages, type UIPageDef } from "./uiRegistry";
 import { installUiApi } from "./sdk";
 import { ensureExternalPageLoaded, loadExternalPages, reloadExternalPages } from "./pageLoader";
+import { initMonarchRegistry } from "./monarchRegistry";
 
 /** 全局快捷键（keybindings 接缝自举：Ctrl+1..7 / F5 / Ctrl+Shift+N 等由 commands.list 的
  * keyHint 驱动分发；面板开关与 Ctrl+Tab 循环不是命令，保留硬编码。Ctrl+Enter 由提交框
@@ -417,3 +418,7 @@ export function App() {
     </div>
   );
 }
+
+
+// 渲染进程 Monarch 语言注册器（HAT/Aura 等插件语法；幂等，见 monarchRegistry.ts）
+initMonarchRegistry();
