@@ -1074,6 +1074,7 @@ Files_FilterMatches	{0} matches	{0} 个匹配
 Files_Refresh	Refresh	刷新
 Files_CollapseAll	Collapse all	全部折叠
 Files_ExpandAll	Expand all	全部展开
+Files_HeavyDir	Contents not loaded in tree — click to load	目录内容未加载，点击加载
 Files_QuickOpen	Go to file…	转到文件…
 Files_TreeOpen	Open	打开
 Files_CopyPath	Copy path	复制路径

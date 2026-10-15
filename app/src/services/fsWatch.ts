@@ -16,7 +16,13 @@ export class FsWatchService {
     if (this.dir === dir) return;
     this.stop();
     try {
-      this.watcher = fs.watch(dir, { recursive: true }, () => this.schedule(onFire));
+      this.watcher = fs.watch(dir, { recursive: true }, (_event, filename) => {
+        // .git 内部落盘（git status 摸 index、分支切换等）不通知：刷树自身的 git 调用
+        // 会反过来触发 watcher，形成「刷新 → fs.changed → 再刷新」的自激循环；
+        // 工作区文件的真变更（含 checkout 重写的文件）会在自己的路径上照常上报
+        if (filename && String(filename).replace(/\\/g, "/").split("/").includes(".git")) return;
+        this.schedule(onFire);
+      });
       this.dir = dir;
     } catch {
       // 监听不可用：保持空实现，树刷新退回手动

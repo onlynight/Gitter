@@ -36,6 +36,7 @@
   "Files_Refresh": "刷新",
   "Files_CollapseAll": "全部折叠",
   "Files_ExpandAll": "全部展开",
+  "Files_HeavyDir": "目录内容未加载，点击加载",
   "Files_QuickOpen": "转到文件…",
   "Files_TreeOpen": "打开",
   "Files_CopyPath": "复制路径",
