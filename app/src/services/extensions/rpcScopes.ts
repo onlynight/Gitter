@@ -50,7 +50,7 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "remote.list": "git.read",
   // agent 改动预览读面（agent-harness-v4.md F6）
   "repo.files": "git.read", "agent.task.files": "git.read",
-  "agent.task.diff": "git.read", "agent.task.diffText": "git.read", "agent.task.checkpoints": "git.read",
+  "agent.task.diff": "git.read", "agent.task.diffFull": "git.read", "agent.task.diffText": "git.read", "agent.task.checkpoints": "git.read",
   // D6/D9：导出（弹系统保存框）与文件只读预览——均为会话级读取面
   "agent.task.export": "agent.config", "agent.task.previewFile": "git.read",
   "agent.previewImage": "git.read",
@@ -65,8 +65,8 @@ export const RPC_SCOPES: Record<string, RpcScope> = {
   "file.stat": "git.read", "file.readBinary": "git.read", "file.writeBinary": "git.write",
 
   // ---- git.read ----
-  "log.query": "git.read", "log.branches": "git.read", "log.detail": "git.read", "log.fileDiff": "git.read",
-  "changes.state": "git.read", "changes.diffFile": "git.read", "changes.feedback": "git.read",
+  "log.query": "git.read", "log.branches": "git.read", "log.detail": "git.read", "log.fileDiff": "git.read", "log.fileDiffFull": "git.read",
+  "changes.state": "git.read", "changes.diffFile": "git.read", "changes.diffFileFull": "git.read", "changes.feedback": "git.read",
   "changes.safetyScan": "git.read", "branches.state": "git.read", "tags.list": "git.read", "reflog.list": "git.read", "branch.graph": "git.read",
   "gitconfig.list": "git.read", "file.preview": "git.read",
   // amend 预填/已推检测 + 强推覆盖面预览 + stash 列表/展开（stash-mockup 实现）

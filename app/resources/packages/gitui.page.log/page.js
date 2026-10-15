@@ -1595,6 +1595,7 @@
   K().ReactDOM;
   const ReactDOMClient = K().ReactDOMClient;
   const DiffView = K().DiffView;
+  const MonacoDiffView = K().MonacoDiffView;
   K().diffStatusLetter;
   K().renderSegments;
   K().wordDiff;
@@ -1671,7 +1672,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     return new Date(unix * 1e3).toLocaleDateString();
   }
   function LogPage() {
-    var _a2;
+    var _a2, _b2;
     const app = useApp();
     const repo = app.repo;
     const [commits, setCommits] = React$1.useState([]);
@@ -1690,6 +1691,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
     const [detail, setDetail] = React$1.useState(null);
     const [detailError, setDetailError] = React$1.useState(null);
     const [fileDiff, setFileDiff] = React$1.useState(null);
+    const [full, setFull] = React$1.useState(null);
     const [diffLoading, setDiffLoading] = React$1.useState(false);
     const [compareBase, setCompareBase] = React$1.useState(null);
     const [resetTarget, setResetTarget] = React$1.useState(null);
@@ -2123,8 +2125,9 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
               onOpen: async () => {
                 setDiffLoading(true);
                 try {
-                  const d = await call("log.fileDiff", { sha: detail.commit.sha, baseSha: compareBase == null ? void 0 : compareBase.sha, path: f.path });
-                  setFileDiff(d);
+                  const f2 = await call("log.fileDiffFull", { sha: detail.commit.sha, baseSha: compareBase == null ? void 0 : compareBase.sha, path: f.path });
+                  setFull(f2);
+                  setFileDiff(f2.isBinary || f2.tooLarge ? await call("log.fileDiff", { sha: detail.commit.sha, baseSha: compareBase == null ? void 0 : compareBase.sha, path: f.path }).catch(() => null) : null);
                 } catch (e) {
                   setDetailError(e.message);
                 } finally {
@@ -2136,7 +2139,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
           ))
         ] }),
         diffLoading && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "spinner", children: t("Common_Loading") }),
-        fileDiff && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: "55%", overflow: "auto", borderTop: "1px solid var(--c-border)" }, children: /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: fileDiff, inline: ((_a2 = app.settings) == null ? void 0 : _a2.diffMode) === "inline" }) })
+        full && !full.isBinary && !full.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: "55%", minHeight: 0, display: "flex", flexDirection: "column", borderTop: "1px solid var(--c-border)" }, children: /* @__PURE__ */ jsxRuntime.jsx(MonacoDiffView, { full, inline: ((_a2 = app.settings) == null ? void 0 : _a2.diffMode) === "inline" }) }) : fileDiff && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: "55%", overflow: "auto", borderTop: "1px solid var(--c-border)" }, children: /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: fileDiff, inline: ((_b2 = app.settings) == null ? void 0 : _b2.diffMode) === "inline" }) })
       ] }) : /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: detailError ?? t("Log_SelectCommitHint") }) }) }) }),
       resetTarget && /* @__PURE__ */ jsxRuntime.jsx(
         Modal,

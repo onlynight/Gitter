@@ -244,6 +244,7 @@
   K().ReactDOM;
   const ReactDOMClient = K().ReactDOMClient;
   K().DiffView;
+  K().MonacoDiffView;
   K().diffStatusLetter;
   K().renderSegments;
   K().wordDiff;

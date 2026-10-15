@@ -1,5 +1,6 @@
-import { git, GitError } from "./gitexec";
-import type { CommitDTO, DiffDTO, FileMetaDTO, HunkDTO, RefDTO } from "../shared/types";
+import { git, tryGit, GitError } from "./gitexec";
+import { blobText, buildDiffFull } from "./diffFull";
+import type { CommitDTO, DiffDTO, DiffFullDTO, FileMetaDTO, HunkDTO, RefDTO } from "../shared/types";
 
 // ---------------------------------------------------------------------------
 // unified diff 解析（对齐 C# ParseUnifiedDiff 语义：hunk/EOF 标志/二进制/重命名）
@@ -346,6 +347,29 @@ export async function fileDiff(workDir: string, sha: string, path_: string, base
       hunks: [], addedLines: 0, deletedLines: 0, oldEndsWithNewline: true, newEndsWithNewline: true,
     },
   );
+}
+
+/** 单文件 diff 的全量双文本版（monaco diff 编辑器渲染用）。
+ * base 缺省取第一父提交（根提交无父 → original 为空）；重命名按 oldPath 取基线侧。 */
+export async function fileDiffFull(workDir: string, sha: string, path_: string, baseSha?: string | null): Promise<DiffFullDTO> {
+  let patch: string;
+  if (baseSha) {
+    patch = await git(workDir, ["diff", "--no-color", baseSha, sha, "--", path_]);
+  } else {
+    patch = await git(workDir, ["diff-tree", "--no-color", "-p", "--root", sha, "--", path_]);
+  }
+  const file = parseUnifiedDiff(patch)[0] ?? null;
+  if (file?.isBinary) return { path: path_, isBinary: true, tooLarge: false, original: "", modified: "", hunks: [] };
+  const base = baseSha ?? (await parentRev(workDir, sha));
+  const originalPath = file?.isRenamed && file.oldPath ? file.oldPath : path_;
+  const original = base ? (await blobText(workDir, base, originalPath)) ?? "" : "";
+  const modified = file?.isDeleted ? "" : (await blobText(workDir, sha, path_)) ?? "";
+  return buildDiffFull(path_, patch, original, modified);
+}
+
+async function parentRev(workDir: string, sha: string): Promise<string | null> {
+  const r = await tryGit(workDir, ["rev-parse", "--verify", `${sha}^`]);
+  return r.code === 0 ? r.stdout.trim() : null;
 }
 
 export async function getCommit(workDir: string, sha: string): Promise<CommitDTO | null> {

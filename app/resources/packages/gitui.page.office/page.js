@@ -549,6 +549,7 @@ body.dark .gpv-sheet-tabs button.active { background: #3a3a3a; border-color: #4a
   K().ReactDOM;
   const ReactDOMClient = K().ReactDOMClient;
   K().DiffView;
+  K().MonacoDiffView;
   K().diffStatusLetter;
   K().renderSegments;
   K().wordDiff;

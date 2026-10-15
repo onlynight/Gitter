@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Banner, DiffView, Modal, ReflogDialog, ScrollArea, Select, SplitPane, useContextMenu, type CtxMenuItem } from "../kit";
-import type { CommitDTO, CommitDetailDTO, DiffDTO, FileMetaDTO, HeadCommitInfoDTO } from "../bridge/types";
+import { Banner, DiffView, MonacoDiffView, Modal, ReflogDialog, ScrollArea, Select, SplitPane, useContextMenu, type CtxMenuItem } from "../kit";
+import type { CommitDTO, CommitDetailDTO, DiffDTO, DiffFullDTO, FileMetaDTO, HeadCommitInfoDTO } from "../bridge/types";
 import { groupSessions, squashMessage, type AgentSession } from "../lib/sessions";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -54,7 +54,8 @@ export function LogPage() {
   }, [selectedSha]);
   const [detail, setDetail] = useState<CommitDetailDTO | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [fileDiff, setFileDiff] = useState<DiffDTO | null>(null);
+  const [fileDiff, setFileDiff] = useState<DiffDTO | null>(null); // 回退位：二进制/超长走 hunk 版
+  const [full, setFull] = useState<DiffFullDTO | null>(null); // monaco diff（选中文件）
   const [diffLoading, setDiffLoading] = useState(false);
   const [compareBase, setCompareBase] = useState<CommitDTO | null>(null);
   // 重置分支对话框（Android Studio 语义：soft/mixed/hard）
@@ -493,8 +494,9 @@ export function LogPage() {
                     onOpen={async () => {
                       setDiffLoading(true);
                       try {
-                        const d = await call<DiffDTO>("log.fileDiff", { sha: detail.commit.sha, baseSha: compareBase?.sha, path: f.path });
-                        setFileDiff(d);
+                        const f2 = await call<DiffFullDTO>("log.fileDiffFull", { sha: detail.commit.sha, baseSha: compareBase?.sha, path: f.path });
+                        setFull(f2);
+                        setFileDiff(f2.isBinary || f2.tooLarge ? await call<DiffDTO>("log.fileDiff", { sha: detail.commit.sha, baseSha: compareBase?.sha, path: f.path }).catch(() => null) : null);
                       } catch (e) {
                         setDetailError((e as Error).message);
                       } finally {
@@ -505,7 +507,11 @@ export function LogPage() {
                 ))}
               </div>
               {diffLoading && <div className="spinner">{t("Common_Loading")}</div>}
-              {fileDiff && (
+              {full && !full.isBinary && !full.tooLarge ? (
+                <div style={{ height: "55%", minHeight: 0, display: "flex", flexDirection: "column", borderTop: "1px solid var(--c-border)" }}>
+                  <MonacoDiffView full={full} inline={app.settings?.diffMode === "inline"} />
+                </div>
+              ) : fileDiff && (
                 <div style={{ height: "55%", overflow: "auto", borderTop: "1px solid var(--c-border)" }}>
                   <DiffView diff={fileDiff} inline={app.settings?.diffMode === "inline"} />
                 </div>

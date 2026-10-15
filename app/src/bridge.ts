@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, Notification, shell, safeStorage } from "el
 import * as fs from "fs";
 import * as path from "path";
 import { tryGit, looksLikeRepo, GitError } from "./services/gitexec";
-import { commitFilesWithCounts, fileDiff, getCommit, listBranches, queryLog } from "./services/gitlog";
+import { commitFilesWithCounts, fileDiff, fileDiffFull, getCommit, listBranches, queryLog } from "./services/gitlog";
 import * as status from "./services/gitstatus";
 import * as branches from "./services/gitbranches";
 import * as worktrees from "./services/worktrees";
@@ -385,6 +385,8 @@ export class Bridge {
     });
     R("log.fileDiff", (args: { sha: string; baseSha?: string | null; path: string }) =>
       fileDiff(this.needRepo(), args.sha, args.path, args.baseSha ?? null));
+    R("log.fileDiffFull", (args: { sha: string; baseSha?: string | null; path: string }) =>
+      fileDiffFull(this.needRepo(), args.sha, args.path, args.baseSha ?? null));
 
     // ---- 变更 ----
     R("changes.state", () => status.getStatus(this.needRepo()));
@@ -406,6 +408,8 @@ export class Bridge {
     R("changes.pushPreview", () => status.upstreamOnlyCommits(this.needRepo()));
     R("changes.diffFile", (args: { path: string; staged: boolean; isNewFile?: boolean }) =>
       status.worktreeFileDiff(this.needRepo(), args.path, !!args.staged, !!args.isNewFile));
+    R("changes.diffFileFull", (args: { path: string; staged: boolean; isNewFile?: boolean }) =>
+      status.worktreeFileDiffFull(this.needRepo(), args.path, !!args.staged, !!args.isNewFile));
     R("changes.stageHunks", (args: { path: string; indices: number[] }) =>
       status.stageHunks(this.needRepo(), args.path, args.indices));
     R("changes.unstageHunks", (args: { path: string; indices: number[] }) =>
@@ -670,6 +674,7 @@ export class Bridge {
     // 改动预览（F6）：文件列表 / diff（DiffDTO）/ diff 原文（复制）/ checkpoint 索引 / 恢复
     R("agent.task.files", (args: { taskId: string }) => this.agents.taskFiles(args));
     R("agent.task.diff", (args: { taskId: string; path?: string; since?: string; base?: "baseline" | "head" }) => this.agents.taskDiff(args));
+    R("agent.task.diffFull", (args: { taskId: string; path?: string; since?: string; base?: "baseline" | "head" }) => this.agents.taskDiffFull(args));
     R("agent.task.diffText", (args: { taskId: string; path?: string; since?: string; base?: "baseline" | "head" }) => this.agents.taskDiffText(args));
     R("agent.task.checkpoints", (args: { taskId: string }) => this.agents.taskCheckpoints(args));
     R("agent.task.previewFile", (args: { taskId: string; path: string }) => this.agents.taskPreview(args));

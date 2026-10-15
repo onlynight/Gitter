@@ -55,6 +55,25 @@ export interface DiffDTO {
   truncated?: boolean;
 }
 
+/** monaco diff 编辑器渲染用全量双文本（*DiffFull RPC）。hunks 顺序与 git diff hunk
+ * 一致（把 monaco 的行变更映射回 hunk 索引做勾选暂存）。 */
+export interface DiffFullDTO {
+  path: string;
+  isBinary: boolean;
+  /** 任一侧超过单侧字符上限：original/modified 为空串，回退 hunk 版 DiffView */
+  tooLarge: boolean;
+  original: string;
+  modified: string;
+  hunks: HunkRangeDTO[];
+}
+
+export interface HunkRangeDTO {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+}
+
 export interface FileStatusDTO {
   path: string;
   category: "changes" | "staged" | "unversioned" | "conflicts";

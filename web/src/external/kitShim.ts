@@ -15,6 +15,7 @@ export const ReactDOM = K().ReactDOM as typeof import("react-dom");
 export const ReactDOMClient = K().ReactDOMClient as typeof import("react-dom/client");
 
 export const DiffView = K().DiffView as typeof import("../kit")["DiffView"];
+export const MonacoDiffView = K().MonacoDiffView as typeof import("../kit")["MonacoDiffView"];
 export const diffStatusLetter = K().diffStatusLetter as typeof import("../kit")["diffStatusLetter"];
 export const renderSegments = K().renderSegments as typeof import("../kit")["renderSegments"];
 export const wordDiff = K().wordDiff as typeof import("../kit")["wordDiff"];

@@ -10,10 +10,20 @@ import { createRoot } from "react-dom/client";
 import "../src/styles.css";
 import { ChangesPage } from "../src/pages/ChangesPage";
 import { setState } from "../src/state/store";
-// DiffView 语法高亮已迁 Monarch（页 manifest dependencies 声明 gitui.lib.monaco，
-// loader 先注入）——harness 同构：动态 import 产物（vite 重写 /@fs/，与 files-main.tsx
-// 同款；首次 dev 转换较慢，之后走缓存）。IIFE 执行即挂 GITTER_LIBS.monaco / monacoSyntax
-await import("../../app/resources/packages/gitui.lib.monaco/monaco.js");
+// MonacoDiffView 需要 GITTER_LIBS.monaco（页 manifest dependencies，loader 先注入）。
+// harness 同构装载：?raw 取产物原文 → Blob URL 经典脚本执行（与 pageLoader 同为 IIFE 直
+// 执行；import 产物本体会让 vite 对 11.9MB 做 transform，既慢又会踩 babel 解析边缘）
+const monacoSrc: string = (await import("../../app/resources/packages/gitui.lib.monaco/monaco.js?raw")).default;
+{
+  const url = URL.createObjectURL(new Blob([monacoSrc], { type: "text/javascript" }));
+  await new Promise<void>((ok, bad) => {
+    const el = document.createElement("script");
+    el.src = url;
+    el.onload = () => ok();
+    el.onerror = () => bad(new Error("monaco 库装载失败"));
+    document.head.appendChild(el);
+  });
+}
 
 // ---------- theme（tokens 抄自 themes.ts BUILTIN） ----------
 const TOKEN_VARS: Record<string, string> = {
@@ -103,6 +113,7 @@ function mockRpc(method: string, params?: Record<string, unknown>): unknown {
   switch (method) {
     case "changes.state": return MOCK_STATE;
     case "changes.diffFile": return MOCK_DIFF(String(params?.path ?? ""));
+    case "changes.diffFileFull": { const d = MOCK_DIFF(String(params?.path ?? "")); const h = d.hunks[0]; return { path: d.path, isBinary: false, tooLarge: false, original: h.oldLines.map((l) => l.slice(1)).join('\n'), modified: h.newLines.map((l) => l.slice(1)).join('\n'), hunks: [{ oldStart: h.oldStart, oldCount: h.oldCount, newStart: h.newStart, newCount: h.newCount }] }; }
     case "ui.emptyHints": return [];
     case "ui.commitBlocks": return [];
     case "changes.safetyScan": return { findings: [] };

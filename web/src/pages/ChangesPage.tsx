@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pageSdk, useAppState } from "../pageSdk";
 import { seamMenuItems } from "../commands";
-import { Banner, DiffView, Modal, ScrollArea, SplitPane, SyncBar, useSyncProgress, useContextMenu, type CtxMenuItem } from "../kit";
+import { Banner, DiffView, MonacoDiffView, Modal, ScrollArea, SplitPane, SyncBar, useSyncProgress, useContextMenu, type CtxMenuItem } from "../kit";
 import { TlIcon } from "./taskIcons";
 import { StashDialog } from "./StashDialog";
-import type { ChangesStateDTO, DiffDTO, FileStatusDTO, HeadCommitInfoDTO, RemoteOnlyCommitDTO } from "../bridge/types";
+import type { ChangesStateDTO, DiffDTO, DiffFullDTO, FileStatusDTO, HeadCommitInfoDTO, RemoteOnlyCommitDTO } from "../bridge/types";
 import { ConflictAssist } from "./ConflictAssist";
 
 // R1 宿主面收敛：本页只经 pageSdk 消费宿主（ui-full-pluginization-plan.md R1）
@@ -62,7 +62,8 @@ export function ChangesPage() {
   useEffect(() => {
     setSharedContext({ selectedFile: selected });
   }, [selected]);
-  const [diff, setDiff] = useState<DiffDTO | null>(null);
+  const [diff, setDiff] = useState<DiffDTO | null>(null); // 回退位：二进制/超长走 hunk 版
+  const [full, setFull] = useState<DiffFullDTO | null>(null); // monaco diff 编辑器数据
   const [preview, setPreview] = useState<PreviewDTO | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   // 提交勾选语义（v2 重构）：勾选 = 参与本次提交。已暂存行默认参与（勾选态），
@@ -252,15 +253,23 @@ export function ChangesPage() {
         const p = await call<PreviewDTO>("file.preview", { path: sel.path, staged: sel.staged });
         setPreview(p);
         setDiff(null);
+        setFull(null);
         return;
       } catch {
         // 读取失败（文件消失等）→ 回退 diff 路径
       }
     }
     try {
-      const d = await call<DiffDTO>("changes.diffFile", { path: sel.path, staged: sel.staged, isNewFile: sel.isNew });
-      setDiff(d);
+      const f = await call<DiffFullDTO>("changes.diffFileFull", { path: sel.path, staged: sel.staged, isNewFile: sel.isNew });
+      setFull(f);
+      setDiff(null);
+      if (f.isBinary || f.tooLarge) {
+        // 回退位：二进制/超长 → hunk 版 DiffView
+        const d = await call<DiffDTO>("changes.diffFile", { path: sel.path, staged: sel.staged, isNewFile: sel.isNew }).catch(() => null);
+        setDiff(d);
+      }
     } catch (e) {
+      setFull(null);
       setDiff(null);
       setError((e as Error).message);
     }
@@ -702,7 +711,7 @@ export function ChangesPage() {
     );
   };
 
-  const hasSelectedHunks = selectedHunks.size > 0 && diff && !diff.isBinary;
+  const hasSelectedHunks = selectedHunks.size > 0 && (full ? !full.isBinary : !!diff && !diff.isBinary);
 
   // 右侧文件头数据：在对应分组里找回所选文件（拿 code 与行数统计）
   const selectedFile = useMemo(() => {
@@ -1099,6 +1108,14 @@ export function ChangesPage() {
                   )}
                 </div>
               </div>
+            ) : selected && full && !full.isBinary && !full.tooLarge ? (
+              <MonacoDiffView
+                full={full}
+                focusLine={focusLine}
+                inline={app.settings?.diffMode === "inline"}
+                selectedHunks={selected.staged || selected.isNew ? undefined : selectedHunks}
+                onToggleHunk={selected.staged || selected.isNew ? undefined : toggleHunk}
+              />
             ) : selected && diff ? (
               <DiffView
                 diff={diff}

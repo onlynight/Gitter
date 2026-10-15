@@ -289,6 +289,7 @@
   K().ReactDOM;
   const ReactDOMClient = K().ReactDOMClient;
   const DiffView = K().DiffView;
+  const MonacoDiffView = K().MonacoDiffView;
   K().diffStatusLetter;
   K().renderSegments;
   K().wordDiff;
@@ -598,6 +599,7 @@ li { margin: .25em 0; }
     const [active, setActive] = react.useState(TURNS_TAB);
     const [turn, setTurn] = react.useState("latest");
     const [modes, setModes] = react.useState({});
+    const [full, setFull] = react.useState(null);
     const [cps, setCps] = react.useState([]);
     const [letters, setLetters] = react.useState({});
     const [files, setFiles] = react.useState([]);
@@ -722,10 +724,20 @@ li { margin: .25em 0; }
       const origin = ((_a3 = tabs.find((t2) => typeof t2 !== "string" && t2.path === activePath)) == null ? void 0 : _a3.origin) ?? "latest";
       const since = origin === "latest" ? void 0 : `checkpoint:${origin}`;
       const rpcBase = origin === "latest" && turn === "latest" && base === "head" ? "head" : "baseline";
-      void call$1("agent.task.diff", { taskId: props.taskId, path: activePath, since, base: rpcBase }).then((d) => {
-        if (!cancelled) setDiffs(d);
+      void call$1("agent.task.diffFull", { taskId: props.taskId, path: activePath, since, base: rpcBase }).then(async (f) => {
+        if (cancelled) return;
+        setFull(f);
+        if (f.isBinary || f.tooLarge) {
+          const d = await call$1("agent.task.diff", { taskId: props.taskId, path: activePath, since, base: rpcBase }).catch(() => []);
+          if (!cancelled) setDiffs(d);
+        } else if (!cancelled) {
+          setDiffs([]);
+        }
       }).catch(() => {
-        if (!cancelled) setDiffs([]);
+        if (!cancelled) {
+          setFull(null);
+          setDiffs([]);
+        }
       });
       return () => {
         cancelled = true;
@@ -793,8 +805,8 @@ li { margin: .25em 0; }
     }, []);
     const openExternal = react.useCallback((useExternalEditor) => {
       if (!activePath) return;
-      const full = absPathOf(props.worktreePath, activePath);
-      void call$1("shell.openPath", { path: full, editor: useExternalEditor || void 0 }).catch((e) => setErr(e.message));
+      const full2 = absPathOf(props.worktreePath, activePath);
+      void call$1("shell.openPath", { path: full2, editor: useExternalEditor || void 0 }).catch((e) => setErr(e.message));
     }, [activePath, props.worktreePath]);
     const fileTabNodes = tabs.filter((t2) => typeof t2 !== "string");
     const hintText = turn !== "latest" ? `该轮快照（${turn.slice(0, 8)}^..${turn.slice(0, 8)}）· 只读回看` : base === "head" ? "基线 = 当前分支头（工作区+暂存 vs HEAD）· 不含未跟踪文件" : "基线 = 任务起点（squash 视角，含全部 checkpoint）";
@@ -962,7 +974,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           ] })
         ] }),
         err && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-err", children: err }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-body", children: activeMode === "diff" ? diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "（无差异）" }) : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d }, d.path)) : view.kind === "loading" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "加载中…" }) : view.kind === "image" ? /* @__PURE__ */ jsxRuntime.jsx("img", { className: "lc-img", src: view.url, alt: activePath ?? "" }) : view.kind === "external" ? /* @__PURE__ */ jsxRuntime.jsx(
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-body", children: activeMode === "diff" ? full && !full.isBinary && !full.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx(MonacoDiffView, { full }) : diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "（无差异）" }) : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d }, d.path)) : view.kind === "loading" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "加载中…" }) : view.kind === "image" ? /* @__PURE__ */ jsxRuntime.jsx("img", { className: "lc-img", src: view.url, alt: activePath ?? "" }) : view.kind === "external" ? /* @__PURE__ */ jsxRuntime.jsx(
           ExternalFilePreview,
           {
             path: activePath ?? "",
@@ -2367,6 +2379,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     const [files, setFiles] = react.useState([]);
     const [sel, setSel] = react.useState(initialFile ?? null);
     const [diffs, setDiffs] = react.useState([]);
+    const [full, setFull] = react.useState(null);
     const diffTextRef = react.useRef("");
     const [since, setSince] = react.useState(void 0);
     const [busy, setBusy] = react.useState(false);
@@ -2381,12 +2394,13 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
         const target = sel && fs.some((f) => f.path === sel) ? sel : ((_a2 = fs[0]) == null ? void 0 : _a2.path) ?? null;
         setSel(target);
         if (target) {
-          const [d, txt] = await Promise.all([
-            call$1("agent.task.diff", { taskId, path: target, since }),
+          const [f, txt] = await Promise.all([
+            call$1("agent.task.diffFull", { taskId, path: target, since }),
             call$1("agent.task.diffText", { taskId, path: target, since })
           ]);
           if (!cancelled) {
-            setDiffs(d);
+            setFull(f);
+            setDiffs(f.isBinary || f.tooLarge ? await call$1("agent.task.diff", { taskId, path: target, since }).catch(() => []) : []);
             diffTextRef.current = txt;
           }
         } else {
@@ -2403,6 +2417,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
     const pick = (x) => {
       setSel(x);
       setDiffs([]);
+      setFull(null);
     };
     return /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }, children: [
       /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: "1px solid var(--c-border)", flexWrap: "wrap" }, children: [
@@ -2470,7 +2485,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
               /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", children: "复制" })
             ] })
           ] }),
-          diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: busy ? "加载中…" : "（无差异）" }) : diffs.map((d) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8 }, children: [
+          full && !full.isBinary && !full.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx(MonacoDiffView, { full }) : diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: busy ? "加载中…" : "（无差异）" }) : diffs.map((d) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8 }, children: [
             /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, padding: "2px 0" }, children: [
               d.path,
               " +",
@@ -2479,8 +2494,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
               d.deletedLines
             ] }),
             /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d })
-          ] }, d.path)),
-          /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11, marginTop: 8 }, children: "并排 / 内联 切换沿用现有 DiffView" })
+          ] }, d.path))
         ] })
       ] })
     ] });

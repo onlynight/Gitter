@@ -1,15 +1,15 @@
 /**
  * 实时变更面板（v3.2 · docs/task-page-live-changes.md）：
  * 编辑器式 tab 面板——固定首 tab「按轮」（上=轮次列表，下=该轮变更文件）+ 文件预览 tab
- * （预览=highlight.file 语法高亮只读 / 差异=DiffView，全高显示，可关闭）。
+ * （预览=highlight.file 语法高亮只读 / 差异=MonacoDiffView（二进制/超长回退 DiffView），全高显示，可关闭）。
  * 编辑 = 分裂按钮主钮跳文件页内置编辑器（默认动作）；外部应用 = 下拉列表（shell.openPath）。
  * 数据全部复用既有 RPC：checkpoints / files / diff(since=checkpoint:<sha>) / file.content / highlight.file / file.readBinary / shell.openPath。
- * 边界（构建策略「monaco 仅 files 页」）：面板不打包 Monaco。
+ * monaco 由 gitui.lib.monaco 库包提供（tasks 页 manifest dependencies，构建不打包）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge/client";
-import type { AgentCheckpointDTO, AgentTaskFileDTO, DiffDTO, RiskFileReport, RiskReport } from "../bridge/types";
-import { DiffView } from "../kit";
+import type { AgentCheckpointDTO, AgentTaskFileDTO, DiffDTO, DiffFullDTO, RiskFileReport, RiskReport } from "../bridge/types";
+import { DiffView, MonacoDiffView } from "../kit";
 import { taskPanels, useAgentUIVersion } from "../external/agentUIShim";
 import { TlIcon } from "./taskIcons";
 import { ExternalFilePreview, isExternalPreviewPath } from "./externalPreview";
@@ -72,6 +72,7 @@ export function TaskChangesPanel(props: {
   const [active, setActive] = useState<string>(TURNS_TAB);
   const [turn, setTurn] = useState<string>("latest"); // 按轮页当前选中轮次
   const [modes, setModes] = useState<Record<string, "preview" | "diff">>({});
+  const [full, setFull] = useState<DiffFullDTO | null>(null); // 选中文件的全量双文本（monaco diff）
   const [cps, setCps] = useState<AgentCheckpointDTO[]>([]);
   const [letters, setLetters] = useState<Record<string, "A" | "D" | "M">>({});
   const [files, setFiles] = useState<{ path: string; letter: "A" | "D" | "M"; added: number | null; deleted: number | null }[]>([]);
@@ -195,9 +196,19 @@ export function TaskChangesPanel(props: {
     const origin = tabs.find((t): t is FileTab => typeof t !== "string" && (t as FileTab).path === activePath)?.origin ?? "latest";
     const since = origin === "latest" ? undefined : `checkpoint:${origin}`;
     const rpcBase = origin === "latest" && turn === "latest" && base === "head" ? "head" as const : "baseline" as const;
-    void call<DiffDTO[]>("agent.task.diff", { taskId: props.taskId, path: activePath, since, base: rpcBase })
-      .then((d) => { if (!cancelled) setDiffs(d); })
-      .catch(() => { if (!cancelled) setDiffs([]); });
+    void call<DiffFullDTO>("agent.task.diffFull", { taskId: props.taskId, path: activePath, since, base: rpcBase })
+      .then(async (f) => {
+        if (cancelled) return;
+        setFull(f);
+        if (f.isBinary || f.tooLarge) {
+          // 回退位：hunk 版 DiffView
+          const d = await call<DiffDTO[]>("agent.task.diff", { taskId: props.taskId, path: activePath, since, base: rpcBase }).catch(() => []);
+          if (!cancelled) setDiffs(d);
+        } else if (!cancelled) {
+          setDiffs([]);
+        }
+      })
+      .catch(() => { if (!cancelled) { setFull(null); setDiffs([]); } });
     return () => { cancelled = true; };
   }, [activePath, activeMode, props.taskId, base, turn]);
 
@@ -423,9 +434,11 @@ export function TaskChangesPanel(props: {
           {err && <div className="lc-err">{err}</div>}
           <div className="lc-body">
             {activeMode === "diff" ? (
-              diffs.length === 0
-                ? <div className="lc-loading">（无差异）</div>
-                : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => <DiffView key={d.path} diff={d} />)
+              full && !full.isBinary && !full.tooLarge
+                ? <MonacoDiffView full={full} />
+                : diffs.length === 0
+                  ? <div className="lc-loading">（无差异）</div>
+                  : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => <DiffView key={d.path} diff={d} />)
             ) : view.kind === "loading" ? (
               <div className="lc-loading">加载中…</div>
             ) : view.kind === "image" ? (

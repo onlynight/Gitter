@@ -4,8 +4,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { call, onEvent } from "../bridge/client";
-import type { AgentCheckpointDTO, AgentShellDTO, AgentSubtaskDTO, AgentSubtaskListDTO, AgentSubtaskTranscriptDTO, AgentTaskFileDTO, AgentEventDTO, DiffDTO } from "../bridge/types";
-import { DiffView, renderMarkdown } from "../kit";
+import type { AgentCheckpointDTO, AgentShellDTO, AgentSubtaskDTO, AgentSubtaskListDTO, AgentSubtaskTranscriptDTO, AgentTaskFileDTO, AgentEventDTO, DiffDTO, DiffFullDTO } from "../bridge/types";
+import { DiffView, MonacoDiffView, renderMarkdown } from "../kit";
 import { pageSdk } from "../pageSdk";
 import { TlIcon } from "./taskIcons";
 import {
@@ -35,7 +35,8 @@ export function ChangesTab(props: {
   const { taskId, worktreePath, baselineSha, initialFile, tick } = props;
   const [files, setFiles] = useState<AgentTaskFileDTO[]>([]);
   const [sel, setSel] = useState<string | null>(initialFile ?? null);
-  const [diffs, setDiffs] = useState<DiffDTO[]>([]);
+  const [diffs, setDiffs] = useState<DiffDTO[]>([]); // 回退位：二进制/超长走 hunk 版
+  const [full, setFull] = useState<DiffFullDTO | null>(null); // monaco diff（选中文件）
   const diffTextRef = useRef("");
   const [since, setSince] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
@@ -51,11 +52,16 @@ export function ChangesTab(props: {
         const target = sel && fs.some((f) => f.path === sel) ? sel : fs[0]?.path ?? null;
         setSel(target);
         if (target) {
-          const [d, txt] = await Promise.all([
-            call<DiffDTO[]>("agent.task.diff", { taskId, path: target, since }),
+          const [f, txt] = await Promise.all([
+            call<DiffFullDTO>("agent.task.diffFull", { taskId, path: target, since }),
             call<string>("agent.task.diffText", { taskId, path: target, since }),
           ]);
-          if (!cancelled) { setDiffs(d); diffTextRef.current = txt; }
+          if (!cancelled) {
+            setFull(f);
+            // 回退位：二进制/超长 → hunk 版 DiffView
+            setDiffs(f.isBinary || f.tooLarge ? await call<DiffDTO[]>("agent.task.diff", { taskId, path: target, since }).catch(() => []) : []);
+            diffTextRef.current = txt;
+          }
         } else { setDiffs([]); diffTextRef.current = ""; }
       })
       .catch((e) => props.setError((e as Error).message))
@@ -64,7 +70,7 @@ export function ChangesTab(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, tick, sel, since]);
 
-  const pick = (x: string | null) => { setSel(x); setDiffs([]); };
+  const pick = (x: string | null) => { setSel(x); setDiffs([]); setFull(null); };
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -104,7 +110,9 @@ export function ChangesTab(props: {
               <button className="tool-btn">复制</button>
             </div>
           </div>
-          {diffs.length === 0 ? (
+          {full && !full.isBinary && !full.tooLarge ? (
+            <MonacoDiffView full={full} />
+          ) : diffs.length === 0 ? (
             <div style={{ color: "var(--c-text3)", fontSize: 11.5 }}>{busy ? "加载中…" : "（无差异）"}</div>
           ) : diffs.map((d) => (
             <div key={d.path} style={{ marginBottom: 8 }}>
@@ -112,7 +120,6 @@ export function ChangesTab(props: {
               <DiffView diff={d} />
             </div>
           ))}
-          <div style={{ color: "var(--c-text3)", fontSize: 11, marginTop: 8 }}>并排 / 内联 切换沿用现有 DiffView</div>
         </div>
       </div>
     </div>

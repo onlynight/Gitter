@@ -1,6 +1,7 @@
 import { git, tryGit, tryGitStream, GitError, type GitResult } from "./gitexec";
 import { parseUnifiedDiff, truncateDiff } from "./gitlog";
-import type { ChangesStateDTO, DiffDTO, FileStatusDTO, HeadCommitInfoDTO, RemoteOnlyCommitDTO } from "../shared/types";
+import { blobText, buildDiffFull, worktreeText } from "./diffFull";
+import type { ChangesStateDTO, DiffDTO, DiffFullDTO, FileStatusDTO, HeadCommitInfoDTO, RemoteOnlyCommitDTO } from "../shared/types";
 
 // ---------------------------------------------------------------------------
 // 工作区状态（对齐 ChangesViewModel 三层分类语义）
@@ -136,6 +137,46 @@ export async function worktreeFileDiff(
     }
   }
   return files[0] ? truncateDiff(files[0]) : empty;
+}
+
+/** 工作区（或 index）文件 diff 的全量双文本版（monaco diff 编辑器渲染用）。
+ * patch 与 hunk 版同源（untracked 走 --no-index；unmerged 回退 ours/theirs 标准差）；
+ * 双侧全文语义：staged = HEAD vs index；unstaged = index vs 工作区；untracked = 空 vs 工作区。 */
+export async function worktreeFileDiffFull(
+  workDir: string,
+  path_: string,
+  staged: boolean,
+  isNewFile: boolean,
+): Promise<DiffFullDTO> {
+  let patch: string;
+  if (!staged && isNewFile) {
+    const r = await tryGit(workDir, ["diff", "--no-color", "--no-index", "--", "/dev/null", path_]);
+    if (r.code === 0) return { path: path_, isBinary: false, tooLarge: false, original: "", modified: "", hunks: [] };
+    if (r.code !== 1) throw new GitError(["diff", "--no-index", path_], r);
+    patch = r.stdout;
+  } else {
+    patch = await git(workDir, ["diff", "--no-color", staged ? "--cached" : "", "--", path_].filter(Boolean));
+  }
+  let original = "";
+  let modified = "";
+  if (!staged && isNewFile) {
+    modified = await worktreeText(workDir, path_);
+  } else if (staged) {
+    original = (await blobText(workDir, "HEAD", path_)) ?? "";
+    modified = (await blobText(workDir, "", path_)) ?? "";
+  } else {
+    original = (await blobText(workDir, "", path_)) ?? "";
+    modified = await worktreeText(workDir, path_);
+    // 冲突路径：patch 是解析不了的 combined diff（hunks 为空）→ 双侧改取 ours/theirs
+    if (original === "" && modified === "") {
+      const unmerged = await tryGit(workDir, ["ls-files", "-u", "--", path_]);
+      if (unmerged.stdout.trim()) {
+        original = (await blobText(workDir, ":2", path_)) ?? "";
+        modified = (await blobText(workDir, ":3", path_)) ?? "";
+      }
+    }
+  }
+  return buildDiffFull(path_, patch, original, modified);
 }
 
 /**

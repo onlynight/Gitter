@@ -50,6 +50,7 @@
   K().ReactDOM;
   const ReactDOMClient = K().ReactDOMClient;
   const DiffView = K().DiffView;
+  const MonacoDiffView = K().MonacoDiffView;
   K().diffStatusLetter;
   K().renderSegments;
   K().wordDiff;
@@ -574,7 +575,7 @@
     return dot >= 0 && PREVIEW_EXTS.has(p.slice(dot).toLowerCase());
   }
   function ChangesPage() {
-    var _a2;
+    var _a2, _b2;
     const app = useApp();
     const repo = app.repo;
     const [state, setStateDto] = react.useState(null);
@@ -586,6 +587,7 @@
       setSharedContext({ selectedFile: selected });
     }, [selected]);
     const [diff, setDiff] = react.useState(null);
+    const [full, setFull] = react.useState(null);
     const [preview, setPreview] = react.useState(null);
     const [checked, setChecked] = react.useState(/* @__PURE__ */ new Set());
     const [excludedStaged, setExcludedStaged] = react.useState(/* @__PURE__ */ new Set());
@@ -754,14 +756,21 @@
           const p = await call("file.preview", { path: sel.path, staged: sel.staged });
           setPreview(p);
           setDiff(null);
+          setFull(null);
           return;
         } catch {
         }
       }
       try {
-        const d = await call("changes.diffFile", { path: sel.path, staged: sel.staged, isNewFile: sel.isNew });
-        setDiff(d);
+        const f = await call("changes.diffFileFull", { path: sel.path, staged: sel.staged, isNewFile: sel.isNew });
+        setFull(f);
+        setDiff(null);
+        if (f.isBinary || f.tooLarge) {
+          const d = await call("changes.diffFile", { path: sel.path, staged: sel.staged, isNewFile: sel.isNew }).catch(() => null);
+          setDiff(d);
+        }
       } catch (e) {
+        setFull(null);
         setDiff(null);
         setError(e.message);
       }
@@ -1212,7 +1221,7 @@
         !collapsed && visible.map((f) => renderRow(f, stagedView, opts.checkable))
       ] }, gkey);
     };
-    const hasSelectedHunks = selectedHunks.size > 0 && diff && !diff.isBinary;
+    const hasSelectedHunks = selectedHunks.size > 0 && (full ? !full.isBinary : !!diff && !diff.isBinary);
     const selectedFile = react.useMemo(() => {
       if (!selected || !state) return null;
       const list = selected.staged ? state.staged : selected.isConflict ? state.conflicts : selected.isNew ? state.unversioned : state.changes;
@@ -1663,13 +1672,22 @@
                 alt: selected.path
               }
             ) })
-          ] }) : selected && diff ? /* @__PURE__ */ jsxRuntime.jsx(
+          ] }) : selected && full && !full.isBinary && !full.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx(
+            MonacoDiffView,
+            {
+              full,
+              focusLine,
+              inline: ((_a2 = app.settings) == null ? void 0 : _a2.diffMode) === "inline",
+              selectedHunks: selected.staged || selected.isNew ? void 0 : selectedHunks,
+              onToggleHunk: selected.staged || selected.isNew ? void 0 : toggleHunk
+            }
+          ) : selected && diff ? /* @__PURE__ */ jsxRuntime.jsx(
             DiffView,
             {
               diff,
               hideHeader: true,
               focusLine,
-              inline: ((_a2 = app.settings) == null ? void 0 : _a2.diffMode) === "inline",
+              inline: ((_b2 = app.settings) == null ? void 0 : _b2.diffMode) === "inline",
               selectedHunks: selected.staged || selected.isNew ? void 0 : selectedHunks,
               onToggleHunk: selected.staged || selected.isNew ? void 0 : toggleHunk,
               hunkActionLabel,

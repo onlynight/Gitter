@@ -7,6 +7,7 @@ import type { PackageStore } from "../extensions/store";
 import type { SettingsStore } from "../settings";
 import { tryGit } from "../gitexec";
 import { parseUnifiedDiff, truncateDiff } from "../gitlog";
+import { blobText, buildDiffFull, worktreeText } from "../diffFull";
 import * as status from "../gitstatus";
 import { deleteBranch, mergeBranch, squashMerge } from "../gitbranches";
 import { createTaskWorktree, listWorktrees, removeTaskWorktree } from "../worktrees";
@@ -1032,6 +1033,32 @@ ${wrapReminder(mention.reminder)}` : mention.prompt);
   async taskDiff(args: { taskId: string; path?: string; since?: string; base?: "baseline" | "head" }): Promise<import("../../shared/types").DiffDTO[]> {
     const text = await this.taskDiffText(args);
     return parseUnifiedDiff(text).map((d) => truncateDiff(d));
+  }
+
+  /** 单文件 diff 的全量双文本版（monaco diff 编辑器渲染用）。区间语义与 taskDiffText 一致：
+   * checkpoint 对 `<sha>^ <sha>`；head/baseline 对基线 vs 工作区（modified 读工作区文件）。 */
+  async taskDiffFull(args: { taskId: string; path?: string; since?: string; base?: "baseline" | "head" }): Promise<import("../../shared/types").DiffFullDTO> {
+    const record = this.recordOf(args.taskId);
+    const rel = String(args.path ?? "").replace(/\\/g, "/");
+    let base: string | null = null;
+    let revForModified: string | null = null;
+    if (args.since && args.since.startsWith("checkpoint:")) {
+      const sha = args.since.slice("checkpoint:".length);
+      base = `${sha}^`;
+      revForModified = sha;
+    } else if (args.base === "head") {
+      base = "HEAD";
+    } else if (record.baselineSha) {
+      base = record.baselineSha;
+    }
+    const gitArgs = ["diff", "--no-color", ...(base ? (revForModified ? [base, revForModified] : [base]) : []), "--", rel];
+    const r = await tryGit(record.worktreePath, gitArgs);
+    const patch = r.stdout;
+    const original = base ? (await blobText(record.worktreePath, base, rel)) ?? "" : "";
+    const modified = revForModified
+      ? (await blobText(record.worktreePath, revForModified, rel)) ?? ""
+      : await worktreeText(record.worktreePath, rel);
+    return buildDiffFull(rel, patch, original, modified);
   }
 
   /** 原始 unified diff 文本（复制/导出用）。 */

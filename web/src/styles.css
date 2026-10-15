@@ -1435,6 +1435,13 @@ html[data-window-material="acrylic"] .split-pane { background: transparent; }
 .d-del .wd-emph { background: color-mix(in srgb, var(--c-red) 32%, transparent); }
 .d-add .wd-emph { background: color-mix(in srgb, var(--c-green) 32%, transparent); }
 .d-ctx .wd-emph { background: var(--c-hover); }
+
+/* monaco diff 编辑器（MonacoDiffView）：容器 + hunk 勾选 glyph + focus 行高亮 */
+.mdiff { height: 100%; min-height: 240px; }
+.mdiff-glyph { cursor: pointer; }
+.mdiff-glyph::before { content: "○"; font-size: 12px; color: var(--c-text3); margin-left: 2px; }
+.mdiff-glyph.sel::before { content: "◉"; color: var(--c-green); }
+.mdiff-focus-line { background: color-mix(in srgb, var(--c-amber) 20%, transparent); }
 .diff-cell.ln-focus { background: color-mix(in srgb, var(--c-amber) 24%, transparent); transition: background .4s; }
 
 .session-card { font-weight: 600; }
