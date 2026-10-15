@@ -324,6 +324,16 @@ export function ExternalFilePreview(props: {
                 reportScroll(w.scrollY ?? 0);
               });
             }
+            if (htmlRaw && f) {
+              // Electron 44.x 合成器缺陷：sandbox（opaque origin）srcdoc frame 加载后可能
+              // 永不首帧——文档/脚本实际在跑（postMessage 正常），但画布持续白屏（CDP 实测
+              // 该 frame 无合成层；display 切换 + 层提升后立即呈现）。对已正常呈现的 frame
+              // 只多一次重排，无副作用。
+              f.style.display = "none";
+              void f.offsetHeight;
+              f.style.display = "";
+              f.style.transform = "translateZ(0)";
+            }
           }}
         />
       ) : phase.kind === "text" ? (
