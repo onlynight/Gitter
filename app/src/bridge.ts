@@ -570,8 +570,9 @@ export class Bridge {
       return lines.slice(0, 50);
     });
 
-    // ---- 项目文件树 + 编辑器读写面（editor-design.md）----
-    // 文件树骨架：git ls-files 全量 + git 状态分类 + agent 回合改动索引
+    // ---- 项目文件树 + 编辑器读写面 ----
+    // 文件树骨架：工作区磁盘扫描（.git 除外，gitignored 文件与空目录可见）
+    // + git 状态/ignored(!) 叠加 + agent 回合改动索引
     R("repo.tree", async (args: { prefix?: string; taskId?: string }) => {
       const wd = this.needRepo();
       // agent 回合改动集合（若指定 taskId）

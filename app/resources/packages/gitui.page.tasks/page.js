@@ -974,7 +974,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           ] })
         ] }),
         err && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-err", children: err }),
-        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-body", children: activeMode === "diff" ? full && !full.isBinary && !full.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx(MonacoDiffView, { full }) : diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "（无差异）" }) : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d }, d.path)) : view.kind === "loading" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "加载中…" }) : view.kind === "image" ? /* @__PURE__ */ jsxRuntime.jsx("img", { className: "lc-img", src: view.url, alt: activePath ?? "" }) : view.kind === "external" ? /* @__PURE__ */ jsxRuntime.jsx(
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-body", children: activeMode === "diff" ? full && !full.isBinary && !full.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }, children: /* @__PURE__ */ jsxRuntime.jsx(MonacoDiffView, { full }) }) : diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "（无差异）" }) : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => /* @__PURE__ */ jsxRuntime.jsx(DiffView, { diff: d }, d.path)) : view.kind === "loading" ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "lc-loading", children: "加载中…" }) : view.kind === "image" ? /* @__PURE__ */ jsxRuntime.jsx("img", { className: "lc-img", src: view.url, alt: activePath ?? "" }) : view.kind === "external" ? /* @__PURE__ */ jsxRuntime.jsx(
           ExternalFilePreview,
           {
             path: activePath ?? "",
@@ -2440,7 +2440,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
           return void ((_a2 = navigator.clipboard) == null ? void 0 : _a2.writeText(diffTextRef.current));
         }, children: "复制 diff" })
       ] }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "250px 1fr", overflow: "hidden" }, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "250px 1fr", gridTemplateRows: "minmax(0, 1fr)", overflow: "hidden" }, children: [
         /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { borderRight: "1px solid var(--c-border)", overflowY: "auto", padding: 8 }, children: [
           files.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5, padding: 6 }, children: busy ? "加载中…" : "暂无改动" }),
           files.map((f) => {
@@ -2466,7 +2466,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
             );
           })
         ] }),
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { overflowY: "auto", padding: "12px 16px", minWidth: 0 }, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "tl-scroll", style: { overflowY: "auto", padding: "12px 16px", minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }, children: [
           /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }, children: [
             /* @__PURE__ */ jsxRuntime.jsx("span", { style: { fontFamily: "var(--mono, monospace)", fontSize: 12.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: sel ?? "（选择文件）" }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginLeft: "auto", display: "flex", gap: 6 }, children: [
@@ -2485,7 +2485,7 @@ ${c.date.slice(5, 16).replace("T", " ")}`, onClick: () => setTurn(c.sha), childr
               /* @__PURE__ */ jsxRuntime.jsx("button", { className: "tool-btn", children: "复制" })
             ] })
           ] }),
-          full && !full.isBinary && !full.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx(MonacoDiffView, { full }) : diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: busy ? "加载中…" : "（无差异）" }) : diffs.map((d) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8 }, children: [
+          full && !full.isBinary && !full.tooLarge ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { flex: 1, minHeight: 300, display: "flex", flexDirection: "column" }, children: /* @__PURE__ */ jsxRuntime.jsx(MonacoDiffView, { full }) }) : diffs.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { style: { color: "var(--c-text3)", fontSize: 11.5 }, children: busy ? "加载中…" : "（无差异）" }) : diffs.map((d) => /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginBottom: 8 }, children: [
             /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { color: "var(--c-text3)", fontSize: 11, padding: "2px 0" }, children: [
               d.path,
               " +",

@@ -435,7 +435,7 @@ export function TaskChangesPanel(props: {
           <div className="lc-body">
             {activeMode === "diff" ? (
               full && !full.isBinary && !full.tooLarge
-                ? <MonacoDiffView full={full} />
+                ? <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}><MonacoDiffView full={full} /></div>
                 : diffs.length === 0
                   ? <div className="lc-loading">（无差异）</div>
                   : diffs.filter((d) => d.path === activePath || d.oldPath === activePath).map((d) => <DiffView key={d.path} diff={d} />)

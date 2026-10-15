@@ -83,7 +83,7 @@ export function ChangesTab(props: {
         <button className="tool-btn" onClick={() => void call("app.newWindow", { path: worktreePath })}>在 Changes 中打开</button>
         <button className="tool-btn" onClick={() => void navigator.clipboard?.writeText(diffTextRef.current)}>复制 diff</button>
       </div>
-      <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "250px 1fr", overflow: "hidden" }}>
+      <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "250px 1fr", gridTemplateRows: "minmax(0, 1fr)", overflow: "hidden" }}>
         <div style={{ borderRight: "1px solid var(--c-border)", overflowY: "auto", padding: 8 }}>
           {files.length === 0 && <div style={{ color: "var(--c-text3)", fontSize: 11.5, padding: 6 }}>{busy ? "加载中…" : "暂无改动"}</div>}
           {files.map((f) => {
@@ -99,7 +99,7 @@ export function ChangesTab(props: {
             );
           })}
         </div>
-        <div className="tl-scroll" style={{ overflowY: "auto", padding: "12px 16px", minWidth: 0 }}>
+        <div className="tl-scroll" style={{ overflowY: "auto", padding: "12px 16px", minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
             <span style={{ fontFamily: "var(--mono, monospace)", fontSize: 12.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ?? "（选择文件）"}</span>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
@@ -111,7 +111,9 @@ export function ChangesTab(props: {
             </div>
           </div>
           {full && !full.isBinary && !full.tooLarge ? (
-            <MonacoDiffView full={full} />
+            <div style={{ flex: 1, minHeight: 300, display: "flex", flexDirection: "column" }}>
+              <MonacoDiffView full={full} />
+            </div>
           ) : diffs.length === 0 ? (
             <div style={{ color: "var(--c-text3)", fontSize: 11.5 }}>{busy ? "加载中…" : "（无差异）"}</div>
           ) : diffs.map((d) => (
