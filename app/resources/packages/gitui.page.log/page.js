@@ -2113,7 +2113,7 @@ Squashed ${s.commits.length} checkpoint commits from ${s.agentId} (${oldest.shor
             " · ",
             detail.commit.shortSha
           ] }),
-          detail.commit.body.trim() && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, color: "var(--c-text2)", marginTop: 6, whiteSpace: "pre-wrap", userSelect: "text" }, children: detail.commit.body.trim() })
+          detail.commit.body.trim() && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { fontSize: 12, color: "var(--c-text2)", marginTop: 6, whiteSpace: "pre-wrap", userSelect: "text", maxHeight: 180, overflowY: "auto", flexShrink: 0 }, children: detail.commit.body.trim() })
         ] }),
         /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { flex: 1, overflow: "auto", minHeight: 0 }, children: [
           detail.files.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "empty-state", children: t("Log_NoFiles") }),

@@ -481,7 +481,7 @@ export function LogPage() {
                   {detail.commit.author} &lt;{detail.commit.authorEmail}&gt; · {new Date(detail.commit.authorDate * 1000).toLocaleString()} · {detail.commit.shortSha}
                 </div>
                 {detail.commit.body.trim() && (
-                  <div style={{ fontSize: 12, color: "var(--c-text2)", marginTop: 6, whiteSpace: "pre-wrap", userSelect: "text" }}>{detail.commit.body.trim()}</div>
+                  <div style={{ fontSize: 12, color: "var(--c-text2)", marginTop: 6, whiteSpace: "pre-wrap", userSelect: "text", maxHeight: 180, overflowY: "auto", flexShrink: 0 }}>{detail.commit.body.trim()}</div>
                 )}
               </div>
               <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>

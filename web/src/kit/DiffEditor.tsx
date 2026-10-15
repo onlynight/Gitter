@@ -96,6 +96,12 @@ export const MonacoDiffView = memo(function MonacoDiffView(props: {
     const ed = editorRef.current;
     const mc = monacoRef.current;
     if (!ed || !mc) return;
+    // 勾选暂存仅在有回调的宿主启用（log 页等只读场景不出 glyph，避免误导点击）
+    if (!toggleRef.current) {
+      mapRef.current = [];
+      glyphsRef.current?.set([]);
+      return;
+    }
     const changes = ed.getLineChanges() ?? [];
     const map: { startLine: number; endLine: number; hunkIndices: number[] }[] = [];
     for (const c of changes) {
