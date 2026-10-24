@@ -269,9 +269,10 @@ export function FilesPage() {
     }
   }, [repo]);
 
-  // heavy 目录（node_modules 类/子树过大）点击展开：按目录懒加载子树并并入树。
+  // heavy 目录（node_modules 类/子树过大）点击加载：按目录懒加载子树并并入树。
   // rememberExpanded 让主进程登记该目录，此后 fs.changed 触发的整树刷新
-  // 会保持它展开（否则一点开就被下一次刷新折叠回 heavy，内容闪现即消失）。
+  // 会保持它已枚举（不回退 heavy，已加载内容闪现即消失）；显示折叠由树端
+  // collapsed 集合控制——加载后保持折叠，避免超大目录整屏倾泻（树内二次点开）。
   const expandHeavy = useCallback(async (dir: string): Promise<boolean> => {
     if (!repo) return false;
     try {

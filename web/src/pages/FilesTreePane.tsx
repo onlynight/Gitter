@@ -277,7 +277,9 @@ export function TreePane(props: {
     });
   }, []);
 
-  // heavy 目录展开 = 按目录懒加载子树（onExpandHeavy 并树），成功后即展开
+  // heavy 目录展开 = 按目录懒加载子树（onExpandHeavy 并树）。加载后保持折叠：
+  // 超大目录（node_modules 类）自动展开会整屏倾泻内容；子树已就位且后端已登记
+  // （整树刷新不回退 heavy），用户再次点击/Enter 即秒开
   const expandHeavyRow = useCallback(async (path: string) => {
     if (!props.onExpandHeavy || expanding) return;
     setExpanding(path);
@@ -285,21 +287,23 @@ export function TreePane(props: {
     setExpanding(null);
     if (ok) {
       setCollapsed((prev) => {
-        if (!prev.has(path)) return prev;
+        if (prev.has(path)) return prev;
         const next = new Set(prev);
-        next.delete(path);
+        next.add(path);
         return next;
       });
     }
   }, [props.onExpandHeavy, expanding]);
 
-  // 默认折叠：首次装载收起全部目录（顶层级可见，点开即展开）；活动文件的祖先保持
-  // 展开——任务页跳转/会话恢复时不被折叠遮住。仅每次挂载生效一次（手动展开后
-  // 保存触发的 loadTree 不会重新折叠）；仓库切换经 FilesPage 的 key 重挂重置。
+  // 默认折叠：所有目录（含后来新出现的——heavy 懒加载并入的子树、外部新建的目录）
+  // 收拢为顶层级可见，点开即展开。已知目录不重复处理（保留用户手动展开/折叠），
+  // 只对首次登记的目录补折叠；首装时活动文件的祖先豁免（任务页跳转/会话恢复
+  // 不被折叠遮住），豁免同样记为已知（此后刷新不再重复折叠）。仓库切换经
+  // FilesPage 的 key 重挂重置。
+  const knownDirsRef = useRef<Set<string>>(new Set());
   const collapseInitRef = useRef(false);
   useEffect(() => {
-    if (collapseInitRef.current || props.entries.length === 0) return;
-    collapseInitRef.current = true;
+    if (props.entries.length === 0) return;
     const dirs = new Set<string>();
     for (const e of props.entries) {
       // 目录条目自身也要折叠（空目录不在任何文件路径的祖先链上）
@@ -311,13 +315,25 @@ export function TreePane(props: {
         dirs.add(acc);
       }
     }
-    const segs = (props.activePath ?? "").split("/");
-    let acc = "";
-    for (let i = 0; i < segs.length - 1; i++) {
-      acc = acc ? `${acc}/${segs[i]}` : segs[i];
-      dirs.delete(acc);
+    const exempt = new Set<string>();
+    if (!collapseInitRef.current) {
+      collapseInitRef.current = true;
+      const segs = (props.activePath ?? "").split("/");
+      let acc = "";
+      for (let i = 0; i < segs.length - 1; i++) {
+        acc = acc ? `${acc}/${segs[i]}` : segs[i];
+        exempt.add(acc);
+      }
     }
-    if (dirs.size > 0) setCollapsed(dirs);
+    const known = knownDirsRef.current;
+    const fresh = [...dirs].filter((d) => !known.has(d) && !exempt.has(d));
+    for (const d of dirs) known.add(d);
+    if (fresh.length === 0) return;
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      for (const d of fresh) next.add(d);
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.entries]);
 

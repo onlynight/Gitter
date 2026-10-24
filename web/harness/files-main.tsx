@@ -80,6 +80,7 @@ const TREE_ENTRIES = [
   { path: "README.md", isDir: false, status: "A", touchedByAgent: false },
   { path: "assets", isDir: true, status: null, touchedByAgent: false },
   { path: "assets/banner.png", isDir: false, status: "?", touchedByAgent: false },
+  { path: "big_modules", isDir: true, status: null, touchedByAgent: false, heavy: true },
   { path: "src", isDir: true, status: null, touchedByAgent: false },
   { path: "src/mod0", isDir: true, status: null, touchedByAgent: false },
   { path: "src/mod1", isDir: true, status: null, touchedByAgent: false },
@@ -300,8 +301,22 @@ let lastWritten: { path: string; content: string } | null = null;
 
 function mockRpc(method: string, params?: Record<string, unknown>): unknown {
   switch (method) {
-    case "repo.tree":
+    case "repo.tree": {
+      // heavy 目录懒加载分片：prefix 命中 big_modules 时回其子树（模拟大型目录下钻）
+      if (String(params?.prefix ?? "") === "big_modules") {
+        return {
+          entries: [
+            { path: "big_modules", isDir: true, status: null, touchedByAgent: false },
+            { path: "big_modules/pkg-a", isDir: true, status: null, touchedByAgent: false },
+            { path: "big_modules/pkg-a/index.js", isDir: false, status: null, touchedByAgent: false },
+            { path: "big_modules/pkg-b", isDir: true, status: null, touchedByAgent: false },
+            { path: "big_modules/pkg-b/index.js", isDir: false, status: null, touchedByAgent: false },
+          ],
+          hasMore: false,
+        };
+      }
       return { entries: TREE_ENTRIES, hasMore: false };
+    }
     case "file.stat":
       return String(params?.path ?? "") === IMG_PATH
         ? { size: IMAGE_PNG_B64.length * 0.75 | 0, mtime: 1728460000000 }
