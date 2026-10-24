@@ -1853,6 +1853,20 @@
   const STATUS_CLS$1 = { M: "gs-M", A: "gs-A", D: "gs-D", R: "gs-R", U: "gs-U", "?": "gs-Q", "!": "gs-IG" };
   const STATUS_LETTER$1 = { M: "M", A: "A", D: "D", R: "R", U: "U", "?": "?", "!": "!" };
   const DIR_PRIO = ["U", "D", "M", "A", "R", "?", "!"];
+  function topLevel(items) {
+    const sorted = [...items].sort((a, b) => a.path.length - b.path.length);
+    const out = [];
+    for (const it of sorted) {
+      if (!out.some((o) => it.path === o.path || it.path.startsWith(o.path + "/"))) out.push(it);
+    }
+    return out;
+  }
+  function canMoveInto(item, toDir, cut) {
+    if (item.path === toDir || toDir.startsWith(item.path + "/")) return false;
+    const parent = item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/")) : "";
+    if (cut && parent === toDir) return false;
+    return true;
+  }
   const DRAFT_PATH = "\0draft";
   function nameValidationError(name) {
     return !name || name.length > 255 || name.toLowerCase() === ".git" || /[\\/:*?"<>|\u0000-\u001f]/.test(name) || /[.\s]$/.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(name);
@@ -1868,9 +1882,11 @@
     const draftInputRef = React$1.useRef(null);
     const [clip, setClip] = React$1.useState(null);
     const [confirmDel, setConfirmDel] = React$1.useState(null);
-    const [dragItem, setDragItem] = React$1.useState(null);
+    const [dragItems, setDragItems] = React$1.useState(null);
     const [dropTarget, setDropTarget] = React$1.useState(null);
     const [selectedPath, setSelectedPath] = React$1.useState(null);
+    const [selected, setSelected] = React$1.useState(/* @__PURE__ */ new Set());
+    const anchorRef = React$1.useRef(null);
     const [expanding, setExpanding] = React$1.useState(null);
     const [kbFocus, setKbFocus] = React$1.useState(null);
     const [kbKey, setKbKey] = React$1.useState(false);
@@ -2015,34 +2031,93 @@
       setExpanding(null);
       if (ok) {
         setCollapsed((prev) => {
-          if (!prev.has(path)) return prev;
+          if (prev.has(path)) return prev;
           const next = new Set(prev);
-          next.delete(path);
+          next.add(path);
           return next;
         });
       }
     }, [props.onExpandHeavy, expanding]);
+    const selectSingle = React$1.useCallback((path) => {
+      anchorRef.current = path;
+      setSelected(/* @__PURE__ */ new Set([path]));
+      setSelectedPath(path);
+    }, []);
+    const selectRangeTo = React$1.useCallback((path) => {
+      const nodes = nodesRef.current.filter((n) => !n.draft);
+      const to = nodes.findIndex((n) => n.entry.path === path);
+      if (to < 0) return;
+      const from = anchorRef.current ? nodes.findIndex((n) => n.entry.path === anchorRef.current) : -1;
+      if (from < 0) {
+        selectSingle(path);
+        return;
+      }
+      const [a, b] = from <= to ? [from, to] : [to, from];
+      const next = /* @__PURE__ */ new Set();
+      for (let i = a; i <= b; i++) next.add(nodes[i].entry.path);
+      setSelected(next);
+      setSelectedPath(path);
+    }, [selectSingle]);
+    const selectToggle = React$1.useCallback((path) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+        return next;
+      });
+      anchorRef.current = path;
+      setSelectedPath(path);
+    }, []);
+    const selectionEntries = React$1.useCallback((focused) => {
+      if (selected.size > 0) {
+        const visible = topLevel(nodesRef.current.filter((n) => !n.draft && selected.has(n.entry.path)).map((n) => ({ path: n.entry.path, isDir: n.entry.isDir })));
+        if (visible.length > 0) return visible;
+      }
+      return focused ? [{ path: focused.entry.path, isDir: focused.entry.isDir }] : [];
+    }, [selected]);
+    React$1.useEffect(() => {
+      if (selected.size === 0 && !selectedPath) return;
+      const exist = new Set(props.entries.map((e) => e.path));
+      setSelected((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Set([...prev].filter((p) => exist.has(p)));
+        return next.size === prev.size ? prev : next;
+      });
+      setSelectedPath((p) => p && exist.has(p) ? p : null);
+    }, [props.entries]);
+    const knownDirsRef = React$1.useRef(/* @__PURE__ */ new Set());
     const collapseInitRef = React$1.useRef(false);
     React$1.useEffect(() => {
-      if (collapseInitRef.current || props.entries.length === 0) return;
-      collapseInitRef.current = true;
+      if (props.entries.length === 0) return;
       const dirs = /* @__PURE__ */ new Set();
       for (const e of props.entries) {
         if (e.isDir) dirs.add(e.path);
         const parts = e.path.split("/");
-        let acc2 = "";
+        let acc = "";
         for (let i = 0; i < parts.length - 1; i++) {
-          acc2 = acc2 ? `${acc2}/${parts[i]}` : parts[i];
-          dirs.add(acc2);
+          acc = acc ? `${acc}/${parts[i]}` : parts[i];
+          dirs.add(acc);
         }
       }
-      const segs = (props.activePath ?? "").split("/");
-      let acc = "";
-      for (let i = 0; i < segs.length - 1; i++) {
-        acc = acc ? `${acc}/${segs[i]}` : segs[i];
-        dirs.delete(acc);
+      const exempt = /* @__PURE__ */ new Set();
+      if (!collapseInitRef.current) {
+        collapseInitRef.current = true;
+        const segs = (props.activePath ?? "").split("/");
+        let acc = "";
+        for (let i = 0; i < segs.length - 1; i++) {
+          acc = acc ? `${acc}/${segs[i]}` : segs[i];
+          exempt.add(acc);
+        }
       }
-      if (dirs.size > 0) setCollapsed(dirs);
+      const known = knownDirsRef.current;
+      const fresh = [...dirs].filter((d) => !known.has(d) && !exempt.has(d));
+      for (const d of dirs) known.add(d);
+      if (fresh.length === 0) return;
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        for (const d of fresh) next.add(d);
+        return next;
+      });
     }, [props.entries]);
     const startDraft = React$1.useCallback((dir, kind) => {
       setDraft({ dir, kind, mode: "create" });
@@ -2143,43 +2218,54 @@
     }, []);
     const doPaste = React$1.useCallback((c, toDir) => {
       if (!props.onPaste) return;
-      void props.onPaste(c.path, toDir, c.cut, c.isDir).then((ok) => {
+      const items = topLevel(c.items).filter((it) => canMoveInto(it, toDir, c.cut));
+      if (items.length === 0) return;
+      void props.onPaste(items, toDir, c.cut).then((ok) => {
         if (ok && c.cut) setClip(null);
       });
     }, [props.onPaste]);
     const canPasteInto = React$1.useCallback((c, toDir) => {
       if (!c) return false;
-      if (c.path === toDir || toDir.startsWith(c.path + "/")) return false;
-      if (c.cut && (c.path.includes("/") ? c.path.slice(0, c.path.lastIndexOf("/")) : "") === toDir) return false;
-      return true;
+      return topLevel(c.items).some((it) => canMoveInto(it, toDir, c.cut));
     }, []);
     const dropMove = React$1.useCallback((toDir) => {
-      const d = dragItem;
-      setDragItem(null);
+      const items = dragItems;
+      setDragItems(null);
       setDropTarget(null);
-      if (!d) return;
-      const clip2 = { path: d.path, isDir: d.isDir, cut: true };
-      if (!canPasteInto(clip2, toDir)) return;
-      doPaste(clip2, toDir);
-    }, [dragItem, canPasteInto, doPaste]);
+      if (!items || items.length === 0 || !props.onPaste) return;
+      const movable = topLevel(items).filter((it) => canMoveInto(it, toDir, true));
+      if (movable.length === 0) return;
+      void props.onPaste(movable, toDir, true);
+    }, [dragItems, props.onPaste]);
     const menuFor = React$1.useCallback((node) => {
       const path = node.entry.path;
       const parentOf = (p) => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
       const mutators = props.onRename && props.onDelete && props.onPaste;
+      if (selected.has(path) && selected.size > 1) {
+        const items = selectionEntries(node);
+        return [
+          { label: t("Files_Cut"), icon: /* @__PURE__ */ jsxRuntime.jsx(CutIcon, {}), hint: "Ctrl+X", action: () => setClip({ items, cut: true }) },
+          { label: t("Files_Copy"), icon: /* @__PURE__ */ jsxRuntime.jsx(CopyIcon, {}), hint: "Ctrl+C", action: () => setClip({ items, cut: false }) },
+          { sep: true },
+          ...props.onDelete ? [
+            { label: t("Files_Delete"), icon: /* @__PURE__ */ jsxRuntime.jsx(TrashIcon, {}), hint: "Del", action: () => setConfirmDel({ items }) }
+          ] : []
+        ];
+      }
       if (node.entry.isDir) {
         return [
           { label: t("Files_NewFile"), icon: /* @__PURE__ */ jsxRuntime.jsx(NewFileIcon, {}), action: () => startDraft(path, "file") },
           { label: t("Files_NewFolder"), icon: /* @__PURE__ */ jsxRuntime.jsx(NewFolderIcon, {}), action: () => startDraft(path, "dir") },
           { sep: true },
-          { label: t("Files_Copy"), icon: /* @__PURE__ */ jsxRuntime.jsx(CopyIcon, {}), hint: "Ctrl+C", action: () => setClip({ path, isDir: true, cut: false }) },
-          { label: t("Files_Cut"), icon: /* @__PURE__ */ jsxRuntime.jsx(CutIcon, {}), hint: "Ctrl+X", action: () => setClip({ path, isDir: true, cut: true }) },
+          { label: t("Files_Copy"), icon: /* @__PURE__ */ jsxRuntime.jsx(CopyIcon, {}), hint: "Ctrl+C", action: () => setClip({ items: [{ path, isDir: true }], cut: false }) },
+          { label: t("Files_Cut"), icon: /* @__PURE__ */ jsxRuntime.jsx(CutIcon, {}), hint: "Ctrl+X", action: () => setClip({ items: [{ path, isDir: true }], cut: true }) },
           { label: t("Files_Paste"), icon: /* @__PURE__ */ jsxRuntime.jsx(PasteIcon, {}), hint: "Ctrl+V", disabled: !canPasteInto(clip, path), action: () => {
             if (clip) doPaste(clip, path);
           } },
           { sep: true },
           ...mutators ? [
             { label: t("Files_Rename"), icon: /* @__PURE__ */ jsxRuntime.jsx(PencilIcon, {}), hint: "F2", action: () => startRename(path, true) },
-            { label: t("Files_Delete"), icon: /* @__PURE__ */ jsxRuntime.jsx(TrashIcon, {}), hint: "Del", action: () => setConfirmDel({ path, isDir: true }) },
+            { label: t("Files_Delete"), icon: /* @__PURE__ */ jsxRuntime.jsx(TrashIcon, {}), hint: "Del", action: () => setConfirmDel({ items: [{ path, isDir: true }] }) },
             { sep: true }
           ] : [],
           { label: t("Files_RevealInExplorer"), icon: /* @__PURE__ */ jsxRuntime.jsx(RevealIcon, {}), action: () => reveal(path) },
@@ -2198,11 +2284,11 @@
         { sep: true },
         ...mutators ? [
           { label: t("Files_Rename"), icon: /* @__PURE__ */ jsxRuntime.jsx(PencilIcon, {}), hint: "F2", action: () => startRename(path, false) },
-          { label: t("Files_Delete"), icon: /* @__PURE__ */ jsxRuntime.jsx(TrashIcon, {}), hint: "Del", action: () => setConfirmDel({ path, isDir: false }) },
+          { label: t("Files_Delete"), icon: /* @__PURE__ */ jsxRuntime.jsx(TrashIcon, {}), hint: "Del", action: () => setConfirmDel({ items: [{ path, isDir: false }] }) },
           { sep: true }
         ] : [],
-        { label: t("Files_Copy"), icon: /* @__PURE__ */ jsxRuntime.jsx(CopyIcon, {}), hint: "Ctrl+C", action: () => setClip({ path, isDir: false, cut: false }) },
-        { label: t("Files_Cut"), icon: /* @__PURE__ */ jsxRuntime.jsx(CutIcon, {}), hint: "Ctrl+X", action: () => setClip({ path, isDir: false, cut: true }) },
+        { label: t("Files_Copy"), icon: /* @__PURE__ */ jsxRuntime.jsx(CopyIcon, {}), hint: "Ctrl+C", action: () => setClip({ items: [{ path, isDir: false }], cut: false }) },
+        { label: t("Files_Cut"), icon: /* @__PURE__ */ jsxRuntime.jsx(CutIcon, {}), hint: "Ctrl+X", action: () => setClip({ items: [{ path, isDir: false }], cut: true }) },
         { label: t("Files_Paste"), icon: /* @__PURE__ */ jsxRuntime.jsx(PasteIcon, {}), hint: "Ctrl+V", disabled: !canPasteInto(clip, parent), action: () => {
           if (clip) doPaste(clip, parent);
         } },
@@ -2214,7 +2300,7 @@
         { label: t("Files_OpenInEditor"), icon: /* @__PURE__ */ jsxRuntime.jsx(OpenExternalIcon, {}), action: () => openExternal(path) },
         { label: t("Files_RevealInExplorer"), icon: /* @__PURE__ */ jsxRuntime.jsx(RevealIcon, {}), action: () => reveal(path) }
       ];
-    }, [t, props.onOpenFile, props.onRename, props.onDelete, props.onPaste, copyPath, copyText, openExternal, reveal, startDraft, startRename, canPasteInto, clip, doPaste]);
+    }, [t, props.onOpenFile, props.onDelete, props.onRename, props.onPaste, copyPath, copyText, openExternal, reveal, startDraft, startRename, canPasteInto, clip, doPaste, selected, selectionEntries]);
     const bodyMenu = React$1.useCallback(() => [
       { label: t("Files_NewFile"), icon: /* @__PURE__ */ jsxRuntime.jsx(NewFileIcon, {}), action: () => startDraft("", "file") },
       { label: t("Files_NewFolder"), icon: /* @__PURE__ */ jsxRuntime.jsx(NewFolderIcon, {}), action: () => startDraft("", "dir") },
@@ -2226,8 +2312,9 @@
     const handleContext = React$1.useCallback((e, node) => {
       setKbKey(false);
       setKbFocus(node.entry.path);
+      if (!selected.has(node.entry.path)) selectSingle(node.entry.path);
       showMenu(e, menuFor(node));
-    }, [showMenu, menuFor]);
+    }, [showMenu, menuFor, selected, selectSingle]);
     const handleBodyContext = React$1.useCallback((e) => {
       if (e.target.closest(".files-row")) return;
       setKbKey(false);
@@ -2244,7 +2331,11 @@
         setKbKey(true);
         const next = nodes[Math.max(0, Math.min(nodes.length - 1, idx < 0 ? 0 : idx + (e.key === "ArrowDown" ? 1 : -1)))];
         setKbFocus(next.entry.path);
-        setSelectedPath(next.entry.path);
+        if (next.draft) {
+          setSelected(/* @__PURE__ */ new Set());
+          setSelectedPath(null);
+        } else if (e.shiftKey) selectRangeTo(next.entry.path);
+        else selectSingle(next.entry.path);
         virtualizer.scrollToIndex(nodes.indexOf(next), { align: "auto" });
       } else if (e.key === "Enter" && idx >= 0) {
         e.preventDefault();
@@ -2270,16 +2361,16 @@
         startRename(focused.entry.path, focused.entry.isDir);
       } else if (e.key === "Delete" && focused && !focused.draft) {
         e.preventDefault();
-        setConfirmDel({ path: focused.entry.path, isDir: focused.entry.isDir });
+        setConfirmDel({ items: selectionEntries(focused) });
       } else if ((e.ctrlKey || e.metaKey) && focused && !focused.draft && (e.key === "c" || e.key === "C" || e.key === "x" || e.key === "X")) {
         e.preventDefault();
-        setClip({ path: focused.entry.path, isDir: focused.entry.isDir, cut: e.key.toLowerCase() === "x" });
+        setClip({ items: selectionEntries(focused), cut: e.key.toLowerCase() === "x" });
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "v" || e.key === "V") && clip) {
         e.preventDefault();
         const toDir = focused ? focused.entry.isDir ? focused.entry.path : focused.entry.path.includes("/") ? focused.entry.path.slice(0, focused.entry.path.lastIndexOf("/")) : "" : "";
         if (canPasteInto(clip, toDir)) doPaste(clip, toDir);
       }
-    }, [kbFocus, virtualizer, toggleDir, expandHeavyRow, props.onOpenFile, forceOpen, collapsed, startRename, clip, canPasteInto, doPaste]);
+    }, [kbFocus, virtualizer, toggleDir, expandHeavyRow, props.onOpenFile, forceOpen, collapsed, startRename, clip, canPasteInto, doPaste, selectRangeTo, selectSingle, selectionEntries]);
     const highlight = React$1.useCallback((name) => {
       if (!q) return name;
       const i = name.toLowerCase().indexOf(q);
@@ -2329,6 +2420,7 @@
         ] }, DRAFT_PATH);
       }
       const isActive = entry.path === props.activePath || entry.isDir && selectedPath === entry.path;
+      const isSelected = selected.has(entry.path);
       const statusCls = entry.status ? STATUS_CLS$1[entry.status] ?? "" : "";
       const isAgent = !entry.isDir && entry.touchedByAgent;
       const nameCls = "files-nm" + (entry.isDir && node.dirStatus ? ` ${STATUS_CLS$1[node.dirStatus]}` : "") + (!entry.isDir && entry.status ? ` ${statusCls}` : "");
@@ -2336,21 +2428,23 @@
       return /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
-          className: "files-row" + (entry.isDir && node.open ? " open" : "") + (entry.heavy ? " heavy" : "") + (isActive ? " active" : "") + (isAgent ? " agent" : "") + (kbKey && entry.path === kbFocus ? " kb-focus" : "") + (isDropDir ? " drop-target" : "") + ((dragItem == null ? void 0 : dragItem.path) === entry.path ? " dragging" : ""),
+          className: "files-row" + (entry.isDir && node.open ? " open" : "") + (entry.heavy ? " heavy" : "") + (isActive ? " active" : "") + (isSelected ? " selected" : "") + (isAgent ? " agent" : "") + (kbKey && entry.path === kbFocus ? " kb-focus" : "") + (isDropDir ? " drop-target" : "") + ((dragItems == null ? void 0 : dragItems.some((i) => i.path === entry.path)) ? " dragging" : ""),
           style: rowStyle,
           title: entry.heavy ? t("Files_HeavyDir") : entry.path,
           draggable: true,
           onDragStart: (e) => {
-            e.dataTransfer.setData("text/gitter-tree", entry.path);
+            const items = selected.has(entry.path) && selected.size > 1 ? selectionEntries() : [{ path: entry.path, isDir: entry.isDir }];
+            if (!selected.has(entry.path)) selectSingle(entry.path);
+            e.dataTransfer.setData("text/gitter-tree", items.map((i) => i.path).join("\n"));
             e.dataTransfer.effectAllowed = "move";
-            setDragItem({ path: entry.path, isDir: entry.isDir });
+            setDragItems(items);
           },
           onDragEnd: () => {
-            setDragItem(null);
+            setDragItems(null);
             setDropTarget(null);
           },
           onDragOver: (e) => {
-            if (!entry.isDir || !dragItem) return;
+            if (!entry.isDir || !dragItems) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
             if (dropTarget !== entry.path) setDropTarget(entry.path);
@@ -2364,10 +2458,18 @@
             e.stopPropagation();
             dropMove(entry.path);
           },
-          onClick: () => {
+          onClick: (e) => {
             setKbKey(false);
             setKbFocus(entry.path);
-            setSelectedPath(entry.path);
+            if (e.shiftKey) {
+              selectRangeTo(entry.path);
+              return;
+            }
+            if (e.ctrlKey || e.metaKey) {
+              selectToggle(entry.path);
+              return;
+            }
+            selectSingle(entry.path);
             if (entry.isDir) {
               if (entry.heavy) void expandHeavyRow(entry.path);
               else if (mode === "all" && !q) toggleDir(entry.path);
@@ -2491,27 +2593,27 @@
           onKeyDown: handleKey,
           onContextMenu: handleBodyContext,
           onDragOver: (e) => {
-            if (!dragItem) return;
+            if (!dragItems) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
           },
           onDrop: (e) => {
-            if (!dragItem) return;
+            if (!dragItems) return;
             e.preventDefault();
             dropMove("");
           },
           onDragEnd: () => {
-            setDragItem(null);
+            setDragItems(null);
             setDropTarget(null);
           },
           children: props.loading && visibleNodes.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "files-empty", children: "Loading…" }) : visibleNodes.length === 0 ? /* @__PURE__ */ jsxRuntime.jsx("div", { className: "files-empty", children: t("Files_NoMatch") }) : /* @__PURE__ */ jsxRuntime.jsx("div", { style: { height: virtualizer.getTotalSize(), position: "relative" }, children: rows })
         }
       ),
       menuElement,
-      confirmDel && /* @__PURE__ */ jsxRuntime.jsxs(
+      confirmDel && /* @__PURE__ */ jsxRuntime.jsx(
         Modal,
         {
-          title: t("Files_DeleteConfirmTitle"),
+          title: confirmDel.items.length > 1 ? t("Files_DeleteManyConfirmTitle") : t("Files_DeleteConfirmTitle"),
           danger: true,
           confirmText: t("Files_Delete"),
           onClose: () => setConfirmDel(null),
@@ -2519,12 +2621,19 @@
             var _a2;
             const d = confirmDel;
             setConfirmDel(null);
-            void ((_a2 = props.onDelete) == null ? void 0 : _a2.call(props, d.path, d.isDir));
+            void ((_a2 = props.onDelete) == null ? void 0 : _a2.call(props, d.items));
           },
-          children: [
-            /* @__PURE__ */ jsxRuntime.jsx("div", { children: t("Files_DeleteConfirmBody", confirmDel.path) }),
-            confirmDel.isDir && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { marginTop: 6, opacity: 0.72 }, children: t("Files_DeleteConfirmDir") })
-          ]
+          children: confirmDel.items.length > 1 ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { children: t("Files_DeleteManyConfirmBody", confirmDel.items.length) }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { style: { marginTop: 6, opacity: 0.72, maxHeight: 132, overflow: "auto" }, children: [
+              confirmDel.items.slice(0, 8).map((it) => /* @__PURE__ */ jsxRuntime.jsx("div", { children: it.path }, it.path)),
+              confirmDel.items.length > 8 && /* @__PURE__ */ jsxRuntime.jsx("div", { children: "…" })
+            ] }),
+            confirmDel.items.some((it) => it.isDir) && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { marginTop: 6, opacity: 0.72 }, children: t("Files_DeleteConfirmDir") })
+          ] }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { children: t("Files_DeleteConfirmBody", confirmDel.items[0].path) }),
+            confirmDel.items[0].isDir && /* @__PURE__ */ jsxRuntime.jsx("div", { style: { marginTop: 6, opacity: 0.72 }, children: t("Files_DeleteConfirmDir") })
+          ] })
         }
       )
     ] });
@@ -6061,16 +6170,32 @@ li { margin: .25em 0; }
         return false;
       }
     }, [loadTree, remapTabs]);
-    const deleteEntry = React$1.useCallback(async (path, isDir) => {
+    const deleteEntries = React$1.useCallback(async (items) => {
       var _a3;
-      const affected = (p) => p === path || isDir && p.startsWith(path + "/");
-      try {
-        const r = await pageSdk.call("file.delete", { path });
-        if (!r.ok) {
-          const key = r.error === "not_found" ? "Files_Missing" : "Files_DeleteFailed";
-          pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t(key));
-          return false;
+      const sorted = [...items].sort((a, b) => a.path.length - b.path.length);
+      const dedup = [];
+      for (const it of sorted) {
+        if (!dedup.some((o) => it.path === o.path || it.path.startsWith(o.path + "/"))) dedup.push(it);
+      }
+      const failures = [];
+      const okItems = [];
+      for (const it of dedup) {
+        try {
+          const r = await pageSdk.call("file.delete", { path: it.path });
+          if (r.ok) okItems.push(it);
+          else failures.push({ path: it.path, error: r.error });
+        } catch (e) {
+          failures.push({ path: it.path, error: e.message });
         }
+      }
+      if (failures.length > 0) {
+        pageSdk.toast(
+          pageSdk.t("Files_Title"),
+          failures.length === 1 && dedup.length === 1 ? pageSdk.t(failures[0].error === "not_found" ? "Files_Missing" : "Files_DeleteFailed") : pageSdk.t("Files_BatchFailed", failures.length)
+        );
+      }
+      if (okItems.length > 0) {
+        const affected = (p) => okItems.some((it) => p === it.path || it.isDir && p.startsWith(it.path + "/"));
         const old = tabsRef.current;
         setTabs((prev) => prev.filter((tb) => !affected(tb.path)));
         setActiveTab((a) => {
@@ -6080,29 +6205,40 @@ li { margin: .25em 0; }
           const i = old.findIndex((tb) => tb.path === a);
           return ((_a4 = rest[Math.min(i, rest.length - 1)]) == null ? void 0 : _a4.path) ?? null;
         });
-        (_a3 = editorRef.current) == null ? void 0 : _a3.handleFsDeleted(path, isDir);
-        await loadTree();
-        return true;
-      } catch (e) {
-        pageSdk.toast(pageSdk.t("Files_Title"), e.message);
-        return false;
+        for (const it of okItems) (_a3 = editorRef.current) == null ? void 0 : _a3.handleFsDeleted(it.path, it.isDir);
       }
+      await loadTree();
+      return failures.length === 0;
     }, [loadTree]);
-    const pasteEntry = React$1.useCallback(async (from, toDir, cut, fromIsDir) => {
-      try {
-        const r = await pageSdk.call("file.paste", { from, toDir, cut });
-        if (!r.ok) {
-          const key = r.error === "exists" ? "Files_CreateExists" : r.error === "not_found" ? "Files_Missing" : r.error === "invalid_name" ? "Files_InvalidName" : cut ? "Files_MoveFailed" : "Files_PasteFailed";
-          pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t(key));
-          return false;
+    const pasteEntries = React$1.useCallback(async (items, toDir, cut) => {
+      const plan = items.filter((it) => {
+        if (it.path === toDir || toDir.startsWith(it.path + "/")) return false;
+        const parent = it.path.includes("/") ? it.path.slice(0, it.path.lastIndexOf("/")) : "";
+        return !(cut && parent === toDir);
+      });
+      if (plan.length === 0) return true;
+      const failures = [];
+      const remaps = [];
+      for (const it of plan) {
+        try {
+          const r = await pageSdk.call("file.paste", { from: it.path, toDir, cut });
+          if (!r.ok) failures.push({ error: r.error });
+          else if (cut) remaps.push({ from: it.path, to: r.path, isDir: it.isDir });
+        } catch (e) {
+          failures.push({ error: e.message });
         }
-        await loadTree();
-        if (cut) remapTabs(from, r.path, fromIsDir);
-        return r.path;
-      } catch (e) {
-        pageSdk.toast(pageSdk.t("Files_Title"), e.message);
-        return false;
       }
+      if (failures.length > 0) {
+        pageSdk.toast(
+          pageSdk.t("Files_Title"),
+          failures.length === 1 && plan.length === 1 ? pageSdk.t(
+            failures[0].error === "exists" ? "Files_CreateExists" : failures[0].error === "not_found" ? "Files_Missing" : failures[0].error === "invalid_name" ? "Files_InvalidName" : cut ? "Files_MoveFailed" : "Files_PasteFailed"
+          ) : pageSdk.t("Files_BatchFailed", failures.length)
+        );
+      }
+      for (const r of remaps) remapTabs(r.from, r.to, r.isDir);
+      await loadTree();
+      return failures.length === 0;
     }, [loadTree, remapTabs]);
     const closeTab = React$1.useCallback((path) => {
       const i = tabsRef.current.findIndex((x) => x.path === path);
@@ -6226,8 +6362,8 @@ li { margin: .25em 0; }
           onOpenFile: openFile,
           onCreate: createEntry,
           onRename: renameEntry,
-          onDelete: deleteEntry,
-          onPaste: pasteEntry,
+          onDelete: deleteEntries,
+          onPaste: pasteEntries,
           onExpandHeavy: expandHeavy,
           loading,
           onRefresh: () => void loadTree(),

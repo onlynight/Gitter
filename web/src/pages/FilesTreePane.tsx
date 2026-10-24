@@ -12,6 +12,8 @@ import { ChevronIcon, CloseIcon, CollapseAllIcon, CopyIcon, CutIcon, DiffIcon, E
  * + agent 回合左缘紫 bar + ✦ 徽标；键盘 ↑↓/Enter/←→/F2/Del/Ctrl+C·X·V；右键菜单带图标
  * 与键位提示（打开/差异/新建/重命名/删除/复制剪切粘贴/复制路径/外部打开/资源管理器），
  * 树体空白处右键 = 根目录的新建与粘贴。删除走 Modal 确认（目录递归、不可恢复）。
+ * 多选：Ctrl/Cmd 单击切换选中、Shift 单击/Shift+↑↓ 以锚点连选（可见行序）；多选态下
+ * 拖拽整体移动、Ctrl+C/X 成组复制剪切、Del/右键批量删除（父目录覆盖子孙项去重）。
  * 过滤态（query / git / agent）下目录节点按文件路径祖先合成并强制全展开；
  * 「全部」模式记忆折叠状态。数据契约（TreeEntry / repo.tree）不变。
  */
@@ -46,11 +48,31 @@ interface Draft {
   renameOf?: string;
 }
 
-/** 树内文件剪贴板（复制/剪切暂存一次一个；粘贴成功且为剪切后清空） */
+/** 树内文件剪贴板（复制/剪切暂存一组条目；粘贴成功且为剪切后清空） */
 interface Clip {
-  path: string;
-  isDir: boolean;
+  items: Array<{ path: string; isDir: boolean }>;
   cut: boolean;
+}
+
+/** 批量操作条目（多选删除/移动/复制剪切） */
+type SelItem = { path: string; isDir: boolean };
+
+/** 去掉被同批父目录覆盖的子孙项（父目录删除/移动已连带其子树） */
+function topLevel(items: SelItem[]): SelItem[] {
+  const sorted = [...items].sort((a, b) => a.path.length - b.path.length);
+  const out: SelItem[] = [];
+  for (const it of sorted) {
+    if (!out.some((o) => it.path === o.path || it.path.startsWith(o.path + "/"))) out.push(it);
+  }
+  return out;
+}
+
+/** 单项移动/粘贴合法性：目标不是自身/自身子树；剪切回原父目录 = 无操作 */
+function canMoveInto(item: SelItem, toDir: string, cut: boolean): boolean {
+  if (item.path === toDir || toDir.startsWith(item.path + "/")) return false;
+  const parent = item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/")) : "";
+  if (cut && parent === toDir) return false;
+  return true;
 }
 
 /** 草稿行占位 path（\0 前缀不可能与真实路径撞；键盘导航/揭示按 path 找行时自然跳过） */
@@ -86,10 +108,10 @@ export function TreePane(props: {
   onCreate: (dir: string, name: string, kind: "file" | "dir") => Promise<boolean>;
   /** 右键/键盘重命名（同目录单段名）：成功返回 true；失败已 toast */
   onRename?: (path: string, newName: string, isDir: boolean) => Promise<boolean>;
-  /** 右键/键盘删除（目录递归、不可恢复）：成功返回 true；失败已 toast */
-  onDelete?: (path: string, isDir: boolean) => Promise<boolean>;
-  /** 粘贴（from 复制/剪切到 toDir 下）：成功返回落定相对路径或 true；失败已 toast */
-  onPaste?: (from: string, toDir: string, cut: boolean, fromIsDir: boolean) => Promise<string | boolean>;
+  /** 批量删除（目录递归、不可恢复，树内已 Modal 确认）：全部成功返回 true；失败已 toast */
+  onDelete?: (items: SelItem[]) => Promise<boolean>;
+  /** 批量粘贴/拖拽移动（items 逐项落到 toDir 下，cut=剪切移动）：全部成功返回 true；失败已 toast */
+  onPaste?: (items: SelItem[], toDir: string, cut: boolean) => Promise<boolean>;
   /** heavy 目录（子树过大/链接）展开：按 prefix 懒加载子树并入树；成功返回 true */
   onExpandHeavy?: (path: string) => Promise<boolean>;
   loading: boolean;
@@ -108,15 +130,19 @@ export function TreePane(props: {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftName, setDraftName] = useState("");
   const draftInputRef = useRef<HTMLInputElement | null>(null);
-  // 树内文件剪贴板（复制/剪切一次一个；会话内有效，不与系统剪贴板互通）
+  // 树内文件剪贴板（复制/剪切一组条目；会话内有效，不与系统剪贴板互通）
   const [clip, setClip] = useState<Clip | null>(null);
-  // 删除确认（目录递归且不入回收站，Modal 二次确认）
-  const [confirmDel, setConfirmDel] = useState<{ path: string; isDir: boolean } | null>(null);
-  // 树内拖拽移动（拖起的行 = 源；目录行/空白区 = 放置目标，语义为剪切移动）
-  const [dragItem, setDragItem] = useState<{ path: string; isDir: boolean } | null>(null);
+  // 删除确认（目录递归且不入回收站，Modal 二次确认；多选为批量）
+  const [confirmDel, setConfirmDel] = useState<{ items: SelItem[] } | null>(null);
+  // 树内拖拽移动（拖起的一组行 = 源；目录行/空白区 = 放置目标，语义为剪切移动）
+  const [dragItems, setDragItems] = useState<SelItem[] | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   // 目录选中态（点击行记忆，供树头新建按钮定位目标目录；文件行的选中 = 激活标签）
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // 多选集合（Ctrl 切换 / Shift 锚点连选）；selectedPath 仍是主选中
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Shift 连选锚点（最近一次非 Shift 点选/键盘移动定位的行）
+  const anchorRef = useRef<string | null>(null);
   // heavy 目录懒加载中（行上显示 … 徽标；期间防重复触发）
   const [expanding, setExpanding] = useState<string | null>(null);
   // 键盘导航锚点（kbFocus）+ 描边可见性（kbKey：仅键盘操作时显示描边，鼠标点击不闪边框）
@@ -295,6 +321,66 @@ export function TreePane(props: {
     }
   }, [props.onExpandHeavy, expanding]);
 
+  // ---- 多选（Ctrl 切换 / Shift 锚点连选；selectedPath 保持主选中语义）----
+
+  /** 单选（清空多选），锚点同步重置 */
+  const selectSingle = useCallback((path: string) => {
+    anchorRef.current = path;
+    setSelected(new Set([path]));
+    setSelectedPath(path);
+  }, []);
+
+  /** Shift 连选：从锚点到 path 的可见行区间（锚点已失效则退化为单选） */
+  const selectRangeTo = useCallback((path: string) => {
+    const nodes = nodesRef.current.filter((n) => !n.draft);
+    const to = nodes.findIndex((n) => n.entry.path === path);
+    if (to < 0) return;
+    const from = anchorRef.current ? nodes.findIndex((n) => n.entry.path === anchorRef.current) : -1;
+    if (from < 0) { selectSingle(path); return; }
+    const [a, b] = from <= to ? [from, to] : [to, from];
+    const next = new Set<string>();
+    for (let i = a; i <= b; i++) next.add(nodes[i].entry.path);
+    setSelected(next);
+    setSelectedPath(path);
+  }, [selectSingle]);
+
+  /** Ctrl/Cmd 单击切换该项选中；主选中与锚点随点击走 */
+  const selectToggle = useCallback((path: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+    anchorRef.current = path;
+    setSelectedPath(path);
+  }, []);
+
+  /** 多选集 → 批量条目：选中集（可见部分）非空 = 整组生效——对齐资源管理器，焦点行
+   *  即使被 Ctrl 点出选中集，Del/Ctrl+X·C 仍按选中集算；选中集为空才回落到焦点行 */
+  const selectionEntries = useCallback((focused?: VisibleNode | null): SelItem[] => {
+    if (selected.size > 0) {
+      const visible = topLevel(nodesRef.current
+        .filter((n) => !n.draft && selected.has(n.entry.path))
+        .map((n) => ({ path: n.entry.path, isDir: n.entry.isDir })));
+      if (visible.length > 0) return visible;
+    }
+    return focused ? [{ path: focused.entry.path, isDir: focused.entry.isDir }] : [];
+  }, [selected]);
+
+  // 树刷新后选中集随条目存在性修剪（删除/外部变更移除的路径不再保留）
+  useEffect(() => {
+    if (selected.size === 0 && !selectedPath) return;
+    const exist = new Set(props.entries.map((e) => e.path));
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set([...prev].filter((p) => exist.has(p)));
+      return next.size === prev.size ? prev : next;
+    });
+    setSelectedPath((p) => (p && exist.has(p) ? p : null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.entries]);
+
   // 默认折叠：所有目录（含后来新出现的——heavy 懒加载并入的子树、外部新建的目录）
   // 收拢为顶层级可见，点开即展开。已知目录不重复处理（保留用户手动展开/折叠），
   // 只对首次登记的目录补折叠；首装时活动文件的祖先豁免（任务页跳转/会话恢复
@@ -437,49 +523,61 @@ export function TreePane(props: {
     void pageSdk.call("shell.reveal", { path: repo?.workDir ? absPathOf(repo.workDir, rel) : rel });
   }, []);
 
-  /** 树内剪贴板 → 粘贴到 toDir（剪切成功后清空剪贴板） */
+  /** 树内剪贴板 → 粘贴到 toDir（批量逐项校验；剪切成功后清空剪贴板） */
   const doPaste = useCallback((c: Clip, toDir: string) => {
     if (!props.onPaste) return;
-    void props.onPaste(c.path, toDir, c.cut, c.isDir).then((ok) => {
+    const items = topLevel(c.items).filter((it) => canMoveInto(it, toDir, c.cut));
+    if (items.length === 0) return;
+    void props.onPaste(items, toDir, c.cut).then((ok) => {
       if (ok && c.cut) setClip(null);
     });
   }, [props.onPaste]);
 
-  /** 粘贴目标合法性：目标目录不是源自身/其子目录（拷进自己会成环） */
+  /** 粘贴目标合法性：至少一项可移动（目标不是源自身/其子目录，剪切不回原父目录） */
   const canPasteInto = useCallback((c: Clip | null, toDir: string): boolean => {
     if (!c) return false;
-    if (c.path === toDir || toDir.startsWith(c.path + "/")) return false;
-    if (c.cut && (c.path.includes("/") ? c.path.slice(0, c.path.lastIndexOf("/")) : "") === toDir) return false;
-    return true;
+    return topLevel(c.items).some((it) => canMoveInto(it, toDir, c.cut));
   }, []);
 
-  /** 拖拽放置 = 剪切移动到 toDir（合法性同粘贴门控；完成/取消后清拖拽态） */
+  /** 拖拽放置 = 批量剪切移动到 toDir（合法性同粘贴门控；完成/取消后清拖拽态） */
   const dropMove = useCallback((toDir: string) => {
-    const d = dragItem;
-    setDragItem(null);
+    const items = dragItems;
+    setDragItems(null);
     setDropTarget(null);
-    if (!d) return;
-    const clip: Clip = { path: d.path, isDir: d.isDir, cut: true };
-    if (!canPasteInto(clip, toDir)) return;
-    doPaste(clip, toDir);
-  }, [dragItem, canPasteInto, doPaste]);
+    if (!items || items.length === 0 || !props.onPaste) return;
+    const movable = topLevel(items).filter((it) => canMoveInto(it, toDir, true));
+    if (movable.length === 0) return;
+    void props.onPaste(movable, toDir, true);
+  }, [dragItems, props.onPaste]);
 
   const menuFor = useCallback((node: VisibleNode): CtxMenuItem[] => {
     const path = node.entry.path;
     const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
     const mutators = props.onRename && props.onDelete && props.onPaste;
+    // 多选右键（命中项在多选集内且不止一项）：成组剪切/复制/删除——单项目标动作（打开/重命名等）不适用
+    if (selected.has(path) && selected.size > 1) {
+      const items = selectionEntries(node);
+      return [
+        { label: t("Files_Cut"), icon: <CutIcon />, hint: "Ctrl+X", action: () => setClip({ items, cut: true }) },
+        { label: t("Files_Copy"), icon: <CopyIcon />, hint: "Ctrl+C", action: () => setClip({ items, cut: false }) },
+        { sep: true },
+        ...(props.onDelete ? [
+          { label: t("Files_Delete"), icon: <TrashIcon />, hint: "Del", action: () => setConfirmDel({ items }) },
+        ] : []),
+      ];
+    }
     if (node.entry.isDir) {
       return [
         { label: t("Files_NewFile"), icon: <NewFileIcon />, action: () => startDraft(path, "file") },
         { label: t("Files_NewFolder"), icon: <NewFolderIcon />, action: () => startDraft(path, "dir") },
         { sep: true },
-        { label: t("Files_Copy"), icon: <CopyIcon />, hint: "Ctrl+C", action: () => setClip({ path, isDir: true, cut: false }) },
-        { label: t("Files_Cut"), icon: <CutIcon />, hint: "Ctrl+X", action: () => setClip({ path, isDir: true, cut: true }) },
+        { label: t("Files_Copy"), icon: <CopyIcon />, hint: "Ctrl+C", action: () => setClip({ items: [{ path, isDir: true }], cut: false }) },
+        { label: t("Files_Cut"), icon: <CutIcon />, hint: "Ctrl+X", action: () => setClip({ items: [{ path, isDir: true }], cut: true }) },
         { label: t("Files_Paste"), icon: <PasteIcon />, hint: "Ctrl+V", disabled: !canPasteInto(clip, path), action: () => { if (clip) doPaste(clip, path); } },
         { sep: true },
         ...(mutators ? [
           { label: t("Files_Rename"), icon: <PencilIcon />, hint: "F2", action: () => startRename(path, true) },
-          { label: t("Files_Delete"), icon: <TrashIcon />, hint: "Del", action: () => setConfirmDel({ path, isDir: true }) },
+          { label: t("Files_Delete"), icon: <TrashIcon />, hint: "Del", action: () => setConfirmDel({ items: [{ path, isDir: true }] }) },
           { sep: true },
         ] : []),
         { label: t("Files_RevealInExplorer"), icon: <RevealIcon />, action: () => reveal(path) },
@@ -496,11 +594,11 @@ export function TreePane(props: {
       { sep: true },
       ...(mutators ? [
         { label: t("Files_Rename"), icon: <PencilIcon />, hint: "F2", action: () => startRename(path, false) },
-        { label: t("Files_Delete"), icon: <TrashIcon />, hint: "Del", action: () => setConfirmDel({ path, isDir: false }) },
+        { label: t("Files_Delete"), icon: <TrashIcon />, hint: "Del", action: () => setConfirmDel({ items: [{ path, isDir: false }] }) },
         { sep: true },
       ] : []),
-      { label: t("Files_Copy"), icon: <CopyIcon />, hint: "Ctrl+C", action: () => setClip({ path, isDir: false, cut: false }) },
-      { label: t("Files_Cut"), icon: <CutIcon />, hint: "Ctrl+X", action: () => setClip({ path, isDir: false, cut: true }) },
+      { label: t("Files_Copy"), icon: <CopyIcon />, hint: "Ctrl+C", action: () => setClip({ items: [{ path, isDir: false }], cut: false }) },
+      { label: t("Files_Cut"), icon: <CutIcon />, hint: "Ctrl+X", action: () => setClip({ items: [{ path, isDir: false }], cut: true }) },
       { label: t("Files_Paste"), icon: <PasteIcon />, hint: "Ctrl+V", disabled: !canPasteInto(clip, parent), action: () => { if (clip) doPaste(clip, parent); } },
       { sep: true },
       { label: t("Files_CopyName"), action: () => void copyText(path.split("/").pop() ?? path) },
@@ -510,7 +608,7 @@ export function TreePane(props: {
       { label: t("Files_OpenInEditor"), icon: <OpenExternalIcon />, action: () => openExternal(path) },
       { label: t("Files_RevealInExplorer"), icon: <RevealIcon />, action: () => reveal(path) },
     ];
-  }, [t, props.onOpenFile, props.onRename, props.onDelete, props.onPaste, copyPath, copyText, openExternal, reveal, startDraft, startRename, canPasteInto, clip, doPaste]);
+  }, [t, props.onOpenFile, props.onDelete, props.onRename, props.onPaste, copyPath, copyText, openExternal, reveal, startDraft, startRename, canPasteInto, clip, doPaste, selected, selectionEntries]);
 
   /** 树体空白处右键：根目录的新建 + 粘贴（行右键不冒泡到这里） */
   const bodyMenu = useCallback((): CtxMenuItem[] => [
@@ -523,8 +621,10 @@ export function TreePane(props: {
   const handleContext = useCallback((e: React.MouseEvent, node: VisibleNode) => {
     setKbKey(false);
     setKbFocus(node.entry.path);
+    // 右键未命中多选集 = 重置为该项单选（命中则保留整组，菜单按多选出）
+    if (!selected.has(node.entry.path)) selectSingle(node.entry.path);
     showMenu(e, menuFor(node));
-  }, [showMenu, menuFor]);
+  }, [showMenu, menuFor, selected, selectSingle]);
 
   // 树体空白处右键（命中行时交给行的 onContextMenu——行在树体内，事件会冒泡）
   const handleBodyContext = useCallback((e: React.MouseEvent) => {
@@ -543,7 +643,10 @@ export function TreePane(props: {
       setKbKey(true);
       const next = nodes[Math.max(0, Math.min(nodes.length - 1, idx < 0 ? 0 : idx + (e.key === "ArrowDown" ? 1 : -1)))];
       setKbFocus(next.entry.path);
-      setSelectedPath(next.entry.path);
+      // Shift+↑↓ 以锚点扩选；普通移动重置为单选（草稿输入行不进选中集）
+      if (next.draft) { setSelected(new Set()); setSelectedPath(null); }
+      else if (e.shiftKey) selectRangeTo(next.entry.path);
+      else selectSingle(next.entry.path);
       virtualizer.scrollToIndex(nodes.indexOf(next), { align: "auto" });
     } else if (e.key === "Enter" && idx >= 0) {
       e.preventDefault();
@@ -566,13 +669,13 @@ export function TreePane(props: {
       e.preventDefault();
       startRename(focused.entry.path, focused.entry.isDir);
     } else if (e.key === "Delete" && focused && !focused.draft) {
-      // Del 删除（焦点行；Modal 确认后才落盘，误触可取消）
+      // Del 删除（焦点行在多选内 = 整组；Modal 确认后才落盘，误触可取消）
       e.preventDefault();
-      setConfirmDel({ path: focused.entry.path, isDir: focused.entry.isDir });
+      setConfirmDel({ items: selectionEntries(focused) });
     } else if ((e.ctrlKey || e.metaKey) && focused && !focused.draft && (e.key === "c" || e.key === "C" || e.key === "x" || e.key === "X")) {
-      // Ctrl+C/X 复制/剪切焦点行（树容器聚焦时才收到，不影响编辑器全局快捷键）
+      // Ctrl+C/X 复制/剪切（焦点行在多选内 = 整组；树容器聚焦时才收到，不影响编辑器全局快捷键）
       e.preventDefault();
-      setClip({ path: focused.entry.path, isDir: focused.entry.isDir, cut: e.key.toLowerCase() === "x" });
+      setClip({ items: selectionEntries(focused), cut: e.key.toLowerCase() === "x" });
     } else if ((e.ctrlKey || e.metaKey) && (e.key === "v" || e.key === "V") && clip) {
       // Ctrl+V 粘贴：焦点为目录 → 粘到该目录；文件 → 粘到同级；无焦点 → 根
       e.preventDefault();
@@ -582,7 +685,7 @@ export function TreePane(props: {
         : "";
       if (canPasteInto(clip, toDir)) doPaste(clip, toDir);
     }
-  }, [kbFocus, virtualizer, toggleDir, expandHeavyRow, props.onOpenFile, forceOpen, collapsed, startRename, clip, canPasteInto, doPaste]);
+  }, [kbFocus, virtualizer, toggleDir, expandHeavyRow, props.onOpenFile, forceOpen, collapsed, startRename, clip, canPasteInto, doPaste, selectRangeTo, selectSingle, selectionEntries]);
 
   // 高亮命中的 basename 子串
   const highlight = useCallback((name: string) => {
@@ -643,6 +746,7 @@ export function TreePane(props: {
 
     // 文件行选中 = 激活标签；目录行选中 = 树内点击记忆（打开的是编辑器，文件夹需要自己的选中态）
     const isActive = entry.path === props.activePath || (entry.isDir && selectedPath === entry.path);
+    const isSelected = selected.has(entry.path);
     const statusCls = entry.status ? STATUS_CLS[entry.status] ?? "" : "";
     const isAgent = !entry.isDir && entry.touchedByAgent;
     const nameCls =
@@ -658,22 +762,28 @@ export function TreePane(props: {
           (entry.isDir && node.open ? " open" : "") +
           (entry.heavy ? " heavy" : "") +
           (isActive ? " active" : "") +
+          (isSelected ? " selected" : "") +
           (isAgent ? " agent" : "") +
           (kbKey && entry.path === kbFocus ? " kb-focus" : "") +
           (isDropDir ? " drop-target" : "") +
-          (dragItem?.path === entry.path ? " dragging" : "")
+          (dragItems?.some((i) => i.path === entry.path) ? " dragging" : "")
         }
         style={rowStyle}
         title={entry.heavy ? t("Files_HeavyDir") : entry.path}
         draggable
         onDragStart={(e) => {
-          e.dataTransfer.setData("text/gitter-tree", entry.path);
+          // 拖起项：行在多选内 = 整组随拖；否则重置为该行单选
+          const items = selected.has(entry.path) && selected.size > 1
+            ? selectionEntries()
+            : [{ path: entry.path, isDir: entry.isDir }];
+          if (!selected.has(entry.path)) selectSingle(entry.path);
+          e.dataTransfer.setData("text/gitter-tree", items.map((i) => i.path).join("\n"));
           e.dataTransfer.effectAllowed = "move";
-          setDragItem({ path: entry.path, isDir: entry.isDir });
+          setDragItems(items);
         }}
-        onDragEnd={() => { setDragItem(null); setDropTarget(null); }}
+        onDragEnd={() => { setDragItems(null); setDropTarget(null); }}
         onDragOver={(e) => {
-          if (!entry.isDir || !dragItem) return;
+          if (!entry.isDir || !dragItems) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
           if (dropTarget !== entry.path) setDropTarget(entry.path);
@@ -688,10 +798,13 @@ export function TreePane(props: {
           e.stopPropagation();
           dropMove(entry.path);
         }}
-        onClick={() => {
+        onClick={(e) => {
           setKbKey(false);
           setKbFocus(entry.path);
-          setSelectedPath(entry.path);
+          // Ctrl/Cmd 切换选中、Shift 以锚点连选——均不切换目录、不打开文件
+          if (e.shiftKey) { selectRangeTo(entry.path); return; }
+          if (e.ctrlKey || e.metaKey) { selectToggle(entry.path); return; }
+          selectSingle(entry.path);
           if (entry.isDir) {
             // heavy 目录点击 = 懒加载子树（加载完自动展开）
             if (entry.heavy) void expandHeavyRow(entry.path);
@@ -816,17 +929,17 @@ export function TreePane(props: {
         onKeyDown={handleKey}
         onContextMenu={handleBodyContext}
         onDragOver={(e) => {
-          if (!dragItem) return;
+          if (!dragItems) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
         }}
         onDrop={(e) => {
           // 命中行时行的 onDrop 已处理（行会 stopPropagation）；到这里 = 空白区 → 根
-          if (!dragItem) return;
+          if (!dragItems) return;
           e.preventDefault();
           dropMove("");
         }}
-        onDragEnd={() => { setDragItem(null); setDropTarget(null); }}
+        onDragEnd={() => { setDragItems(null); setDropTarget(null); }}
       >
         {props.loading && visibleNodes.length === 0 ? (
           <div className="files-empty">Loading…</div>
@@ -838,21 +951,38 @@ export function TreePane(props: {
       </div>
       {menuElement}
 
-      {/* 删除确认：目录递归删除不入回收站，二次确认防误触 */}
+      {/* 删除确认：目录递归删除不入回收站，二次确认防误触；多选列出明细 */}
       {confirmDel && (
         <Modal
-          title={t("Files_DeleteConfirmTitle")}
+          title={confirmDel.items.length > 1 ? t("Files_DeleteManyConfirmTitle") : t("Files_DeleteConfirmTitle")}
           danger
           confirmText={t("Files_Delete")}
           onClose={() => setConfirmDel(null)}
           onConfirm={() => {
             const d = confirmDel;
             setConfirmDel(null);
-            void props.onDelete?.(d.path, d.isDir);
+            void props.onDelete?.(d.items);
           }}
         >
-          <div>{t("Files_DeleteConfirmBody", confirmDel.path)}</div>
-          {confirmDel.isDir && <div style={{ marginTop: 6, opacity: 0.72 }}>{t("Files_DeleteConfirmDir")}</div>}
+          {confirmDel.items.length > 1 ? (
+            <>
+              <div>{t("Files_DeleteManyConfirmBody", confirmDel.items.length)}</div>
+              <div style={{ marginTop: 6, opacity: 0.72, maxHeight: 132, overflow: "auto" }}>
+                {confirmDel.items.slice(0, 8).map((it) => (
+                  <div key={it.path}>{it.path}</div>
+                ))}
+                {confirmDel.items.length > 8 && <div>…</div>}
+              </div>
+              {confirmDel.items.some((it) => it.isDir) && (
+                <div style={{ marginTop: 6, opacity: 0.72 }}>{t("Files_DeleteConfirmDir")}</div>
+              )}
+            </>
+          ) : (
+            <>
+              <div>{t("Files_DeleteConfirmBody", confirmDel.items[0].path)}</div>
+              {confirmDel.items[0].isDir && <div style={{ marginTop: 6, opacity: 0.72 }}>{t("Files_DeleteConfirmDir")}</div>}
+            </>
+          )}
         </Modal>
       )}
     </div>

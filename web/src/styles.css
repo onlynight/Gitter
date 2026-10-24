@@ -2152,6 +2152,8 @@ html[data-base="light"] .git-doc-scrim { background: color-mix(in srgb, #000 15%
   cursor: pointer; font-size: 13px; white-space: nowrap; user-select: none;
 }
 .files-row:hover { background: var(--c-hover); }
+/* 多选行（Ctrl/Shift 连选）：弱于激活行；与 active 同现时 active 优先（定义序在后） */
+.files-row.selected { background: color-mix(in srgb, var(--c-selected) 45%, transparent); }
 .files-row.active { background: var(--c-selected); }
 .files-row.kb-focus { outline: 1px solid color-mix(in srgb, var(--c-link) 70%, transparent); outline-offset: -1px; }
 /* 树内拖拽移动：可放置目录高亮（虚线内框），拖动行降透明度 */

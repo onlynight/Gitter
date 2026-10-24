@@ -9,7 +9,7 @@ import { loadSession, saveSession, type EditorSession, type EditorSessionTab } f
 
 /**
  * 项目文件树页面（files-editor-redesign-mockup.html）：
- * 左侧资源管理器树（git 状态/agent 回合高亮 + 模式 tabs + 筛选 + 拖拽移动）+ 右侧编辑器
+ * 左侧资源管理器树（git 状态/agent 回合高亮 + 模式 tabs + 筛选 + 多选（Ctrl/Shift）+ 拖拽移动）+ 右侧编辑器
  * （chip 标签（拖拽排序/固定/分屏）+ 面包屑 + Monaco + 问题面板 + 页脚状态条）。
  * 全局搜索 Ctrl+Shift+F；外部文件变更经 fs.changed 事件刷树并校验打开标签。
  * 分栏为定宽 px（170–520，localStorage 持久化，双击复位，Ctrl+B 整体收起）。
@@ -400,17 +400,36 @@ export function FilesPage() {
     }
   }, [loadTree, remapTabs]);
 
-  // 右键/键盘删除（目录递归、不可恢复，树内已 Modal 确认）：关闭受影响标签 → 刷树
-  const deleteEntry = useCallback(async (path: string, isDir: boolean): Promise<boolean> => {
-    const affected = (p: string) => p === path || (isDir && p.startsWith(path + "/"));
-    try {
-      const r = await pageSdk.call<{ ok: boolean; error?: string }>("file.delete", { path });
-      if (!r.ok) {
-        const key = r.error === "not_found" ? "Files_Missing" : "Files_DeleteFailed";
-        pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t(key));
-        return false;
+  // 右键/键盘删除（目录递归、不可恢复，树内已 Modal 确认；多选批量）：
+  // 父目录覆盖子孙去重 → 逐项删除 → 关闭受影响标签 → 一次刷树
+  const deleteEntries = useCallback(async (items: Array<{ path: string; isDir: boolean }>): Promise<boolean> => {
+    const sorted = [...items].sort((a, b) => a.path.length - b.path.length);
+    const dedup: Array<{ path: string; isDir: boolean }> = [];
+    for (const it of sorted) {
+      if (!dedup.some((o) => it.path === o.path || it.path.startsWith(o.path + "/"))) dedup.push(it);
+    }
+    const failures: Array<{ path: string; error?: string }> = [];
+    const okItems: Array<{ path: string; isDir: boolean }> = [];
+    for (const it of dedup) {
+      try {
+        const r = await pageSdk.call<{ ok: boolean; error?: string }>("file.delete", { path: it.path });
+        if (r.ok) okItems.push(it);
+        else failures.push({ path: it.path, error: r.error });
+      } catch (e) {
+        failures.push({ path: it.path, error: (e as Error).message });
       }
+    }
+    if (failures.length > 0) {
+      pageSdk.toast(
+        pageSdk.t("Files_Title"),
+        failures.length === 1 && dedup.length === 1
+          ? pageSdk.t(failures[0].error === "not_found" ? "Files_Missing" : "Files_DeleteFailed")
+          : pageSdk.t("Files_BatchFailed", failures.length),
+      );
+    }
+    if (okItems.length > 0) {
       // 激活位顺移邻位（与 closeTab 同语义）；被删文件的脏标签直接丢弃——文件已不存在
+      const affected = (p: string) => okItems.some((it) => p === it.path || (it.isDir && p.startsWith(it.path + "/")));
       const old = tabsRef.current;
       setTabs((prev) => prev.filter((tb) => !affected(tb.path)));
       setActiveTab((a) => {
@@ -419,34 +438,48 @@ export function FilesPage() {
         const i = old.findIndex((tb) => tb.path === a);
         return rest[Math.min(i, rest.length - 1)]?.path ?? null;
       });
-      editorRef.current?.handleFsDeleted(path, isDir);
-      await loadTree();
-      return true;
-    } catch (e) {
-      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
-      return false;
+      for (const it of okItems) editorRef.current?.handleFsDeleted(it.path, it.isDir);
     }
+    await loadTree();
+    return failures.length === 0;
   }, [loadTree]);
 
-  // 右键粘贴（复制/剪切）：剪切 = 移动，打开的标签随路径迁移；复制重名由主进程自动「copy」序号
-  const pasteEntry = useCallback(async (from: string, toDir: string, cut: boolean, fromIsDir: boolean): Promise<string | boolean> => {
-    try {
-      const r = await pageSdk.call<{ ok: boolean; path: string; error?: string }>("file.paste", { from, toDir, cut });
-      if (!r.ok) {
-        const key = r.error === "exists" ? "Files_CreateExists"
-          : r.error === "not_found" ? "Files_Missing"
-          : r.error === "invalid_name" ? "Files_InvalidName"
-          : cut ? "Files_MoveFailed" : "Files_PasteFailed";
-        pageSdk.toast(pageSdk.t("Files_Title"), pageSdk.t(key));
-        return false;
+  // 右键粘贴/拖拽移动（复制/剪切；多选批量）：逐项粘贴 → 剪切迁移标签 → 一次刷树。
+  // 顺串执行 + 全部完成后统一迁移，避免中间态刷新造成路径映射错位
+  const pasteEntries = useCallback(async (items: Array<{ path: string; isDir: boolean }>, toDir: string, cut: boolean): Promise<boolean> => {
+    const plan = items.filter((it) => {
+      if (it.path === toDir || toDir.startsWith(it.path + "/")) return false;
+      const parent = it.path.includes("/") ? it.path.slice(0, it.path.lastIndexOf("/")) : "";
+      return !(cut && parent === toDir);
+    });
+    if (plan.length === 0) return true;
+    const failures: Array<{ error?: string }> = [];
+    const remaps: Array<{ from: string; to: string; isDir: boolean }> = [];
+    for (const it of plan) {
+      try {
+        const r = await pageSdk.call<{ ok: boolean; path: string; error?: string }>("file.paste", { from: it.path, toDir, cut });
+        if (!r.ok) failures.push({ error: r.error });
+        else if (cut) remaps.push({ from: it.path, to: r.path, isDir: it.isDir });
+      } catch (e) {
+        failures.push({ error: (e as Error).message });
       }
-      await loadTree();
-      if (cut) remapTabs(from, r.path, fromIsDir);
-      return r.path;
-    } catch (e) {
-      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
-      return false;
     }
+    if (failures.length > 0) {
+      pageSdk.toast(
+        pageSdk.t("Files_Title"),
+        failures.length === 1 && plan.length === 1
+          ? pageSdk.t(
+            failures[0].error === "exists" ? "Files_CreateExists"
+              : failures[0].error === "not_found" ? "Files_Missing"
+              : failures[0].error === "invalid_name" ? "Files_InvalidName"
+              : cut ? "Files_MoveFailed" : "Files_PasteFailed",
+          )
+          : pageSdk.t("Files_BatchFailed", failures.length),
+      );
+    }
+    for (const r of remaps) remapTabs(r.from, r.to, r.isDir);
+    await loadTree();
+    return failures.length === 0;
   }, [loadTree, remapTabs]);
 
   // 关闭标签（EditorPane 确认无未保存更改后回调）：激活位顺移邻位
@@ -600,8 +633,8 @@ export function FilesPage() {
             onOpenFile={openFile}
             onCreate={createEntry}
             onRename={renameEntry}
-            onDelete={deleteEntry}
-            onPaste={pasteEntry}
+            onDelete={deleteEntries}
+            onPaste={pasteEntries}
             onExpandHeavy={expandHeavy}
             loading={loading}
             onRefresh={() => void loadTree()}
