@@ -114,7 +114,7 @@ export class McpPipeHost {
         return jsonRpcResult(msg.id, {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "gitter", version: "0.1.0" },
+          serverInfo: { name: "gitter", version: "1.0.0-alpha01" },
         });
       case "tools/list":
         return jsonRpcResult(msg.id, {

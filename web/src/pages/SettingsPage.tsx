@@ -1265,7 +1265,7 @@ export function SettingsPage() {
             <h4>{t("Settings_AboutSection")}</h4>
             <div className="settings-row">
               <label>Gitter</label>
-              <span className="hint">v0.1.0 · Electron 全栈（winui3-to-web-migration.md）</span>
+              <span className="hint">v1.0.0-alpha01 · Electron 全栈（winui3-to-web-migration.md）</span>
             </div>
             <div className="settings-row">
               <label>git</label>

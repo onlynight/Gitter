@@ -1,7 +1,7 @@
 {
   "name": "gitter-app",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0-alpha01",
   "description": "Gitter — AI 编程时代的 Git 验收台（Electron 主进程：git 服务层 / 终端 / 设置）",
   "main": "dist/main.js",
   "scripts": {
@@ -41,8 +41,8 @@
     "appId": "com.gitter.app",
     "publish": { "provider": "generic", "url": "https://example.invalid/gitter-updates" },
     "productName": "Gitter",
-    "buildVersion": "0.1.0.0",
-    "artifactName": "Gitter-0.1.0.0-${arch}.${ext}",
+    "buildVersion": "1.0.0-alpha01",
+    "artifactName": "Gitter-1.0.0-alpha01-${arch}.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"

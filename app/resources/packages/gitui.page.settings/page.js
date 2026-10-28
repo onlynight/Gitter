@@ -1785,7 +1785,7 @@
             /* @__PURE__ */ jsxRuntime.jsx("h4", { children: t("Settings_AboutSection") }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: "Gitter" }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "v0.1.0 · Electron 全栈（winui3-to-web-migration.md）" })
+              /* @__PURE__ */ jsxRuntime.jsx("span", { className: "hint", children: "v1.0.0-alpha01 · Electron 全栈（winui3-to-web-migration.md）" })
             ] }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "settings-row", children: [
               /* @__PURE__ */ jsxRuntime.jsx("label", { children: "git" }),

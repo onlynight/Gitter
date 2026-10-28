@@ -76,7 +76,7 @@ export class McpClientManager {
       await this.request(conn, cfg, "initialize", {
         protocolVersion: "2024-11-05",
         capabilities: {},
-        clientInfo: { name: "gitter", version: "0.1.0" },
+        clientInfo: { name: "gitter", version: "1.0.0-alpha01" },
       }, 10_000);
       this.notify(conn, "notifications/initialized", {});
       const listed = (await this.request(conn, cfg, "tools/list", {}, 10_000)) as { tools?: { name: string; description?: string }[] };
