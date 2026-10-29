@@ -34,6 +34,7 @@ export function importGpkFile(gpkPath: string, userRoot: string): { id: string; 
   if (!norm.ok) fail(norm.reason);
   const { manifest } = norm;
   const kinds = [
+    manifest.entry && "entry",
     manifest.contributes.themes.length && "theme",
     manifest.contributes.grammars.length && "grammar",
     manifest.contributes.monarchLanguages.length && "grammar",
@@ -46,7 +47,7 @@ export function importGpkFile(gpkPath: string, userRoot: string): { id: string; 
     manifest.contributes.models.length && "models",
     manifest.contributes.taskTypes.length && "taskTypes",
   ].filter(Boolean);
-  if (kinds.length === 0) fail("包不含任何可安装内容（contributes 为空）");
+  if (kinds.length === 0) fail("包不含任何可安装内容（contributes 为空、无 entry）");
 
   const target = path.join(userRoot, manifest.id);
   // zip-slip 防护：相对路径且不得越出包根

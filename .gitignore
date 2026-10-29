@@ -29,3 +29,6 @@ app/build/
 web/harness-dist/
 web/.vite/
 web/scripts/monaco-nls/_vscode-zh-main.i18n.json
+
+# 插件分发包（.gpk 发布产物，用户手动分发安装，不入库）
+plugins/*/dist/*.gpk
