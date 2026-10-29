@@ -27,7 +27,7 @@ if (!process.argv.includes("--no-build")) {
 const manifest = JSON.parse(fs.readFileSync(path.join(here, "manifest.json"), "utf8"));
 const outDir = path.join(here, "dist");
 fs.mkdirSync(outDir, { recursive: true });
-const outfile = path.join(outDir, `com.gitter.markdown-preview-${manifest.version}.gpk`);
+const outfile = path.join(outDir, `${manifest.id}-${manifest.version}.gpk`);
 
 // 只收入 Gitter 装载需要的最小集合：manifest + entry（main.js）。源码/打包脚本/README 不打进
 // .gpk——避免包体虚胖且语义上给作者造成"已生效"误解（同 tools/ide-extension 打包约定）。
