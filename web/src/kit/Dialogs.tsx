@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../state/store";
 
 /** 自绘模态对话框（替代 ContentDialog）。Escape 关闭，Enter 确认（单输入场景）。 */
@@ -72,7 +72,7 @@ export interface CtxMenuItem {
 
 /** 轻量右键菜单：showMenu(e, items)。点击外部/Esc 关闭。 */
 export function useContextMenu() {
-  const [menu, setMenu] = useState<{ x: number; y: number; items: CtxMenuItem[] } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: CtxMenuItem[]; adjusted?: boolean } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -85,6 +85,24 @@ export function useContextMenu() {
       window.removeEventListener("mousedown", close);
       window.removeEventListener("keydown", onKey);
     };
+  }, [menu]);
+
+  // 菜单挂载后测量实际尺寸，超出视口则向上/向左避让（右键在屏幕底部/右侧时
+  // 菜单不溢出窗口）。adjusted 防死循环：调整后不再重复测量。
+  useLayoutEffect(() => {
+    if (!menu || menu.adjusted) return;
+    const el = ref.current;
+    if (!el) return;
+    const mw = el.offsetWidth;
+    const mh = el.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const GAP = 4;
+    let x = menu.x;
+    let y = menu.y;
+    if (x + mw > vw - GAP) x = Math.max(GAP, vw - mw - GAP);
+    if (y + mh > vh - GAP) y = Math.max(GAP, vh - mh - GAP);
+    if (x !== menu.x || y !== menu.y) setMenu({ ...menu, x, y, adjusted: true });
   }, [menu]);
 
   const showMenu = (e: React.MouseEvent, items: CtxMenuItem[]) => {
