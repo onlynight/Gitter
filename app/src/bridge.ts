@@ -36,6 +36,7 @@ import * as gitconfig from "./services/gitconfig";
 import * as gitstash from "./services/gitstash";
 import * as preview from "./services/preview";
 import * as treex from "./services/treex";
+import { GitStatusService } from "./services/gitstatusService";
 import { FsWatchService } from "./services/fsWatch";
 import * as aiSvc from "./services/ai";
 import * as safety from "./services/safety";
@@ -109,16 +110,22 @@ export class Bridge {
 
   /** 仓库工作区监听（外部变更 → fs.changed 事件 → files 页刷树 + 打开标签 mtime 校验） */
   private readonly fsWatch = new FsWatchService();
+  /** Git 状态后台调度器（单线程串行 + 节流合并；files 页订阅 git.status.changed） */
+  private readonly gitStatus: GitStatusService;
 
   /** repo 赋值唯一入口：挂/停工作区监听（监听不可用静默降级为手动刷新）。 */
   private setRepo(full: string | null): void {
+    const prev = this.repo;
     this.repo = full;
     if (full) {
       this.fsWatch.start(full, () => {
         if (!this.win.isDestroyed()) this.win.webContents.send("evt", { method: "fs.changed", params: {} });
+        // 外部变更 → git 状态标脏，后台单线程节流重算（不再阻塞 repo.tree）
+        this.gitStatus.markDirty(full);
       });
     } else {
       this.fsWatch.stop();
+      if (prev) this.gitStatus.close(prev);
     }
   }
 
@@ -126,6 +133,10 @@ export class Bridge {
     private readonly win: BrowserWindow,
     private readonly shared: SharedServices,
   ) {
+    // Git 状态后台调度器：单线程串行 + 节流合并；事件经 evt 通道推给渲染层
+    this.gitStatus = new GitStatusService((method, params) => {
+      if (!win.isDestroyed()) win.webContents.send("evt", { method, params });
+    });
     this.terminals = new TerminalManager({
       send: (channel: string, payload: unknown) => {
         if (!win.isDestroyed()) win.webContents.send(channel, payload);
@@ -570,10 +581,25 @@ export class Bridge {
       return lines.slice(0, 50);
     });
 
+    // ---- Git 状态后台订阅（files 页性能优化）----
+    // 文件树（repo.tree）只做磁盘扫描，git 状态由 gitstatusService 后台单线程
+    // 节流计算并通过 git.status.changed 事件推送。前端订阅后树先渲染、状态后到。
+    // RPC 返回初始快照（可能 null = 尚无缓存，等首次推送）；推送走 evt 通道
+    // （构造注入的 onEvent 已负责发送，订阅回调仅占位）。
+    R("git.status.subscribe", (args: { workDir?: string }) => {
+      const wd = args?.workDir ?? this.needRepo();
+      return this.gitStatus.subscribe(wd, () => {});
+    });
+    R("git.status.unsubscribe", (args: { workDir?: string }) => {
+      const wd = args?.workDir ?? this.repo;
+      if (wd) this.gitStatus.close(wd);
+    });
+
     // ---- 项目文件树 + 编辑器读写面 ----
     // 文件树骨架：工作区磁盘扫描（.git 除外，gitignored 文件与空目录可见）
-    // + git 状态/ignored(!) 叠加 + agent 回合改动索引
-    R("repo.tree", async (args: { prefix?: string; taskId?: string; rememberExpanded?: boolean }) => {
+    // + agent 回合改动索引。git 状态不在此计算——由 git.status.subscribe 订阅
+    // 后台推送（gitstatusService），前端订阅后原地写入 entries[].status。
+    R("repo.tree", async (args: { prefix?: string; taskId?: string; rememberExpanded?: boolean; shallow?: boolean }) => {
       const wd = this.needRepo();
       // agent 回合改动集合（若指定 taskId）
       const touched = new Set<string>();
@@ -585,7 +611,10 @@ export class Bridge {
           // 任务不存在或已清理：忽略，树仍可用
         }
       }
-      return treex.listTree(wd, args?.prefix ?? "", touched, { rememberExpanded: !!args?.rememberExpanded });
+      return treex.listTree(wd, args?.prefix ?? "", touched, {
+        rememberExpanded: !!args?.rememberExpanded,
+        shallow: !!args?.shallow,
+      });
     });
     // 文件内容读取（编辑器打开）：8MB 上限，返回 mtime/eol/encoding 供冲突检测、行尾保留与编码切换
     R("file.content", async (args: { path: string; revision?: "worktree" | "index" | string; maxBytes?: number; encoding?: "utf8" | "gbk" }) =>

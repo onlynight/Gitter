@@ -6,6 +6,7 @@ import { QuickOpen } from "./FilesQuickOpen";
 import { GlobalSearch } from "./FilesGlobalSearch";
 import { relOfWork } from "./filesPaths";
 import { loadSession, saveSession, type EditorSession, type EditorSessionTab } from "./filesEditorSession";
+import type { GitStatusSnapshotDTO } from "../bridge/types";
 
 /**
  * 项目文件树页面（files-editor-redesign-mockup.html）：
@@ -36,6 +37,43 @@ function loadRepoSession(repo: { workDir: string; name: string } | null): Editor
  *  不用 monaco.Uri——FilesPage 不依赖 Monaco 本体，避免页面间循环依赖）。 */
 function monacoUriFor(path: string): string {
   return "file://" + path.replace(/\\/g, "/");
+}
+
+/**
+ * 把后台推送的合并状态 Map 写进树 entries。
+ * map：路径 → 状态码（M/A/D/R/U/?/!，含 ignored→!），在 applyGitSnapshot 预构建。
+ * 注意：service 每次推送的是**全量快照**（git status 现算），不在 map 里的路径
+ * 表示当前无 git 状态——必须清为 null（否则文件保存后旧状态残留）。
+ * untracked 目录在 porcelain --untracked-files=normal 里是折叠形式 `dir/`，
+ * service 剥尾斜杠后只标目录 `?`，不展开内部文件——此处把 `?` 目录的子孙
+ * 文件也补 `?`（对齐原 treex.collapsedDirs 语义），保证展开 untracked 目录后
+ * 内部文件同样有未跟踪标记。
+ */
+function mergeGitStatus(
+  prev: { entries: TreeEntry[]; hasMore: boolean },
+  map: Map<string, string>,
+): { entries: TreeEntry[]; hasMore: boolean } {
+  // 值为 ? 的键若在树里是目录（存在以 path/ 为前缀的文件后代），视为折叠
+  // untracked 目录；porcelain normal 只列折叠形式不展开内部文件
+  const qDirs: string[] = [];
+  for (const [p, s] of map) {
+    if (s === "?" && prev.entries.some((e) => !e.isDir && e.path.startsWith(p + "/"))) {
+      qDirs.push(p);
+    }
+  }
+  let changed = false;
+  const entries = prev.entries.map((e) => {
+    let s = map.get(e.path) ?? null;
+    if (s === null && !e.isDir && qDirs.length > 0) {
+      for (const d of qDirs) {
+        if (e.path.startsWith(d + "/")) { s = "?"; break; }
+      }
+    }
+    if (s === e.status) return e;
+    changed = true;
+    return { ...e, status: s };
+  });
+  return changed ? { ...prev, entries } : prev;
 }
 
 /** 会话锚点 → 当前内容中的实际行（抗文件改动错位）。
@@ -109,6 +147,11 @@ export function FilesPage() {
 
   const repo = pageSdk.repo();
   const repoKey = repo?.workDir ?? "";
+  // 最近一次 git 状态快照（版本号单调递增 + 合并后的路径→状态码 Map）：
+  // heavy 懒加载并入的条目 status 为 null（repo.tree 纯磁盘），用此快照补齐；
+  // 订阅推送也以此去重（version < last 的过期推送丢弃）。
+  // map 在 applyGitSnapshot 时预构建（statusMap + ignored→!），查询 O(1)。
+  const lastGitSnapRef = useRef<{ version: number; map: Map<string, string> } | null>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeTabRef = useRef(activeTab);
@@ -252,20 +295,60 @@ export function FilesPage() {
     return m.size > 0 ? m : null;
   }, [session.views, tabs.map((t) => t.path).join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 加载文件树
+  // 加载文件树：首屏浅层（只扫根一层，目录立即显示）+ 后台全量补全（树渐次变全）。
+  // 超大项目进入页面不再等全量递归扫描——目录节点马上显示，文件/状态晚点同步。
+  // 补全序号防竞态：旧补全结果不覆盖新树（fs.changed 重跑 loadTree 时递增）。
+  const fullScanSeqRef = useRef(0);
   const loadTree = useCallback(async () => {
     if (!repo) return;
     setLoading(true);
+    const seq = ++fullScanSeqRef.current;
     try {
+      // 1) 首屏浅层：只扫根目录一层，顶层目录折叠为 heavy，立即返回
       const r = await pageSdk.call<{ entries: TreeEntry[]; hasMore: boolean }>("repo.tree", {
         prefix: "",
         taskId: null,
+        shallow: true,
       });
-      setTreeData({ entries: r.entries ?? [], hasMore: r.hasMore ?? false });
-    } catch (e) {
-      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
-    } finally {
+      // repo.tree 是纯磁盘骨架（status=null）；用最近一次 git 快照补齐状态色，
+      // 避免全量刷新把已合并的 git 状态覆盖回 null（git 推送是后台增量）
+      const snap = lastGitSnapRef.current;
+      const entries = (r.entries ?? []).map((e) => {
+        if (snap) {
+          const s = snap.map.get(e.path) ?? null;
+          return s === null ? e : { ...e, status: s };
+        }
+        return e;
+      });
+      setTreeData({ entries, hasMore: r.hasMore ?? false });
       setLoading(false);
+      // 2) 后台全量补全：延迟 2s（首屏稳定、用户可交互后再跑），不阻塞渲染。
+      //    补全经主进程 ioQueue 与 git 计算串行（不并发抢磁盘），完成后 treeData
+      //    变全（QuickOpen/Office 随之全）。seq 检查：期间 loadTree 重跑则丢弃旧补全。
+      const fullTimer = window.setTimeout(() => {
+        void pageSdk
+          .call<{ entries: TreeEntry[]; hasMore: boolean }>("repo.tree", {
+            prefix: "",
+            taskId: null,
+            shallow: false,
+          })
+          .then((full) => {
+            if (fullScanSeqRef.current !== seq) return; // 已有更新的 loadTree，丢弃
+            const fsnap = lastGitSnapRef.current;
+            const fullEntries = (full.entries ?? []).map((e) => {
+              if (fsnap) {
+                const s = fsnap.map.get(e.path) ?? null;
+                return s === null ? e : { ...e, status: s };
+              }
+              return e;
+            });
+            setTreeData({ entries: fullEntries, hasMore: full.hasMore ?? false });
+          })
+          .catch(() => {});
+      }, 2000);
+    } catch (e) {
+      setLoading(false);
+      pageSdk.toast(pageSdk.t("Files_Title"), (e as Error).message);
     }
   }, [repo]);
 
@@ -282,10 +365,19 @@ export function FilesPage() {
         rememberExpanded: true,
       });
       const loaded = r.entries ?? [];
+      const snap = lastGitSnapRef.current;
       setTreeData((prev) => {
         const map = new Map<string, TreeEntry>();
         for (const e of prev.entries) map.set(e.path, e);
-        for (const e of loaded) map.set(e.path, e);
+        for (const e of loaded) {
+          // heavy 子树条目同样来自纯磁盘扫描：用最近 git 快照补齐状态
+          let ne = e;
+          if (snap) {
+            const s = snap.map.get(e.path);
+            if (s !== undefined && s !== null) ne = { ...e, status: s };
+          }
+          map.set(ne.path, ne);
+        }
         const d = map.get(dir);
         if (d) map.set(dir, { ...d, heavy: false });
         return { entries: [...map.values()], hasMore: prev.hasMore };
@@ -300,6 +392,43 @@ export function FilesPage() {
   useEffect(() => {
     void loadTree();
   }, [loadTree]);
+
+  // Git 状态后台订阅：repo.tree 纯磁盘扫描（status=null 先渲染），git 状态由
+  // gitstatusService 后台单线程节流计算并通过 git.status.changed 推送，此处
+  // 按版本号单调递增合并进树（树先渲染、状态后到，超大项目不再等 git）。
+  useEffect(() => {
+    if (!repo) return;
+    let disposed = false;
+    // 初始快照：subscribe 返回当前缓存（可能 null = 尚无缓存，等首次推送）
+    void pageSdk
+      .call<GitStatusSnapshotDTO | null>("git.status.subscribe", { workDir: repo.workDir })
+      .then((snap) => {
+        if (!disposed && snap) applyGitSnapshot(snap);
+      })
+      .catch(() => {});
+    const off = pageSdk.on("git.status.changed" as never, (snap: GitStatusSnapshotDTO) => {
+      if (disposed || !snap || snap.workDir !== repo.workDir) return;
+      applyGitSnapshot(snap);
+    });
+    return () => {
+      disposed = true;
+      off();
+      void pageSdk.call("git.status.unsubscribe", { workDir: repo.workDir }).catch(() => {});
+      // 重置版本基线：service close 后版本号从 1 重新计数，防旧大版本号
+      // 误判新快照为「过期」而丢弃（切仓库再切回场景）
+      lastGitSnapRef.current = null;
+    };
+  }, [repo]);
+
+  function applyGitSnapshot(snap: GitStatusSnapshotDTO): void {
+    const last = lastGitSnapRef.current;
+    if (last && snap.version < last.version) return; // 乱序/过期推送丢弃
+    // 预构建合并 Map：statusMap（M/A/D/R/U/?）+ ignored（→ !），后续查询 O(1)
+    const map = new Map<string, string>(Object.entries(snap.statusMap));
+    for (const p of snap.ignored) if (!map.has(p)) map.set(p, "!");
+    lastGitSnapRef.current = { version: snap.version, map };
+    setTreeData((prev) => mergeGitStatus(prev, map));
+  }
 
   // 外部文件变更（主进程 fs.watch → fs.changed，事件已防抖）：刷树 + 通知编辑器校验打开标签
   const fsTimer = useRef<number | null>(null);

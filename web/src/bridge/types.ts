@@ -97,6 +97,22 @@ export interface ChangesStateDTO {
   behind: number | null;
 }
 
+/** 文件树用扁平 git 状态快照（gitstatusService 后台推送，git.status.changed 事件）。 */
+export interface GitStatusSnapshotDTO {
+  workDir: string;
+  /** 单调递增版本号：前端据此丢弃乱序/过期推送 */
+  version: number;
+  /** 路径 → 状态码（M/A/D/R/U/?），扁平；! 在 ignored 里单独列 */
+  statusMap: Record<string, string>;
+  /** 被 .gitignore 忽略的路径（前端置灰标注 !） */
+  ignored: string[];
+  /** 当前分支名；detached HEAD 时为 "HEAD" */
+  branch: string | null;
+  /** 领先/落后 upstream 的提交数；无 upstream 为 null */
+  ahead: number | null;
+  behind: number | null;
+}
+
 // ---- stash / amend / 强推 / revert（DATA_API_VERSION v4）----
 
 export interface StashEntryDTO {
